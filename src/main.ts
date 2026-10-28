@@ -145,6 +145,7 @@ async function play(files: GameFiles, params = new URLSearchParams(location.sear
     start: params.get('start') ?? undefined,
   }, (m) => { document.title = m; });
   (window as unknown as { __shell?: unknown }).__shell = sh;
+  document.title = GAME_TITLE; // the loading status lines went to the tab title
   if (sh.params.intro) await sh.runIntro();
   await sh.run();
   // "Stoppen": back to the start screen

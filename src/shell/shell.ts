@@ -141,13 +141,16 @@ export class Shell {
     sh.menuSet = ui.loadSet(menu, 'mOverlays');
     sh.msgs = loadMenuStrings(messages);
     sh.std = loadMessages(messages, STD_FILES);
+    status?.('Geluid laden…');
     sh.audio = await AudioHost.create(files, params.mute);
     // options and saves
+    status?.('Opties en opgeslagen spellen laden…');
     await sh.saves.loadOptions(sh.options).catch(() => false);
     sh.saves.autosaveOptions(sh.options);
     sh.applyOptions();
     sh.options.onChange((i) => sh.optionChanged(i));
     await sh.refreshSlots();
+    status?.('Start…');
     sh.input.attach(window);
     sh.attachPointer();
     sh.menu = new MenuUi(sh.menuContext(), sh.rawPages);
