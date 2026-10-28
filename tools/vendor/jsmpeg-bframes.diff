@@ -1,0 +1,618 @@
+--- /tmp/le2-work/patch/jsmpeg.orig.js	2026-10-28 11:07:43
++++ src/vendor/jsmpeg/jsmpeg.js	2026-10-28 11:30:01
+@@ -2,11 +2,22 @@
+  * JSMpeg decoders (MPEG-1 video + MPEG-1 Audio Layer II), vendored from https://github.com/phoboslab/jsmpeg
+  * commit 924acfbd96fdf15e6748d1368a36d79d8f4cecf6 (v1.0), MIT license, (c) 2017 Dominic Szablewski - see LICENSE.
+  *
+- * What is included, unmodified, in this order: src/decoder.js, src/buffer.js, src/mpeg1.js, src/mp2.js.
++ * Included from upstream: src/decoder.js, src/buffer.js, src/mpeg1.js, src/mp2.js.
+  * Only the namespace stub below was written for this project (the original src/jsmpeg.js also sets up the player,
+  * AJAX sources, a TS demuxer and DOM auto-initialisation, none of which are used here). The MPEG program-stream
+  * demuxer, the renderer and the player are our own (src/engine/mpeg.ts).
+  * mpeg1.js is based on Java MPEG-1 Video Decoder and Player by Zoltan Korandi; mp2.js on kjmp2 by Martin J. Fiedler.
++ *
++ * MODIFIED (marked "[LE2]" in mpeg1.js): the game's movies use B-pictures (I B B B P ...), which upstream JSMpeg
++ * skips (it only plays I/P streams), so only every 4th frame came out. Added, following the same author's
++ * pl_mpeg (https://github.com/phoboslab/pl_mpeg, MIT, plm_video_*): backward motion vectors, bidirectional
++ * prediction (average of forward and backward reference), three frame buffers, picture output in display order
++ * (an I/P picture is shown after the next I/P picture was decoded; flushed at the end of the stream), and a check
++ * that a whole picture is buffered before decoding it (the data arrives progressively from the network).
++ * mp2.js: likewise only decodes completely buffered frames, resynchronises after garbage, the output gain/sign is
++ * corrected (upstream's output was inverted and 6.3 dB too quiet), and intensity-stereo subbands use each channel's own
++ * scale factor (as ISO 11172-3 specifies). Checked against ffmpeg's decode of the game's movies: tools/test-mpeg.mjs.
++ * Unified diff against the unmodified concatenation: tools/vendor/jsmpeg-bframes.diff.
+  */
+ const JSMpeg = {
+   Decoder: {},
+@@ -372,17 +383,50 @@
+ 	}
+ };
+ 
++// [LE2] Decodes one picture (in stream order) and shows the next picture in display order: B-pictures are shown
++// at once, an I/P picture is held back until the next I/P picture has been decoded. Returns false when no complete
++// picture is buffered yet (`streamEnded` = no more data will follow, so the last picture needs no successor).
++MPEG1.prototype.streamEnded = false;
++
++MPEG1.prototype.findStart = function(from, picturesOnly) {
++	// byte index of the next start code (00 00 01 xx) that is a picture start, or - unless picturesOnly - any start code
++	// that ends a picture (everything except slices), searching from byte `from`; -1 if not buffered
++	var bytes = this.bits.bytes, end = this.bits.byteLength - 3;
++	for (var i = from; i < end; i++) {
++		if (bytes[i] === 0 && bytes[i+1] === 0 && bytes[i+2] === 1) {
++			var c = bytes[i+3];
++			if (c === 0 || (!picturesOnly && c >= 0xB0)) {
++				return i;
++			}
++		}
++	}
++	return -1;
++};
++
+ MPEG1.prototype.decode = function() {
+ 	var startTime = JSMpeg.Now();
+-	
++
+ 	if (!this.hasSequenceHeader) {
+ 		return false;
+ 	}
+ 
+-	if (this.bits.findStartCode(MPEG1.START.PICTURE) === -1) {
+-		var bufferedBytes = this.bits.byteLength - (this.bits.index >> 3);
++	var pic = this.findStart((this.bits.index + 7) >> 3, true);
++	if (pic === -1) {
++		// Nothing left to decode: show the reference picture that was held back
++		if (this.streamEnded && this.hasReferenceFrame) {
++			this.hasReferenceFrame = false;
++			if (this.destination) {
++				this.destination.render(this.backwardY, this.backwardCr, this.backwardCb, true);
++			}
++			this.advanceDecodedTime(1/this.frameRate);
++			return true;
++		}
+ 		return false;
+ 	}
++	if (!this.streamEnded && this.findStart(pic + 4, false) === -1) {
++		return false; // the picture is not completely buffered yet
++	}
++	this.bits.index = (pic + 4) << 3;
+ 
+ 	this.decodePicture();
+ 	this.advanceDecodedTime(1/this.frameRate);
+@@ -462,25 +506,24 @@
+ 	this.halfWidth = this.mbWidth << 3;
+ 	this.halfHeight = this.mbHeight << 3;
+ 
+-	// Allocated buffers and resize the canvas
+-	this.currentY = new Uint8ClampedArray(this.codedSize);
+-	this.currentY32 = new Uint32Array(this.currentY.buffer);
+-
+-	this.currentCr = new Uint8ClampedArray(this.codedSize >> 2);
+-	this.currentCr32 = new Uint32Array(this.currentCr.buffer);
+-
+-	this.currentCb = new Uint8ClampedArray(this.codedSize >> 2);
+-	this.currentCb32 = new Uint32Array(this.currentCb.buffer);
+-
+-
+-	this.forwardY = new Uint8ClampedArray(this.codedSize);
+-	this.forwardY32 = new Uint32Array(this.forwardY.buffer);
+-
+-	this.forwardCr = new Uint8ClampedArray(this.codedSize >> 2);
+-	this.forwardCr32 = new Uint32Array(this.forwardCr.buffer);
+-
+-	this.forwardCb = new Uint8ClampedArray(this.codedSize >> 2);
+-	this.forwardCb32 = new Uint32Array(this.forwardCb.buffer);
++	// [LE2] Three frame buffers: the picture being decoded, the older reference (forward) and the newer reference
++	// (backward), so that B-pictures can be predicted from both.
++	var newFrame = function(codedSize) {
++		var f = {
++			y: new Uint8ClampedArray(codedSize),
++			cr: new Uint8ClampedArray(codedSize >> 2),
++			cb: new Uint8ClampedArray(codedSize >> 2)
++		};
++		f.y32 = new Uint32Array(f.y.buffer);
++		f.cr32 = new Uint32Array(f.cr.buffer);
++		f.cb32 = new Uint32Array(f.cb.buffer);
++		return f;
++	};
++	this.frameCurrent = newFrame(this.codedSize);
++	this.frameForward = newFrame(this.codedSize);
++	this.frameBackward = newFrame(this.codedSize);
++	this.hasReferenceFrame = false;
++	this.bindFrames();
+ };
+ 
+ 
+@@ -502,20 +545,30 @@
+ MPEG1.prototype.forwardRSize = 0;
+ MPEG1.prototype.forwardF = 0;
+ 
+-MPEG1.prototype.decodePicture = function(skipOutput) {
++MPEG1.prototype.bindFrames = function() {
++	var c = this.frameCurrent, f = this.frameForward, b = this.frameBackward;
++	this.currentY = c.y; this.currentY32 = c.y32; this.currentCr = c.cr; this.currentCr32 = c.cr32; this.currentCb = c.cb; this.currentCb32 = c.cb32;
++	this.forwardY = f.y; this.forwardY32 = f.y32; this.forwardCr = f.cr; this.forwardCr32 = f.cr32; this.forwardCb = f.cb; this.forwardCb32 = f.cb32;
++	this.backwardY = b.y; this.backwardY32 = b.y32; this.backwardCr = b.cr; this.backwardCr32 = b.cr32; this.backwardCb = b.cb; this.backwardCb32 = b.cb32;
++};
++
++MPEG1.prototype.decodePicture = function() {
+ 	this.currentFrame++;
+ 
+ 	this.bits.skip(10); // skip temporalReference
+ 	this.pictureType = this.bits.read(3);
+ 	this.bits.skip(16); // skip vbv_delay
+ 
+-	// Skip B and D frames or unknown coding type
+-	if (this.pictureType <= 0 || this.pictureType >= MPEG1.PICTURE_TYPE.B) {
++	// Skip D frames or unknown coding type
++	if (this.pictureType <= 0 || this.pictureType > MPEG1.PICTURE_TYPE.B) {
+ 		return;
+ 	}
+ 
+ 	// full_pel_forward, forward_f_code
+-	if (this.pictureType === MPEG1.PICTURE_TYPE.PREDICTIVE) {
++	if (
++		this.pictureType === MPEG1.PICTURE_TYPE.PREDICTIVE ||
++		this.pictureType === MPEG1.PICTURE_TYPE.B
++	) {
+ 		this.fullPelForward = this.bits.read(1);
+ 		this.forwardFCode = this.bits.read(3);
+ 		if (this.forwardFCode === 0) {
+@@ -526,6 +579,28 @@
+ 		this.forwardF = 1 << this.forwardRSize;
+ 	}
+ 
++	// [LE2] full_pel_backward, backward_f_code
++	if (this.pictureType === MPEG1.PICTURE_TYPE.B) {
++		this.fullPelBackward = this.bits.read(1);
++		this.backwardFCode = this.bits.read(3);
++		if (this.backwardFCode === 0) {
++			return;
++		}
++		this.backwardRSize = this.backwardFCode - 1;
++		this.backwardF = 1 << this.backwardRSize;
++	}
++
++	// [LE2] An I/P picture becomes the newest reference: the previous newest reference is its forward reference
++	var isReference = (
++		this.pictureType === MPEG1.PICTURE_TYPE.INTRA ||
++		this.pictureType === MPEG1.PICTURE_TYPE.PREDICTIVE
++	);
++	var spare = this.frameForward;
++	if (isReference) {
++		this.frameForward = this.frameBackward;
++		this.bindFrames();
++	}
++
+ 	var code = 0;
+ 	do {
+ 		code = this.bits.findNextStartCode();
+@@ -543,37 +618,23 @@
+ 		this.bits.rewind(32);
+ 	}
+ 
+-	// Invoke decode callbacks
+-	if (this.destination) {
+-		this.destination.render(this.currentY, this.currentCr, this.currentCb, true);
++	if (isReference) {
++		this.frameBackward = this.frameCurrent;
++		this.frameCurrent = spare;
++		this.bindFrames();
++		// Show the previous reference picture (display order); the new one is held back until the next I/P picture
++		if (this.hasReferenceFrame) {
++			if (this.destination) {
++				this.destination.render(this.forwardY, this.forwardCr, this.forwardCb, true);
++			}
++		}
++		else {
++			this.hasReferenceFrame = true;
++		}
+ 	}
+-
+-	// If this is a reference picutre then rotate the prediction pointers
+-	if (
+-		this.pictureType === MPEG1.PICTURE_TYPE.INTRA ||
+-		this.pictureType === MPEG1.PICTURE_TYPE.PREDICTIVE
+-	) {
+-		var
+-			tmpY = this.forwardY,
+-			tmpY32 = this.forwardY32,
+-			tmpCr = this.forwardCr,
+-			tmpCr32 = this.forwardCr32,
+-			tmpCb = this.forwardCb,
+-			tmpCb32 = this.forwardCb32;
+-
+-		this.forwardY = this.currentY;
+-		this.forwardY32 = this.currentY32;
+-		this.forwardCr = this.currentCr;
+-		this.forwardCr32 = this.currentCr32;
+-		this.forwardCb = this.currentCb;
+-		this.forwardCb32 = this.currentCb32;
+-
+-		this.currentY = tmpY;
+-		this.currentY32 = tmpY32;
+-		this.currentCr = tmpCr;
+-		this.currentCr32 = tmpCr32;
+-		this.currentCb = tmpCb;
+-		this.currentCb32 = tmpCb32;
++	else if (this.destination) {
++		// B-picture: shown at once
++		this.destination.render(this.currentY, this.currentCr, this.currentCb, true);
+ 	}
+ };
+ 
+@@ -590,6 +651,8 @@
+ 	// Reset motion vectors and DC predictors
+ 	this.motionFwH = this.motionFwHPrev = 0;
+ 	this.motionFwV = this.motionFwVPrev = 0;
++	this.motionBwH = this.motionBwHPrev = 0; // [LE2]
++	this.motionBwV = this.motionBwVPrev = 0; // [LE2]
+ 	this.dcPredictorY  = 128;
+ 	this.dcPredictorCr = 128;
+ 	this.dcPredictorCb = 128;
+@@ -616,7 +679,17 @@
+ MPEG1.prototype.macroblockType = 0;
+ MPEG1.prototype.macroblockIntra = false;
+ MPEG1.prototype.macroblockMotFw = false;
++MPEG1.prototype.macroblockMotBw = false; // [LE2]
+ 
++MPEG1.prototype.motionBwH = 0; // [LE2]
++MPEG1.prototype.motionBwV = 0;
++MPEG1.prototype.motionBwHPrev = 0;
++MPEG1.prototype.motionBwVPrev = 0;
++MPEG1.prototype.fullPelBackward = false;
++MPEG1.prototype.backwardFCode = 0;
++MPEG1.prototype.backwardRSize = 0;
++MPEG1.prototype.backwardF = 0;
++
+ MPEG1.prototype.motionFwH = 0;
+ MPEG1.prototype.motionFwV = 0;
+ MPEG1.prototype.motionFwHPrev = 0;
+@@ -669,10 +742,7 @@
+ 			this.macroblockAddress++;
+ 			this.mbRow = (this.macroblockAddress / this.mbWidth)|0;
+ 			this.mbCol = this.macroblockAddress % this.mbWidth;
+-			this.copyMacroblock(
+-				this.motionFwH, this.motionFwV,
+-				this.forwardY, this.forwardCr, this.forwardCb
+-			);
++			this.predictMacroblock(); // [LE2] (B-pictures: like the previous macroblock)
+ 			increment--;
+ 		}
+ 		this.macroblockAddress++;
+@@ -685,6 +755,7 @@
+ 	this.macroblockType = this.readHuffman(mbTable);
+ 	this.macroblockIntra = (this.macroblockType & 0x01);
+ 	this.macroblockMotFw = (this.macroblockType & 0x08);
++	this.macroblockMotBw = (this.macroblockType & 0x04); // [LE2]
+ 
+ 	// Quantizer scale
+ 	if ((this.macroblockType & 0x10) !== 0) {
+@@ -695,6 +766,8 @@
+ 		// Intra-coded macroblocks reset motion vectors
+ 		this.motionFwH = this.motionFwHPrev = 0;
+ 		this.motionFwV = this.motionFwVPrev = 0;
++		this.motionBwH = this.motionBwHPrev = 0; // [LE2]
++		this.motionBwV = this.motionBwVPrev = 0;
+ 	}
+ 	else {
+ 		// Non-intra macroblocks reset DC predictors
+@@ -703,10 +776,7 @@
+ 		this.dcPredictorCb = 128;
+ 
+ 		this.decodeMotionVectors();
+-		this.copyMacroblock(
+-			this.motionFwH, this.motionFwV,
+-			this.forwardY, this.forwardCr, this.forwardCb
+-		);
++		this.predictMacroblock(); // [LE2]
+ 	}
+ 
+ 	// Decode blocks
+@@ -784,6 +854,142 @@
+ 		// No motion information in P-picture, reset vectors
+ 		this.motionFwH = this.motionFwHPrev = 0;
+ 		this.motionFwV = this.motionFwVPrev = 0;
++	}
++
++	this.decodeMotionVectorsBackward(); // [LE2]
++};
++
++// [LE2] Backward motion vectors (B-pictures); same scheme as the forward ones
++MPEG1.prototype.decodeMotionVectorsBackward = function() {
++	var code, d, r = 0;
++	if (!this.macroblockMotBw) {
++		return;
++	}
++
++	// Horizontal backward
++	code = this.readHuffman(MPEG1.MOTION);
++	if ((code !== 0) && (this.backwardF !== 1)) {
++		r = this.bits.read(this.backwardRSize);
++		d = ((Math.abs(code) - 1) << this.backwardRSize) + r + 1;
++		if (code < 0) {
++			d = -d;
++		}
++	}
++	else {
++		d = code;
++	}
++
++	this.motionBwHPrev += d;
++	if (this.motionBwHPrev > (this.backwardF << 4) - 1) {
++		this.motionBwHPrev -= this.backwardF << 5;
++	}
++	else if (this.motionBwHPrev < ((-this.backwardF) << 4)) {
++		this.motionBwHPrev += this.backwardF << 5;
++	}
++
++	this.motionBwH = this.motionBwHPrev;
++	if (this.fullPelBackward) {
++		this.motionBwH <<= 1;
++	}
++
++	// Vertical backward
++	code = this.readHuffman(MPEG1.MOTION);
++	if ((code !== 0) && (this.backwardF !== 1)) {
++		r = this.bits.read(this.backwardRSize);
++		d = ((Math.abs(code) - 1) << this.backwardRSize) + r + 1;
++		if (code < 0) {
++			d = -d;
++		}
++	}
++	else {
++		d = code;
++	}
++
++	this.motionBwVPrev += d;
++	if (this.motionBwVPrev > (this.backwardF << 4) - 1) {
++		this.motionBwVPrev -= this.backwardF << 5;
++	}
++	else if (this.motionBwVPrev < ((-this.backwardF) << 4)) {
++		this.motionBwVPrev += this.backwardF << 5;
++	}
++
++	this.motionBwV = this.motionBwVPrev;
++	if (this.fullPelBackward) {
++		this.motionBwV <<= 1;
++	}
++};
++
++// Builds the prediction of the current macroblock in the current frame
++MPEG1.prototype.predictMacroblock = function() {
++	if (this.pictureType === MPEG1.PICTURE_TYPE.B) {
++		if (this.macroblockMotFw) {
++			this.copyMacroblock(
++				this.motionFwH, this.motionFwV,
++				this.forwardY, this.forwardCr, this.forwardCb
++			);
++			if (this.macroblockMotBw) {
++				this.interpolateMacroblock(
++					this.motionBwH, this.motionBwV,
++					this.backwardY, this.backwardCr, this.backwardCb
++				);
++			}
++		}
++		else {
++			this.copyMacroblock(
++				this.motionBwH, this.motionBwV,
++				this.backwardY, this.backwardCr, this.backwardCb
++			);
++		}
++	}
++	else {
++		this.copyMacroblock(
++			this.motionFwH, this.motionFwV,
++			this.forwardY, this.forwardCr, this.forwardCb
++		);
++	}
++};
++
++// Averages the prediction from the backward reference into the forward prediction already in the current frame
++// (ported from pl_mpeg's plm_video_process_macroblock, interpolate = true)
++MPEG1.prototype.interpolateMacroblock = function(motionH, motionV, sY, sCr, sCb) {
++	this.averageBlock(sY, this.currentY, motionH, motionV, 16, this.codedWidth);
++	this.averageBlock(sCr, this.currentCr, (motionH / 2) | 0, (motionV / 2) | 0, 8, this.halfWidth);
++	this.averageBlock(sCb, this.currentCb, (motionH / 2) | 0, (motionV / 2) | 0, 8, this.halfWidth);
++};
++
++MPEG1.prototype.averageBlock = function(s, d, motionH, motionV, size, dw) {
++	var
++		hp = motionH >> 1,
++		vp = motionV >> 1,
++		oddH = (motionH & 1) === 1,
++		oddV = (motionV & 1) === 1,
++		si = ((this.mbRow * size) + vp) * dw + (this.mbCol * size) + hp,
++		di = (this.mbRow * dw + this.mbCol) * size,
++		maxAddress = dw * (this.mbHeight * size - size + 1) - size,
++		x, y, p;
++
++	if (si < 0 || si > maxAddress || di > maxAddress) {
++		return; // corrupt video
++	}
++
++	var sScan = dw - size, dScan = dw - size;
++	for (y = 0; y < size; y++) {
++		for (x = 0; x < size; x++) {
++			if (oddH) {
++				p = oddV
++					? (s[si] + s[si+1] + s[si+dw] + s[si+dw+1] + 2) >> 2
++					: (s[si] + s[si+1] + 1) >> 1;
++			}
++			else {
++				p = oddV
++					? (s[si] + s[si+dw] + 1) >> 1
++					: s[si];
++			}
++			d[di] = (d[di] + p + 1) >> 1;
++			si++; di++;
++		}
++		si += sScan;
++		di += dScan;
+ 	}
+ };
+ 
+@@ -2065,6 +2271,15 @@
+ 	}
+ 
+ 	var decoded = this.decodeFrame(this.left, this.right);
++	// [LE2] lost sync (decodeFrame returned -1): skip a byte at a time until the next frame header
++	while (decoded < 0 && pos + 1 < this.bits.byteLength) {
++		pos++;
++		this.bits.index = pos << 3;
++		decoded = this.decodeFrame(this.left, this.right);
++	}
++	if (decoded < 0) {
++		decoded = 0;
++	}
+ 	this.bits.index = (pos + decoded) << 3;
+ 	if (!decoded) {
+ 		return false;
+@@ -2089,6 +2304,11 @@
+ };
+ 
+ MP2.prototype.decodeFrame = function(left, right) {
++	var frameStart = this.bits.index >> 3; // [LE2]
++	if (frameStart + 4 > this.bits.byteLength) {
++		return 0; // [LE2] header not completely buffered yet
++	}
++
+ 	// Check for valid header: syncword OK, MPEG-Audio Layer 2
+ 	var sync = this.bits.read(11),
+ 		version = this.bits.read(2),
+@@ -2100,18 +2320,18 @@
+ 		version !== MP2.VERSION.MPEG_1 ||
+ 		layer !== MP2.LAYER.II
+ 	) {
+-		return 0; // Invalid header or unsupported version
++		return -1; // Invalid header or unsupported version [LE2: -1 = lost sync]
+ 	}
+ 
+ 	var bitrateIndex = this.bits.read(4) - 1;
+-	if (bitrateIndex > 13) {
+-		return 0;  // Invalid bit rate or 'free format'
++	if (bitrateIndex < 0 || bitrateIndex > 13) {
++		return -1;  // Invalid bit rate or 'free format' [LE2]
+ 	}
+ 
+ 	var sampleRateIndex = this.bits.read(2);
+ 	var sampleRate = MP2.SAMPLE_RATE[sampleRateIndex];
+ 	if (sampleRateIndex === 3) {
+-		return 0; // Invalid sample rate
++		return -1; // Invalid sample rate [LE2]
+ 	}
+ 	if (version === MP2.VERSION.MPEG_2) {
+ 		sampleRateIndex += 4;
+@@ -2141,6 +2361,11 @@
+ 	var bitrate = MP2.BIT_RATE[bitrateIndex],
+ 		sampleRate = MP2.SAMPLE_RATE[sampleRateIndex],
+ 		frameSize = ((144000 * bitrate / sampleRate) + padding)|0;
++
++	// [LE2] a frame must be completely buffered before it is decoded (the data arrives progressively)
++	if (frameStart + frameSize > this.bits.byteLength) {
++		return 0;
++	}
+ 	
+ 
+ 	// Prepare the quantizer table lookups
+@@ -2236,10 +2461,7 @@
+ 				this.readSamples(1, sb, part);
+ 			}
+ 			for (var sb = bound; sb < sblimit; sb++) {
+-				this.readSamples(0, sb, part);
+-				this.sample[1][sb][0] = this.sample[0][sb][0];
+-				this.sample[1][sb][1] = this.sample[0][sb][1];
+-				this.sample[1][sb][2] = this.sample[0][sb][2];
++				this.readSamplesShared(sb, part); // [LE2]
+ 			}
+ 			for (var sb = sblimit; sb < 32; sb++) {
+ 				this.sample[0][sb][0] = 0;
+@@ -2286,7 +2508,9 @@
+ 					// Output samples
+ 					var outChannel = ch === 0 ? left : right;
+ 					for (var j = 0; j < 32; j++) {
+-						outChannel[outPos + j] = this.U[j] / 2147418112;
++						// [LE2] upstream divides by 2147418112: output was inverted and 6.3 dB too quiet compared with ffmpeg's
++						// decode (measured; pl_mpeg later changed this divisor to a negative one as well). -0x3E000000 matches ffmpeg.
++						outChannel[outPos + j] = this.U[j] / -1040187392;
+ 					}
+ 				} // End of synthesis channel loop
+ 				outPos += 32;
+@@ -2307,9 +2531,7 @@
+ 
+ MP2.prototype.readSamples = function(ch, sb, part) {
+ 	var q = this.allocation[ch][sb],
+-		sf = this.scaleFactor[ch][sb][part],
+-		sample = this.sample[ch][sb],
+-		val = 0;
++		sample = this.sample[ch][sb];
+ 
+ 	if (!q) {
+ 		// No bits allocated for this subband
+@@ -2317,17 +2539,35 @@
+ 		return;
+ 	}
+ 
+-	// Resolve scalefactor
+-	if (sf === 63) {
+-		sf = 0;
++	this.readRawSamples(q, sample);
++	this.dequantizeSamples(q, this.scaleFactor[ch][sb][part], sample);
++};
++
++// [LE2] Subbands above the joint-stereo bound (intensity stereo): both channels share the coded sample values but
++// each has its own scale factor. Upstream copied channel 0's already scaled samples into channel 1, ignoring
++// channel 1's scale factors (audible as distorted stereo with joint-stereo streams like the game's movies).
++MP2.prototype.readSamplesShared = function(sb, part) {
++	var q = this.allocation[0][sb],
++		s0 = this.sample[0][sb],
++		s1 = this.sample[1][sb];
++
++	if (!q) {
++		s0[0] = s0[1] = s0[2] = 0;
++		s1[0] = s1[1] = s1[2] = 0;
++		return;
+ 	}
+-	else {
+-		var shift = (sf / 3)|0;
+-		sf = (MP2.SCALEFACTOR_BASE[sf % 3] + ((1 << shift) >> 1)) >> shift;
+-	}
+ 
+-	// Decode samples
+-	var adj = q.levels;
++	this.readRawSamples(q, s0);
++	s1[0] = s0[0];
++	s1[1] = s0[1];
++	s1[2] = s0[2];
++	this.dequantizeSamples(q, this.scaleFactor[0][sb][part], s0);
++	this.dequantizeSamples(q, this.scaleFactor[1][sb][part], s1);
++};
++
++MP2.prototype.readRawSamples = function(q, sample) {
++	var adj = q.levels,
++		val = 0;
+ 	if (q.group) {
+ 		// Decode grouped samples
+ 		val = this.bits.read(q.bits);
+@@ -2342,8 +2582,22 @@
+ 		sample[1] = this.bits.read(q.bits);
+ 		sample[2] = this.bits.read(q.bits);
+ 	}
++};
+ 
++MP2.prototype.dequantizeSamples = function(q, sf, sample) {
++	var val = 0;
++
++	// Resolve scalefactor
++	if (sf === 63) {
++		sf = 0;
++	}
++	else {
++		var shift = (sf / 3)|0;
++		sf = (MP2.SCALEFACTOR_BASE[sf % 3] + ((1 << shift) >> 1)) >> shift;
++	}
++
+ 	// Postmultiply samples
++	var adj = q.levels;
+ 	var scale = (65536 / (adj + 1))|0;
+ 	adj = ((adj + 1) >> 1) - 1;
+ 

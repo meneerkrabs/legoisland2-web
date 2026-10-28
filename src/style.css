@@ -1,0 +1,39 @@
+html, body { margin: 0; height: 100%; background: #000; color: #eee; font-family: Arial, Helvetica, sans-serif; overflow: hidden; }
+#app { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+.bdb-root { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+.bdb-screen { image-rendering: pixelated; touch-action: none; display: block; }
+.bdb-video { position: absolute; object-fit: fill; background: #000; image-rendering: pixelated; }
+.bdb-start { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem; background: radial-gradient(#1c2a12 0%, #000 70%); z-index: 10; }
+.bdb-start h1 { font-size: 2.4rem; margin: 0; color: #e8c872; text-shadow: 2px 2px 0 #4a2a08; text-align: center; }
+.bdb-start .books { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; }
+.bdb-start button { font-size: 1.2rem; padding: 0.9rem 1.4rem; border-radius: 12px; border: 3px solid #e8c872; background: #2c4a1c; color: #fff; cursor: pointer; }
+.bdb-start button:disabled { opacity: 0.4; cursor: not-allowed; }
+.bdb-start .note { font-size: 0.85rem; opacity: 0.7; max-width: 40rem; text-align: center; }
+.bdb-error { position: absolute; inset: auto 1rem 1rem 1rem; padding: 1rem; background: #600; color: #fff; z-index: 20; white-space: pre-wrap; font-family: monospace; }
+.bdb-control { position: absolute; box-sizing: border-box; z-index: 5; }
+.bdb-help-memo { font-family: "MS Sans Serif", Tahoma, Arial, sans-serif; resize: none; background: #fff; color: #000; border: 2px inset #ccc; padding: 2px; }
+.bdb-help-ok { font-family: "MS Sans Serif", Tahoma, Arial, sans-serif; background: #c0c0c0; border: 2px outset #eee; color: #000; cursor: pointer; padding: 0; }
+.bdb-ai { position: absolute; pointer-events: none; }
+.bdb-text { position: absolute; pointer-events: none; z-index: 2; }
+.bdb-loading { position: absolute; left: 50%; bottom: 6%; transform: translateX(-50%); z-index: 6; width: min(60%, 26rem); padding: 0.7rem 1rem; border-radius: 14px; background: rgba(0, 0, 0, 0.75); color: #fc3; font: bold 1rem Arial, sans-serif; pointer-events: none; text-align: center; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); }
+.bdb-loading-track { margin-top: 0.45rem; height: 0.7rem; border-radius: 999px; background: rgba(255, 255, 255, 0.15); overflow: hidden; border: 2px solid #fc3; }
+.bdb-loading-bar { height: 100%; width: 0; background: linear-gradient(90deg, #f90, #fc3); transition: width 0.25s ease-out; }
+.bdb-skip { position: absolute; z-index: 8; white-space: nowrap; padding: 0.55rem 1rem; border-radius: 999px; border: 2px solid #fc3; background: rgba(0, 40, 80, 0.8); color: #fff; font: bold 1rem Arial, sans-serif; cursor: pointer; opacity: 0.75; transition: opacity 0.2s; }
+.bdb-skip:hover { opacity: 1; }
+.bdb-skip-overlay { padding: 0.35rem 0.8rem; font-size: 0.85rem; opacity: 0.6; }
+.le2-movie { position: absolute; inset: 0; z-index: 30; background: #000; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.le2-movie-canvas { max-width: 100%; max-height: 100%; aspect-ratio: 4 / 3; width: min(100vw, 133.333vh); height: auto; background: #000; }
+.le2-movie-hint { position: absolute; left: 50%; bottom: 1.2rem; transform: translateX(-50%); padding: 0.4rem 0.9rem; border-radius: 999px; background: rgba(0, 0, 0, 0.6); color: #fff; font: 0.9rem Arial, sans-serif; opacity: 0.8; transition: opacity 1s; pointer-events: none; white-space: nowrap; }
+.le2-movie-hint.le2-fade { opacity: 0; }
+.le2-files { position: absolute; inset: 0; overflow: auto; padding: 2rem 1rem; box-sizing: border-box; background: radial-gradient(#1c2a12 0%, #000 70%); display: flex; flex-direction: column; align-items: center; gap: 1rem; }
+.le2-files h1 { margin: 0; font-size: 1.8rem; color: #e8c872; text-shadow: 2px 2px 0 #4a2a08; text-align: center; }
+.le2-files table { border-collapse: collapse; font-size: 0.85rem; }
+.le2-files td, .le2-files th { padding: 0.15rem 0.8rem; text-align: left; border-bottom: 1px solid #333; }
+.le2-files td.num, .le2-files th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.le2-files pre { max-width: 90vw; max-height: 40vh; overflow: auto; font-size: 0.75rem; background: #111; padding: 0.6rem; border-radius: 8px; }
+.le2-files .books button, .bdb-start .books button { font-size: 1rem; }
+.bdb-start a { color: #e8c872; }
+.bdb-start details summary { cursor: pointer; margin-bottom: 0.6rem; }
+.le2-files .books { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; }
+.le2-files .books button { padding: 0.5rem 0.9rem; border-radius: 10px; border: 2px solid #e8c872; background: #2c4a1c; color: #fff; cursor: pointer; }
+.le2-files details summary { cursor: pointer; }
