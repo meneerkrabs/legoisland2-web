@@ -21,7 +21,7 @@ Bronnen (in volgorde van voorkeur, zie `src/library.ts`):
 1. **Eigen ISO**: via "Eigen cd of ISO gebruiken" op het startscherm; de ISO wordt in de browser bewaard (Origin Private File System, ongeveer 450 MB).
 2. **Eigen cd-map**: een map met de cd (of de map `LEGO Eiland 2` ervan, of een geinstalleerde spelmap); alleen voor die sessie.
 3. **Ontwikkelmap** (alleen `npm run dev`): `public/data/le2/` (de uitgepakte spelmap) en `public/data/le2-movies/` (de films).
-4. **archive.org** (standaard): eenmalig `data1.hdr`, `data1.cab` en `data2.cab` (samen ongeveer 342 MB), daarna uit de browser; de films worden per stuk gestreamd.
+4. **archive.org** (standaard): via een CORS-proxy worden alleen de benodigde stukken van de ISO opgehaald (ongeveer 30 MB bij de eerste start, `tools/proxy/`); zonder proxy worden `data1.hdr`, `data1.cab` en `data2.cab` (samen ongeveer 342 MB) in een keer gedownload terwijl je al kunt beginnen. Alles blijft daarna in de browser; de films worden gestreamd.
 
 Op archive.org staan twee Nederlandse ISO's met dezelfde indeling en identieke cabinet-bestanden
 (`legoeiland2dutch` en `legoeiland2`); de eerste is de standaard, de tweede de reserve.

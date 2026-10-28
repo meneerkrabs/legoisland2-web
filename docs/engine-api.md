@@ -9,6 +9,8 @@ InstallShield cabinet (own ISO, CD folder, dev copy, or archive.org).
 |---|---|
 | `src/engine/inflate.ts` | `inflateRaw(src, sp, se, dst, dp)`: synchronous raw-DEFLATE decoder into a preallocated buffer; returns the new write position |
 | `src/engine/installshield.ts` | `InstallShieldCab`: reader for InstallShield cabinets (data1.hdr + data1.cab, data2.cab, ...) |
+| `src/engine/bytesource.ts` | `ByteSource` (random access over bytes that may still be arriving), `GrowingSource`, `LoadState`, `blobSource`, `sliceSource` |
+| `src/engine/rangesource.ts` | `HttpRangeSource` (HTTP Range via the CORS proxy), `CachedSource` (256 KB block cache in Cache Storage) |
 | `src/engine/vfs.ts` | `IsoVfs`: read-only ISO9660 (Joliet preferred) over a `Blob`, lazy slices |
 | `src/engine/mpeg.ts` | `PsDemuxer` (MPEG-1/2 program stream), `MpegPlayer` (decoders + WebGL canvas + Web Audio) |
 | `src/engine/movie.ts` | `playMovie(host, media, name)`: a movie full screen, skippable by click/key |
@@ -46,17 +48,64 @@ interface MediaFile { size: number; stream(): ReadableStream<Uint8Array> }
 ## Getting a `GameFiles` (`src/library.ts`)
 
 ```ts
-const lib = await availableSource();     // { source, cached, open(onProgress?) }
+const lib = await availableSource();     // { source, cached, proxy, open(onProgress?) }
 const files = await lib.open((done, total, label) => ...);
 ```
 
-`availableSource()` picks, in order: an ISO stored in OPFS (`isos/le2.iso`), the dev copy (dev server only, not with `?source=archive`), archive.org.
-Also: `isoFiles(blob)`, `cdFolder([[relativePath, blob], ...])`, `addIso(file, onFraction)`, `removeIso()`, `removeArchiveCache()`.
+`availableSource()` picks, in order: an ISO stored in OPFS, the dev copy (dev server only, not with `?source=archive`), archive.org. Also: `isoFiles(blob)`, `cdFolder(...)`, `addIso(file, onFraction)`, `removeIso()`, `removeArchiveCache()`.
 
-archive.org: the three cabinet files (316 414 + 444 906 + 341 851 148 bytes) are downloaded through
-`https://archive.org/download/<item>/<iso>/LEGO%20Eiland%202%2F<file>` (CORS, redirects to `view_archive.php`, no byte ranges, no
-`content-length`, so the sizes are constants in `files.ts`) into OPFS (`le2-archive/`, marker `complete.json`), streamed in 4 MB writes with a progress callback.
-Without OPFS the blobs stay in memory for the session. Items tried in order: `legoeiland2dutch`, then `legoeiland2`.
+## Loading: waiting for data (`GameFiles.loaded / ready / loading`)
+
+The first start from archive.org no longer needs the whole 342 MB `data2.cab` first. `GameFiles` is returned as soon as the cabinet header is
+in; the data arrives later, and `read()` of a file waits until its bytes are there. New members of `GameFiles` (all compatible: everywhere
+except archive.org-in-progress they are trivially "already loaded"):
+
+```ts
+files.loaded(path): boolean                    // true: read(path) will not wait
+await files.ready(paths: Iterable<string>)     // resolves when all those files are local (fetches them first on the range route)
+files.loading: LoadState | null                // null = everything local; else { done, total, fraction, complete, error, subscribe(fn) }
+files.route                                    // 'range' | 'progressive' | 'stored' | undefined (dev / own ISO / cd folder)
+```
+
+What the shell should do before starting a zone (`src/shell`): collect the files the zone needs, and
+`if (!paths.every((p) => files.loaded(p))) { show the loading card; await files.ready(paths); }` - the card can show
+`files.loading.fraction` (subscribe for updates) or "nog X% te laden". `ready()` never throws for unknown paths; it rejects when the
+download failed (then `files.loading.error` is set too). Do not call `ready()` with hundreds of paths one by one: pass them in one call, it
+merges neighbouring files in the cabinet into few requests. `main.ts` already shows a small corner badge ("Spelbestanden laden: nog X%")
+while `files.loading` is not complete.
+
+Where things are in `data2.cab` (compressed, by cabinet order): EXE 0%, Bricks/BrickMorph/Fonts/GENERICBITS/menu/messages/Overlays 1-2.2%,
+z02LGI.bob (island) 2.8-6.7%, other zones 6.7-39% (z60FRE.bob, the front end, at 39%), then sounds (speech 35 MB, DirectMusic 86 MB) late.
+On the progressive route a file at 39% is there after ~39% of the download; on the range route `ready()` fetches exactly it.
+
+Two routes (`src/library.ts`, `availableSource().open()`), tried in this order for archive.org:
+
+1. **Range route** (default; `PROXY_BASE` in `src/library.ts`, override `?proxy=<url or template>`, `?proxy=off`, localStorage `le2-proxy`):
+   the ISO is read by HTTP Range through a CORS proxy (nginx relay or `tools/proxy/le2-cors-proxy.php`, see `tools/proxy/README.md`).
+   `IsoVfs` (Joliet) -> `data1.hdr`/`data1.cab`/`data2.cab` extents -> `InstallShieldCab` over `sliceSource`s; a file is one contiguous
+   compressed range. Blocks of 256 KB are cached in Cache Storage (`le2-range-<item>`), nothing is fetched twice; requests are 6 MB, up to 6 parallel.
+   After the cabinet header it prefetches `WARM_PATHS` (EXE, shared archives, front end, island). Movies stream by range with their own request queue.
+2. **Progressive route** (fallback, and `?proxy=off`): `data1.hdr` + `data1.cab` (0.8 MB), then `data2.cab` as one sequential download into a
+   `GrowingSource` (chunks folded into a Blob every 8 MB; also written to OPFS `le2-archive/`, marker `complete.json`; a broken connection restarts
+   and skips what we already have, 3 times). The tab can start while it runs. A reload mid-download starts over (no ranges on archive.org).
+
+Stored/own sources: ISO in OPFS (`isos/le2.iso`), CD folder, dev copy: always `loading === null`.
+
+## Byte sources (`src/engine/bytesource.ts`, `rangesource.ts`)
+
+```ts
+interface ByteSource { size; read(start, end): Promise<Uint8Array>; has?(start, end): boolean; prefetch?(start, end): Promise<void>; preferredChunk? }
+blobSource(blob), sliceSource(src, offset, length), toSource(blobOrSource)
+new GrowingSource(size, onData?)   // append(chunk) in order; read() waits for its range; finish(file); fail(err)
+new HttpRangeSource(url, size) + HttpRangeSource.probe(url)   // Range requests (needs 206 + Content-Range)
+new CachedSource(inner, cacheName)                           // block cache (Cache Storage) with .loading
+new LoadState()                                              // done/total + subscribe
+```
+`IsoVfs.open(blobOrSource)` has `source(path): ByteSource` (and `file(path)` for Blob-backed ISOs); `InstallShieldCab.open(header, volumes)` takes
+Blobs or ByteSources and has `extent(entry)`, `loaded(entry)`, `ready(entry)`.
+
+Debug: `?trace=1` logs every `files.read()` into `window.__le2Trace` (`tools/steps/trace.mjs`); `tools/steps/measure.mjs` measures bytes and time to the
+front end / island from a fresh profile (`MEASURE=frontend|island`, `TWICE=1`, `WAITFULL=1`); `node tools/test-bytesource.mjs` tests the loading layer in node.
 
 ## `InstallShieldCab` (`src/engine/installshield.ts`)
 

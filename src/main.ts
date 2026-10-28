@@ -5,6 +5,7 @@ import { addIso, ARCHIVE_PAGE, availableSource, cdFolder, GAME_TITLE, removeArch
 import { MOVIES, type GameFiles, type Progress } from './files.ts';
 
 const app = document.getElementById('app')!;
+if (new URLSearchParams(location.search).has('trace')) (window as unknown as { __le2Trace: unknown[] }).__le2Trace = []; // ?trace=1: every files.read() is logged (tools/steps/trace.mjs)
 
 function showError(e: unknown) {
   console.error(e);
@@ -83,7 +84,9 @@ async function startScreen() {
   const first = lib.source === 'archive' && !lib.cached;
   const note = lib.source === 'archive'
     ? `De spelbestanden komen uit de ISO op <a href="${ARCHIVE_PAGE}" target="_blank" rel="noopener">archive.org</a>. ${first
-      ? 'De eerste keer worden eenmalig ongeveer 350 MB gedownload (de installatiebestanden van de cd); daarna staan ze in je browser.'
+      ? (lib.proxy
+        ? 'De eerste keer worden alleen de onderdelen gedownload die je nodig hebt (via een tussenserver); die blijven daarna in je browser.'
+        : 'De eerste keer worden eenmalig ongeveer 350 MB gedownload (de installatiebestanden van de cd). Je kunt al beginnen terwijl dat doorloopt; daarna staan ze in je browser.')
       : 'Ze staan al in je browser, dus er hoeft niets gedownload te worden.'} De films worden van archive.org gestreamd.`
     : lib.source === 'iso'
       ? 'De spelbestanden worden gelezen uit je eigen ISO, die in je browser is bewaard.'
@@ -126,10 +129,27 @@ async function runMovie(files: GameFiles, name: string) {
   }
 }
 
+/** Small corner badge while the game data is still arriving (progressive archive.org download / range prefetch). */
+function showLoadBadge(files: GameFiles) {
+  const st = files.loading;
+  if (!st || st.complete) return;
+  document.getElementById('le2-loadbadge')?.remove();
+  const badge = el('div', { id: 'le2-loadbadge', className: 'le2-loadbadge' });
+  document.body.appendChild(badge);
+  const update = () => {
+    if (st.error) { badge.textContent = 'Laden van spelbestanden mislukt'; badge.classList.add('le2-err'); return; }
+    if (st.complete) { badge.remove(); off(); return; }
+    badge.textContent = `Spelbestanden laden: nog ${Math.round((1 - st.fraction) * 100)}% (${mb(st.total - st.done)})`;
+  };
+  const off = st.subscribe(update);
+  update();
+}
+
 /** The game: start-up movies, then the zone loop (src/shell): front end, story, zones. `?intro=0` skips the movies, `?start=frontend` goes straight to the front end,
  * `?zone=z02LGI[&node=N]` starts in that zone, `?save=N` loads save slot N (docs/engine-api.md "Dev / test URLs"). */
 async function play(files: GameFiles, params = new URLSearchParams(location.search)) {
   app.replaceChildren();
+  showLoadBadge(files);
   const only = params.get('movie');
   if (only) { await runMovie(files, only); showFiles(files); return; }
   const [{ Shell, registerZoneRunner }, { runFrontEnd }, { runPlayZone }] = await Promise.all([import('./shell/shell.ts'), import('./shell/frontend.ts'), import('./shell/playzone.ts')]);

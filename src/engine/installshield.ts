@@ -12,6 +12,7 @@
 // A compressed file is a sequence of chunks: u16 size, then `size` bytes of raw deflate.
 
 import { inflateRaw } from './inflate.ts';
+import { toSource, type ByteSource } from './bytesource.ts';
 
 const FILE_SPLIT = 1;
 const FILE_OBFUSCATED = 2;
@@ -106,9 +107,9 @@ export class InstallShieldCab {
   private fileTable2: number;
   private descs = new Map<number, FileDesc>();
   private byPath = new Map<string, CabEntry>();
-  private volumes: Blob[];
+  private volumes: ByteSource[];
 
-  private constructor(header: Uint8Array, volumes: Blob[]) {
+  private constructor(header: Uint8Array, volumes: ByteSource[]) {
     this.header = header;
     this.volumes = volumes;
     const hv = (this.hv = new DataView(header.buffer, header.byteOffset, header.byteLength));
@@ -142,8 +143,39 @@ export class InstallShieldCab {
    * Open a cabinet. `header` is data1.hdr (or data1.cab when there is no .hdr), `volumes[0]` is data1.cab,
    * `volumes[1]` data2.cab, ...
    */
-  static async open(header: Blob, volumes: Blob[]): Promise<InstallShieldCab> {
-    return new InstallShieldCab(new Uint8Array(await header.arrayBuffer()), volumes);
+  static async open(header: Blob | ByteSource, volumes: (Blob | ByteSource)[]): Promise<InstallShieldCab> {
+    const h = toSource(header);
+    return new InstallShieldCab(await h.read(0, h.size), volumes.map(toSource));
+  }
+
+  /**
+   * Where a file's data lives: volume (1-based) and byte range, or null for files split over volumes.
+   * Compressed files are one contiguous range, which is what makes range requests per file possible.
+   */
+  extent(entry: CabEntry): { volume: number; start: number; end: number } | null {
+    let fd = this.desc(entry.index);
+    for (let guard = 0; fd.linkFlags & LINK_PREV && guard < 16; guard++) fd = this.desc(fd.linkPrevious);
+    if (fd.flags & (FILE_SPLIT | FILE_INVALID) || !fd.dataOffset) return null;
+    const len = fd.flags & FILE_COMPRESSED ? fd.compressed : fd.expanded;
+    return { volume: fd.volume, start: fd.dataOffset, end: fd.dataOffset + len };
+  }
+
+  /** True when reading the entry will not have to wait for data (see `ByteSource.has`). */
+  loaded(entry: CabEntry): boolean {
+    const x = this.extent(entry);
+    if (!x) return this.volumes.every((v) => v.has?.(0, v.size) ?? true);
+    const v = this.volumes[x.volume - 1];
+    return v?.has?.(x.start, x.end) ?? true;
+  }
+
+  /** Resolves when the entry's bytes are local (fetching them first where the source can). */
+  async ready(entry: CabEntry): Promise<void> {
+    const x = this.extent(entry);
+    if (!x) {
+      await Promise.all(this.volumes.map((v) => v.prefetch?.(0, v.size)));
+      return;
+    }
+    await this.volumes[x.volume - 1]?.prefetch?.(x.start, x.end);
   }
 
   private str(offset: number): string {
@@ -285,7 +317,7 @@ export class InstallShieldCab {
   }
 
   /** @internal volume blob (1-based). */
-  volumeBlob(n: number): Blob {
+  volumeSource(n: number): ByteSource {
     const b = this.volumes[n - 1];
     if (!b) throw new Error(`InstallShield: volume ${n} ontbreekt (data${n}.cab)`);
     return b;
@@ -294,7 +326,7 @@ export class InstallShieldCab {
   /** @internal */
   async volumeHeader(vol: number): Promise<VolumeHeader> {
     const six = this.majorVersion >= 6;
-    const buf = new Uint8Array(await this.volumeBlob(vol).slice(COMMON_HEADER_SIZE, COMMON_HEADER_SIZE + (six ? 64 : 40)).arrayBuffer());
+    const buf = await this.volumeSource(vol).read(COMMON_HEADER_SIZE, COMMON_HEADER_SIZE + (six ? 64 : 40));
     const d = new DataView(buf.buffer);
     if (six) {
       return {
@@ -316,7 +348,7 @@ class FileReader {
   private vol = 0;
   private pos = 0; // offset in the current volume of the next byte NOT yet in `buf`
   private left = 0; // bytes of this file left in the current volume beyond `buf`
-  private buf = new Uint8Array(0);
+  private buf: Uint8Array = new Uint8Array(0);
   private bufPos = 0;
   private seed = 0;
   private cab: InstallShieldCab;
@@ -359,10 +391,10 @@ class FileReader {
     while (o < n) {
       if (this.bufPos >= this.buf.length) {
         if (this.left === 0) await this.open(this.vol + 1);
-        const want = Math.min(this.left, Math.max(n - o, READ_AHEAD));
+        const ahead = this.cab.volumeSource(this.vol).preferredChunk ?? READ_AHEAD;
+        const want = Math.min(this.left, Math.max(n - o, ahead));
         if (want <= 0) throw new Error('InstallShield: onverwacht einde van de cabinet-data');
-        const blob = this.cab.volumeBlob(this.vol);
-        const b = new Uint8Array(await blob.slice(this.pos, this.pos + want).arrayBuffer());
+        const b = await this.cab.volumeSource(this.vol).read(this.pos, this.pos + want);
         if (b.length !== want) throw new Error('InstallShield: cabinet is afgekapt');
         this.buf = b;
         this.bufPos = 0;

@@ -3,6 +3,7 @@
 // case-insensitively (the EXE asks for `_data\Bricks.bob`, `_Data\sounds\...`), plus the four movies from the CD.
 
 import type { CabEntry, InstallShieldCab } from './engine/installshield.ts';
+import { LoadState, pool, type ByteSource } from './engine/bytesource.ts';
 
 export interface MediaFile {
   size: number;
@@ -17,6 +18,8 @@ export type Progress = (done: number, total: number, label?: string) => void;
 
 export interface GameFiles {
   readonly source: SourceKind;
+  /** Where the bytes come from: 'range' (HTTP ranges via the proxy), 'progressive' (archive.org download in progress), 'stored' (OPFS), ... */
+  readonly route?: string;
   /** Installed-layout paths with forward slashes and their original case (`_data/sounds/z02LGI/x.wav`). */
   list(): string[];
   has(path: string): boolean;
@@ -26,6 +29,22 @@ export interface GameFiles {
   read(path: string): Promise<Uint8Array>;
   /** Sum of all file sizes. */
   totalSize(): number;
+  /**
+   * True when `read(path)` will not have to wait: the file's bytes are local. On the first visit from archive.org the data
+   * arrives as one sequential download, so files late in the cabinet are not there yet (see `ready`).
+   */
+  loaded(path: string): boolean;
+  /**
+   * Resolves when all `paths` are loaded. Over the progressive archive.org download this waits for the download to reach
+   * them; over the range route it fetches exactly those files; everywhere else it resolves at once. Unknown paths are
+   * ignored. Use it before starting a zone and show a loading card while it is pending (`loading` has the progress).
+   */
+  ready(paths: Iterable<string>): Promise<void>;
+  /**
+   * Loading state of the game data, or null when everything is local: `done`/`total` bytes, `fraction`, `complete`,
+   * `error`, and `subscribe(fn)` (returns the unsubscribe function) to follow it.
+   */
+  readonly loading: LoadState | null;
   /** One of the movies on the CD (`SdLogo`, `LegoSoftware`, `IntroFmv`, `outroFmv`; any case, `.mpg` optional), or null. */
   movie(name: string): Promise<MediaFile | null>;
 }
@@ -89,6 +108,34 @@ export interface FileRef {
   path: string;
   size: number;
   read(): Promise<Uint8Array>;
+  /** Default: always local. */
+  loaded?(): boolean;
+  ready?(): Promise<void>;
+  /** Where the bytes are in a byte source (neighbouring files are fetched with one request in `GameFiles.ready`). */
+  extent?: { src: ByteSource; start: number; end: number };
+}
+
+/** A movie from a byte source (ISO / HTTP range): streamed in `chunk`-sized reads. */
+export function sourceMedia(src: ByteSource, chunk = 2 << 20): MediaFile {
+  return {
+    size: src.size,
+    stream: () => {
+      let pos = 0;
+      let next: Promise<Uint8Array> | null = null;
+      const fetchAt = (o: number) => src.read(o, Math.min(src.size, o + chunk));
+      return new ReadableStream<Uint8Array>({
+        async pull(ctl) {
+          if (pos >= src.size) return ctl.close();
+          const cur = next ?? fetchAt(pos);
+          next = pos + chunk < src.size ? fetchAt(pos + chunk) : null; // read ahead: one chunk in flight while this one plays
+          next?.catch(() => {});
+          const b = await cur;
+          pos += b.length;
+          ctl.enqueue(b);
+        },
+      });
+    },
+  };
 }
 
 /** A set of files with case-insensitive lookup (every source builds one of these). */
@@ -97,9 +144,12 @@ export class FileSet implements GameFiles {
   private files = new Map<string, FileRef>();
   private total = 0;
   private movieFn: (name: string) => Promise<MediaFile | null>;
+  readonly loading: LoadState | null;
+  route?: string;
 
-  constructor(source: SourceKind, files: FileRef[], movie: (name: string) => Promise<MediaFile | null>) {
+  constructor(source: SourceKind, files: FileRef[], movie: (name: string) => Promise<MediaFile | null>, loading: LoadState | null = null) {
     this.source = source;
+    this.loading = loading;
     this.movieFn = movie;
     for (const f of files) {
       this.files.set(normalizePath(f.path), f);
@@ -111,10 +161,35 @@ export class FileSet implements GameFiles {
   has(path: string) { return this.files.has(normalizePath(path)); }
   size(path: string) { return this.files.get(normalizePath(path))?.size ?? -1; }
   totalSize() { return this.total; }
+  loaded(path: string) {
+    const f = this.files.get(normalizePath(path));
+    return !f || (f.loaded?.() ?? true);
+  }
+  async ready(paths: Iterable<string>) {
+    const todo = [...paths].map((p) => this.files.get(normalizePath(p))).filter((f): f is FileRef => !!f && !(f.loaded?.() ?? true));
+    // files with an extent in the same source: merge neighbours (gap up to 512 KB) into one prefetch
+    const withExt = todo.filter((f) => f.extent).sort((a, b) => (a.extent!.src === b.extent!.src ? a.extent!.start - b.extent!.start : 0));
+    const jobs: (() => Promise<void>)[] = todo.filter((f) => !f.extent).map((f) => () => f.ready?.() ?? Promise.resolve());
+    let cur: { src: ByteSource; start: number; end: number } | null = null;
+    const flush = () => { if (cur) { const c = cur; jobs.push(() => c.src.prefetch?.(c.start, c.end) ?? Promise.resolve()); } cur = null; };
+    for (const f of withExt) {
+      const x = f.extent!;
+      if (cur && cur.src === x.src && x.start - cur.end <= (512 << 10)) cur.end = Math.max(cur.end, x.end);
+      else { flush(); cur = { ...x }; }
+    }
+    flush();
+    await pool(jobs, 8, (j) => j());
+  }
   read(path: string) {
     const f = this.files.get(normalizePath(path));
     if (!f) return Promise.reject(new Error(`Bestand niet gevonden: ${path}`));
-    return f.read();
+    const trace = (globalThis as { __le2Trace?: { path: string; at: number; ms: number; size: number; waited: boolean }[] }).__le2Trace;
+    if (!trace) return f.read();
+    const at = performance.now();
+    const waited = !(f.loaded?.() ?? true);
+    const pending = ((trace as unknown as { pending?: Map<string, number> }).pending ??= new Map());
+    pending.set(f.path, Math.round(at));
+    return f.read().then((b) => { pending.delete(f.path); trace.push({ path: f.path, at: Math.round(at), ms: Math.round(performance.now() - at), size: f.size, waited }); return b; });
   }
   movie(name: string) {
     return this.movieFn(name);
@@ -123,7 +198,14 @@ export class FileSet implements GameFiles {
 
 /** The files of the cabinet's Game group in their installed layout. */
 export function cabFileRefs(cab: InstallShieldCab): FileRef[] {
-  return cab.files(GAME_GROUP).map((e: CabEntry) => ({ path: e.path, size: e.size, read: () => cab.read(e) }));
+  return cab.files(GAME_GROUP).map((e: CabEntry) => ({
+    path: e.path,
+    size: e.size,
+    read: () => cab.read(e),
+    loaded: () => cab.loaded(e),
+    ready: () => cab.ready(e),
+    extent: (() => { const x = cab.extent(e); return x ? { src: cab.volumeSource(x.volume), start: x.start, end: x.end } : undefined; })(),
+  }));
 }
 
 /** The files of a CD / ISO listing: find the folder with data1.hdr + data1.cab + data2.cab. Returns its prefix, or null. */

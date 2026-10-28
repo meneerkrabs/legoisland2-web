@@ -2,6 +2,8 @@
 // Prefers the Joliet tree (mixed-case long names like "LEGO Eiland 2/data1.cab"), falls back to the plain ISO9660 names
 // (upper case, 8.3, ";1" removed) when the disc has no Joliet volume descriptor.
 
+import { sliceSource, toSource, type ByteSource } from './bytesource.ts';
+
 const SECTOR = 2048;
 
 export interface IsoEntry {
@@ -13,18 +15,25 @@ export interface IsoEntry {
 
 export class IsoVfs {
   private map = new Map<string, IsoEntry>();
-  private blob: Blob;
+  private src: ByteSource;
+  private blob: Blob | null;
   readonly volumeId: string;
   readonly joliet: boolean;
 
-  private constructor(blob: Blob, volumeId: string, joliet: boolean) {
+  private constructor(blob: Blob | null, src: ByteSource, volumeId: string, joliet: boolean) {
     this.blob = blob;
+    this.src = src;
     this.volumeId = volumeId;
     this.joliet = joliet;
   }
 
-  static async open(blob: Blob): Promise<IsoVfs> {
-    const read = async (lba: number, len: number) => new DataView(await blob.slice(lba * SECTOR, lba * SECTOR + len).arrayBuffer());
+  /** `iso`: a Blob (File, OPFS file) or any ByteSource (e.g. HTTP range requests). */
+  static async open(input: Blob | ByteSource): Promise<IsoVfs> {
+    const src = toSource(input);
+    const read = async (lba: number, len: number) => {
+      const b = await src.read(lba * SECTOR, lba * SECTOR + len);
+      return new DataView(b.buffer, b.byteOffset, b.byteLength);
+    };
     // volume descriptors start at sector 16: type 1 = primary, 2 = supplementary (Joliet: escape sequence %/@ %/C %/E)
     let primary: DataView | null = null;
     let joliet: DataView | null = null;
@@ -48,7 +57,7 @@ export class IsoVfs {
       }
       : (b: Uint8Array) => String.fromCharCode(...b);
     const volumeId = decode(new Uint8Array(use.buffer, 40, 32)).trim();
-    const iso = new IsoVfs(blob, volumeId, !!joliet);
+    const iso = new IsoVfs(input instanceof Blob ? input : null, src, volumeId, !!joliet);
     const walk = async (lba: number, size: number, prefix: string) => {
       const dir = await read(lba, size);
       let off = 0;
@@ -88,10 +97,18 @@ export class IsoVfs {
     return this.map.get(path.replace(/\\/g, '/').toLowerCase());
   }
 
-  /** A file as a lazily read Blob (random access without loading it). */
+  /** A file as random-access bytes (a window of the ISO). */
+  source(path: string): ByteSource {
+    const e = this.stat(path);
+    if (!e) throw new Error(`niet gevonden in de ISO: ${path}`);
+    return sliceSource(this.src, e.lba * SECTOR, e.size);
+  }
+
+  /** A file as a lazily read Blob (only when the ISO was opened from a Blob). */
   file(path: string): Blob {
     const e = this.stat(path);
     if (!e) throw new Error(`niet gevonden in de ISO: ${path}`);
+    if (!this.blob) throw new Error('IsoVfs.file: de ISO is geen Blob; gebruik source()');
     return this.blob.slice(e.lba * SECTOR, e.lba * SECTOR + e.size);
   }
 }
