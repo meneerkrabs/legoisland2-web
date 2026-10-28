@@ -221,3 +221,19 @@ Everything is deterministic for a given `seed` (pattern and variation choices).
 `?play=1` (start at once; click once for sound), `&intro=0` (skip the intro), `&movie=SdLogo` (only that movie), `&mute=1` (silent),
 `&source=archive` (archive.org even when the dev copy exists), `&throttle=150000` (hand movies out at that many bytes/s: exercises the stall handling). Headless: `node tools/browse.mjs "<url>" tools/steps/<steps>.mjs`.
 `window.__le2Movies` holds the statistics of the movies played.
+
+## Game engine (`src/game/`): browser side
+
+The engine core (records, controllers / behaviour nodes, game variables, collision, animation player, input mapper, Pepper's walk / swim, chase camera, `World` / `GameLoop`, zone set-up) is documented in docs/re/engine-m1.md (modules, ported functions, constants, findings, tests); these are the browser-side parts.
+
+* `src/game/render.ts`: `GameRenderer(renderer, data, archive, scene, loaded, fog, lights, shadowArchive).render(alpha, dt)` draws one frame of a `Loaded` zone. Chase camera interpolated between `camera.prev` and `camera.c`
+  (`viewEye` is the plain eye: the original's wall push is compiled out), game projection from the zone's fog setup (draw-distance slider `gr.slider`, default 50), records in record order with interpolated matrices
+  (`prev` -> `m`), LOD, sky / sea special records as in the viewer. Records with `anim` within 150 units are CPU-skinned every frame from `anim.pose(alpha)` into a per-record dynamic mesh (`Renderer.updateMeshVertices`);
+  others show the bind pose (MFIG clip 2 frame 0). Attachments use `mul(bone, world)`. Pepper gets the type 4 blob shadow (`Shadow.msh`, four `world.col.sweep` rays down, lifted 0.08).
+  `gr.info` = last eye / target / camera distance / draw counts. `Renderer.texture(archive, id, '')` reads textures at the archive root (the Shadow archive).
+* `src/game/play.ts`: `startPlay(root, files, params)` loads the zone, calls `setupZone`, reads var names and the key table from the EXE, attaches the input and runs the `GameLoop`. HUD (top left, H toggles): fps, zone, Pepper position,
+  state (hex), clip / frame, speed, camera distance, key help. Sound: `GameAudio` unless muted; `world.sfx.play(id)` lazily loads each id (the first play of an id is dropped), footstep / land ids and a few UI ids are preloaded,
+  island music `Z02LGIM` and ambience `LGIBirds` are started (all failures ignored).
+* Entry: `/?play=1&zone=z02LGI|z03PPH` (also the two "Rondlopen ... (test)" buttons on the placeholder page). Params: `zone`, `pos=x,y,z` (Pepper start), `from=z03PPH` (island: arrive at the house door instead of the skate park), `era=N` (stored in `__game.era`, unused), `mute=1` (no audio).
+* Debug handle `window.__game`: `{ ready, world, loaded, loop, renderer (GameRenderer), gl (Renderer), setPepper(x, y, z, yaw?), state(), era, zone, sfx }`; `state()` returns `{ tick, pos, yaw, walkState, clip, frame, speed, mode, cam: [eye, target], fps, lastSurface }`.
+  Headless: `node tools/browse.mjs "http://localhost:5611/?play=1&zone=z02LGI&mute=1" steps.mjs --size 1280x800` (wait for `__game.ready`, hold keys with `page.keyboard.down('ArrowUp')`).

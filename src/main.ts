@@ -135,6 +135,13 @@ async function play(files: GameFiles, params = new URLSearchParams(location.sear
   showFiles(files);
 }
 
+/** the engine's dev entry (src/game/play.ts) on a zone; keeps the URL's other params (pos, era, mute) */
+function startGame(files: GameFiles, zone: string) {
+  const params = new URLSearchParams(location.search);
+  params.set('zone', zone);
+  return import('./game/play.ts').then((m) => m.startPlay(app, files, params));
+}
+
 function showFiles(files: GameFiles) {
   app.replaceChildren();
   const list = files.list();
@@ -165,6 +172,8 @@ function showFiles(files: GameFiles) {
     info,
     el('div', { className: 'books' },
       ...Object.values(MOVIES).map((m) => el('button', { textContent: `Film: ${m.file}`, onclick: async () => { await runMovie(files, m.file); showFiles(files); } })),
+      el('button', { textContent: 'Rondlopen op het eiland (test)', onclick: () => startGame(files, 'z02LGI') }),
+      el('button', { textContent: "Rondlopen in Pepper's huis (test)", onclick: () => startGame(files, 'z03PPH') }),
       el('button', { textContent: 'Eiland in 3D bekijken', onclick: () => import('./viewer/index.ts').then((m) => m.startViewer(app, files)) }),
       el('button', { textContent: 'Terug naar begin', onclick: () => startScreen() })),
     table,
@@ -187,6 +196,11 @@ async function boot() {
   if (params.has('play')) {
     addEventListener('pointerdown', () => audio.unlock(), { once: true });
     const lib = await availableSource();
+    if (params.has('zone')) {
+      // ?play=1&zone=z02LGI: straight into the walkable zone (src/game/play.ts), no movies
+      const files = await lib.open((d, t, l) => { document.title = `${l ?? ''} ${Math.round((100 * d) / t)}%`; });
+      return startGame(files, params.get('zone')!);
+    }
     return play(await lib.open((d, t, l) => { document.title = `${l ?? ''} ${Math.round((100 * d) / t)}%`; }), params);
   }
   return startScreen();

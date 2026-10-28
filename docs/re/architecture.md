@@ -799,9 +799,9 @@ Sizes are decompiled lines of the matching address ranges (0.35-0.5 TypeScript l
 |---|---|---|---|---|---|
 | 1 | platform shell: canvas, fullscreen, pause on hidden, settings + save storage | main + window 80 / 3k | - | DOM, localStorage/IndexedDB | partly (`src/engine`) |
 | 2 | VFS: `.bod/.bob` archives, loose override, string tag files | Sdlib files/text ~100 / 2k | - | `src/engine/vfs.ts`, `formats/archive.ts`, `formats/text.ts` | yes |
-| 3 | frame loop + dt (1/30 unit, clamps) | 1.4 (~20 / 0.5k) | 1 | `requestAnimationFrame` | - |
+| 3 | frame loop + dt (1/30 unit, clamps) | 1.4 (~20 / 0.5k) | 1 | `requestAnimationFrame` | yes (`src/game/world.ts`, M1) |
 | 4 | **renderer**: D3D7 fixed function -> WebGL2: 30 state presets (table at 0x89b020), fog (linear), 3 alpha-class passes, Z/W, texture formats, `.wib` animated textures, mesh draw + LOD + frustum, CPU skinning, lights, 2D XYZRHW quads, dynamic effect VBs | graphics core 265 / 9.3k + model/draw library 153 / 7.2k | 2 | WebGL2 | viewer renderer: meshes, textures, 3 passes |
-| 5 | **object framework**: records, controllers, behaviour nodes (3 passes), game variables, focus/camera globals | SGGen glue 181 / 9k | 4 | TS classes; nodes as closures/objects with `update/prerender/destroy/draw` | - |
+| 5 | **object framework**: records, controllers, behaviour nodes (3 passes), game variables, focus/camera globals | SGGen glue 181 / 9k | 4 | TS classes; nodes as closures/objects with `update/prerender/destroy/draw` | yes (`src/game/`, M1) |
 | 6 | **collision**: `.col` grid + analytic shapes, sweep `FUN_00441270`, ground ray, probe pass | GSMS collision ~60 / 2k | 5 | formats.md 8.1 + 4.1 | parser yes |
 | 7 | **animation**: `.blk` rigs, clip player, attachments, `.man` splines, expressions | SDAnim + GSMS ~100 / 3k | 4, 5 | formats.md 8.2 | parser + `sampleBlk` yes |
 | 8 | **waypoint walker** + routing | 80 + 40 / 3k | 5 | formats.md 7.1 + 4.6 | parser yes |
@@ -852,7 +852,7 @@ Options:
 | milestone | scope | validates |
 |---|---|---|
 | M0 (done) | formats, viewer (meshes/textures/placement), movies, archive access | |
-| M1 engine core | game-var array + names; frame loop (30 Hz unit, dt clamp); object records from `extractZone`; controller/node framework (3 passes, gating, return codes); collision queries (`.col`); animation player; waypoint walker; input mapper; camera trio + chase camera; 2D/text/HUD primitives; sound basics | a free-roam scene: Pepper walking in z03PPH / island with SGwalk, camera, collision |
+| M1 engine core (**done**, see [engine-m1.md](engine-m1.md)) | game-var array + names; frame loop (30 Hz unit, dt clamp); object records from `extractZone`; controller/node framework (3 passes, gating, return codes); collision queries (`.col`); animation player; waypoint walker; input mapper; camera trio + chase camera; 2D/text/HUD primitives; sound basics | a free-roam scene: Pepper walking in z03PPH / island with SGwalk, camera, collision |
 | M2 shell | front end (z60FRE scene, menu engine from table 0x8a9338, options, credits), pause/result menus, save/load (own format), zone loop + FSM + `FUN_00404d14` semantics, HUD | the whole top-level state machine with stub zones |
 | M3 first mini-games (small, template-pure) | z38PAR, z40aPO (same loop), z36CNT, z05WAB, z17WAS, z39ASB, z41MAP; rooms z04IFC, z50LTC; z03PPH (trophies) | zone template, medals/results, messages/speech, `FUN_00404d14` |
 | M4 island | z02LGI eras 0-4: story handler `FUN_004b7040`, Pepper node chain + PepSwitc, NPC/talk/Turn2Pep/MeetPepp/Human1 nodes, StartCSM triggers + **cutscene runner**, doors/portals, buildings (brick-morph), pizza delivery, bunnies/birds, vehicles (boat, heli, car), director node, music | the largest dependency set; most shared code of the other hubs |

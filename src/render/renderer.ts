@@ -220,6 +220,25 @@ export class Renderer {
   /** upload an already parsed (possibly modified, e.g. skinned) mesh */
   uploadMesh(msh: Msh): MeshGpu { return this.upload(msh); }
 
+  private vscratch = new Float32Array(0);
+  /**
+   * Rewrite the positions and normals of a mesh made with `uploadMesh` (CPU skinning each frame). UVs stay those of `m.msh`; the bounds are not updated.
+   * `positions` / `normals` hold 3 floats per vertex, like `Msh`.
+   */
+  updateMeshVertices(m: MeshGpu, positions: Float32Array, normals: Float32Array) {
+    const gl = this.gl, n = m.msh.vertexCount, uvs = m.msh.uvs;
+    if (this.vscratch.length < n * 8) this.vscratch = new Float32Array(n * 8);
+    const vb = this.vscratch;
+    for (let i = 0; i < n; i++) {
+      const o = i * 8;
+      vb[o] = positions[i * 3]; vb[o + 1] = positions[i * 3 + 1]; vb[o + 2] = positions[i * 3 + 2];
+      vb[o + 3] = normals[i * 3]; vb[o + 4] = normals[i * 3 + 1]; vb[o + 5] = normals[i * 3 + 2];
+      vb[o + 6] = uvs[i * 2]; vb[o + 7] = uvs[i * 2 + 1];
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, m.buffers[0]);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, vb, 0, n * 8);
+  }
+
   private upload(msh: Msh): MeshGpu {
     const gl = this.gl;
     const n = msh.vertexCount;
@@ -258,7 +277,7 @@ export class Renderer {
     const key = `${archive.name}/${dir}`;
     if (!this.txl.has(key)) {
       let f: Uint8Array | null = null;
-      const e = archive.find(`${dir}/text.txl`);
+      const e = archive.find(`${dir ? dir + '/' : ''}text.txl`);
       if (e) { const d = archive.read(e); const n = d[4] | (d[5] << 8) | (d[6] << 16) | (d[7] << 24); f = d.subarray(8, 8 + n); }
       this.txl.set(key, f);
     }
@@ -276,10 +295,10 @@ export class Renderer {
     try {
       let rgba: Uint8Array | null = null, w = 0, h = 0, frames = 1;
       let anim: TexAnim | undefined;
-      const tg = archive.find(`${dir}/Text${num}.tga`);
+      const tg = archive.find(`${dir ? dir + '/' : ''}Text${num}.tga`);
       if (tg) { const im = parseTga(archive.read(tg)); rgba = im.rgba; w = im.width; h = im.height; }
       else {
-        const wb = archive.find(`${dir}/Text${num}.wib`);
+        const wb = archive.find(`${dir ? dir + '/' : ''}Text${num}.wib`);
         if (wb) {
           const wi = parseWib(archive.read(wb));
           rgba = wi.frames[wi.sequence[0] ?? 0]; w = wi.width; h = wi.height; frames = wi.frameCount;
