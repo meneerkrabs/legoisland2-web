@@ -56,6 +56,7 @@ export default async ({ page, wait, log, evaluate }) => {
     }, key);
     await wait(4000);
     r2.stats = await evaluate(() => window.__audio.ga.music.stats);
+    r2.cpuPercent = +(100 * r2.stats.renderMs / 1000 / r2.stats.seconds).toFixed(1);
     log(JSON.stringify(r2));
   }
   await evaluate(() => { const { ga } = window.__audio; ga.music.stopAll(); ga.ambience.stop(); });
