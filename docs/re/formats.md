@@ -356,7 +356,7 @@ brick-built buildings of `BrickMorph`) are not in these tables; many moving obje
 
 ### 7.1 Coordinate system - **high**
 
-* **Left-handed, +Y up** (Direct3D 8 style; the EXE uses DirectX 8 through the "Graph" library: `Direct3D HAL` in `GameSetup.txt`). X right, Z into the screen, Y up.
+* **Left-handed, +Y up** (Direct3D style; the EXE uses **DirectDraw 7 + Direct3D 7** (`IDirect3DDevice7`, state blocks, `CreateDevice` on the `IDirect3D7` object) through the "Graph" library: `Direct3D HAL` in `GameSetup.txt`; see rendering.md). X right, Z into the screen, Y up.
   The island's ground is near y = 20..45, sea level y = 2.4 (Moreno), characters ~3.2 units tall, the island spans about +-600 units in x/z.
 * Units are arbitrary game units (a minifig is 3.2 high; a 1x1 brick stud pitch looks like 0.8..1 unit). 30 Hz is the animation sample rate (Moreno; anim fragment).
 * **Matrices are row-major, row vectors**: `v' = v * M`; translation in row 3 (floats 12..14). A composed transform is applied left to right: `v * local * parent * world`. Uploading such an array to
@@ -1191,8 +1191,8 @@ The key vocabulary and ids are in the EXE data table at 0x8b72a4 (entries of 84 
 
 | File | Key (id) | N | Range in data | Meaning |
 | --- | --- | --- | --- | --- |
-| app | `fSCTIndex` (1) | 1 | 0..128 | start colour-table index |
-| app | `fSCTIndexInc` (2) | 1 | 0..20 | colour-table index increment per second |
+| app | `fSCTIndex` (1) | 1 | 0..128 | start rotation index into a 256-entry sin/cos table (SCT = sin/cos table, FUN_00454460; rendering.md 7.3): the sprite's start angle in 1/256 turn |
+| app | `fSCTIndexInc` (2) | 1 | 0..20 | spin speed in table steps per 1/30 s tick |
 | app | `iSSprite` (3) / `iESprite` (4) | 1 | 0..60 / 0..64 | start / end sprite (frame) index in the 8x8 sprite sheet |
 | app | `fSSize` (5) / `fESize` (6) | 1 | 0..10 / 0..20 | start / end size |
 | app | `rgbaSColour` (7) / `rgbaEColour` (8) | 4 | 0..65280 | start / end colour r g b a, 8.8 fixed point (65280 = 255.0) |

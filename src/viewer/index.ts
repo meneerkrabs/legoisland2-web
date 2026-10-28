@@ -1,11 +1,13 @@
 // Asset / zone viewer: ?viewer=1[&zone=z02LGI][&mode=grid][&data=data/le2/]
 // Loads a zone archive (+ the placement tables read out of the executable), draws every placed object
 // with its textures, free-fly camera (WASD + drag, Q/E down/up, Shift fast), object list + picking.
-import { Renderer } from './renderer.ts';
-import type { MeshGpu, TexGpu } from './renderer.ts';
+import { Renderer, SkyState, SeaState, SKY_MODE, SEA_MODE, SEABED_MODE, SEA_EDGE_MODE, DEFAULT_FOV, cameraFromFog, defaultLights, lightSetFromLgt, projection, selectLod } from '../render/index.ts';
+import type { MeshGpu, TexGpu, CameraSetup } from '../render/index.ts';
 import { GameData, type FileSource, ZONES, OTHER_ARCHIVES } from './data.ts';
-import { lookDirLH, mul, perspectiveLH, transformPoint } from './math.ts';
-import type { Mat4 } from './math.ts';
+import { lookDirLH, mul, transformPoint } from '../render/math.ts';
+import type { Mat4 } from '../render/math.ts';
+import { parseLgt } from '../formats/lights.ts';
+import { extractRenderParams } from '../formats/zoneparams.ts';
 import type { Archive } from '../formats/archive.ts';
 import type { ZoneScene, Model } from '../formats/exe.ts';
 import { parseBlk, sampleBlk, parseSvwl, skinPositions, skinNormals } from '../formats/anim.ts';
@@ -22,7 +24,12 @@ interface Obj {
   matrix: Mat4;
   parts: Part[];
   center: number[]; radius: number;
+  /** environment object (sky dome, sea plane, seabed): not pickable, ignored when framing the scene */
   sky?: boolean;
+  /** special placement of the zone's SSKY / SSEA records (src/render/environment.ts) */
+  kind?: 'sky' | 'sea';
+  /** part draw mode (src/render/states.ts): 0 default, 2 sky / shore foam, 3 sea / seabed */
+  mode?: number;
   info: string;
 }
 
@@ -62,12 +69,16 @@ export async function startViewer(root: HTMLElement, files?: FileSource) {
   const modeSel = document.createElement('select');
   modeSel.add(new Option('placed objects (from exe)', 'scene')); modeSel.add(new Option('mesh grid (all .msh)', 'grid'));
   const lod0 = Object.assign(document.createElement('input'), { type: 'checkbox', checked: false });
+  const chk = (v: boolean) => Object.assign(document.createElement('input'), { type: 'checkbox', checked: v });
+  const gameLook = chk(params.get('game') !== '0');   // the game's projection (fov, range), fog, lighting, sky / sea placement
+  const mips = chk(params.get('mips') === '1');       // the game has no mip maps
+  const distRange = Object.assign(document.createElement('input'), { type: 'range', min: '0', max: '100', value: params.get('slider') ?? '50' }); // options slider: far = lerp(farMax, farMin, v / 100)
   const cullSel = document.createElement('select');
   cullSel.add(new Option('cull back (CW front)', 'cw')); cullSel.add(new Option('cull back (CCW front)', 'ccw')); cullSel.add(new Option('no culling', 'none'));
   const status = document.createElement('div'); status.className = 'v-status';
   const infoBox = document.createElement('div'); infoBox.className = 'v-info';
   const row = (label: string, el: HTMLElement) => { const d = document.createElement('div'); d.append(label + ' ', el); return d; };
-  hud.append(row('zone', zoneSel), row('view', modeSel), row('force LOD0', lod0), row('winding', cullSel), status, infoBox);
+  hud.append(row('zone', zoneSel), row('view', modeSel), row('game look', gameLook), row('draw distance', distRange), row('mip maps', mips), row('force LOD0', lod0), row('winding', cullSel), status, infoBox);
   const help = document.createElement('div');
   help.textContent = 'WASD move, Q/E down/up, Shift fast, drag = look, wheel = speed, click = select, H = hide UI';
   help.style.opacity = '.6'; hud.append(help);
@@ -86,6 +97,11 @@ export async function startViewer(root: HTMLElement, files?: FileSource) {
   let selected = -1;
   const cam = { pos: [0, 100, -300], yaw: 0, pitch: -0.3, speed: 60 };
   let loadToken = 0;
+  /** per-zone render parameters read from the executable (fog / range, sea level) and the zone's lights */
+  let zoneFog: import('../formats/zoneparams.ts').ZoneRenderParams | null = null;
+  let lights = defaultLights();
+  const sky = new SkyState(false), sea = new SeaState();
+  let fovNow = DEFAULT_FOV;
   const setStatus = (s: string) => { status.textContent = s; };
 
   const basis = () => {
@@ -180,7 +196,12 @@ export async function startViewer(root: HTMLElement, files?: FileSource) {
         setStatus('reading placement tables from the executable…');
         await new Promise((r) => setTimeout(r, 0));
         scene = await data.zoneScene(zone);
-      }
+        zoneFog = extractRenderParams(await data.exe(), scene.builderAt);
+      } else zoneFog = null;
+      lights = defaultLights();
+      const lgt = archive.find('lights/lights.lgt');
+      if (lgt) { try { lights = lightSetFromLgt(parseLgt(archive.read(lgt))); } catch (e) { console.warn('lgt', e); } }
+      sky.spin = zone === 'z02LGI'; sky.angle = 0; sea.anchor = null;
       if (token !== loadToken) return;
       buildObjects(modeSel.value === 'grid' ? scene : null);
       const warn = scene?.warnings.length ? `, ${scene.warnings.length} warnings` : '';
@@ -198,6 +219,7 @@ export async function startViewer(root: HTMLElement, files?: FileSource) {
     if (!archive) return;
     if (scene && modeSel.value === 'scene') {
       const sc = scene;
+      const seenSpecial = new Set<string>();
       for (const r of sc.records) {
         if (!r.model) continue;
         const parts: Part[] = [];
@@ -218,15 +240,18 @@ export async function startViewer(root: HTMLElement, files?: FileSource) {
             bones = col; // sampleBlk's column-vector/column-major layout is byte-identical to our row-vector/row-major convention
           }
         }
-        const sky = r.name === 'SSKY';
-        let matrix = r.matrix;
-        // SSEA is a unit plane (pPlane1, +-1) that the game scales/positions at run time (SeaAmin.c): viewer approximation
-        if (r.name === 'SSEA') { matrix = new Float32Array(r.matrix); matrix[0] *= 1400; matrix[10] *= 1400; matrix[13] = 2.4; }
+        // SSKY / SSEA are unit shapes that the game re-places every frame (src/render/environment.ts); SSKY, SSEA, SEAB, SEAE get fixed draw modes
+        // (only the first record of each name: z38PAR reuses SEAB for a palm tree, z20DSP has two SSKY records of which only the first has the sky behaviour)
+        const special = ['SEAB', 'SSEA', 'SEAE', 'SSKY'].includes(r.name) && !seenSpecial.has(r.name);
+        if (special) seenSpecial.add(r.name);
+        const kind = special && r.name === 'SSKY' ? 'sky' : special && r.name === 'SSEA' ? 'sea' : undefined;
+        const mode = !special ? 0 : r.name === 'SSKY' ? SKY_MODE : r.name === 'SSEA' ? SEA_MODE : r.name === 'SEAB' ? SEABED_MODE : SEA_EDGE_MODE;
+        const matrix = r.matrix;
         const c = m0 ? transformPoint(r.matrix, m0.center) : [r.pos[0], r.pos[1], r.pos[2]];
         const sc3 = Math.max(Math.abs(r.scale[0]), Math.abs(r.scale[1]), Math.abs(r.scale[2]));
         objs.push({
           label: `${r.index} ${r.name} ${parts[0].meshPath?.split('\\').pop() ?? '?'}`,
-          matrix, parts, attach: attach.length && bones ? attach : undefined, bones, center: r.name === 'SSEA' ? [0, 2.4, 0] : c, radius: r.name === 'SSEA' ? 1400 : (m0?.radius ?? 5) * sc3, sky,
+          matrix, parts, attach: attach.length && bones ? attach : undefined, bones, center: c, radius: (m0?.radius ?? 5) * sc3, sky: !!kind, kind, mode,
           info: `record ${r.index} "${r.name}" model ${r.model.array}:${r.model.index}\npos ${r.pos.map((x) => x.toFixed(2)).join(', ')}\nrot ${r.rot.map((x) => x.toFixed(3)).join(', ')} scale ${r.scale.map((x) => x.toFixed(2)).join(', ')}\ncol ${r.col >= 0 ? sc.colPaths[r.col] : '-'}\n` +
             parts.map((p, i) => `LOD${i} @${p.lod}: ${p.meshPath?.split('\\').pop()} tex[${p.texList.join(',')}]`).join('\n'),
         });
@@ -290,8 +315,11 @@ export async function startViewer(root: HTMLElement, files?: FileSource) {
     const cx = med(0), cy = med(1), cz = med(2);
     const dist = real.map((o) => Math.hypot(o.center[0] - cx, o.center[2] - cz)).sort((x, y) => x - y);
     const ext = Math.max((dist[Math.floor(dist.length * 0.85)] ?? 20) * 2, 20);
-    cam.pos = [cx, cy + ext * 0.45, cz - ext * 0.6];
-    cam.yaw = 0; cam.pitch = -0.5; cam.speed = ext / 6;
+    // with the game's draw distance (far plane) the overview has to stay inside it
+    const farNow = gameLook.checked && zoneFog?.fog[0] ? cameraFromFog(zoneFog.fog[0], +distRange.value).far : Infinity;
+    const back = Math.min(ext * 0.6, farNow * 0.3), up = Math.min(ext * 0.45, farNow * 0.1);
+    cam.pos = [cx, cy + up, cz - back];
+    cam.yaw = 0; cam.pitch = -0.2; cam.speed = ext / 6;
   }
 
   // ---- input
@@ -314,7 +342,7 @@ export async function startViewer(root: HTMLElement, files?: FileSource) {
     const rect = canvas.getBoundingClientRect();
     const nx = ((px - rect.left) / rect.width) * 2 - 1, ny = 1 - ((py - rect.top) / rect.height) * 2;
     const { f, right, up } = basis();
-    const th = Math.tan(fovY / 2), asp = rect.width / rect.height;
+    const th = Math.tan(fovNow / 2), asp = rect.width / rect.height;
     const d = [f[0] + right[0] * nx * th * asp + up[0] * ny * th, f[1] + right[1] * nx * th * asp + up[1] * ny * th, f[2] + right[2] * nx * th * asp + up[2] * ny * th];
     const dl = Math.hypot(d[0], d[1], d[2]); d[0] /= dl; d[1] /= dl; d[2] /= dl;
     let best = -1, bestT = Infinity;
@@ -329,7 +357,6 @@ export async function startViewer(root: HTMLElement, files?: FileSource) {
     select(best, false);
   }
 
-  const fovY = (60 * Math.PI) / 180;
   let last = performance.now(), fpsT = 0, frames = 0, fps = 0;
   function frame(now: number) {
     const dt = Math.min(0.1, (now - last) / 1000); last = now;
@@ -341,50 +368,56 @@ export async function startViewer(root: HTMLElement, files?: FileSource) {
     if (keys.has('KeyD')) mv(right, sp); if (keys.has('KeyA')) mv(right, -sp);
     if (keys.has('KeyE') || keys.has('Space')) cam.pos[1] += sp; if (keys.has('KeyQ')) cam.pos[1] -= sp;
 
+    // the game's camera range and fog (zone SetupFog call + the draw-distance slider); a plain free camera otherwise
+    const game = gameLook.checked && scene && modeSel.value === 'scene' && zoneFog?.fog[0] ? cameraFromFog(zoneFog.fog[0], +distRange.value) : null;
+    const camSetup: CameraSetup = game ?? { fov: (60 * Math.PI) / 180, near: 0.5, far: 12000, fog: { enabled: false, color: [0.45, 0.62, 0.85], start: 0, end: 1e6 }, clear: [0.45, 0.62, 0.85] };
+    fovNow = camSetup.fov;
+    renderer.setMipmaps(mips.checked);
+    renderer.updateTextures(dt); sky.update(dt); sea.update(dt);
     renderer.cull = cullSel.value === 'none' ? 0 : 1;
     renderer.cwFront = cullSel.value !== 'ccw';
-    renderer.begin([0.45, 0.62, 0.85]);
+    renderer.fog = camSetup.fog;
+    renderer.lights = game ? lights : defaultLights();
     const aspect = canvas.width / canvas.height;
     const view = lookDirLH(cam.pos, f);
-    const viewProj = mul(view, perspectiveLH(fovY, aspect, 0.5, 12000));
-    const pass = (p: number) => {
-      for (let i = 0; i < objs.length; i++) {
-        const o = objs[i];
-        if (!!o.sky !== (p < 0)) continue;
-        const dist = Math.hypot(o.center[0] - cam.pos[0], o.center[1] - cam.pos[1], o.center[2] - cam.pos[2]);
-        if (!o.sky && dist - o.radius > 6000) continue;
-        let pi = 0;
-        if (!lod0.checked) for (let k = 0; k < o.parts.length; k++) if (o.parts[k].lod <= dist) pi = k;
-        let part = o.parts[pi], m = partMesh(part);
-        if (!m) { for (const q of o.parts) { const mm = partMesh(q); if (mm) { part = q; m = mm; break; } } }
-        if (!m) continue;
-        let world = o.matrix;
-        if (o.sky) { world = new Float32Array(o.matrix); for (const k of [0, 5, 10]) world[k] *= 5000; world[12] += cam.pos[0]; world[13] += cam.pos[1]; world[14] += cam.pos[2]; }
-        if (o.sky) { renderer.gl.disable(renderer.gl.DEPTH_TEST); renderer.gl.disable(renderer.gl.CULL_FACE); }
-        for (const pp of o.sky ? [0, 1, 2] : [p]) renderer.drawMesh(m, world, viewProj, (g) => texFor(part, g), pp, i === selected, modeSel.value === 'scene' ? null : [0.5 + 0.5 * Math.sin(i), 0.5 + 0.5 * Math.sin(i * 1.7 + 1), 0.6]);
-        if (o.attach && o.bones) {
-          for (const at of o.attach) {
-            let cp = at.parts[0];
-            if (!lod0.checked) for (const q of at.parts) if (q.lod <= dist) cp = q;
-            const cm = cp && partMesh(cp);
-            if (!cm) continue;
-            const bm = o.bones.subarray(at.bone * 16, at.bone * 16 + 16);
-            if (bm.length < 16) continue;
-            const cw = mul(bm, world);
-            renderer.drawMesh(cm, cw, viewProj, (g) => texFor(cp, g), p, i === selected);
-          }
+    const viewProj = mul(view, projection(camSetup, aspect));
+    renderer.begin(camSetup.clear, viewProj);
+    const range = game ? Math.min(camSetup.far, camSetup.fog.enabled ? camSetup.fog.end : camSetup.far) : 3000;
+    const seaLevel = zoneFog?.seaLevel ?? 0;
+    // objects are drawn in record order, each with its three group passes (the game's order: SEAB, SSEA, SEAE, SSKY, LAND, ...)
+    for (let i = 0; i < objs.length; i++) {
+      const o = objs[i];
+      const mx = o.matrix[12], my = o.matrix[13], mz = o.matrix[14];
+      const dist = Math.hypot(mx - cam.pos[0], my - cam.pos[1], mz - cam.pos[2]);
+      const cdist = Math.hypot(o.center[0] - cam.pos[0], o.center[1] - cam.pos[1], o.center[2] - cam.pos[2]);
+      if (!o.sky && cdist - o.radius > (game ? camSetup.far * 1.5 : 6000)) continue;
+      // LOD: distance from the camera to the record's world position (FUN_00443f90)
+      const pi = lod0.checked ? 0 : selectLod(o.parts, dist, 1);
+      let part = o.parts[pi], m = partMesh(part);
+      if (!m) { for (const q of o.parts) { const mm = partMesh(q); if (mm) { part = q; m = mm; break; } } }
+      if (!m) continue;
+      let world = o.matrix;
+      if (o.kind === 'sky') world = sky.matrix(cam.pos, range, o.matrix[13]);
+      else if (o.kind === 'sea') world = sea.matrix(cam.pos, range, seaLevel);
+      renderer.drawMesh(m, world, (g) => texFor(part, g), { mode: o.mode, highlight: i === selected, flat: modeSel.value === 'scene' ? null : [0.5 + 0.5 * Math.sin(i), 0.5 + 0.5 * Math.sin(i * 1.7 + 1), 0.6] });
+      if (o.attach && o.bones) {
+        for (const at of o.attach) {
+          let cp = at.parts[0];
+          if (!lod0.checked) cp = at.parts[selectLod(at.parts, dist, 1)] ?? cp;
+          const cm = cp && partMesh(cp);
+          if (!cm) continue;
+          const bm = o.bones.subarray(at.bone * 16, at.bone * 16 + 16);
+          if (bm.length < 16) continue;
+          renderer.drawMesh(cm, mul(bm, world), (g) => texFor(cp, g), { highlight: i === selected });
         }
-        if (o.sky) { renderer.gl.enable(renderer.gl.DEPTH_TEST); if (renderer.cull) renderer.gl.enable(renderer.gl.CULL_FACE); }
       }
-    };
-    pass(-1);
-    pass(0); pass(1); pass(2);
+    }
     if (selected >= 0) {
       const o = objs[selected];
       const m = partMesh(o.parts[0]);
-      if (m) renderer.drawBox(o.matrix, viewProj, m.min, m.max);
+      if (m) renderer.drawBox(o.matrix, m.min, m.max);
     }
-    const hudLine = `fps ${fps.toFixed(0)}  draws ${renderer.stats.draws}  tris ${(renderer.stats.triangles / 1000).toFixed(0)}k  cam ${cam.pos.map((x) => x.toFixed(0))} yaw ${cam.yaw.toFixed(2)} pitch ${cam.pitch.toFixed(2)}`;
+    const hudLine = `fps ${fps.toFixed(0)}  draws ${renderer.stats.draws}  tris ${(renderer.stats.triangles / 1000).toFixed(0)}k  cam ${cam.pos.map((x) => x.toFixed(0))} yaw ${cam.yaw.toFixed(2)} pitch ${cam.pitch.toFixed(2)}${game ? `  far ${camSetup.far.toFixed(0)} fog ${camSetup.fog.start.toFixed(0)}..${camSetup.fog.end.toFixed(0)}` : ''}`;
     canvas.dataset.hud = hudLine;
     requestAnimationFrame(frame);
   }
