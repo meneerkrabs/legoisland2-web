@@ -218,6 +218,26 @@ Everything is deterministic for a given `seed` (pattern and variation choices).
 
 ## Dev / test URLs
 
+Shell (M2, the real flow: movies -> front end -> story -> zones; `src/shell/`):
+
+| URL | what |
+|---|---|
+| `/` | start screen, "Spelen" starts the shell |
+| `?play=1` | the shell at once (movies, front end); `&intro=0` skips the movies |
+| `?start=frontend` | straight to the front end (no movies) |
+| `?zone=z05WAB[&node=N]` | start in that zone (story node jumped to the zone's first node, or `node=N`); no movies |
+| `?save=N` | continue from save slot N (0..6) of this browser (IndexedDB), no movies |
+| `&mute=1` | no sound |
+| `?play=1&zone=z02LGI` | unchanged M1 dev entry (`src/game/play.ts`, no shell) |
+
+Debug handles: `window.__shell` (the `Shell`: `vars`, `story`, `options`, `slots`, `menu`, `live`, `importSlot`, `exportSlot`), `window.__zone` (running zone: `info`, `loaded`
+(incl. `loaded.setup`, `loaded.skipped`), `world`, `machine` (loop mode / exit), `gr`, `hud`), `window.__fe` (front end mode / page).
+Stub aids in zones without ported gameplay: F9 completes the story step the zone waits for (mini-game: success; room: back to the previous zone), F10 fails a mini-game.
+Save slots: on the load / save / erase page press E (export the highlighted slot as `SaveNN.lgo`) or I (import a `.lgo`).
+Headless tests: `tools/steps/shell-{flow,menu,story,zones,minigame,house}.mjs` (header of each file has the command), `node tools/test-formats.mjs --only shell-menu,shell-ui,shell-save,shell-story,shell-tables,zonesetup,ui-layout,ui-strings`.
+
+Older / other URLs:
+
 `?play=1` (start at once; click once for sound), `&intro=0` (skip the intro), `&movie=SdLogo` (only that movie), `&mute=1` (silent),
 `&source=archive` (archive.org even when the dev copy exists), `&throttle=150000` (hand movies out at that many bytes/s: exercises the stall handling). Headless: `node tools/browse.mjs "<url>" tools/steps/<steps>.mjs`.
 `window.__le2Movies` holds the statistics of the movies played.
@@ -237,3 +257,20 @@ The engine core (records, controllers / behaviour nodes, game variables, collisi
 * Entry: `/?play=1&zone=z02LGI|z03PPH` (also the two "Rondlopen ... (test)" buttons on the placeholder page). Params: `zone`, `pos=x,y,z` (Pepper start), `from=z03PPH` (island: arrive at the house door instead of the skate park), `era=N` (stored in `__game.era`, unused), `mute=1` (no audio).
 * Debug handle `window.__game`: `{ ready, world, loaded, loop, renderer (GameRenderer), gl (Renderer), setPepper(x, y, z, yaw?), state(), era, zone, sfx }`; `state()` returns `{ tick, pos, yaw, walkState, clip, frame, speed, mode, cam: [eye, target], fps, lastSurface }`.
   Headless: `node tools/browse.mjs "http://localhost:5611/?play=1&zone=z02LGI&mute=1" steps.mjs --size 1280x800` (wait for `__game.ready`, hold keys with `page.keyboard.down('ArrowUp')`).
+
+
+## Shell (`src/shell/`, M2)
+
+Details, ported addresses and approximations: docs/re/engine-m2.md (+ shell-m2.md, ui-m2.md, zone-setup.md).
+
+| file | what |
+|---|---|
+| `shell.ts` | `Shell`: canvas (4:3, WebGL2: `Renderer` + `Ui2D`), game vars, `StoryFsm`, `ZoneLoopState` (FUN_00404dc9), options, save slots, audio, input, `run()` zone loop, `runLoop()` fixed 30 Hz; `registerZoneRunner(id, fn)` replaces the stub of a zone (M3+) |
+| `frontend.ts`, `fenodes.ts`, `credits.ts` | z60FRE stage, menu, credits |
+| `playzone.ts`, `loopmachine.ts`, `hud.ts` | stub zone runner, loop template (`LoopConfig`, modes 7/0/1/9/2/3/4/5/8), HUD |
+| `menu.ts`, `menudraw.ts`, `menuui.ts` | menu engine + drawing + event handler (FUN_0041fd45 / 0041d765 / 0041b500) on the page table of the EXE |
+| `tables.ts`, `story.ts`, `save.ts`, `savestore.ts`, `options.ts` | EXE tables, story FSM, `.lgo` format, IndexedDB store, `Settings.set` |
+| `audiohost.ts`, `dik.ts` | audio per zone / menu sounds, DirectInput key codes |
+
+A ported zone: `registerZoneRunner('z05WAB', async (shell, info) => ...)` returning the next zone index (-1 front end, -2 quit), or reuse `LoopMachine` + `nextAfterExit`;
+behaviours attach by constructor address with `registerCtor(address, factory)` (src/game/setup.ts, `Loaded.setup.attaches`).

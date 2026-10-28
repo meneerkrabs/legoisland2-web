@@ -348,7 +348,7 @@ export class Renderer {
       a.timer += dt * GAME_TICK;
       if (a.timer >= a.sequence.length) a.timer %= a.sequence.length;
       const idx = a.sequence[Math.min(a.sequence.length - 1, Math.floor(a.timer))];
-      if (idx !== a.current) {
+      if (idx !== a.current && a.frames[idx]) {
         a.current = idx;
         gl.bindTexture(gl.TEXTURE_2D, t.tex);
         gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);

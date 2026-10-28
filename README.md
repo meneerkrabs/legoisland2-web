@@ -3,7 +3,7 @@
 Een web-port van *LEGO Eiland 2: De Wraak van Dondersteen* (LEGO Island 2: The Brickster's Revenge, Silicon Dreams, 2001;
 Nederlandse uitgave 2002), in TypeScript en Vite.
 
-Status: in ontwikkeling. Het laden van de spelbestanden en het afspelen van de films werkt; het spel zelf volgt.
+Status: in ontwikkeling. Het startscherm leidt naar de echte spelstroom (films, hoofdmenu, verhaal, opslaan/laden); de meeste zones zijn nog een wandel-stub (zie docs/re/engine-m2.md).
 
 **Er zitten geen spelbestanden in deze repo.** De app haalt de bestanden uit de ISO op
 [archive.org](https://archive.org/details/legoeiland2dutch) (of uit je eigen ISO of cd) en bewaart ze in de browser.

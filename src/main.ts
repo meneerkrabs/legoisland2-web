@@ -2,7 +2,7 @@ import './style.css';
 import { audio } from './engine/audio.ts';
 import { playMovie } from './engine/movie.ts';
 import { addIso, ARCHIVE_PAGE, availableSource, cdFolder, GAME_TITLE, removeArchiveCache, removeIso } from './library.ts';
-import { INTRO_MOVIES, MOVIES, type GameFiles, type Progress } from './files.ts';
+import { MOVIES, type GameFiles, type Progress } from './files.ts';
 
 const app = document.getElementById('app')!;
 
@@ -126,13 +126,30 @@ async function runMovie(files: GameFiles, name: string) {
   }
 }
 
-/** Placeholder for the game itself: the intro movies, then a list of the game files to show the data plumbing works. */
+/** The game: start-up movies, then the zone loop (src/shell): front end, story, zones. `?intro=0` skips the movies, `?start=frontend` goes straight to the front end,
+ * `?zone=z02LGI[&node=N]` starts in that zone, `?save=N` loads save slot N (docs/engine-api.md "Dev / test URLs"). */
 async function play(files: GameFiles, params = new URLSearchParams(location.search)) {
   app.replaceChildren();
   const only = params.get('movie');
-  if (only) await runMovie(files, only);
-  else if (params.get('intro') !== '0') for (const name of INTRO_MOVIES) await runMovie(files, name);
-  showFiles(files);
+  if (only) { await runMovie(files, only); showFiles(files); return; }
+  const [{ Shell, registerZoneRunner }, { runFrontEnd }, { runPlayZone }] = await Promise.all([import('./shell/shell.ts'), import('./shell/frontend.ts'), import('./shell/playzone.ts')]);
+  registerZoneRunner('frontend', runFrontEnd);
+  registerZoneRunner('default', runPlayZone);
+  const direct = params.has('zone') || params.has('save') || params.get('start') === 'frontend';
+  const sh = await Shell.create(app, files, {
+    mute: params.get('mute') === '1',
+    intro: params.get('intro') !== '0' && !direct,
+    zone: params.get('zone') ?? undefined,
+    node: params.has('node') ? Number(params.get('node')) : undefined,
+    save: params.has('save') ? Number(params.get('save')) : undefined,
+    start: params.get('start') ?? undefined,
+  }, (m) => { document.title = m; });
+  (window as unknown as { __shell?: unknown }).__shell = sh;
+  if (sh.params.intro) await sh.runIntro();
+  await sh.run();
+  // "Stoppen": back to the start screen
+  sh.canvas.remove();
+  startScreen();
 }
 
 /** the engine's dev entry (src/game/play.ts) on a zone; keeps the URL's other params (pos, era, mute) */
@@ -190,18 +207,15 @@ async function boot() {
     const files = await lib.open((d, t, l) => { document.title = `${l ?? ''} ${Math.round((100 * d) / t)}%`; });
     return import('./viewer/index.ts').then((m) => m.startViewer(app, files));
   }
-  // ?play=1 starts at once (click once for sound), ?intro=0 skips the intro movies, ?movie=SdLogo plays just that movie.
-  // ?source=archive uses archive.org even when dev files are present.
+  // ?play=1&zone=z02LGI|z03PPH: the M1 dev entry (src/game/play.ts): straight into a walkable zone, no shell. ?play=1 alone, ?start=frontend, ?zone= (without play),
+  // ?save= start the real flow (movies, front end, story), see play(). ?source=archive uses archive.org even when dev files are present.
   const params = new URLSearchParams(location.search);
-  if (params.has('play')) {
+  if (params.has('play') || params.has('start') || params.has('zone') || params.has('save')) {
     addEventListener('pointerdown', () => audio.unlock(), { once: true });
     const lib = await availableSource();
-    if (params.has('zone')) {
-      // ?play=1&zone=z02LGI: straight into the walkable zone (src/game/play.ts), no movies
-      const files = await lib.open((d, t, l) => { document.title = `${l ?? ''} ${Math.round((100 * d) / t)}%`; });
-      return startGame(files, params.get('zone')!);
-    }
-    return play(await lib.open((d, t, l) => { document.title = `${l ?? ''} ${Math.round((100 * d) / t)}%`; }), params);
+    const files = await lib.open((d, t, l) => { document.title = `${l ?? ''} ${Math.round((100 * d) / t)}%`; });
+    if (params.has('play') && params.has('zone')) return startGame(files, params.get('zone')!);
+    return play(files, params);
   }
   return startScreen();
 }

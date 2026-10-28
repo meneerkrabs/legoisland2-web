@@ -39,6 +39,8 @@ export class World {
   /** hub zones (z02LGI ...): the draw pass pulls the camera in front of walls (FUN_004229a0) */
   hub = false;
   zone = '';
+  /** the shell samples the input and handles Esc / pause itself (see tick) */
+  externalInput = false;
 
   constructor() { this.vars.set(V.PEPPER_CONTROL, 1); }
 
@@ -49,9 +51,12 @@ export class World {
     for (const r of this.records) r.savePrev();
     for (const r of this.records) r.anim?.beginTick();
     this.camera.savePrev();
-    this.input.update();
-    // Esc (FUN_00423170 -> pause mode 3): the real pause menu is part of the shell (M2); until then it just freezes the update pass
-    if (this.input.pressed & B.ESC) this.frozen = !this.frozen;
+    // the shell (src/shell) samples the input itself once per tick (FUN_00423170) and handles Esc (pause menu); the M1 dev entry lets the world do both
+    if (!this.externalInput) {
+      this.input.update();
+      // Esc (FUN_00423170 -> pause mode 3): in the dev entry it just freezes the update pass
+      if (this.input.pressed & B.ESC) this.frozen = !this.frozen;
+    }
     updatePass(this);
     this.camera.updateView();
     prerenderPass(this);

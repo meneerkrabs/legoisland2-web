@@ -4,6 +4,7 @@
 // Logical bits: 1 Left, 2 Right, 4 Up, 8 Down, 0x10 Ctrl, 0x20 Alt (jump), 0x40 Shift, 0x80 Space, 0x1000 `<>`, 0x2000 Z, 0x4000 X, 0x8000 C,
 // 0x10000 Enter; Esc = 0x40000000 (pause), any key = 0x80000000.
 import type { Pe } from '../formats/exe.ts';
+import { dikToCodes } from '../shell/dik.ts';
 
 export const KEY_TABLE_VA = 0x8aeb20;
 export const KEY_ENTRIES = 13;
@@ -57,8 +58,14 @@ export class InputMapper {
   gamepad = true;
 
   constructor(table: { dik: number; bit: number }[] = DEFAULT_BINDINGS) {
-    this.bindings = table.map((t) => ({ dik: t.dik, bit: t.bit, codes: [...(DIK_TO_CODES[t.dik] ?? []), ...(ALIASES[t.dik] ?? [])] }));
+    this.bindings = this.makeBindings(table);
   }
+
+  private makeBindings(table: { dik: number; bit: number }[]): KeyBinding[] {
+    return table.map((t) => ({ dik: t.dik, bit: t.bit, codes: [...(DIK_TO_CODES[t.dik] ?? dikToCodes(t.dik)), ...(ALIASES[t.dik] ?? [])] }));
+  }
+  /** the options' key bindings changed (Settings.set 4..0x10: DIK per logical bit) */
+  rebind(table: { dik: number; bit: number }[]) { this.bindings = this.makeBindings(table); }
 
   private isGameKey(code: string) { return this.bindings.some((b) => b.codes.includes(code)) || code === 'Escape'; }
 

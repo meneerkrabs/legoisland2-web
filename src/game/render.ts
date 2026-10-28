@@ -14,6 +14,7 @@ import type { Loaded } from './setup.ts';
 import type { GameRecord } from './record.ts';
 import { RF_ENABLED, RF_NO_DRAW } from './record.ts';
 import { V } from './vars.ts';
+import { activeEntries } from '../formats/zonesetup.ts';
 
 interface Part { meshPath: string | null; texList: number[]; lod: number; mesh?: MeshGpu | null }
 interface Attach { bone: number; parts: Part[] }
@@ -112,6 +113,15 @@ export class GameRenderer {
       const mode = !special ? 0 : rec.name === 'SSKY' ? SKY_MODE : rec.name === 'SSEA' ? SEA_MODE : rec.name === 'SEAB' ? SEABED_MODE : SEA_EDGE_MODE;
       const sc3 = Math.max(Math.abs(rec.scale[0]), Math.abs(rec.scale[1]), Math.abs(rec.scale[2]));
       this.views.push({ rec, parts, attach, kind, mode, dyn: new Map(), radius: 5, scale: sc3 });
+    }
+    // the render modes the zone's set-up code assigns (FUN_00444550(record, partMask, mode), extracted by src/formats/zonesetup.ts): translucent props, holograms, ...
+    const setup = this.loaded.setup;
+    if (setup) {
+      const byIndex = new Map(this.views.map((v) => [v.rec.index, v]));
+      for (const e of activeEntries(setup.modes, (v) => this.loaded.world.vars.get(v))) {
+        const rv = e.record >= 0 ? byIndex.get(e.record) : undefined;
+        if (rv && !rv.kind) rv.mode = e.mode;
+      }
     }
   }
 
