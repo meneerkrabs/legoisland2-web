@@ -153,6 +153,7 @@ async function play(files: GameFiles, params = new URLSearchParams(location.sear
   const only = params.get('movie');
   if (only) { await runMovie(files, only); showFiles(files); return; }
   const [{ Shell, registerZoneRunner }, { runFrontEnd }, { runPlayZone }] = await Promise.all([import('./shell/shell.ts'), import('./shell/frontend.ts'), import('./shell/playzone.ts')]);
+  await import('./zones/index.ts');
   registerZoneRunner('frontend', runFrontEnd);
   registerZoneRunner('default', runPlayZone);
   const direct = params.has('zone') || params.has('save') || params.get('start') === 'frontend';

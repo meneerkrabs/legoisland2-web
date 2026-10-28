@@ -95,6 +95,8 @@ export class Shell {
   quit = false;
   /** after the outro movie the front end shows the credits and then continues with this zone (null = normal front end) */
   creditsThen: number | null = null;
+  /** how often each zone (table index) was started in this session: `ZoneGameCtx.attempt` */
+  readonly zoneAttempts = new Map<number, number>();
   private keyTable: { dik: number; bit: number }[];
   private styleEl: HTMLStyleElement;
 

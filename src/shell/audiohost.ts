@@ -60,6 +60,28 @@ export class AudioHost implements SfxSink {
     } catch { /* silent */ }
   }
 
+  /** load 2D sounds ahead (a zone's sound set loaded at its start, e.g. z41MAP FUN_00813500): `play` only requests a sound that is not loaded yet and stays silent that time */
+  preload(ids: Iterable<number>) { for (const id of ids) this.load(id); }
+
+  /** FUN_004435b0: stop a (looping) sound by sound-table id; no-op while it is not loaded */
+  stop(id: number) {
+    if (!this.ga) return;
+    try {
+      const s = this.slots.get(id);
+      if (s && s !== 'loading') this.ga.sfx.stop(s);
+    } catch { /* silent */ }
+  }
+
+  /** FUN_004435b0 + FUN_004435a0: stop the 2D sound and start it again (a sound that is not loaded yet is only requested) */
+  restart(id: number) {
+    if (!this.ga) return;
+    try {
+      const s = this.slots.get(id);
+      if (s === undefined) this.load(id);
+      else if (s && s !== 'loading') { this.ga.sfx.stop(s); this.ga.sfx.play2D(s); }
+    } catch { /* silent */ }
+  }
+
   /** the menu's sound effects (FUN_004b02d4: the four move sounds round-robin) */
   menu(kind: 'move' | 'select' | 'back' | 'onoff') {
     if (kind === 'move') { this.play(SND_UI.MENU_MOVE[this.moveRr]); this.moveRr = (this.moveRr + 1) % 4; }

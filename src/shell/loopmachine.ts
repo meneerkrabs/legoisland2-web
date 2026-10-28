@@ -37,7 +37,7 @@ export interface LoopInput {
   pressed: number;
   /** result of the pause menu step while mode 3 (FUN_0041bd3d): 0 stay, 1 resume, -1 quit to the menu, -2 restart, -3 abort */
   pauseResult?: number;
-  /** result of the result menu step while mode 5 (FUN_0041c092): 0 stay, 1 continue, -2 retry, -3 quit */
+  /** result of the result menu step while mode 5 (FUN_0041c092): 0 stay, 1 continue, -2 retry, -3 quit, 99 back to play (a zone's own dialog) */
   resultResult?: number;
   /** the zone's own play state: the mini-game ended with this result (0 = still going, 1 = success, 2 = failed) -> banner */
   gameOver?: number;
@@ -45,6 +45,8 @@ export interface LoopInput {
   storyAdvanced?: boolean;
   /** var 5 (NEXT_SUBGAME) differs from var 0x59 (CURRENT_SUBGAME) */
   varChanged?: boolean;
+  /** the zone asks for its confirm dialog (mode 5 from mode 2: z04IFC's exit question) */
+  dialog?: boolean;
 }
 
 export class LoopMachine {
@@ -102,6 +104,7 @@ export class LoopMachine {
         if (inp.pressed & (B.ENTER | B.SPACE | B.SHIFT | B.ALT | B.CTRL | B.ANY)) this.set(MODE.PLAY);
         break;
       case MODE.PLAY:
+        if (inp.dialog) { this.set(MODE.RESULT); break; }
         if (inp.gameOver && this.cfg.results) { this.set(MODE.BANNER); break; }
         if (inp.storyAdvanced) this.leave(EXIT.STORY);
         else if (inp.varChanged) this.leave(EXIT.VAR5);
@@ -120,6 +123,7 @@ export class LoopMachine {
       case MODE.RESULT: {
         const r = inp.resultResult ?? 0;
         if (r === 1) this.leave(EXIT.FINISHED);
+        else if (r === 99) this.set(MODE.PLAY);   // a zone's own dialog was cancelled: back to play (FUN_0054996a case 3: `-2` -> mode 2)
         else if (r === -2) this.leave(EXIT.RESTART);
         else if (r === -3) this.leave(EXIT.ABANDON);
         break;

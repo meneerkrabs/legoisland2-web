@@ -148,6 +148,7 @@ export const MENU_FILES = [FRONTEND_FILES, PAUSE_FILES, IFC_FILES] as const;
  * Zones not listed here (z02LGI, z03PPH, z04IFC, ...) take their `SayText` ids from the cutscene script's own `<AREA>/Data/<script>.str`.
  */
 export const ZONE_FILES: Readonly<Record<string, readonly string[]>> = {
+  z01BPK: ['LI/Data/BPK.str'],
   z05WAB: ['LI/Data/wab.str'],
   z08BKD: ['CI/Data/bkd.str'],
   z09JST: ['CI/Data/jst.str'],
@@ -162,6 +163,7 @@ export const ZONE_FILES: Readonly<Record<string, readonly string[]>> = {
   z28HAT: ['AI/Data/hat.str'],
   z36CNT: ['LI/Data/cnt.str'],
   z38PAR: ['LI/Data/parstr.str'],
+  z39ASB: ['OG/Data/ASB.str'],
   z40aPO: ['OG/Data/apo.str'],
   z41MAP: ['OG/Data/map.str'],
   z42BRP: ['OG/Data/brp.str', 'OG/Data/brp2.str'],

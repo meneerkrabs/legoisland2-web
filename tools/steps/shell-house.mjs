@@ -16,7 +16,8 @@ export default async ({ page, shot, wait, log, key }) => {
   await page.waitForFunction(() => window.__zone && window.__zone.info.archive === 'z03PPH' && window.__zone.world.tickCount > 10, null, { timeout: 300000 });
   s = await st(); expect("Pepper's house (room) is running", s.arch === 'z03PPH' && s.mode === 2, JSON.stringify(s));
   await shot('house-1-inside');
-  await page.keyboard.down('ArrowUp'); await wait(1500); await page.keyboard.up('ArrowUp');
+  // (M3: the house has its own fixed cameras, Up walks towards the door and leaving through it ends the visit: walk a little, not out of the house)
+  await page.keyboard.down('ArrowUp'); await wait(350); await page.keyboard.up('ArrowUp');
   await press('Escape'); await wait(500);
   expect('room pause menu is page 29', (await menu()).page === 29);
   await shot('house-2-pause');

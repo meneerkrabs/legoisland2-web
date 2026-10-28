@@ -200,7 +200,8 @@ export default {
       if (zone === 'z02LGI') ok(kinds(A) === kinds(B), `${zone}: player chain ${kinds(A)} / ${kinds(B)}`);
       else {
         // the real house has only SGwalk (+ the ladder, computer and trophy nodes): M1 gave it PepSwitc and sgswim as well
-        ok(kinds(B) === 'SGwalk[5e&1=1]', `${zone}: extracted player chain ${kinds(B)}`);
+        // (M3 z03PPH registers the ports of those nodes when src/zones/z03PPH.ts is imported, e.g. by the m3-z03PPH test running before this one)
+        ok(kinds(B) === 'SGwalk[5e&1=1]' || kinds(B) === 'ClimLadr[5e&0=0] SGwalk[5e&1=1] PeppComp[5e&4=4] TrophyBrowser[5e&2=2] MapView[5e&32=32]', `${zone}: extracted player chain ${kinds(B)}`);
         notes.push(`${zone}: M1 reference chain ${kinds(A)} vs extracted ${kinds(B)} (PepSwitc / sgswim do not exist in the house)`);
       }
       ok(A.walk.accessory === B.walk.accessory || (A.walk.accessory?.index ?? -1) === (B.walk.accessory?.index ?? -1), `${zone}: accessory record`);

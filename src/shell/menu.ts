@@ -100,7 +100,8 @@ export class MenuEngine {
       const r = p.setupAt ? this.hooks.setup?.(this.page, p.setupAt, it, i + this.scroll, this) ?? -1 : -1;
       if (r < 0) { this.list.push(null); continue; }
       this.list.push(it);
-      this.listCount = Math.max(this.listCount, this.scroll + i + 1);
+      // the set-up function returns the number of entries that follow this one (FUN_0041b037: 13 - index - 1, FUN_0041b0d2 / FUN_0041b12d: count - index - 1): they make the list scrollable
+      this.listCount = Math.max(this.listCount, this.scroll + i + 1 + Math.max(0, r));
     }
   }
 
@@ -122,6 +123,7 @@ export class MenuEngine {
   step(pressed: number, mask: number, pointer?: PointerState): MenuEvent {
     if (!this.open) return NO_EVENT;
     const p = this.cur;
+    if (p.kind === 2) this.item = 2;   // FUN_0041fd45: a dialog page's cursor is always on item 2 (its "back" button); used by the z04IFC character pages
     if (p.kind === 1 && this.item === 1) { this.item = 10; this.scroll = 0; this.refreshList(); }
     mask |= 0x20;
     let ev = this.input(pressed, mask, pointer);

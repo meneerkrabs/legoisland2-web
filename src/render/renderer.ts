@@ -22,6 +22,7 @@ layout(location=1) in vec3 aNrm;
 layout(location=2) in vec2 aUv;
 uniform mat4 uMVP;
 uniform mat4 uWorld;
+uniform vec2 uUvOff;
 uniform float uLit;
 uniform vec3 uAmbient;
 uniform int uNumLights;
@@ -33,7 +34,7 @@ out float vDepth;
 void main(){
   vec4 p = uMVP * vec4(aPos,1.0);
   gl_Position = p;
-  vUv = aUv;
+  vUv = aUv + uUvOff;
   vDepth = p.w;
   vec3 c = vec3(1.0);
   if (uLit > 0.5) {
@@ -105,6 +106,8 @@ export interface TexAnim {
   sequence: Uint32Array;
   timer: number;
   current: number;
+  /** FUN_00411202 mode 2 (and the expression sheets): not stepped by `updateTextures`, `setTextureFrame` picks the entry */
+  frozen?: boolean;
 }
 export interface TexGpu { tex: WebGLTexture; soft: boolean; cutout: boolean; w: number; h: number; frames: number; anim?: TexAnim; mips: boolean }
 
@@ -122,6 +125,8 @@ export interface DrawOpts {
   tint?: [number, number, number, number];
   /** which draw passes to run: all three in order (the game's behaviour), or one of 0 / 1 / 2 */
   pass?: 'all' | 0 | 1 | 2;
+  /** texture coordinate offset added to the vertices of a group (the game's FUN_0043ebe0 0x1642 scrolls a group's V coordinate); undefined = none */
+  uvOffset?: (group: number) => readonly [number, number] | undefined;
 }
 
 function mul4(a: Mat4, b: Mat4, out: Mat4): Mat4 {
@@ -172,7 +177,7 @@ export class Renderer {
     this.gl = gl;
     this.prog = compile(gl, VS, FS);
     this.lineProg = compile(gl, LINE_VS, LINE_FS);
-    for (const n of ['uMVP', 'uWorld', 'uTex', 'uUseTex', 'uFlat', 'uColorOp', 'uAlphaOp', 'uTint', 'uLit', 'uHighlight', 'uFogOn', 'uFog', 'uFogRange', 'uAdditive', 'uAmbient', 'uNumLights', 'uLightDir', 'uLightCol']) this.u[n] = gl.getUniformLocation(this.prog, n);
+    for (const n of ['uMVP', 'uWorld', 'uUvOff', 'uTex', 'uUseTex', 'uFlat', 'uColorOp', 'uAlphaOp', 'uTint', 'uLit', 'uHighlight', 'uFogOn', 'uFog', 'uFogRange', 'uAdditive', 'uAmbient', 'uNumLights', 'uLightDir', 'uLightCol']) this.u[n] = gl.getUniformLocation(this.prog, n);
     for (const n of ['uMVP', 'uColor']) this.ul[n] = gl.getUniformLocation(this.lineProg, n);
     this.white = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, this.white);
@@ -305,6 +310,7 @@ export class Renderer {
           // the 16-frame sheets with the identity sequence are expression sheets (faces): the game freezes them on one frame (FUN_00411202); only real animations play
           const sheet = wi.frameCount === 16 && wi.sequence.length === 16 && wi.sequence.every((v, i) => v === i);
           if (!sheet && wi.sequence.length > 1) anim = { frames: wi.frames, sequence: wi.sequence, timer: 0, current: wi.sequence[0] };
+          else if (sheet) anim = { frames: wi.frames, sequence: wi.sequence, timer: 0, current: wi.sequence[0], frozen: true };   // expression sheet: frozen until `setTextureFrame`
         }
       }
       if (rgba) {
@@ -340,11 +346,44 @@ export class Renderer {
     }
   }
 
+  /**
+   * FUN_00411202 (via FUN_00443120 / FUN_0041270c): sets the mode (0 loop, 2 frozen; other modes loop) and the sequence entry of an animated `.wib` texture. `frame` is an index into the
+   * texture's playback sequence and is ignored when out of range (the mode is still applied, the texture stays on its current entry). False when the texture is not animated.
+   */
+  setTextureFrame(archive: Archive, id: number, mode: number, frame: number, dir = 'textures'): boolean {
+    const t = this.texture(archive, id, dir);
+    if (!t) return false;
+    if (!t.anim) {
+      // a `.wib` that the port does not animate (single entry) or an expression sheet created before frames were kept: nothing to select
+      return false;
+    }
+    const a = t.anim;
+    if (mode >= 0 && mode < 3) {
+      const frozen = mode === 2;
+      if (a.frozen && !frozen) a.timer = 0;
+      a.frozen = frozen;
+    }
+    if (frame >= 0 && frame < a.sequence.length) {
+      a.timer = frame;
+      const idx = a.sequence[frame];
+      if (idx !== a.current && a.frames[idx]) {
+        a.current = idx;
+        const gl = this.gl;
+        gl.bindTexture(gl.TEXTURE_2D, t.tex);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, t.w, t.h, gl.RGBA, gl.UNSIGNED_BYTE, a.frames[idx]);
+        if (t.mips) gl.generateMipmap(gl.TEXTURE_2D);
+      }
+    }
+    return true;
+  }
+
   /** Steps all animated (.wib) textures: one sequence entry per 1/30 s, looping (FUN_00410ff8 / FUN_004111a3 once per frame). `dt` in seconds */
   updateTextures(dt: number) {
     const gl = this.gl;
     for (const t of this.animated) {
       const a = t.anim!;
+      if (a.frozen) continue;
       a.timer += dt * GAME_TICK;
       if (a.timer >= a.sequence.length) a.timer %= a.sequence.length;
       const idx = a.sequence[Math.min(a.sequence.length - 1, Math.floor(a.timer))];
@@ -420,6 +459,7 @@ export class Renderer {
     const tint = o.tint ?? [1, 1, 1, 1];
     gl.uniform4f(this.u.uTint, tint[0], tint[1], tint[2], tint[3]);
     gl.uniform1f(this.u.uHighlight, o.highlight ? 1 : 0);
+    gl.uniform2f(this.u.uUvOff, 0, 0);
     const mvp = new Float32Array(16), w2 = new Float32Array(16), viewProj = this.viewProj;
     gl.bindVertexArray(m.vao);
     const passes: (0 | 1 | 2)[] = o.pass === undefined || o.pass === 'all' ? [0, 1, 2] : [o.pass];
@@ -439,6 +479,7 @@ export class Renderer {
         }
         const t = texOf(g);
         gl.activeTexture(gl.TEXTURE0);
+        if (o.uvOffset) { const uo = o.uvOffset(g); gl.uniform2f(this.u.uUvOff, uo ? uo[0] : 0, uo ? uo[1] : 0); }
         if (t) {
           gl.bindTexture(gl.TEXTURE_2D, t.tex);
           gl.uniform1f(this.u.uUseTex, 1);

@@ -37,3 +37,5 @@ html, body { margin: 0; height: 100%; background: #000; color: #eee; font-family
 .le2-files .books { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; }
 .le2-files .books button { padding: 0.5rem 0.9rem; border-radius: 10px; border: 2px solid #e8c872; background: #2c4a1c; color: #fff; cursor: pointer; }
 .le2-files details summary { cursor: pointer; }
+.le2-loadbadge { position: fixed; left: 0.6rem; bottom: 0.6rem; z-index: 40; padding: 0.3rem 0.7rem; border-radius: 999px; background: rgba(0, 0, 0, 0.65); color: #fc3; font: 0.8rem Arial, sans-serif; pointer-events: none; }
+.le2-loadbadge.le2-err { background: #600; color: #fff; }

@@ -17,7 +17,7 @@ import { V } from './vars.ts';
 import { activeEntries } from '../formats/zonesetup.ts';
 
 interface Part { meshPath: string | null; texList: number[]; lod: number; mesh?: MeshGpu | null }
-interface Attach { bone: number; parts: Part[] }
+interface Attach { bone: number; slot: number; parts: Part[] }
 /** a skinned mesh of one record that is re-posed every frame */
 interface Dyn { gpu: MeshGpu; sv: Svwl; pos: Float32Array; nrm: Float32Array }
 interface RecView {
@@ -47,8 +47,22 @@ export class GameRenderer {
   readonly archive: Archive;
   /** options slider of the game's draw distance (0..100, default 50) */
   slider = 50;
+  /** per record: local transform of an attachment slot (the model's `FUN_0043e910(model, slot, matrix)`: z36CNT's helmet visor), applied before the bone matrix */
+  attachLocal = new Map<GameRecord, Map<number, Float32Array>>();
+  /** translucent copies drawn right after their record (z36CNT's motion blur, FUN_007b1a1b: mode 7 + FUN_0043ebe0 alpha): world matrix and alpha 0..1 */
+  ghosts = new Map<GameRecord, { m: Float32Array; alpha: number }[]>();
+  /** extra blob shadows with caller-given corner points (z36CNT: FUN_007b1a1b -> FUN_0087dd20(shadow, type, 5 points)): `pts` = 5 x (x, y, z) in the Shadow.msh vertex order (corner, centre, corner, corner, corner) */
+  extraShadows: { type: number; pts: number[] }[] = [];
+  /** the camera zoom DAT_0089df2c (FUN_0040cd1a), the vertical field of view in radians (default 1.0); zones with a fixed camera (z17WAS 0.4) set it */
+  fov = DEFAULT_FOV;
+  /** near plane override of the zone code (DAT_0089df30 is written by the camera code of some zones, e.g. z41MAP FUN_00816220); null = the zone's fog set-up (`cameraFromFog`) */
+  near: number | null = null;
+  /** a zone's own background drawn right after the frame starts, before the records (z39ASB: the star field quad of FUN_007b7c24 / FUN_0088002d); gets the interpolated eye and the forward vector */
+  backdrop: ((r: Renderer, eye: [number, number, number], fwd: [number, number, number]) => void) | null = null;
   info: FrameInfo = { eye: [0, 0, 0], target: [0, 0, 0], camDist: 0, draws: 0, triangles: 0 };
   private views: RecView[] = [];
+  /** per record and mesh group: texture coordinate offset added when drawing (zones that scroll a texture, e.g. z05WAB's printer paper: `scrollGroup`) */
+  private uvOffsets = new Map<GameRecord, Map<number, [number, number]>>();
   private blks = new Map<string, Blk | null>();
   private posed = new WeakMap<MeshGpu, MeshGpu>();
   private svwls = new WeakMap<MeshGpu, Svwl | null>();
@@ -74,7 +88,19 @@ export class GameRenderer {
     }
   }
 
+  /**
+   * Zones whose code calls SetupFog (FUN_00442d90) more than once: `extractRenderParams` lists the calls in address order and the first one is the default; the call
+   * that runs last wins in the original (Pepper's house: the loop function's third call, near 1 / far 100..500, after the set-up function's own). Moves call `index` to the front.
+   */
+  useFogCall(index: number) {
+    const f = this.fog?.fog;
+    if (f && f[index] && index > 0) { const [x] = f.splice(index, 1); f.unshift(x); }
+  }
+
   // ---------------------------------------------------------------- set-up
+
+  /** a zone game added records (helper records for models the original draws with hand-made matrices): build the views again */
+  refreshViews() { this.buildViews(); }
 
   private getBlk(name: string): Blk | null {
     const key = name.toUpperCase();
@@ -105,7 +131,7 @@ export class GameRenderer {
       const parts = mkParts(rec.model);
       if (!parts.length) continue;
       const attach: Attach[] = [];
-      for (const at of rec.model.attach) if (at) attach.push({ bone: at.bone, parts: mkParts(at.child) });
+      for (const at of rec.model.attach) if (at) attach.push({ bone: at.bone, slot: at.slot, parts: mkParts(at.child) });
       // SSKY / SSEA are unit shapes re-placed every frame; only the first record of each special name has the behaviour (like the viewer)
       const special = ['SEAB', 'SSEA', 'SEAE', 'SSKY'].includes(rec.name) && !seenSpecial.has(rec.name);
       if (special) seenSpecial.add(rec.name);
@@ -123,6 +149,21 @@ export class GameRenderer {
         if (rv && !rv.kind) rv.mode = e.mode;
       }
     }
+  }
+
+  /** add (du, dv) to the texture coordinates of mesh group `group` of the record's first part (accumulates; the repeating texture wraps) */
+  scrollGroup(rec: GameRecord, group: number, du: number, dv: number) {
+    let m = this.uvOffsets.get(rec);
+    if (!m) this.uvOffsets.set(rec, (m = new Map()));
+    const o = m.get(group) ?? [0, 0];
+    o[0] = (o[0] + du) % 1024; o[1] = (o[1] + dv) % 1024;
+    m.set(group, o);
+  }
+  /** number of mesh groups of the record's first part (0 until its mesh is loaded) */
+  groupCount(rec: GameRecord): number {
+    const v = this.views.find((x) => x.rec === rec);
+    const m = v && v.parts[0] ? this.partMesh(v.parts[0]) : null;
+    return m ? m.groups.length : 0;
   }
 
   // ---------------------------------------------------------------- meshes
@@ -225,13 +266,15 @@ export class GameRenderer {
     const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
 
     const fog0 = this.fog?.fog[0];
-    const setup: CameraSetup = fog0 ? cameraFromFog(fog0, this.slider) : { fov: DEFAULT_FOV, near: 0.5, far: 2000, fog: { enabled: false, color: [0.45, 0.62, 0.85], start: 0, end: 1e6 }, clear: [0.45, 0.62, 0.85] };
+    const setup: CameraSetup = fog0 ? cameraFromFog(fog0, this.slider, this.fov) : { fov: this.fov, near: 0.5, far: 2000, fog: { enabled: false, color: [0.45, 0.62, 0.85], start: 0, end: 1e6 }, clear: [0.45, 0.62, 0.85] };
+    if (this.near !== null) setup.near = this.near;
     r.fog = setup.fog; r.lights = fog0 ? this.lights : defaultLights();
     r.cull = 1; r.cwFront = true;
     const cv = r.gl.canvas as HTMLCanvasElement;
     const aspect = cv.width / cv.height;
     const view = lookDirLH(eye, [fx, fy, fz]);
     r.begin(setup.clear, mul(view, projection(setup, aspect)));
+    this.backdrop?.(r, eye, [fx, fy, fz]);
     const range = Math.min(setup.far, setup.fog.enabled ? setup.fog.end : setup.far);
     const seaLevel = world.seaLevel;
     const cullFar = setup.far * 1.5;
@@ -246,7 +289,9 @@ export class GameRenderer {
       const wc = rv.localCenter ? transformPoint(mat, rv.localCenter) : [mat[12], mat[13], mat[14]];
       const cdist = Math.hypot(wc[0] - eye[0], wc[1] - eye[1], wc[2] - eye[2]);
       if (!rv.kind && cdist - rv.radius * rv.scale > cullFar) continue;
-      const pi = selectLod(rv.parts, dist, 1);
+      // FUN_00443f90: the record flags 0x100 / 0x200 / 0x400 force the part (LOD) 0 / 1 / 2 (Pepper's house shows the gold / silver / bronze trophy this way)
+      const forced = rec.flags & 0x700;
+      const pi = forced && rv.parts.length > 1 ? (forced & 0x100 ? 0 : forced & 0x200 ? 1 : Math.min(2, rv.parts.length - 1)) : selectLod(rv.parts, dist, this.fov);
       let part = rv.parts[pi], m = this.partMesh(part);
       if (!m) { for (const q of rv.parts) { const mm = this.partMesh(q); if (mm) { part = q; m = mm; break; } } }
       if (!m) continue;
@@ -265,35 +310,58 @@ export class GameRenderer {
         if (bones) live = this.dynPose(rv, m, bones);
         drawMesh = live ?? this.bindPose(m, part.meshPath ?? '');
       }
-      r.drawMesh(drawMesh, world_, (g) => this.texFor(part, g), { mode: rv.mode });
-      if (rv.attach.length) {
-        if (!bones) {
-          if (rv.bindBones === undefined) {
-            rv.bindBones = null;
-            const mp = rv.parts[0].meshPath;
-            const blk = rec.anim?.rig ?? (mp ? this.getBlk(this.rigOf(mp)) : null);
-            if (blk && blk.skeleton && blk.clips.length > 2 && blk.clips[2].boneCount === blk.skeleton.boneCount) rv.bindBones = sampleBlk(blk.skeleton, blk.clips[2], 0);
-          }
-          bones = rv.bindBones ?? null;
+      const uvs = this.uvOffsets.get(rec);
+      r.drawMesh(drawMesh, world_, (g) => this.texFor(part, g), uvs ? { mode: rv.mode, uvOffset: (g) => uvs.get(g) } : { mode: rv.mode });
+      if (rv.attach.length && !bones) {
+        if (rv.bindBones === undefined) {
+          rv.bindBones = null;
+          const mp = rv.parts[0].meshPath;
+          const blk = rec.anim?.rig ?? (mp ? this.getBlk(this.rigOf(mp)) : null);
+          if (blk && blk.skeleton && blk.clips.length > 2 && blk.clips[2].boneCount === blk.skeleton.boneCount) rv.bindBones = sampleBlk(blk.skeleton, blk.clips[2], 0);
         }
-        if (bones) {
-          for (const at of rv.attach) {
-            let cp = at.parts[0];
-            cp = at.parts[selectLod(at.parts, dist, 1)] ?? cp;
-            const cm = cp && this.partMesh(cp);
-            if (!cm) continue;
-            const bm = bones.subarray(at.bone * 16, at.bone * 16 + 16);
-            if (bm.length < 16) continue;
-            r.drawMesh(cm, mul(bm, world_), (g) => this.texFor(cp, g));
-          }
+        bones = rv.bindBones ?? null;
+      }
+      const drawAttach = (wm: Float32Array, tint?: [number, number, number, number]) => {
+        if (!bones) return;
+        const locals = this.attachLocal.get(rec);
+        for (const at of rv.attach) {
+          let cp = at.parts[0];
+          cp = at.parts[selectLod(at.parts, dist, this.fov)] ?? cp;
+          const cm = cp && this.partMesh(cp);
+          if (!cm) continue;
+          const bm = bones.subarray(at.bone * 16, at.bone * 16 + 16);
+          if (bm.length < 16) continue;
+          const loc = locals?.get(at.slot);
+          r.drawMesh(cm, mul(loc ? mul(loc, bm) : bm, wm), (g) => this.texFor(cp, g), tint ? { preset: 13, tint } : undefined);
         }
+      };
+      drawAttach(world_);
+      const gh = this.ghosts.get(rec);
+      if (gh) for (const g of gh) {
+        r.drawMesh(drawMesh, g.m, (q) => this.texFor(part, q), { preset: 13, tint: [1, 1, 1, g.alpha] });
+        drawAttach(g.m, [1, 1, 1, g.alpha]);
       }
       if (rec === pepper) this.drawShadow(mat);
     }
+    for (const sh of this.extraShadows) this.drawShadowPoints(sh.pts, sh.type);
     this.info = { eye, target: tgt, camDist: Math.hypot(tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]), draws: r.stats.draws, triangles: r.stats.triangles };
   }
 
   // ---------------------------------------------------------------- shadow
+
+  /** a blob shadow of type `type` on the given five points (no ray casts) */
+  private drawShadowPoints(pts: number[], type: number) {
+    const sm = this.shadowMesh, sa = this.shadowArchive;
+    if (!sm || !sa) return;
+    const tex = this.renderer.texture(sa, type, '');
+    if (!tex) return;
+    const P = this.shadowPos;
+    for (let i = 0; i < 15; i++) P[i] = pts[i];
+    for (let i = 0; i < 5; i++) { this.shadowNrm[i * 3] = 0; this.shadowNrm[i * 3 + 1] = 1; this.shadowNrm[i * 3 + 2] = 0; }
+    this.renderer.updateMeshVertices(sm, P, this.shadowNrm);
+    const id = new Float32Array(16); id[0] = id[5] = id[10] = id[15] = 1;
+    this.renderer.drawMesh(sm, id, () => tex, { mode: 2 });
+  }
 
   /** Pepper's blob shadow (rendering.md section 9, type 4): corners 2 units out at heading +-45 / 135 deg, ray-cast down 2 above, lifted 0.08 */
   private drawShadow(mat: Float32Array) {

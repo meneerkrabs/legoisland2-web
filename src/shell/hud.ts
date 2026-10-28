@@ -8,6 +8,12 @@ import type { GameVars } from '../game/vars.ts';
 import type { Ui2D, UiTextureSet } from '../ui/renderer2d.ts';
 
 export interface HudIcon { tex: number; tint: number }
+/**
+ * The vertical gauge of the HUD (FUN_00460214(0x2dc, 0x2b8, 0x2cc, state at 0x5d4e0b8), z36CNT's power meter): 12 segments of 32x16 stacked upwards from y = 508
+ * at x = 732 (800x600 grid; `segments[i]` = texture of segment i, -1 none), a 32x32 marker at x = 696 that slides up with `value` (0..192 px: y centre = 508 - 192 f)
+ * when `marker` >= 0, otherwise the first round(12 f) segments are lit; the icon (`icon`, 60x60 at x = 716, y = 516) is drawn last.
+ */
+export interface HudGauge { value: number; min: number; max: number; segments: number[]; marker: number; icon: number }
 const NONE: HudIcon = { tex: -1, tint: 0xffffffff };
 
 export class Hud {
@@ -20,6 +26,8 @@ export class Hud {
   /** cinematic bars: 0 off, 1 top + bottom, 2 bottom only */
   letterbox: 0 | 1 | 2 = 0;
   visible = true;
+  /** the zone's gauge (null: none) */
+  gauge: HudGauge | null = null;
 
   constructor(set: UiTextureSet | null) { this.set = set; }
 
@@ -60,5 +68,29 @@ export class Hud {
     if (this.rightText) ui.text(1, this.rightText, 699 * k, 69 * k, { colour: 0, align: 'right' });
     if (this.centreText) ui.text(1, this.centreText, 400 * k, 69 * k, { colour: 0, align: 'centre' });
     this.column.forEach((c, i) => icon(c, 20, 516 - 72 * i));
+    if (this.gauge) this.drawGauge(ui);
+  }
+
+  /** FUN_00460214 (800x600 reference grid scaled by 0.8) */
+  private drawGauge(ui: Ui2D) {
+    const g = this.gauge!, k = 0.8;
+    const span = g.max - g.min;
+    // fraction of the range, clamped (the original's float compare chain; a flat range gives 0 / 1)
+    let fr: number;
+    if (g.max > g.min) fr = g.value >= g.max ? 1 : g.value <= g.min ? 0 : (g.value - g.min) / span;
+    else fr = g.value <= g.max ? 1 : g.value >= g.min ? 0 : (g.value - g.min) / span;
+    let n: number;
+    if (g.marker >= 0) {
+      n = 12;
+      const yc = 508 - 192 * fr;
+      ui.sprite(this.set, g.marker, [696 * k, (yc - 16) * k, (696 + 32) * k, (yc + 16) * k]);
+    } else n = Math.max(0, Math.min(12, Math.trunc(12 * fr + 0.5)));
+    for (let i = 0; i < n; i++) {
+      const t = g.segments[i] ?? -1;
+      if (t < 0) continue;
+      const y0 = 492 - 16 * i;
+      ui.sprite(this.set, t, [732 * k, y0 * k, (732 + 32) * k, (y0 + 16) * k]);
+    }
+    if (g.icon >= 0) ui.sprite(this.set, g.icon, [716 * k, 516 * k, (716 + 60) * k, 576 * k]);
   }
 }
