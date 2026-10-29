@@ -252,7 +252,8 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     if (island) hud?.updateIsland(sh.vars);   // FUN_004b908d: every frame of the island loop, whatever the mode
     if (m.mode === MODE.PLAY && gameOver) bannerOpen = true;
     if (m.mode === MODE.BANNER && !bannerOpen) bannerOpen = true;
-    if (m.mode === MODE.RESULT) {
+    if (m.mode === MODE.RESULT) game?.resultTick?.();
+    if (m.mode === MODE.RESULT && !game?.resultHold?.()) {
       const dlg = game?.dialog;   // a zone's own dialog (z04IFC's exit question): page and answers come from the zone
       if (!sh.menu.isOpen) sh.menu.open(dlg ? dlg.page : gameOver === 1 ? 0x10 : 0x13, 0, false);   // FUN_0041c092: kind (success != 1) + 1 -> page 16 (continue / retry) or 19 (retry / abort)
       const r = sh.menu.step(pressed, sh.pointer);
@@ -267,14 +268,16 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     if (m.mode === MODE.BANNER && !game?.tickInBanner) game?.bannerTick?.();
     if (subs.length > 0 && --subs[0].ticksLeft <= 0) subs.shift();
     // a zone whose mode 1 has no panel (the island) leaves it on any button (DAT_00983840 != 0)
-    const anyButton = m.mode === MODE.INTRO && game?.introPanel === false && (pressed & ~B.ESC) !== 0 ? B.ENTER : 0;
-    m.tick({ pressed: ((game?.blockPause?.() ? pressed & ~B.ESC : pressed) | anyButton) & (holding ? B.ESC : ~0), pauseResult, resultResult, gameOver, storyAdvanced, varChanged, dialog: m.mode === MODE.PLAY && !!game?.dialog?.wanted() });
+    const anyButton = (m.mode === MODE.INTRO && game?.introPanel === false && (pressed & ~B.ESC) !== 0) || (m.mode === MODE.BANNER && game?.skipBanner?.() === true) ? B.ENTER : 0;   // skipBanner: z01BPK's banner is left at once without points
+    m.tick({ pressed: ((game?.blockPause?.() ? pressed & ~B.ESC : pressed) | anyButton) & (holding ? B.ESC : ~0), pauseResult, resultResult, gameOver, storyAdvanced, varChanged, dialog: m.mode === MODE.PLAY && !!game?.dialog?.wanted(), help2: m.mode === MODE.PLAY && !!game?.wantsHelp2?.() });
     if (resultResult === 99) resultResult = 0;   // a zone dialog's "back to play" answer is used once
+    game?.everyTick?.(m.mode);
     if (m.mode !== prev && m.mode === MODE.PAUSE && prev !== MODE.PAUSE) sh.menu.open(PAUSE_PAGE[cfg.pauseKind], cfg.pauseMask, true);
     if (m.mode !== prev && (prev === MODE.INTRO || prev === MODE.HELP)) ctx.stopSpeech();
     if (m.mode !== prev && game) {
       if (m.mode === MODE.PLAY && (prev === MODE.INTRO || prev === MODE.HELP || prev === MODE.INIT)) game.onStart?.();
       if (m.mode === MODE.BANNER) game.onBanner?.(gameOver);
+      if (prev === MODE.HELP2 && m.mode === MODE.PLAY) game.onHelp2End?.();
     }
     if (prev === MODE.PAUSE && m.mode !== MODE.PAUSE) sh.menu.close();
     if (prev === MODE.RESULT && m.mode !== MODE.RESULT) sh.menu.close();
@@ -311,7 +314,7 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     if (m.mode === MODE.HELP && helpControls) drawHelp(sh.ui, sh.menuSet, strings, helpControls, panelEnv);
     // spoken lines of the game while playing (a mini-game of the original shows no subtitle for them, only the cutscenes do: the cutscene style of FUN_0045d47f)
     if (subs.length > 0 && sh.options.subtitlesOn && m.mode === MODE.PLAY) drawSubtitle(sh.ui, subs[0].text);
-    if (m.mode === MODE.PAUSE || m.mode === MODE.RESULT) sh.menu.draw(sh.ui, sh.menuSet);
+    if (m.mode === MODE.PAUSE || (m.mode === MODE.RESULT && !game?.resultHold?.())) sh.menu.draw(sh.ui, sh.menuSet);
     // mode 4, the end banner (FUN_00465d39): the medal text (STD.str) at y = 150, or the failure text
     if (m.mode === MODE.BANNER && game?.drawBanner) game.drawBanner(sh.ui, gameOver);
     else if (m.mode === MODE.BANNER) drawBannerScreen(sh.ui, panelEnv, { lines: [{ text: gameOver === 1 ? sh.std.text('SGGOLD') : sh.msgs.label('!EndGame3M0'), y: 150, wrap: 30 }] }, sh.std);

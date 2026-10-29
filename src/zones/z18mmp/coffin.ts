@@ -1,0 +1,188 @@
+// The memory game: the 12 symbols in the coffins (constructor FUN_006abf47, update FUN_006aadf6). Pepper knocks on a lid (VAR OPEN), the lid swings open and the symbol
+// rises; the second coffin of a pair decides: the same symbol = the pair stays (the two symbols float to the key's place), another one = both close again after 20 ticks.
+// Every coffin's node also runs the animation loop of all twelve mummies (FUN_006aadf6 does it at its end), so each mummy is stepped 12 times a tick.
+import { NODE_STOP } from '../../game/controller.ts';
+import type { BehaviourNode } from '../../game/controller.ts';
+import type { GameRecord } from '../../game/record.ts';
+import type { World } from '../../game/world.ts';
+import { REC, VAR, BIT, CLIP, SND, MUSIC, K } from './consts.ts';
+import { MmpShared } from './shared.ts';
+import { coffinOfMask } from './pepper.ts';
+
+/** the states of a coffin (node +0x22) */
+export const CS = { IDLE: 0, OPENING: 1, OPEN: 3, WRONG: 5, CLOSING: 6, MATCHED: 7 } as const;
+
+export class CoffinNode implements BehaviourNode {
+  readonly kind = 'mmpCoffin';
+  var = 2; mask = 0; value = 0;
+  stamp = 0xfffffffe;
+  readonly sh: MmpShared;
+  /** +0x18: the coffin's bit (1 << n), +0x1c: the bit of its partner (0 = this is the first of a pair), +0x20: n, +0x21: tick counter, +0x22: state, +0x24: squared distance to Pepper */
+  bit: number; partner = 0; n: number; counter = 0; state: number = CS.IDLE; dist = 0;
+  ticks = 0;
+
+  constructor(sh: MmpShared, n: number) { this.sh = sh; this.n = n; this.bit = 1 << n; }
+
+  /** the constructor FUN_006abf47: the coffin's lid faces the way its case does */
+  init(world: { records: readonly GameRecord[] }) {
+    const cs = world.records[REC.CASE[this.n]], coff = world.records[REC.COFFIN[this.n]];
+    coff.rx = 0; coff.rz = 0;
+    coff.ry = Math.atan2(cs.m[8], cs.m[10]);
+    this.partner = 0; this.state = CS.IDLE; this.counter = 0;
+  }
+
+  /** FUN_006aadb0: the lid's knock-open sound: the second handle when the first one still plays */
+  private openSound(p: { x: number; y: number; z: number }) {
+    const s = this.sh.sounds;
+    if (!s.idle3D('coffinOpenA')) s.play3D('coffinOpenB', SND.COFFIN_OPEN, p); else s.play3D('coffinOpenA', SND.COFFIN_OPEN, p);
+  }
+  /** FUN_006aad6a: the rotating symbol's loop: while the first handle is busy it is refreshed, otherwise the second one plays */
+  private spinSound(p: { x: number; y: number; z: number }) {
+    const s = this.sh.sounds;
+    if (!s.idle3D('symSpinA')) s.play3D('symSpinA', SND.SYMBOL_SPIN, p); else s.play3D('symSpinB', SND.SYMBOL_SPIN, p);
+  }
+  private stopSpin() { this.sh.sounds.stop3D('symSpinA'); this.sh.sounds.stop3D('symSpinB'); }
+
+  update(w: World, rec: GameRecord): number {
+    const sh = this.sh, vars = w.vars, rs = sh.records, snd = sh.sounds, dt = w.dt;
+    const n = this.n, bit = this.bit;
+    const coff = rs[REC.COFFIN[n]], mummy = rs[REC.MUMMY_OF[n]];
+    this.ticks++;
+    let x = rec.x, y = rec.y, z = rec.z;
+    this.dist = rec.ctrl?.distSq ?? 0;
+    if (K.OPEN_REACH <= this.dist) vars.andNot(VAR.NEAR, bit); else vars.or(VAR.NEAR, bit);
+    const coffAt = () => ({ x: coff.x, y: coff.y, z: coff.z });
+
+    switch (this.state) {
+      case CS.IDLE: {
+        if ((vars.get(VAR.OPEN) & bit) !== 0) {
+          const t = vars.get(VAR.PENDING) & BIT.ALL;
+          if (t === 0) { this.partner = 0; vars.set(VAR.PENDING, bit); } else { this.partner = t; vars.set(VAR.PENDING, 0); }
+          this.state = CS.OPENING; this.counter = K.OPEN_TICKS;
+          rec.flags |= 2;
+          this.openSound(coffAt());
+          mummy.flags |= 2; sh.track[n] = 1;
+        }
+        break;
+      }
+      case CS.OPENING: {
+        if (sh.puzzleMusicArmed) { snd.music(MUSIC.PUZZLE); sh.puzzleMusicArmed = false; }
+        coff.ry -= K.LID_TURN;
+        coff.setEuler(0, coff.ry, 0, coff.x, coff.y, coff.z);
+        this.spinSound(coffAt());
+        y += K.SYMBOL_RISE * dt;
+        if (--this.counter === 0) { vars.or(VAR.READY, bit); this.state = CS.OPEN; sh.track[n] = 1; }
+        break;
+      }
+      case CS.OPEN: {
+        if (this.partner === 0) {
+          if ((vars.get(VAR.MATCHED) & bit) === 0) {
+            if ((vars.get(VAR.READY) & bit) === 0) { this.counter = K.WRONG_TICKS; this.state = CS.WRONG; }
+          } else { snd.play2D(SND.MATCH_OK); this.state = CS.MATCHED; }
+        } else if ((vars.get(VAR.READY) & this.partner) !== 0) {
+          const other = rs[REC.SYMBOL[coffinOfMask(this.partner)]];
+          if (rec.name === other.name) {
+            const laugh = SND.LAUGH[rec.name];
+            if (laugh !== undefined) snd.play3D(`laugh${rec.name}`, laugh, { x: rec.x, y: rec.y, z: rec.z });
+            snd.play2D(SND.MATCH_OK);
+            this.state = CS.MATCHED;
+            vars.or(VAR.MATCHED, bit); vars.or(VAR.MATCHED, this.partner);
+          } else {
+            this.counter = K.WRONG_TICKS; this.state = CS.WRONG;
+            snd.play2D(SND.MATCH_FAIL);
+          }
+          vars.andNot(VAR.READY, bit); vars.andNot(VAR.READY, this.partner);
+        }
+        break;
+      }
+      case CS.WRONG: {
+        if (--this.counter === 0) {
+          this.counter = K.OPEN_TICKS; this.state = CS.CLOSING;
+          snd.play3D('coffinClose', SND.COFFIN_CLOSE, coffAt());
+          mummy.anim?.start(CLIP.M_OUT, 0);
+          sh.track[n] = 3;
+        }
+        break;
+      }
+      case CS.CLOSING: {
+        coff.ry += K.LID_TURN;
+        coff.setEuler(0, coff.ry, 0, coff.x, coff.y, coff.z);
+        y -= K.SYMBOL_RISE * dt;
+        if (--this.counter === 0) {
+          vars.andNot(VAR.OPEN, bit);
+          this.state = CS.IDLE;
+          y = K.SYMBOL_REST_Y;
+          mummy.flags &= ~2;
+          this.stopSpin();
+        }
+        break;
+      }
+      case CS.MATCHED: {
+        // the symbol floats to the key's place (0.4 per tick per axis), the pair is done when both arrived
+        const key = rs[REC.KEY];
+        let arrived = 0;
+        if (z - key.z <= 0.4) { if (-0.4 <= z - key.z) arrived = 1; else z += 0.4 * dt; } else z -= 0.4 * dt;
+        if (x - key.x <= 0.4) { if (-0.4 <= x - key.x) arrived += 1; else x += 0.4 * dt; } else x -= 0.4 * dt;
+        if (this.partner === 0) {
+          if ((vars.get(VAR.OPEN) & bit) === 0) {
+            mummy.anim?.start(CLIP.M_GONE, 0); sh.track[n] = 4; this.state = CS.IDLE;
+          } else if (arrived === 2) vars.or(VAR.READY, bit); else vars.andNot(VAR.READY, bit);
+        } else if (arrived === 2 && (vars.get(VAR.READY) & this.partner) !== 0) {
+          this.state = CS.IDLE;
+          mummy.anim?.start(CLIP.M_GONE, 0); sh.track[n] = 4;
+          vars.andNot(VAR.OPEN, bit); vars.andNot(VAR.OPEN, this.partner);
+          vars.or(VAR.PENDING, BIT.KEY);
+          this.stopSpin();
+          snd.play2D(SND.MELD);
+        }
+        break;
+      }
+    }
+    rec.ry += K.SPIN * dt;
+    this.trackMummies(w);
+    rec.setEuler(rec.rx, rec.ry, rec.rz, x, y, z);
+    return NODE_STOP;
+  }
+
+  /** the end of FUN_006aadf6: the animation phases of the twelve mummies */
+  private trackMummies(w: World) {
+    const sh = this.sh, rs = sh.records, dt = w.dt, track = sh.track;
+    for (let i = 0; i < 12; i++) {
+      const m = rs[REC.MUMMY_OF[i]], ma = m.anim;
+      if (!ma) continue;
+      switch (track[i]) {
+        case 1: if (ma.advance(0.1, dt) !== 0) { ma.start(CLIP.M_RISE, 0); track[i] = 2; } break;
+        case 2: ma.advance(0.1, dt); break;
+        case 3: if (ma.advance(0.1, dt) !== 0) { ma.start(CLIP.M_SLEEP, 0); track[i] = 0; m.flags &= ~2; } break;
+        case 4: {
+          const r = ma.advance(0.1, dt);
+          const f = Math.trunc(ma.frame);
+          const s = K.MUMMY_LEAVE * dt;
+          m.m[12] += s * m.m[8]; m.m[13] += s * m.m[9]; m.m[14] += s * m.m[10];
+          if (r !== 0 || f > 0x1e) {
+            ma.start(CLIP.M_STAND, 0);
+            sh.poof = 90;
+            track[i] = 5;
+            sh.sounds.play3D('bones', SND.BONES, { x: m.x, y: m.y, z: m.z });
+          }
+          break;
+        }
+        case 5: {
+          // the mummies in the puff of smoke: gone at once, the timer counts the smoke down (two puffs at most)
+          let k = 0;
+          for (let j = 0; j < 12; j++) {
+            if (track[j] !== 5) continue;
+            const mj = rs[REC.MUMMY_OF[j]];
+            mj.flags &= ~2;
+            k++;
+            sh.poof -= 1.0 * dt;
+            if (sh.poof < 45) mj.flags &= ~2;
+            if (sh.poof < 0) track[j] = 6;
+            if (k === 2) j = 12;
+          }
+          break;
+        }
+      }
+    }
+  }
+}

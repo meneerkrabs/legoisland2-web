@@ -1,0 +1,163 @@
+# z09JST: "Jousting" (M6 port)
+
+The tournament of the Castle Island (story node 23, zone table index 8, archive `z09JST`, source file `Common\z09JST\c_src\GameLoop.c`, castle hub z07CSI): Pepper rides against the Dark Knight.
+Both knights gallop at each other along the barrier; the player builds up speed by pressing LEFT / RIGHT in turns, lets go with SPACE and steers the lance (arrow keys) so that
+the aim marker sits on the Dark Knight's shield when they meet. Three points win the tournament; the score is the sum of (speed bonus x precision bonus) of the rounds that were hit,
+the medal (bronze / silver / gold) is 3 minus the Dark Knight's points. There is **no PEPP record** in the archive: the zone has its own player objects (the knight JKIT on a horse, the
+dark knight DRKK on DRKH) and its own camera; the engine's dummy player is never used.
+
+Addresses are VAs of the NL retail build; `FUN_` names are the Ghidra names of `decomp-le2/LE2.c`. The decompile hides several `x87` arguments and some stored results; every place
+where that mattered was checked against `LE2.asm.txt` (see 6).
+
+## 1. Files
+
+| file | what |
+|---|---|
+| `src/zones/z09JST.ts` | registration: `registerCtor` for the four constructors (`JSTGame` 0x5d1f64, `Flag` 0x5d3e7c, `Anims` 0x5d3cc1, `Drkk` 0x5d3ad4) + `registerZoneGame('z09JST', createJstGame)` |
+| `src/zones/z09jst/duel.ts` | **the simulation** (pure TS, no DOM): `JoustDuel` = the constructor FUN_005d1f64 + update FUN_005ce506 (36 states) + the camera FUN_005f2f0b + helpers; `bspline`, `MsvcRng`, `ST` |
+| `src/zones/z09jst/mfig.ts` | `MfigMan`: "mfigman" (FUN_005f3a90 .. FUN_005f3f1b), a horse + saddle + cloak + knight acting as one rider |
+| `src/zones/z09jst/rig.ts` | zone set-up beyond the generic extraction: `giveAnimations` (the builder's anim instances), `readTables`, `Gear` (lance / shield attachments), `makeHost` / `startDuel`, the four node classes |
+| `src/zones/z09jst/consts.ts` | record numbers, rigs, start clips, sound ids, the named floats (address in the comments), `readClipTable` |
+| `src/zones/z09jst/sound.ts` | `JoustSound`: loads the 17 2D + 26 3D sounds of FUN_005d24b0, plays them through the engine's `SoundEngine` |
+| `src/zones/z09jst/screens.ts` | the text lines of the round popup (FUN_005d4070) and the end panel (FUN_005d4467) as data (`popupLines`, `finalLines`) |
+| `src/zones/z09jst/game.ts` | the `ZoneGame`: HUD, aim marker (FUN_005d2814), the panels, `project`, `markerSegments` |
+| `tools/lib/jst-bot.mjs` | scripted player (`jstKeys`): the keys a player presses in each state |
+| `tools/tests/m6-z09JST.mjs` | node tests (`node tools/test-formats.mjs --only m6-z09JST`) |
+| `tools/lib/jst-emu.mjs`, `tools/tests/m6-z09JST-emu.mjs` | the **oracle**: the original's duel code executed in the x86 interpreter next to the port (`--only m6-z09JST-emu`) |
+| `tools/steps/m6-z09JST.mjs`, `m6-z09JST-look.mjs` | headless browser runs with real key input (win, loss, results, retry, abort) / screenshots of every phase |
+| shared edits | `src/zones/index.ts`: one import line; `docs/re/m6/progress.md`: the status section |
+
+## 2. The original, function by function
+
+| address | what | ported in |
+|---|---|---|
+| `FUN_005cd33d` | the zone loop (template 2.3: modes 7 0 1 9 2 3 4 5 8). Mode 0 speaks `CASGJO13`; mode 1 draws the panel `FUN_00460a3d(0x16, 0x14, 0)` with `CASGJO13` at (320, 160), wrap 30; mode 9 = `FUN_00461155(zone table, 7)` (7 control lines); **modes 2 and 4 run the update pass** (the duel goes on in the end banner), mode 2 calls `FUN_0046055f` (HUD) and enters mode 4 when `DAT_05d5ae9c` (the result) is set; mode 4 waits for a button; mode 5 = `FUN_0041c092(.., (result != 1) + 1)`; "continue" = exit 2 on a win / 4 on a loss; a restart re-runs `FUN_005ce332` | the runner (`playzone.ts`, `loopmachine.ts`) + `ZoneGame.tickInBanner` |
+| `FUN_005ce27f` | set-up: builder / loader `FUN_005e628a`, `FUN_005d4add` (copies the 8 rows of the final tableau), records `FUN_005ce1c6`, backdrop, fog `FUN_00442d90(4.0, 200, 500, 400, 0xff9966, 1)`, font `main/bknw`, `CI/Data/jst.str`, overlays `Z09JST` | `extractRenderParams` (fog), `ZONE_FILES`, `rig.ts` |
+| `FUN_005ce1c6` / `FUN_005cdb60` | the camera of the intro (eye (27.49, 20, -83.2), target (208.4, 17.7, -79.1)); the nodes: `JSTGame` on record 4 (LAND), `Flag` on 5..10, `Anims` on the 8 spectators, `Drkk` on 11, sky / sea nodes; start clips (bugles 0x86, king / queen 0x43, the rest 0x3a, flags 1); the four soldiers (records 25..28) are hidden (`flags = 0`) | `startDuel`, `giveAnimations`, `INTRO_CAMERA` |
+| `FUN_005e628a` (0x5f10bc ..) | the builder creates the anim instances (`FUN_0043b4e2(rig, 1)`) and starts clip 1: LFLG on the flags 5..9, BBFG on 10, MFIG on DRKK / JKIT / the spectators, HORS on the horses and saddles (12..14, 16..18, 29) | `RIG_OF` |
+| `FUN_005d1f64` | constructor of `JSTGame`: two mfig managers, nine particle emitters (`botexpl01.par`, 8 x `orsemud1.par`), the first round | `JoustDuel` constructor |
+| `FUN_005ce506` | **update of the node**: crows / wind sounds, then the state machine (36 states, 3), the spectators turning to the knights (`FUN_005ce3a0` x 8), the camera | `JoustDuel.update` |
+| `FUN_005d4860` | **round set-up**: places, gear back on, clips row 0, camera, rates | `JoustDuel.roundReset` |
+| `FUN_005d4698` | **end of the tournament**: speech, medal, hi-score `0x18` and trophy `0xcb` (only raised) | `JoustDuel.finish` |
+| `FUN_005d1d1c` | the horse during the charge: scrubbed with the gauge up to 18, rearing above | `chargeAnim` |
+| `FUN_005d1b41` | hoofbeats by speed class and frame of the gallop | `hooves` |
+| `FUN_005d1ab6` | the dark knight's footsteps (clip 0x5e, frames 5 and 15) | `footsteps` |
+| `FUN_005ce454` | random idle sounds of the horses | `ambient` |
+| `FUN_005d2782` | pitch of the power loop = `ftol(gauge) * 0x5bcc / 0x3c + 0x5fb4` Hz | state 3 |
+| `FUN_005f2f0b` / `FUN_005f2bfc` / `FUN_005f2dd9` | the camera: 16 modes by `+0x100`, smoothing, set-up | `JoustDuel.camera`, `smooth`, `initCamera` |
+| `FUN_005f3a90` .. `FUN_005f3f1b` | mfigman | `MfigMan` |
+| `FUN_00445340` / vtable 0x892268 slot 8 (0x446fd0) | the camera spline of mode 1: a uniform cubic B-spline over 5 control points | `bspline` |
+| `FUN_005d2814` (draw hook of `Drkk`) | the aim marker | `game.ts` `drawReticle` |
+| `FUN_005d4070` / `FUN_005d4467` | round popup / end panel | `popupLines` / `finalBanner` |
+| `FUN_005d3b80`, `FUN_005d3d90`, `FUN_005d27e0` | `Anims` update (advance 1.0 while the level +0x44 is 1..3), `Flag` update (always advance 1.0), `Drkk` update (nothing) | `AnimsNode`, `FlagNode`, `DrkkNode` |
+| `FUN_005d3f30` | HUD: left icon 10 + the Dark Knight's points, right icon 9 + the player's points, centre = score, gauge | `game.ts` |
+| `FUN_005d24b0` | the sounds | `JoustSound` |
+| `FUN_005cd0d0` | sound loads that nothing calls (a template left-over) | - |
+
+## 3. The tournament
+
+### 3.1 State machine (node +0x4c)
+
+| state | meaning | leaves |
+|---|---|---|
+| 0 | first tick | -> 1 |
+| 1 | waits: any held button | -> 2 (charge 0, marker shown) |
+| 2 | the two bugle players (BUG1 / BUG2, clip 0x86) play; the short fanfare `SND_FANFARE_SHORT` plays on frames 40..50 of BUG1 | BUG2's clip ends -> 3 (player row 6, dark knight row 2; the first key is RIGHT unless LEFT is held) |
+| 3 | **charge**: alternate RIGHT then LEFT presses (rising edges), each adds 1.0, every tick `charge -= charge * 0.0075`, 0..60; the gauge (`DAT_05d4e138`) shows it; the horse is scrubbed to the gauge (frame = gauge) up to 18, above 18 it rears (row 7, `ready`); SPACE: not ready -> 4, ready -> 8 | SPACE |
+| 4 | too slow: the player's group rewinds (`-rate`), marker off; at frame 0 the dark knight starts clip 0x5e and **loses lance and shield** | -> 5 |
+| 5 | the dark knight walks to the horse (x - 1 per tick, footsteps) until x <= horse x + 3.7, then clip 0xbe, player row 10 | -> 6 |
+| 6 | he grabs (sound at frame 27), lifts and throws (frame 70) the player; the camera target slides along | the player's clip ends -> 7 (landing sound, explosion effect) |
+| 7 | camera set | -> 0x1f |
+| 8 | the horses rear (player row 8, dark knight row 4) | the player's clip ends -> 9 (neighs, knights' speed = charge x 0.02) |
+| 9 | **the ride**: crowd loop, camera mode 1 (spline), aim wobble + keys, hoofbeats, the knights move 2 x charge x 0.02 per tick; at `player.x - dark.x > -8`: marker off, aim squared distance decides: `< 40` -> 0xb, `<= 60` -> 0xe, else 0xc; the reaction variant = `ftol(rand * ms) & 3` | the clash |
+| 0xb | the player hits: level 1, +1 point, `speed bonus = ftol(2 * charge)`, `precision = ftol(40 - aim^2)` (min 1), `round = product`, total += round; the four reactions (variant 0..3): 0xf / 0x11 / 0x12 / 0x13, speech `CASGJO11` / `11` / `10` / `12`, cameras 9 / 10 / 0xb / 0xc | -> 0x1f when the clip ends |
+| 0xc | the dark knight hits: level 2, +1 point for him, reactions 0x16 / 0x18 / 0x19 / 0x1a, speech `CASGJO07` / `07` / `08` / `07`, cameras 3 / 5 / 6 / 7 | -> 0x1f |
+| 0xe | glancing blow: level 3, both groups mode 0, `CASGJO09`, camera 0xf, state 0x20 (the knights ride on until x > 190) | -> 0x1f |
+| 0x1f | round over: counters refreshed (`FUN_005d1e1b`), gauge 0 | -> 0x21 |
+| 0x21 | popup (`FUN_005d4070`, by the state the clash went to: 4 / 0xb / 0xc / 0xe) | any button -> 0x22 |
+| 0x22 | player < 3 and dark knight < 3: the next round (spectators back to their start clips, `FUN_005d4860`); player 3: **won**; dark knight 3: **lost** | |
+| 0x23 | the tableau: the knights on the rows of `0x905a80` (won: rows 0..3, lost: 4..7), camera 0xe orbits (angle + 0.009 per tick); the end panel (`FUN_005d4467`) is drawn; the loop is in mode 4 | a button -> result menu |
+| 0xd, 0x15, 0x1c, 0x1d | unreachable in the shipped game (no code sets them); ported for completeness | |
+
+Reaction states (0xf .. 0x20) run clips of the groups' rows (read from the executable tables) and move the knights apart by `charge / 32` per tick; the thrown / hit knight is the one whose
+group is in mode 0 (the manager's last record runs on its own, the zone code moves it).
+
+### 3.2 Controls and aim
+
+LEFT / RIGHT in turns build the charge (the key table of the executable: LEFT bit 1, RIGHT bit 2); SPACE (bit 0x80) lets go; during the ride UP / DOWN / LEFT / RIGHT move the aim point **1 unit per tick**
+(`+0x114` = 1.0; UP lowers y, i.e. the marker goes up the screen). Every tick the aim point also gets a random step in `[-s, s]` with `s = (charge * 0.0625 + 1) / 1.4` (up to 3.4 at full
+charge); a step that points away is reduced by `aim / 10` beyond 20 (the original compares *both* signs with +20: ported as it is). Without any key since the start of the
+ride the aim drifts (+1, -1) per tick; the first key press switches the drift off for the rest of the round. A gamepad stick is only read in the original while no key is held (`DAT_0098383c == 0`); the port has no analogue stick.
+The marker is drawn around the shield of the dark knight (the projection of bone 16 of his pose, see 6): white corner marks of 20 units, and the aim point (yellow, red inside radius sqrt(40) = 6.3) with marks of 30 units.
+
+### 3.3 Score, medals, variables
+
+* round points = `ftol(2 * charge) * max(1, ftol(40 - aim^2))` for every hit round, total `+0x108`.
+* medal (`FUN_005d4698`): the player has 3 points: dark knight 0 -> gold (3, `CASGJO01` + `CASGJO02`), 1 -> silver (2, `CASGJO03`), 2 -> bronze (1, `CASGJO04`); the dark knight has 3 -> no medal (`CASGJO05` + `CASGJO06`).
+* **var 0x18 `SWITCH_GME_HISCORE_JST`** = max(old, total), **var 0xcb `SWITCH_GME_TROPHY_JST`** = max(old, medal): written at the end of every tournament, also when it was lost (the score of a lost tournament still counts).
+* result 1 (won) -> result menu page 16 (continue / retry), "continue" = exit 2 = `story.miniGameExit(true, true)` (node 24: z07CSI); result 2 -> page 19 (retry / abort).
+* Maximum round: 120 x 39 = 4680; a perfect tournament is about 14 000; a careful player (charge 40, aim 3 off) gets about 2 500 per round.
+
+## 4. Camera (`+0x100`, FUN_005f2f0b)
+
+| mode | when | camera |
+|---|---|---|
+| 0 | default (rounds start, states 1..8) | follow point = JKIT * (-5, 8.35, -12.5) with y = 20, z - 3.2 + gauge / 15; target = bone 10 of the dark knight; eye / target ease a quarter of the way per tick and the camera takes the values of the tick before |
+| 1 | the ride (state 9) | eye on a B-spline over 5 control points `(25, 21.3, -80) (28, 30, -120) (55, 30, -120) (95, 30, -120)` + `((player - dark) / 2 + (184, 24, -96))` (parameter 0..1 in `half distance / rider speed` ticks); target = player - 0.4 x (player - dark), 6.4 up |
+| 3 / 4 | enemy hit variants | target = the dark knight |
+| 5 / 10 | variants 1 | target = (knight x + 64 / + 200, 2 x y, z) of **bone 0 in model space** (see 6); mode 10: the eye drifts (-0.3, +0.3) below z -75 |
+| 6 / 9 | | target = JKIT + 8 up, eye x + charge / 32 up to 245 / 240 (mode 9: eye z -68, mode 6: eye y 24.8) |
+| 7 / 0xb / 0xc | | target = DRKK (+ 8 / + 4) / JKIT; mode 0xb: eye x - charge / 64 down to 50 |
+| 8 / 0xd | | eye x + 0.55 (up to 170) / eye x - 0.55 and z + 0.6 (down to x 60) |
+| 0xe | the tableau | eye (120, 20, -82), target = the king LKNG with the orbit angle mixed in (`x (1 + sin a)`, `z (1 - cos a)`) |
+| 0xf | glance | target = BQUN |
+
+## 5. Data
+
+* The clip tables of the two managers are read from the executable: `0x90b7c4` (player: [HORS, GSAD, CLOK, JKIT] per row, 19 rows) and `0x90b8f4` (dark knight: [DRKH, RSAD, DRKK, 0]); the camera spline points `0x90b740` (count `0x90b73c`), the follow offset `0x90b7b8`, the final tableau `0x905a80` (8 rows x, y, z, yaw).
+* Models: DRKK (record 11) and JKIT (15) carry the lance (slot 7, `OBJT_PEPLance`, bone 14) and the shield (slot 9, `Bulls_shield` / `PizzaShield`, bone 16) as attachments; the duel removes / restores them
+  (`Gear`: the record gets a private copy of its model, the render views are rebuilt through `GameRenderer.refreshViews`).
+* Sounds: see `consts.ts` `S2D` / `S3D` (the ids of FUN_005d24b0). There is **no music** for this zone (the music table has no JST key; `FUN_00435a07` / `FUN_00435b59` are empty): wind loop, crows, crowd, hoofbeats, fanfares.
+* Texts: `CI/Data/jst.str`: `CASGJO01..13` (speech, voice 1123..1135), `JST1..JST15` (popups), `CONTROL0..6`.
+* Overlay textures `Overlays/Z09JST`: 0 arrow, 1 / 2 / 3 green / yellow / red gauge segments, 8 horse icon, 9 the player, 10 the dark knight.
+
+## 6. Differences and approximations (nothing silently dropped)
+
+* **Particles are not drawn**: the node creates `botexpl01.par` (the landing explosion in state 6) and eight `orsemud1.par` emitters on the horses' hooves (switched on at the start of the ride, off at the end of a round). The port has no particle system yet; `JoustDuel.onEffect` reports the events (`botexpl01`, `orsemud1`, `emitters-off`).
+* **Aim units**: the marker's offsets are in screen pixels of the original's back buffer (`FUN_004445c0` = D3D `ProcessVertices`); the port uses the 640 x 480 virtual grid of the 2D layer (the original's resolution was configurable: 640 / 800 / 1024 wide, so the tolerance of 6.3 px was relatively tighter at higher resolutions).
+* **Marker position**: `FUN_005d2814` projects the local point (0, 0, 0) with the D3D world matrix that the *last drawn object* of `FUN_00444480` left, i.e. the last attachment of the dark knight, the shield (slot 9, bone 16). The port takes bone 16 of his pose (record matrix applied); the shield mesh's own origin offset is ignored.
+* **Camera modes 5 and 10** read `FUN_0043bc58(anim, 0)`: bone 0 of the pose buffer that the draw (`FUN_004440f0`, identity root `PTR_DAT_008b5830` = `DAT_008b57f0`) left, i.e. in model space; the code writes world x + 64 / 200 over its x, doubles y and uses the matrix translation as the target, so z is the pelvis' model-space z (about 0), not a world coordinate. Reproduced as it is (the camera looks along +z at the flying knight's height); the oracle confirms the arithmetic, the space of the buffer follows from the identity root.
+* **Stick**: the analogue stick path (`DAT_00983848 .. 50`) is not ported (no stick values in the port's input mapper); the keys behave like the original's.
+* **Random numbers**: the original uses C `rand()` (MSVC LCG; the port `MsvcRng`, time seeded) and, for the reaction variant, `ftol(rand * GetTickCount-since-start) & 3` (the port uses the tick count x 33.3 ms); the same distributions, not the same sequence.
+* **Subtitles / speech**: speech lines are started with `ctx.say` (ignored while another line is still speaking, like `FUN_00435a11`); lines that arrive while the end popup is up overlap it as in the original.
+* The HUD is drawn after the popup panel (the original draws it last): while a popup is up the zone game draws the HUD itself on top.
+* The unreachable states 0xd, 0x15, 0x1c, 0x1d are ported but no test reaches them.
+* The `SeaAmin` / `seabed` nodes of the set-up are the engine's (the renderer animates the sea itself).
+
+## 7. Tests
+
+`node tools/test-formats.mjs --only m6-z09JST` (328 checks, about 1 s):
+* the executable: 48 floats at their `.rdata` addresses, two doubles, the immediates of FUN_005d4860 / FUN_005ce506 / FUN_005d2782 / FUN_005d4698 / FUN_005ce1c6, the vtables of the four nodes, 43 sound table entries (id, name, file in the zone's folder, loop counts), `jst.str` ids / voice numbers / controls, the clip tables, the final tableau, the spline data, the intro camera;
+* the zone: records and names, the 19 + 8 + 6 + 1 + 1 attaches and node classes, the animation instances and start clips, the hidden soldiers, every clip number used exists in `HORS.blk` / `MFIG.blk`;
+* the B-spline (end points, partition of unity, interior value, continuity), `MfigMan` on fake records (bind, clips, mode 1 / 0 results and follow rules, hold on the last frame, seek);
+* the duel on the real records through `World.tick` and the `JSTGame` node: states 0..3, bugle length and fanfare frames, charge dynamics replayed with an independent model (90 ticks), the toggle rule, cap 60 / floor 0, the horse's clips, power pitch, "too slow" (states 4 5 6 7 1f 21, gear off / on, sounds), ride durations for 4 charges, classification at the boundaries (aim^2 39.9 / 40 / 60 / 60.06), aim keys and drift, wobble / pull-back formulas, 24 hoofbeat combinations, scoring (speed x precision, floor 1), the four reactions of a hit and of a hurt (states, cameras, rows, speech), the glance, every reaction reaching the popup, spectators / flags, HUD refresh timing, medals / speech / variables (only raised) / tableau / gear / sounds, 16 camera modes with their formulas, the spline made once and evaluated, `project`, the marker geometry, `JoustSound` on a fake engine;
+* **scripted matches**: WIN (the bot wins seven seeds, medal = 3 - the dark knight's points, variables), LOSS (3 points for the dark knight, no trophy), GLANCE (no point for anybody, deterministic), TOO SLOW (six thrown-off rounds, no points).
+
+`node tools/test-formats.mjs --only m6-z09JST-emu` (13.5 million checks, about 10 s) is the oracle: `JstEmu` runs the original's `FUN_005d24b0` (sounds), the constructor `FUN_005d1f64` (two mfig managers, the first round `FUN_005d4860`, the camera set-up),
+the update `FUN_005ce506` (all 36 states, mfigman `FUN_005f3b61 .. 005f3f1b`, the camera `FUN_005f2f0b` with the B-spline path object `0x446fd0`, the spectators `FUN_005ce3a0`, `FUN_005d1b41`, `FUN_005d1d1c`, `FUN_005d4698`, ...), the `Flag` / `Anims` node updates and
+the panel code `FUN_005d4070` / `FUN_005d4467` natively in the user's executable; the engine (animation instances = the port's `AnimInstance`, sounds, speech, variables, particles, the gear calls, allocation, `rand()`) is a host table that logs its calls.
+Both sides get the same buttons (the port's input mapper) and the same random numbers (two `MsvcRng` with one seed; the original's `FUN_004388ae` is hosted with it, `GetTickCount` with the tick count). Every tick the test compares 60 fields of the node (state, counters, positions, rates, the aim point, bonus values, the helper vectors of the camera),
+the camera globals, all 30 records' matrices, flags, clips and frames, the two groups' modes and clips, the gauge / result, **every sound / speech / gear call (strict order)**, the particle effect events and **the text lines the original draws in the popups and in the end panel** (id, table, y, wrap, the printed numbers).
+Scenarios: two wins (charge 40 / 30), a loss, SPACE too early, random key mashing, a deterministic glance run, four more win / loss seeds each: all 30 reachable states are visited (not the unreachable 0xd, 0x15, 0x1c, 0x1d), 0 differences, the worst float difference 1.5e-5 (camera x of the spline phase).
+
+## 8. How to run
+
+* Dev server: `http://localhost:5499/?zone=z09JST&mute=1` (story node 23; intro, help, play; Esc = pause menu page 18).
+* Headless with real keys (serve a snapshot, `sh tools/m4-snapshot-server.sh 5605`): `node tools/browse.mjs "http://localhost:5605/?zone=z09JST&mute=1" tools/steps/m6-z09JST.mjs --size 800x520 --out /tmp/m6-z09JST` (about 5 minutes with `JST_QUICK=1`, which plays without the aim wobble; about 12 minutes with the real wobble).
+  The run: intro / help / play / pause, SPACE too early (popup 4), a won tournament (banner, medal, variables, result menu 16, Continue -> z07CSI node 24), a lost one (banner, menu 19, Retry -> fresh duel), the abort (-> node 22, the castle hub; the debug entry `?zone=` leaves the hub's objective variable set, so the story walks on into the duel again at once: the step records the visit of node 22 with a page-side recorder).
+  `tools/steps/m6-z09JST-look.mjs` takes a screenshot at every new state of a won match.
+* Debug handle: `window.__zone.game.duel` (the `JoustDuel`: `state`, `speed`, `gauge`, `aimX`, `aimY`, `hitsP`, `hitsE`, `score`, `medal`, `level`, ...), `window.__zone.game.debug()`.
+
+## 9. For the story / other zones
+
+The zone is entered from the castle (z07CSI) at story node 23 and leaves with `story.miniGameExit(true, true)` (node 24) or rewinds to the castle. Variables other zones read: 0x18 (best score, shown by the information center) and 0xcb (trophy 0..3: Pepper's house shows the gold / silver / bronze jousting trophy, `JST_Gold/Silver/Bronze` models of z03PPH).

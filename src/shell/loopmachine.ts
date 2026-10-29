@@ -26,6 +26,8 @@ export interface LoopConfig {
   help: boolean;
   /** mini-game: results go through the banner (4) and the result menu (5) */
   results: boolean;
+  /** the zone's own end screen replaces mode 4: play goes straight to the result menu (z21FSH FUN_006f3511 case 2: `mode = 5`) */
+  skipBanner?: boolean;
 }
 
 export const HUB_CONFIG: LoopConfig = { hub: true, pauseKind: 0, pauseMask: 0x80, intro: false, help: false, results: false };
@@ -47,6 +49,8 @@ export interface LoopInput {
   varChanged?: boolean;
   /** the zone asks for its confirm dialog (mode 5 from mode 2: z04IFC's exit question) */
   dialog?: boolean;
+  /** the zone asks for its second controls help (z42BRP: the roof phase starts, FUN_0081fd64 mode 10): play -> mode 10 until a button is pressed */
+  help2?: boolean;
 }
 
 export class LoopMachine {
@@ -103,9 +107,13 @@ export class LoopMachine {
       case MODE.HELP:
         if (inp.pressed & (B.ENTER | B.SPACE | B.SHIFT | B.ALT | B.CTRL | B.ANY)) this.set(MODE.PLAY);
         break;
+      case MODE.HELP2:
+        if (inp.pressed & (B.ENTER | B.SPACE | B.SHIFT | B.ALT | B.CTRL | B.ANY)) this.set(MODE.PLAY);
+        break;
       case MODE.PLAY:
         if (inp.dialog) { this.set(MODE.RESULT); break; }
-        if (inp.gameOver && this.cfg.results) { this.set(MODE.BANNER); break; }
+        if (inp.help2) { this.set(MODE.HELP2); break; }
+        if (inp.gameOver && this.cfg.results) { this.set(this.cfg.skipBanner ? MODE.RESULT : MODE.BANNER); break; }
         if (inp.storyAdvanced) this.leave(EXIT.STORY);
         else if (inp.varChanged) this.leave(EXIT.VAR5);
         break;

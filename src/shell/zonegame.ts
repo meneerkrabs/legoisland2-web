@@ -82,6 +82,9 @@ export interface ZoneGame {
   introTick?(): void;
   /** the intro mode shows a cutscene first (z40aPO): while this returns true the runner draws no intro panel, speaks no brief (`introId` is spoken the tick it turns false) and ignores the buttons (the cutscene's skip key is handled by the cutscene) */
   introHold?(): boolean;
+  /** mode 5 (the result menu) first runs a cutscene (z28HAT's outro ADV09): `resultTick` is called every tick of mode 5, the menu neither opens nor draws while `resultHold` returns true */
+  resultHold?(): boolean;
+  resultTick?(): void;
   /** mode 2 starts (after intro / help): music, sounds, timers */
   onStart?(): void;
   /**
@@ -103,8 +106,12 @@ export interface ZoneGame {
   tickInBanner?: boolean;
   /** called every tick of mode 4 (the end banner): with `tickInBanner` after the runner ticked the world; without it just a hook, e.g. to keep animating the player (z17WAS: Pepper's cheer / sad clip) */
   bannerTick?(): void;
+  /** the end banner (mode 4) is left to the result menu without waiting for a button while this is true (z01BPK FUN_0048d8bd case 4: `DAT_05d580bc < 1`, no points) */
+  skipBanner?(): boolean;
   /** called before every 3D render (camera / interpolation tweaks) */
   beforeRender?(alpha: number): void;
+  /** called once at the end of every tick in every loop mode (fade, intro, help, play, pause, banner, result): zones whose camera / HUD code runs every pass of the original's loop (z20DSP FUN_006bd776) */
+  everyTick?(mode: number): void;
   /** the zone ends (any exit): free what the game created */
   destroy?(): void;
   /** debug state for tests (exposed as `window.__zone.game.debug()`) */
@@ -120,6 +127,10 @@ export interface ZoneGame {
   exitNext?(exit: number): number | undefined;
   /** a room asks to leave through the fade-out with this exit state (loopmachine.ts `EXIT`, 2 = finished): polled every tick of mode 2 after `update()` (z03PPH: the door, `DAT_05d587b0`) */
   leaveRequest?(): number | undefined;
+  /** a zone with a second controls help (z42BRP, loop mode 10, `draw2d` is called with mode 10): polled every tick of mode 2 after `update()`; true = show it now (the world stands still until a button is pressed) */
+  wantsHelp2?(): boolean;
+  /** the second help was dismissed (z42BRP: the music groove changes) */
+  onHelp2End?(): void;
 }
 
 export type ZoneGameFactory = (ctx: ZoneGameCtx) => ZoneGame | Promise<ZoneGame>;
