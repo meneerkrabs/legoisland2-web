@@ -4,18 +4,19 @@
 // 2D layer. Behaviour nodes themselves are attached by constructor address (`registerCtor`, src/game/setup.ts) while the scene is set up.
 import type { Archive } from '../formats/archive.ts';
 import type { ZoneScene } from '../formats/exe.ts';
-import type { Loaded } from '../game/setup.ts';
+import type { Loaded, ProfileOptions, ZoneProfile } from '../game/setup.ts';
 import type { World } from '../game/world.ts';
 import type { GameVars } from '../game/vars.ts';
 import type { GameRenderer } from '../game/render.ts';
 import type { MessageTable } from '../ui/strings.ts';
 import type { Ui2D, TextOpts } from '../ui/renderer2d.ts';
 import type { Hud } from './hud.ts';
-import type { CutsceneHost } from './cutscene-host.ts';
+import type { CutsceneHost, CutsceneHostOptions } from './cutscene-host.ts';
 import type { PanelEnv, BannerSpec, ScreenLine } from './helpscreen.ts';
 import type { LoopConfig } from './loopmachine.ts';
 import type { Shell } from './shell.ts';
 import type { ZoneInfo } from './tables.ts';
+import type { EntityRecord, SaveGame } from './save.ts';
 
 /** a subtitle shown while a speech line plays (FUN_00435a11 + the subtitle option of the options menu) */
 export interface Subtitle { id: string; text: string; ticksLeft: number }
@@ -39,6 +40,8 @@ export interface ZoneGameCtx {
   /** 2D scale helpers: the 2D layer is the 640x480 virtual grid of the original's 0x280 x 0x1e0 mode (FUN_00439c6f scales by DAT_008a9920 / 0x280) */
   /** FUN_00439bf8 + FUN_00435a11: speak the zone-table lines `a` (and `b`) by message id (speech index = the id's voice field); the lines are shown as subtitles when the option is on. False while speech is busy. */
   say(a: string | null, b?: string | null): boolean;
+  /** `say` with the lines of another message table (the island's story tables `lifsmN.str`: IslandCtx.say) */
+  sayFrom(table: MessageTable | null, a: string | null, b?: string | null): boolean;
   /** FUN_00435ad3: true when no speech is playing (always true without audio, after the subtitle time) */
   speechIdle(): boolean;
   /** FUN_00435b07: stop the speech */
@@ -73,6 +76,8 @@ export interface ZoneGame {
   introLines?: { id: string; y: number; wrap?: number }[];
   /** number of `CONTROLn` lines of the controls help (mode 9, FUN_00461155(strfile, n)); omitted / 0: no help screen */
   helpControls?: number;
+  /** false: mode 1 waits for ANY button (direction keys included, not Esc) without drawing the intro panel or speaking a brief (the island: FUN_004afaf7 mode 1 waits for DAT_00983840 != 0) */
+  introPanel?: boolean;
   /** called every tick of mode 1 (the intro), before the button check; optional */
   introTick?(): void;
   /** the intro mode shows a cutscene first (z40aPO): while this returns true the runner draws no intro panel, speaks no brief (`introId` is spoken the tick it turns false) and ignores the buttons (the cutscene's skip key is handled by the cutscene) */
@@ -84,6 +89,10 @@ export interface ZoneGame {
    * 1 = success, 2 = failed. The game writes its scores / trophies / game variables itself (as the original does before the end banner).
    */
   update(): number | undefined;
+  /** called in mode 2 right before `world.tick()` (the island: the cutscene frame FUN_0045c402 runs before the controller update FUN_0042226e) */
+  beforeTick?(): void;
+  /** called in mode 2 after the story FSM's frame (FUN_00423bad) when it did not leave: the hub's story handler (z02LGI FUN_004b7040); a returned exit state leaves through the fade out */
+  storyTick?(): number | undefined;
   /** the game ended (the loop went to mode 4): stop sounds, start the result speech (LESGPT0x lines) */
   onBanner?(result: number): void;
   /** draw the 2D layer: the HUD of mode 2 and the zone's overlays; `mode` = loop mode (2 play, 1 intro, 9 help, 4 banner ...), not called in the pause menu */
@@ -114,6 +123,25 @@ export interface ZoneGame {
 }
 
 export type ZoneGameFactory = (ctx: ZoneGameCtx) => ZoneGame | Promise<ZoneGame>;
+
+/** hooks of a zone into the runner's set-up (before the zone game exists): the island runs its set-up in the x86 emulation and installs its context first */
+export interface ZoneSetupHooks {
+  /** options for `profileFor` (the island: `{ islandVars, archive }`) */
+  profileOptions?(sh: Shell, archive: Archive): ProfileOptions;
+  /** after `profileFor`, before `setupZone` (the profile may be adjusted: start place) */
+  beforeSetup?(sh: Shell, world: World, profile: ZoneProfile, archive: Archive, scene: ZoneScene): void;
+  /** right after `setupZone` */
+  afterSetup?(sh: Shell, world: World, loaded: Loaded, archive: Archive): void;
+  /** options of the zone's cutscene host (the island: the shared walker system with its maps, the set-up's name dictionaries) */
+  cutsceneOptions?(sh: Shell, world: World, loaded: Loaded): CutsceneHostOptions;
+  /** extra entities a save writes besides Pepper's (the island: the vehicle Pepper sits in; FUN_00418ec7 writes every record's) */
+  saveEntities?(world: World): EntityRecord[];
+  /** after a load was applied (variables + Pepper's place): restore what the entities / node state of the original's save would (the island: Pepper's vehicle) */
+  restoreSave?(world: World, loaded: Loaded, save: SaveGame): void;
+}
+const setups = new Map<string, ZoneSetupHooks>();
+export function registerZoneSetup(archive: string, hooks: ZoneSetupHooks) { setups.set(archive.toLowerCase(), hooks); }
+export function zoneSetupFor(archive: string): ZoneSetupHooks | undefined { return setups.get(archive.toLowerCase()); }
 const games = new Map<string, ZoneGameFactory>();
 /** register the gameplay of a zone (archive name such as 'z05WAB', case-insensitive) */
 export function registerZoneGame(archive: string, factory: ZoneGameFactory) { games.set(archive.toLowerCase(), factory); }

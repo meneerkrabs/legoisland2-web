@@ -21,7 +21,7 @@ import type { ZoneInfo, StoryNode, MenuPage as RawMenuPage } from './tables.ts';
 import { StoryFsm, ZoneLoopState } from './story.ts';
 import { Options, S } from './options.ts';
 import { IdbBackend, SaveStore } from './savestore.ts';
-import type { SaveHeader, SaveGame } from './save.ts';
+import type { SaveHeader, SaveGame, EntityRecord } from './save.ts';
 import { decodeSave, readSaveHeader, slotFileName, newSaveFromGame, applySaveVars, SAVE_SIZE, encodeSave } from './save.ts';
 import { AudioHost } from './audiohost.ts';
 import { MenuUi, MR } from './menuui.ts';
@@ -38,7 +38,7 @@ export function registerZoneRunner(id: string, fn: ZoneRunner) { runners.set(id.
 /** the live game a save can snapshot (set by the running zone) */
 export interface LiveGame {
   /** snapshot of what is not in the game variables: Pepper's place and the camera */
-  capture(): { pos: [number, number, number]; yaw: number; camera: Float32Array } | null;
+  capture(): { pos: [number, number, number]; yaw: number; camera: Float32Array; entities?: EntityRecord[] } | null;
   /** apply a loaded save in place (FUN_00419e82) */
   restore(save: SaveGame): void;
   cutsceneRunning(): boolean;
@@ -236,7 +236,7 @@ export class Shell {
     const pos = new Float32Array(live.pos), euler = new Float32Array([0, live.yaw, 0]);
     const save = newSaveFromGame({
       vars: this.vars.a, subgame: this.vars.get(0x59), fsmState: this.vars.get(0x58), camera: cam, frameCounter: 0,
-      entities: [{ tag: tag('PEPP'), pos, euler, flags: 2, nodes: [] }],
+      entities: [{ tag: tag('PEPP'), pos, euler, flags: 2, nodes: [] }, ...(live.entities ?? [])],
     });
     const bytes = encodeSave(save);
     this.slots[slot] = bytes;

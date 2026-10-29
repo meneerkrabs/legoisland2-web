@@ -27,7 +27,7 @@ import type { ZoneInfo } from './tables.ts';
 import { loadingScreen } from './frontend.ts';
 import { loadMessages, ZONE_FILES } from '../ui/strings.ts';
 import type { MessageTable } from '../ui/strings.ts';
-import { zoneGameFor } from './zonegame.ts';
+import { zoneGameFor, zoneSetupFor } from './zonegame.ts';
 import type { ZoneGame, ZoneGameCtx, Subtitle } from './zonegame.ts';
 import { drawHelp, drawIntroScreen, drawBannerScreen, drawSubtitle } from './helpscreen.ts';
 import type { PanelEnv, ScreenLine } from './helpscreen.ts';
@@ -87,9 +87,13 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
   world.externalInput = true;
   world.input = sh.input;
   world.sfx = sh.audio;
-  const profile = profileFor(zoneName, sh.pe, scene);
+  // a zone's own set-up hooks (zonegame.ts registerZoneSetup): the island runs its set-up in the x86 emulation against the live game variables
+  const setupHooks = zoneSetupFor(zoneName);
+  const profile = profileFor(zoneName, sh.pe, scene, undefined, setupHooks?.profileOptions?.(sh, archive) ?? {});
+  setupHooks?.beforeSetup?.(sh, world, profile, archive, scene);
   const from = sh.zones[sh.vars.get(V.PREV_SUBGAME)]?.archive ?? '';    // the zone the player comes from (the island starts at the house door when arriving from z03PPH)
   const loaded: Loaded = setupZone(scene, archive, profile, { world, pe: sh.pe, subgame: info.index, from });
+  setupHooks?.afterSetup?.(sh, world, loaded, archive);
   const pending = sh.applyPendingLoad();
   const gr = new GameRenderer(sh.gl, sh.data, archive, scene, loaded, fog, lights, shadowArchive);
   gr.slider = sh.options.drawDistance;
@@ -107,9 +111,9 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
 
   const player = loaded.pepper;
   /** the cutscene manager of the zone (FUN_0045c310 .. 0045c456): zones with scripts declare their slots in their factory */
-  const cutscene = new CutsceneHost(sh, world, archive, gr, hud ?? new Hud(null));
+  const cutscene = new CutsceneHost(sh, world, archive, gr, hud ?? new Hud(null), setupHooks?.cutsceneOptions?.(sh, world, loaded) ?? {});
   const live: LiveGame = {
-    capture: () => ({ pos: [player.x, player.y, player.z], yaw: player.ry, camera: Float32Array.from(world.camera.c) }),
+    capture: () => ({ pos: [player.x, player.y, player.z], yaw: player.ry, camera: Float32Array.from(world.camera.c), entities: setupHooks?.saveEntities?.(world) }),
     restore: (save) => restore(save),
     cutsceneRunning: () => cutscene.active(),
   };
@@ -123,6 +127,7 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
       const c = world.camera.c;
       if (cam.slice(0, 6).every(Number.isFinite) && (cam[0] || cam[1] || cam[2])) { for (let i = 0; i < 6; i++) c[i] = cam[i]; world.camera.updateView(); world.camera.savePrev(); } else world.camera.init(player);
     }
+    setupHooks?.restoreSave?.(world, loaded, save);   // the zone's part of FUN_00419e82 (the island: Pepper's vehicle, WP15)
   }
   sh.live = live;
   if (pending) restore(pending);
@@ -138,16 +143,19 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     menuText: (id) => sh.msgs.tables[0]?.raw(id) ?? null,
   };
   const subtitleTicks = (t: string) => 30 + 2 * t.length;
+  /** FUN_00439bf8 + FUN_00435a11 for the lines `a` (and `b`) of `table` */
+  const sayFrom = (table: MessageTable | null, a: string | null, b?: string | null): boolean => {
+    if (subs.length > 0 || sh.audio.ga?.speech.idle === false) return false;   // FUN_00435a11 starts only when no speech is active (muted: no `ga`, the timed subtitle stands in)
+    const lines = [a, b].filter((x): x is string => !!x);
+    const idx = lines.map((id) => table?.voice(id) ?? -1);
+    if (idx[0] !== undefined && idx[0] >= 0) sh.audio.ga?.speech.say(idx[0], idx[1] ?? -1);
+    for (const id of lines) { const t = table?.text(id) ?? id; subs.push({ id, text: t, ticksLeft: subtitleTicks(t) }); }
+    return true;
+  };
   const ctx: ZoneGameCtx = {
     sh, info, cfg, world, loaded, archive, scene, gr, hud, vars: sh.vars, strings, std: sh.std, attempt: sh.zoneAttempts.get(info.index) ?? 0,
-    say(a, b) {
-      if (subs.length > 0 || sh.audio.ga?.speech.idle === false) return false;   // FUN_00435a11 starts only when no speech is active (muted: no `ga`, the timed subtitle stands in)
-      const lines = [a, b].filter((x): x is string => !!x);
-      const idx = lines.map((id) => strings?.voice(id) ?? -1);
-      if (idx[0] !== undefined && idx[0] >= 0) sh.audio.ga?.speech.say(idx[0], idx[1] ?? -1);
-      for (const id of lines) { const t = strings?.text(id) ?? id; subs.push({ id, text: t, ticksLeft: subtitleTicks(t) }); }
-      return true;
-    },
+    say: (a, b) => sayFrom(strings, a, b),
+    sayFrom,
     speechIdle: () => subs.length === 0 && (sh.audio.ga?.speech.idle ?? true),
     stopSpeech() { subs.length = 0; sh.audio.ga?.speech.stop(); },
     subtitle: () => subs[0] ?? null,
@@ -183,7 +191,7 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
   // the brief is spoken when the loop starts (FUN_00439bf8 + FUN_00435a11 before the mode loop), a button press stops it
   if (cfg.intro) {
     const sp = game ? (game.introLines?.map((l) => l.id) ?? (game.introId ? [game.introId] : [])) : stubIntro?.speech ?? stubIntro?.lines.map((l) => l.id) ?? [];
-    if (sp.length > 0 && !game?.introHold) ctx.say(sp[0], sp[1]);
+    if (sp.length > 0 && !game?.introHold && game?.introPanel !== false) ctx.say(sp[0], sp[1]);
   }
 
   const m = new LoopMachine(cfg);
@@ -233,13 +241,15 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     let storyAdvanced = false, varChanged = false;
     if (m.mode === MODE.BANNER && game?.tickInBanner) { world.tick(); game.bannerTick?.(); }   // zones whose loop also updates in the end banner (z41MAP)
     if (m.mode === MODE.PLAY) {
+      game?.beforeTick?.();
       if (loaded.hasPlayer || game) world.tick(); else flyTick();
       if (game && !gameOver) { const r = game.update(); if (r) gameOver = r; }
       { const lr = game?.leaveRequest?.(); if (lr) m.leave(lr); }
-      if (island) hud?.updateIsland(sh.vars);
       if (cfg.hub || !ROOMS.has(zoneName)) storyAdvanced = sh.story.frame() === 6;
+      if (!storyAdvanced && game?.storyTick) { const e = game.storyTick(); if (e !== undefined && e !== EXIT.RUNNING) m.leave(e); }
       varChanged = sh.vars.get(V.NS_NEXT_SUBGAME) !== sh.vars.get(V.CURRENT_SUBGAME);
     }
+    if (island) hud?.updateIsland(sh.vars);   // FUN_004b908d: every frame of the island loop, whatever the mode
     if (m.mode === MODE.PLAY && gameOver) bannerOpen = true;
     if (m.mode === MODE.BANNER && !bannerOpen) bannerOpen = true;
     if (m.mode === MODE.RESULT) {
@@ -256,7 +266,9 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     wasHolding = holding;
     if (m.mode === MODE.BANNER && !game?.tickInBanner) game?.bannerTick?.();
     if (subs.length > 0 && --subs[0].ticksLeft <= 0) subs.shift();
-    m.tick({ pressed: (game?.blockPause?.() ? pressed & ~B.ESC : pressed) & (holding ? B.ESC : ~0), pauseResult, resultResult, gameOver, storyAdvanced, varChanged, dialog: m.mode === MODE.PLAY && !!game?.dialog?.wanted() });
+    // a zone whose mode 1 has no panel (the island) leaves it on any button (DAT_00983840 != 0)
+    const anyButton = m.mode === MODE.INTRO && game?.introPanel === false && (pressed & ~B.ESC) !== 0 ? B.ENTER : 0;
+    m.tick({ pressed: ((game?.blockPause?.() ? pressed & ~B.ESC : pressed) | anyButton) & (holding ? B.ESC : ~0), pauseResult, resultResult, gameOver, storyAdvanced, varChanged, dialog: m.mode === MODE.PLAY && !!game?.dialog?.wanted() });
     if (resultResult === 99) resultResult = 0;   // a zone dialog's "back to play" answer is used once
     if (m.mode !== prev && m.mode === MODE.PAUSE && prev !== MODE.PAUSE) sh.menu.open(PAUSE_PAGE[cfg.pauseKind], cfg.pauseMask, true);
     if (m.mode !== prev && (prev === MODE.INTRO || prev === MODE.HELP)) ctx.stopSpeech();
@@ -295,7 +307,7 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     if (hud && m.mode !== MODE.PAUSE) hud.draw(sh.ui, dt * 30);
     if (game && m.mode !== MODE.PAUSE) game.draw2d?.(sh.ui, dt, m.mode);
     // mode 1: the one-line brief (FUN_00439c6f(zone table, font, id, 1, 0, 320, 120, 30)), mode 9: the controls help
-    if (m.mode === MODE.INTRO && !game?.introHold?.()) drawIntroScreen(sh.ui, panelEnv, introLines());
+    if (m.mode === MODE.INTRO && !game?.introHold?.() && game?.introPanel !== false) drawIntroScreen(sh.ui, panelEnv, introLines());
     if (m.mode === MODE.HELP && helpControls) drawHelp(sh.ui, sh.menuSet, strings, helpControls, panelEnv);
     // spoken lines of the game while playing (a mini-game of the original shows no subtitle for them, only the cutscenes do: the cutscene style of FUN_0045d47f)
     if (subs.length > 0 && sh.options.subtitlesOn && m.mode === MODE.PLAY) drawSubtitle(sh.ui, subs[0].text);

@@ -20,6 +20,8 @@ import type { BehaviourNode } from './controller.ts';
 import './nodes.ts';
 import { extractZoneSetup, activeEntries, hiddenRecords, nameOfEntry, nameMatches, readZoneTable, ZONE_ARCHIVES, RF } from '../formats/zonesetup.ts';
 import type { Attach, Base, ZoneSetup } from '../formats/zonesetup.ts';
+import { emulateIslandSetup } from '../formats/emusetup.ts';
+import type { EmuEnv, IslandSetup } from '../formats/emusetup.ts';
 import { extractZone } from '../formats/exe.ts';
 import type { Pe } from '../formats/exe.ts';
 import { ST } from './walk.ts';
@@ -47,6 +49,8 @@ export interface ZoneProfile {
   start?(archive: Archive, records: GameRecord[], from: string, getVar?: (v: number) => number): { pos: [number, number, number]; yaw: number } | null;
   /** the extraction result (`profileFor`): `setupZone` applies its tables (flags, boxes, field writes, node attaches) instead of `hide` / `tweak` */
   setup?: ZoneSetup;
+  /** `profileFor(..., { islandVars })`: the full emulation result of the island's set-up (argument blocks, dictionaries, story-handler calls ...) */
+  island?: IslandSetup;
   /** index of the ground record (FUN_004425e0) when known; wins over `ground` */
   groundIndex?: number | null;
   /** a placeholder from `PROFILES` for a zone without a hand-written profile: `setupZone` needs `opts.pe` to extract it */
@@ -156,14 +160,24 @@ const waypointNode = (archive: Archive, path: string | null, node: number): [num
   return n ? [n.x, n.y, n.z] : null;
 };
 
+export interface ProfileOptions {
+  /** z02LGI only: run the island's set-up in the x86 emulation for these game variables (story node 0x58, 0x4f ...); the variables are read and
+   * written (the set-up's own `FUN_00417597` writes land here). Without it the symbolic extraction is used (default). */
+  islandVars?: EmuEnv['vars'];
+  /** the island's archive (the set-up loads the compiled waypoint maps from it); needed with `islandVars` */
+  archive?: Archive;
+}
+
 /**
  * The profile of any zone from the executable: sea level, gravity, ground record, hub flag (zone table kind 1), hidden records at the default game
  * variables (story state 0), the extraction itself (`setup`) and a start place. `scene` = `extractZone` of the zone (extracted here when missing).
  */
-export function profileFor(zone: string, pe: Pe, scene?: ZoneScene, starts?: number[]): ZoneProfile {
+export function profileFor(zone: string, pe: Pe, scene?: ZoneScene, starts?: number[], opts: ProfileOptions = {}): ZoneProfile {
   starts ??= pe.functionStarts();
   scene ??= extractZone(pe, zone, undefined, starts);
-  const setup = extractZoneSetup(pe, zone, scene, starts);
+  // the island with concrete game variables: the set-up is RUN out of the executable (emusetup.ts, docs/re/m4/emu.md) instead of interpreted symbolically
+  const emu = zone === 'z02LGI' && opts.islandVars ? emulateIslandSetup(pe, scene, { vars: opts.islandVars, archive: opts.archive }) : null;
+  const setup = emu ? emu.toZoneSetup() : extractZoneSetup(pe, zone, scene, starts);
   const kind = readZoneTable(pe).find((t) => t.index === setup.subgame)?.kind ?? 0;
   const names = scene.records.map((r) => r.name);
   const ref = zone === 'z02LGI' ? PROFILE_LGI : undefined;
@@ -171,6 +185,7 @@ export function profileFor(zone: string, pe: Pe, scene?: ZoneScene, starts?: num
     zone: setup.zone, subgame: setup.subgame, seaLevel: setup.seaLevel ?? 0, gravity: setup.gravity ?? -10, hub: kind === 1,
     ground: setup.groundName, groundIndex: setup.groundRecord, hide: hiddenRecords(setup, () => 0, names), rig: 'MFIG', setup,
   };
+  if (emu) p.island = emu;
   // arrival place: the island keeps the hand-written one (FUN_004c2d22 picks the node from the zone the player comes from: not extracted); the other zones
   // use the waypoint place the set-up code puts the player record at, when there is one
   if (ref?.start) p.start = ref.start;
@@ -358,6 +373,10 @@ export function setupZone(scene: ZoneScene, archive: Archive, profile: ZoneProfi
     const node = f(a);
     node.var = a.var; node.mask = a.mask; node.value = a.value;
     if (!rec.ctrl) rec.ctrl = new Controller();
+    // the controller flags the set-up code wrote (FUN_004238b7(ctrl, flags): 0x13 / 0x43 / 0x83 ... bit 2 enabled, 0x40 targetable) before this attach: the
+    // emulated island set-up records them (the symbolic extraction of the other zones does not)
+    const cf = (a as { ctrlFlags?: number }).ctrlFlags;
+    if (cf !== undefined) rec.ctrl.flags = cf;
     rec.ctrl.attach(node, a.pos);
     return true;
   };

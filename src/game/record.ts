@@ -28,6 +28,8 @@ export class GameRecord {
   flags = RF_ENABLED;
   /** variant / phase word (+0x64) */
   variant = 0;
+  /** face (mouth / expression) frame of the model's face object (model +0x14, FUN_0043f2f0 set / FUN_0043f310 get): SETEXPRESSION, the mouth of speaking actors */
+  face = 0;
   /** row-major row-vector 4x4 (+0x0c), translation in elements 12..14 */
   m = new Float32Array(16);
   /** Euler angles +0x4c / +0x50 / +0x54; the walk code keeps its yaw in ry */

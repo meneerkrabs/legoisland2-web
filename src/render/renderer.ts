@@ -23,6 +23,7 @@ layout(location=2) in vec2 aUv;
 uniform mat4 uMVP;
 uniform mat4 uWorld;
 uniform vec2 uUvOff;
+uniform vec2 uUvScale;
 uniform float uLit;
 uniform vec3 uAmbient;
 uniform int uNumLights;
@@ -34,7 +35,7 @@ out float vDepth;
 void main(){
   vec4 p = uMVP * vec4(aPos,1.0);
   gl_Position = p;
-  vUv = aUv + uUvOff;
+  vUv = (aUv - vec2(0.0, 1.0)) * uUvScale + vec2(0.0, 1.0) + uUvOff;   // scale about v = 1 (Faces.c FUN_0087e260), then the offset
   vDepth = p.w;
   vec3 c = vec3(1.0);
   if (uLit > 0.5) {
@@ -127,6 +128,10 @@ export interface DrawOpts {
   pass?: 'all' | 0 | 1 | 2;
   /** texture coordinate offset added to the vertices of a group (the game's FUN_0043ebe0 0x1642 scrolls a group's V coordinate); undefined = none */
   uvOffset?: (group: number) => readonly [number, number] | undefined;
+  /** texture coordinate scale of a group about (u, v) = (0, 1), applied before the offset (Faces.c FUN_0087e260: a face group's UVs x4); undefined = 1 */
+  uvScale?: (group: number) => readonly [number, number] | undefined;
+  /** per group: a matrix that replaces the mesh's static MATL group matrix (live sub-object matrices: doors, rotors); undefined = the static one */
+  groupMatrix?: (group: number) => Mat4 | null | undefined;
 }
 
 function mul4(a: Mat4, b: Mat4, out: Mat4): Mat4 {
@@ -177,7 +182,7 @@ export class Renderer {
     this.gl = gl;
     this.prog = compile(gl, VS, FS);
     this.lineProg = compile(gl, LINE_VS, LINE_FS);
-    for (const n of ['uMVP', 'uWorld', 'uUvOff', 'uTex', 'uUseTex', 'uFlat', 'uColorOp', 'uAlphaOp', 'uTint', 'uLit', 'uHighlight', 'uFogOn', 'uFog', 'uFogRange', 'uAdditive', 'uAmbient', 'uNumLights', 'uLightDir', 'uLightCol']) this.u[n] = gl.getUniformLocation(this.prog, n);
+    for (const n of ['uMVP', 'uWorld', 'uUvOff', 'uUvScale', 'uTex', 'uUseTex', 'uFlat', 'uColorOp', 'uAlphaOp', 'uTint', 'uLit', 'uHighlight', 'uFogOn', 'uFog', 'uFogRange', 'uAdditive', 'uAmbient', 'uNumLights', 'uLightDir', 'uLightCol']) this.u[n] = gl.getUniformLocation(this.prog, n);
     for (const n of ['uMVP', 'uColor']) this.ul[n] = gl.getUniformLocation(this.lineProg, n);
     this.white = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, this.white);
@@ -460,6 +465,7 @@ export class Renderer {
     gl.uniform4f(this.u.uTint, tint[0], tint[1], tint[2], tint[3]);
     gl.uniform1f(this.u.uHighlight, o.highlight ? 1 : 0);
     gl.uniform2f(this.u.uUvOff, 0, 0);
+    gl.uniform2f(this.u.uUvScale, 1, 1);
     const mvp = new Float32Array(16), w2 = new Float32Array(16), viewProj = this.viewProj;
     gl.bindVertexArray(m.vao);
     const passes: (0 | 1 | 2)[] = o.pass === undefined || o.pass === 'all' ? [0, 1, 2] : [o.pass];
@@ -470,9 +476,10 @@ export class Renderer {
         if (!grp.count) continue;
         const gpass = grp.flags >= 2 ? 2 : grp.flags;
         if (gpass !== pass) continue;
-        if (lastMat === undefined || lastMat !== grp.mat) {
-          lastMat = grp.mat;
-          const wm = grp.mat ? mul4(grp.mat, world, w2) : world;
+        const gmat = o.groupMatrix?.(g) ?? grp.mat;
+        if (lastMat === undefined || lastMat !== gmat) {
+          lastMat = gmat;
+          const wm = gmat ? mul4(gmat, world, w2) : world;
           for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) mvp[r * 4 + c] = wm[r * 4] * viewProj[c] + wm[r * 4 + 1] * viewProj[4 + c] + wm[r * 4 + 2] * viewProj[8 + c] + wm[r * 4 + 3] * viewProj[12 + c];
           gl.uniformMatrix4fv(this.u.uMVP, false, mvp);
           gl.uniformMatrix4fv(this.u.uWorld, false, wm);
@@ -480,6 +487,7 @@ export class Renderer {
         const t = texOf(g);
         gl.activeTexture(gl.TEXTURE0);
         if (o.uvOffset) { const uo = o.uvOffset(g); gl.uniform2f(this.u.uUvOff, uo ? uo[0] : 0, uo ? uo[1] : 0); }
+        if (o.uvScale) { const us = o.uvScale(g); gl.uniform2f(this.u.uUvScale, us ? us[0] : 1, us ? us[1] : 1); }
         if (t) {
           gl.bindTexture(gl.TEXTURE_2D, t.tex);
           gl.uniform1f(this.u.uUseTex, 1);

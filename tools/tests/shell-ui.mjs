@@ -49,9 +49,9 @@ export default {
     hud.updateIsland(vars);
     eq('before node 7: pizzas and bricks', [hud.left.tex, hud.leftText, hud.right.tex, hud.rightText], [2, '4/11', 7, '2/11']);
     vars.set(0x58, 9); vars.set(0x52, 3); vars.set(0xa5, 2); vars.set(0x8e, 5);
-    hud.updateIsland(vars);
-    eq('from node 7: bot heads, pages, coloured head icons', [hud.left.tex, hud.leftText, hud.right.tex, hud.rightText, hud.column.map((x) => x.tint === 0xffffffff)], [0, '3', 1, '2/4', [true, false, true, false]]);
-    vars.set(0x58, 0x3d); hud.updateIsland(vars);
+    hud.initIsland(vars); hud.updateIsland(vars);   // FUN_004b8ef0 runs once per island start (the era is fixed per zone run)
+    eq('from node 7: bot heads, pages, coloured head icons', [hud.left.tex, hud.leftText, hud.right.tex, hud.rightText, hud.column.slice(1).map((x) => x.tint === 0xffffffff)], [0, '3', 1, '2/4', [true, false, true, false]]);
+    vars.set(0x58, 0x3d); hud.initIsland(vars); hud.updateIsland(vars);
     eq('no counters from node 0x3d', [hud.left.tex, hud.leftText], [-1, '']);
 
     // ---- stub zones: loop config per zone kind, exit -> next zone

@@ -8,7 +8,7 @@
 // 0x08 sneak, 0x0d walk, 0x1b idle (plays clip 0x3a), 0x24 run, 0x30 skid, 0x37 slide, 0x38 teeter on an edge, 0x57 hard landing, ...
 // The state struct sits at node + 0x18; comments give the original offsets. The numbers are the original's (.rdata floats of the EXE, see
 // docs/re/engine-m1.md for the list); they are plain constants here because each is a single value, not a data table.
-// Not ported: pizza throw / talk (Space calls FUN_00427c15, which returns 0 while no pizza or NPC target exists), the skateboard dismount state
+// The pizza throw on Space (FUN_00427c15 + FUN_004277d0 / FUN_00428a0a) is a hook (`walkHooks.space`) that src/island/pizza installs. Not ported: the skateboard dismount state
 // 0x1c, the camera of sub-game 9 (FUN_0042d4b1), mouse look.
 import type { BehaviourNode, Controller } from './controller.ts';
 import { NODE_STOP } from './controller.ts';
@@ -25,6 +25,8 @@ export const ST = {
   JUMP2: 0x1f, CRASH: 0x23, RUN: 0x24, OUTOFWATER: 0x25, SKID: 0x30, SLIDE: 0x37, TEETER: 0x38, RUNLEFT: 0x3f, RUNRIGHT: 0x40, THROWRUN: 0x42,
   LANDING: 0x57,
 } as const;
+/** hooks of other node families into the walk update: `space(w, pepper, state)` = the Space branch of FUN_0042d514 (returns the next state, 0 = keep) */
+export const walkHooks: { space: ((w: World, rec: GameRecord, state: number) => number) | null } = { space: null };
 /** clip number of the idle loop that state 0x1b plays (PEP_IDLE) */
 export const CLIP_IDLE = 0x3a;
 
@@ -414,6 +416,11 @@ export class WalkNode implements BehaviourNode, CameraWalkIO {
       }
     }
     if (this.hideFlag !== 0 && this.accessory) this.accessory.hide();
+    // ---- Space (0x42da7d): the pizza throw prelude FUN_00427c15 and the launch / hand-over (src/island/pizza/throw.ts installs walkHooks.space)
+    if ((w.input.pressed & B.SPACE) !== 0 && walkHooks.space && this.state !== ST.JUMP && this.state !== ST.JUMP2 && this.state !== ST.LANDING) {
+      const n = walkHooks.space(w, rec, this.state);
+      if (n !== 0) next = n;
+    }
     // ---- heading: turn towards the movement direction (at most 0.349 rad per tick when turning right; the original does not wrap the angle)
     if (!moving || this.state === ST.TURN || this.state === ST.KNOCKBACK || this.state === ST.OUTOFWATER) {
       if (this.state === ST.JUMP || this.state === ST.JUMP2 || this.state === ST.LANDING) rec.rebuildYaw();

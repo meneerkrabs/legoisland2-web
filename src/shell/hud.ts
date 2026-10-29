@@ -2,7 +2,8 @@
 // (`ref_x * W / 800`): two 60x60 corner icons at (20, 20) and (716, 20) with a Balloon24 text beside each (y = 69; left text from x = 100, right text
 // right-aligned to x = 699), a 5-slot icon column at x = 20 (slot i top = 516 - 72 i), the cutscene letterbox (Ui2D.letterbox). The textures are the zone's
 // `Overlays/<ZONE>` set. `updateIsland` fills the state like the island's HUD update (FUN_004b8ef0 / FUN_004b908d / FUN_004b9008): pizzas and bricks before story
-// node 7, then bot heads and Constructopedia pages, the four coloured bot heads grey / white by var 0x8e, the interaction icon of var 0xc.
+// node 7, then bot heads and Constructopedia pages, the four coloured bot heads grey / white by var 0x8e, the interaction icon of var 0xc (column slot 0),
+// the island's hi-score as the centre text.
 // Subtitle lines (cutscenes) are not drawn here yet.
 import type { GameVars } from '../game/vars.ts';
 import type { Ui2D, UiTextureSet } from '../ui/renderer2d.ts';
@@ -31,29 +32,63 @@ export class Hud {
 
   constructor(set: UiTextureSet | null) { this.set = set; }
 
-  /** island HUD from the game variables (var 0x58 story node, 0x59 sub-game, 0xb0 pizzas left, 0x4f bricks left, 0x52 bot heads, 0xa5 pages, 0x8e bot head colours, 0xc interact) */
-  updateIsland(vars: GameVars) {
+  /** FUN_004b908d's blink counter of the interaction icon (DAT_05d58630) */
+  private blink = 0;
+  private islandInit = false;
+
+  /**
+   * FUN_004b8ef0 (island HUD set-up): before story node 7 a pizza icon (2) left and a brick icon (7) right, from node 7 on a bot head (0) and a page (1) with
+   * the four coloured bot heads (3..6) in column slots 1..4; from node 0x3d on no icons. Slot 0 of the column is the interaction icon (tint white).
+   */
+  initIsland(vars: GameVars) {
+    const node = vars.get(0x58);
+    this.left = { ...NONE }; this.right = { ...NONE }; this.leftText = ''; this.rightText = ''; this.centreText = '';
+    this.column = [0, 1, 2, 3, 4].map(() => ({ ...NONE }));
+    this.blink = 0;
+    if (node < 0x3d) {
+      if (node < 7) { this.left = { tex: 2, tint: 0xffffffff }; this.right = { tex: 7, tint: 0xffffffff }; }
+      else {
+        this.left = { tex: 0, tint: 0xffffffff }; this.right = { tex: 1, tint: 0xffffffff };
+        for (let i = 0; i < 4; i++) this.column[1 + i] = { tex: 3 + i, tint: 0xffffffff };
+      }
+    }
+    this.islandInit = true;
+  }
+
+  /**
+   * FUN_004b908d (every frame of the island loop): the centre text = var 0x12 (HISCORE_LGI) as "%04d"; the interaction icon of var 0xc (0x20 -> 0xe,
+   * 1 -> 0xd, 0x1e -> 0xc while PEPPER_CONTROL & 1; 0xc0 blinks 0xf / 0x10 every 15 frames; none -> no icon; a bit set while not walking keeps the last
+   * icon), then var 0xc = 0 (the nodes set it again next frame). Before node 0x3d (FUN_004b9008): node < 7 left "(11 - var 0xb0)/c" (c = 12 at node 6, else 11),
+   * right "(11 - var 0x4f)/11"; else left var 0x52, right "var 0xa5/n" (n = 2 in sub-game 0x20, else 4) and the coloured bot heads white / grey by the
+   * bits of var 0x8e, all four hidden when var 0x8e >= 0xf or in sub-game 0x20. `dt` = DAT_008b1718.
+   */
+  updateIsland(vars: GameVars, dt = 1) {
+    if (!this.islandInit) this.initIsland(vars);
     const node = vars.get(0x58), sub = vars.get(0x59);
-    this.column = [];
-    if (node >= 0x3d) { this.left = { ...NONE }; this.right = { ...NONE }; this.leftText = ''; this.rightText = ''; return; }
+    this.centreText = String(vars.get(0x12)).padStart(4, '0');
+    const ic = vars.get(0xc), walking = (vars.get(0x5e) & 1) !== 0;
+    const slot = this.column[0];
+    if (ic & 0x20) { if (walking) slot.tex = 0xe; }
+    else if (ic & 1) { if (walking) slot.tex = 0xd; }
+    else if (ic & 0x1e) { if (walking) slot.tex = 0xc; }
+    else if (ic & 0xc0) {
+      this.blink += 1 * dt;
+      if (this.blink < 15) slot.tex = 0xf;
+      else { slot.tex = 0x10; if (30 < this.blink) this.blink = 0; }
+    } else { slot.tex = -1; this.blink = 0; }
+    vars.set(0xc, 0);
+    if (node >= 0x3d) return;
     const total = node === 6 ? 12 : 11;
     if (node < 7) {
-      this.left = { tex: 2, tint: 0xffffffff }; this.right = { tex: 7, tint: 0xffffffff };
-      this.leftText = `${total - vars.get(0xb0)}/${total}`;
+      this.leftText = `${11 - vars.get(0xb0)}/${total}`;
       this.rightText = `${11 - vars.get(0x4f)}/11`;
     } else {
-      this.left = { tex: 0, tint: 0xffffffff }; this.right = { tex: 1, tint: 0xffffffff };
       this.leftText = `${vars.get(0x52)}`;
       this.rightText = `${vars.get(0xa5)}/${sub === 0x20 ? 2 : 4}`;
       const c = vars.get(0x8e);
-      for (let i = 0; i < 4; i++) this.column.push({ tex: 3 + i, tint: c >= 0xf || (c & (1 << i)) ? 0xffffffff : 0xff888888 });
+      if (c < 0xf && sub !== 0x20) for (let i = 0; i < 4; i++) this.column[1 + i].tint = c & (1 << i) ? 0xffffffff : 0xff888888;
+      else for (let i = 0; i < 4; i++) this.column[1 + i].tex = -1;
     }
-    // interaction icon (var 0xc: bits 1 / 0x20 / 0x1e / 0xc0 -> textures 0xd / 0xe / 0xc / 0xf..0x10)
-    const ic = vars.get(0xc);
-    if (ic & 0x20) this.column.unshift({ tex: 0xe, tint: 0xffffffff });
-    else if (ic & 1) this.column.unshift({ tex: 0xd, tint: 0xffffffff });
-    else if (ic & 0x1e) this.column.unshift({ tex: 0xc, tint: 0xffffffff });
-    else if (ic & 0xc0) this.column.unshift({ tex: 0xf, tint: 0xffffffff });
   }
 
   /** draw in the 640x480 virtual space (the 800x600 reference grid scaled by 0.8) */

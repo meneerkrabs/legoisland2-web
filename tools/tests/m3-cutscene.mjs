@@ -177,9 +177,11 @@ export default {
         cmd({ cmd: 8, actor: 'SWCH', switchName: 'SWITCH_X', switchValue: 5 }),
         cmd({ cmd: 15, actor: 'BOB_', flag: false }),
         cmd({ cmd: 7, actor: 'BOB_', other: 'PEPP' }),
-        cmd({ cmd: 0, actor: 'NOPE', flag: false }),
         cmd({ cmd: 10, actor: 'CMRA', speedA: 6, speedB: 3 }),
         cmd({ cmd: 1, actor: 'PEPP', anim: 'WAVE', duration: 0 }),
+        // an unknown actor stops the loader (FUN_0045d68a): this and later commands never run (M4: the island's lgibr07 has one)
+        cmd({ cmd: 0, actor: 'NOPE', flag: false }),
+        cmd({ cmd: 12, actor: 'CMRA', fov: 7 }),
       ]));
       actors.PEPP.anim = { clip: 0, frame: 0, frameCount: 6, start(c) { this.clip = c; this.frame = 0; return true; }, advance(rate) { this.frame += rate; return 0; } };
       r.start(0); r.tick();
@@ -190,6 +192,7 @@ export default {
       const t = run(r, env);
       ok(!r.active() && t < 20, `the script ends (FOLLOW ran on but did not keep it alive, the animation finished): ${t} ticks`);
       ok(actors.BOB.ctrl.flags & 2, 'the AI of the registered actors is back on at the end');
+      ok(!log.includes('fov 7'), 'the commands after an unknown actor never run');
     }
     // started from the menu (var 0xb): ignored; a second start while one runs is queued once
     {

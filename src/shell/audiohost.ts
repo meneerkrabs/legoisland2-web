@@ -72,6 +72,15 @@ export class AudioHost implements SfxSink {
     } catch { /* silent */ }
   }
 
+  /** FUN_00443600(handle, hz): the playback frequency of a loaded 2D sound (the island's engines); no-op while it is not loaded */
+  rate(id: number, hz: number) {
+    if (!this.ga) return;
+    try {
+      const s = this.slots.get(id);
+      if (s && s !== 'loading') this.ga.sfx.setRate(s, hz);
+    } catch { /* silent */ }
+  }
+
   /** FUN_004435b0 + FUN_004435a0: stop the 2D sound and start it again (a sound that is not loaded yet is only requested) */
   restart(id: number) {
     if (!this.ga) return;

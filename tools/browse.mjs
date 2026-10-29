@@ -42,6 +42,19 @@ page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') console.log(`[${m.type()}] ${m.text()}`);
 });
 page.on('pageerror', (e) => console.log(`[pageerror] ${e.message}`));
+// The island's loop (FUN_004afaf7 mode 1) waits for a button before play starts, like the original. Older steps that just wait for the island to tick get a
+// player's key tap from here; steps that look at that wait (the M4 ones) open the page with `&hold=1` or set NOPRESS=1.
+if (!process.env.NOPRESS && !/[?&]hold=1/.test(url)) {
+  await page.addInitScript(() => {
+    setInterval(() => {
+      const z = window.__zone;
+      if (z && z.info && z.info.archive === 'z02LGI' && z.machine && z.machine.mode === 1) {
+        window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowLeft', key: 'ArrowLeft', bubbles: true }));
+        setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ArrowLeft', key: 'ArrowLeft', bubbles: true })), 60);
+      }
+    }, 250);
+  });
+}
 await page.goto(url, { waitUntil: 'load' });
 
 const canvasBox = async () => {

@@ -197,7 +197,9 @@ export default {
       ok(diffs.length === 0, `${zone}: extraction differs from the M1 profile in ${diffs.length} records: ${diffs.slice(0, 6).join('; ')}`);
       if (extra.length) notes.push(`${zone}: the extraction also changes ${extra.length} records M1 left alone (flag 0x10 / position writes): ${extra.join(' ')}`);
       const kinds = (L2) => L2.pepper.ctrl.nodes.filter((n) => n.kind !== 'StubGuard').map((n) => `${n.kind}[${n.var.toString(16)}&${n.mask}=${n.value}]`).join(' ');
-      if (zone === 'z02LGI') ok(kinds(A) === kinds(B), `${zone}: player chain ${kinds(A)} / ${kinds(B)}`);
+      // the island ports of M4 (src/island) register more constructors (Music, skateboard, SGVehic, Ptera ...): compare the M1 nodes only
+      const m1kinds = (L2) => L2.pepper.ctrl.nodes.filter((n) => ['PepSwitc', 'SGwalk', 'sgswim'].includes(n.kind)).map((n) => `${n.kind}[${n.var.toString(16)}&${n.mask}=${n.value}]`).join(' ');
+      if (zone === 'z02LGI') ok(m1kinds(A) === m1kinds(B), `${zone}: player chain ${m1kinds(A)} / ${m1kinds(B)}`);
       else {
         // the real house has only SGwalk (+ the ladder, computer and trophy nodes): M1 gave it PepSwitc and sgswim as well
         // (M3 z03PPH registers the ports of those nodes when src/zones/z03PPH.ts is imported, e.g. by the m3-z03PPH test running before this one)
@@ -226,6 +228,9 @@ export default {
 
     // --- registry hook
     {
+      // (importing src/island registers Music; take it out for the registry checks and put it back afterwards)
+      const musicFactory = ctorFactory(0x4bc773);
+      if (musicFactory) unregisterCtor(0x4bc773);
       ok(ctorFactory(CTOR.SGWALK) && ctorFactory(CTOR.SGSWIM) && ctorFactory(CTOR.ISLAND_PEPSWITC) && !ctorFactory(0x4bc773), 'ctor registry: built-ins registered, Music (0x4bc773) not');
       const B = loadZone(ctx, 'z02LGI');
       ok(B.setup && B.skipped.some((s) => s.ctor === 0x4bc773 && s.ctorName === 'Music') && !B.skipped.some((s) => s.ctor === CTOR.SGWALK), 'Loaded.skipped lists the unknown constructors (Music), not the known ones');
@@ -234,6 +239,7 @@ export default {
       const C = loadZone(ctx, 'z02LGI');
       ok(made === 1 && C.pepper.ctrl.nodes.some((n) => n.kind === 'MusicTest') && !C.skipped.some((s) => s.ctor === 0x4bc773), 'registerCtor: a registered constructor is created at the attach site and no longer skipped');
       unregisterCtor(0x4bc773);
+      if (musicFactory) registerCtor(0x4bc773, musicFactory);
     }
 
     // --- the stub requirement: every zone loads, the player walks 300 ticks, no exception / NaN

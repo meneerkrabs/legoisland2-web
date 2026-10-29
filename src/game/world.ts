@@ -41,6 +41,8 @@ export class World {
   zone = '';
   /** the shell samples the input and handles Esc / pause itself (see tick) */
   externalInput = false;
+  /** zone services the shell / zone game hangs on the world for behaviour nodes (the island: `src/island/ctx.ts` `ctxOf`) */
+  readonly ext = new Map<string, unknown>();
 
   constructor() { this.vars.set(V.PEPPER_CONTROL, 1); }
 

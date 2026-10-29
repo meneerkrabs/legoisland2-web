@@ -2,10 +2,10 @@
 // animated characters with their attachments, and Pepper's blob shadow (docs/re/rendering.md sections 3, 7, 9). Reads the world, never changes it
 // (the only exception: the camera's wall push is evaluated on the interpolated camera by temporarily writing it into `world.camera.c`).
 import { Renderer, SkyState, SeaState, SKY_MODE, SEA_MODE, SEABED_MODE, SEA_EDGE_MODE, DEFAULT_FOV, cameraFromFog, defaultLights, projection, selectLod } from '../render/index.ts';
-import type { MeshGpu, TexGpu, CameraSetup, LightSet } from '../render/index.ts';
+import type { MeshGpu, TexGpu, CameraSetup, LightSet, DrawOpts } from '../render/index.ts';
 import { lookDirLH, mul, transformPoint } from '../render/math.ts';
 import type { Archive } from '../formats/archive.ts';
-import type { ZoneScene, Model } from '../formats/exe.ts';
+import type { ZoneScene, Model, FaceSetup } from '../formats/exe.ts';
 import type { ZoneRenderParams } from '../formats/zoneparams.ts';
 import { parseBlk, sampleBlk, parseSvwl, skinPositions, skinNormals } from '../formats/anim.ts';
 import type { Blk, Svwl } from '../formats/anim.ts';
@@ -32,11 +32,22 @@ interface RecView {
   /** local centre and radius of the first part's mesh (for culling) */
   localCenter?: number[]; radius: number;
   scale: number;
+  /** the model's face object (Faces.c, FUN_0043f1d0 in the zone builder): which attachment / groups show `rec.face` */
+  face?: FaceSetup;
 }
+
+/** Faces.c FUN_0087e260: the UVs of a `.wib` face group are scaled x4 about v = 1 (the mesh maps the face into the top-left quarter of the texture) */
+const FACE_WIB_SCALE: readonly [number, number] = [4, 4];
+/** DAT_00981190 / DAT_00981194: UV offset of expression n of a 4x4 face atlas (type 0, FUN_0087e038 -> FUN_0087e0cf): ((n & 3) / 4, -(n >> 2) / 4) */
+const faceAtlasOffset = (n: number): readonly [number, number] => [(n & 3) * 0.25, -(n >> 2) * 0.25];
 
 /** distance within which animated records are posed every frame (others show the bind pose) */
 const POSE_RANGE = 150;
 const SHADOW_TYPE = 4;
+/** FUN_00444940: controller flags (+0xc) that give a record a blob shadow, and the squared range to the camera (_DAT_008921ec = 6400) */
+const SHADOW_CTRL_FLAGS = 0x50, SHADOW_RANGE2 = 6400;
+/** SWITCH_GME_PEPP_IN_VEHICLE */
+const VAR_PEPP_IN_VEHICLE = 0xa9;
 
 export interface FrameInfo { eye: [number, number, number]; target: [number, number, number]; camDist: number; draws: number; triangles: number }
 
@@ -59,7 +70,16 @@ export class GameRenderer {
   near: number | null = null;
   /** a zone's own background drawn right after the frame starts, before the records (z39ASB: the star field quad of FUN_007b7c24 / FUN_0088002d); gets the interpolated eye and the forward vector */
   backdrop: ((r: Renderer, eye: [number, number, number], fwd: [number, number, number]) => void) | null = null;
+  /** the effects pass after the records (FUN_00442930: the brick batches of FX_Bricks, then the particles): the island draws its brick effects here (src/fx/bricks/draw.ts) */
+  effects: ((r: Renderer, eye: [number, number, number]) => void) | null = null;
   info: FrameInfo = { eye: [0, 0, 0], target: [0, 0, 0], camDist: 0, draws: 0, triangles: 0 };
+  /**
+   * live sub-object (MATL) matrices of a record (doors, swinging parts, rotors: the island's src/island/trigger/parts.ts `partOverrides`): every group of the
+   * record's mesh whose GTOM index has an entry is drawn with that matrix instead of the static one. Set by the zone game; null = static matrices only.
+   */
+  partMatrices: ((rec: GameRecord) => ReadonlyMap<number, Float32Array> | undefined) | null = null;
+  /** the six clip planes (a, b, c, d; inside when a x + b y + c z + d >= 0) of the last drawn frame, null before the first frame */
+  private planes: Float32Array | null = null;
   private views: RecView[] = [];
   /** per record and mesh group: texture coordinate offset added when drawing (zones that scroll a texture, e.g. z05WAB's printer paper: `scrollGroup`) */
   private uvOffsets = new Map<GameRecord, Map<number, [number, number]>>();
@@ -138,7 +158,7 @@ export class GameRenderer {
       const kind = special && rec.name === 'SSKY' ? 'sky' : special && rec.name === 'SSEA' ? 'sea' : undefined;
       const mode = !special ? 0 : rec.name === 'SSKY' ? SKY_MODE : rec.name === 'SSEA' ? SEA_MODE : rec.name === 'SEAB' ? SEABED_MODE : SEA_EDGE_MODE;
       const sc3 = Math.max(Math.abs(rec.scale[0]), Math.abs(rec.scale[1]), Math.abs(rec.scale[2]));
-      this.views.push({ rec, parts, attach, kind, mode, dyn: new Map(), radius: 5, scale: sc3 });
+      this.views.push({ rec, parts, attach, kind, mode, dyn: new Map(), radius: 5, scale: sc3, face: rec.model.face });
     }
     // the render modes the zone's set-up code assigns (FUN_00444550(record, partMask, mode), extracted by src/formats/zonesetup.ts): translucent props, holograms, ...
     const setup = this.loaded.setup;
@@ -273,7 +293,9 @@ export class GameRenderer {
     const cv = r.gl.canvas as HTMLCanvasElement;
     const aspect = cv.width / cv.height;
     const view = lookDirLH(eye, [fx, fy, fz]);
-    r.begin(setup.clear, mul(view, projection(setup, aspect)));
+    const viewProj = mul(view, projection(setup, aspect));
+    r.begin(setup.clear, viewProj);
+    this.planes = clipPlanes(viewProj, this.planes ?? new Float32Array(24));
     this.backdrop?.(r, eye, [fx, fy, fz]);
     const range = Math.min(setup.far, setup.fog.enabled ? setup.fog.end : setup.far);
     const seaLevel = world.seaLevel;
@@ -311,7 +333,12 @@ export class GameRenderer {
         drawMesh = live ?? this.bindPose(m, part.meshPath ?? '');
       }
       const uvs = this.uvOffsets.get(rec);
-      r.drawMesh(drawMesh, world_, (g) => this.texFor(part, g), uvs ? { mode: rv.mode, uvOffset: (g) => uvs.get(g) } : { mode: rv.mode });
+      const ovr = this.partMatrices?.(rec);
+      const opts: DrawOpts = { mode: rv.mode };
+      if (uvs) opts.uvOffset = (g) => uvs.get(g);
+      if (ovr && ovr.size) opts.groupMatrix = this.groupOverride(drawMesh, ovr);
+      if (rv.face && rv.face.slot === -1) this.applyFace(rv, part, rv.parts.indexOf(part), opts);
+      r.drawMesh(drawMesh, world_, (g) => this.texFor(part, g), opts);
       if (rv.attach.length && !bones) {
         if (rv.bindBones === undefined) {
           rv.bindBones = null;
@@ -326,13 +353,17 @@ export class GameRenderer {
         const locals = this.attachLocal.get(rec);
         for (const at of rv.attach) {
           let cp = at.parts[0];
-          cp = at.parts[selectLod(at.parts, dist, this.fov)] ?? cp;
+          let li = selectLod(at.parts, dist, this.fov);
+          if (!at.parts[li]) li = 0;
+          cp = at.parts[li] ?? cp;
           const cm = cp && this.partMesh(cp);
           if (!cm) continue;
           const bm = bones.subarray(at.bone * 16, at.bone * 16 + 16);
           if (bm.length < 16) continue;
           const loc = locals?.get(at.slot);
-          r.drawMesh(cm, mul(loc ? mul(loc, bm) : bm, wm), (g) => this.texFor(cp, g), tint ? { preset: 13, tint } : undefined);
+          const ao: DrawOpts = tint ? { preset: 13, tint } : {};
+          if (rv.face && rv.face.slot === at.slot) this.applyFace(rv, cp, li, ao);
+          r.drawMesh(cm, mul(loc ? mul(loc, bm) : bm, wm), (g) => this.texFor(cp, g), ao);
         }
       };
       drawAttach(world_);
@@ -341,10 +372,62 @@ export class GameRenderer {
         r.drawMesh(drawMesh, g.m, (q) => this.texFor(part, q), { preset: 13, tint: [1, 1, 1, g.alpha] });
         drawAttach(g.m, [1, 1, 1, g.alpha]);
       }
-      if (rec === pepper) this.drawShadow(mat);
+      // FUN_00444940: Pepper always (type from var 0xc5), other records with a controller whose flags have 0x10 / 0x40 within 80 units of the camera (type 4);
+      // the blob sits under bone 0 of the pose (hips) unless SWITCH_GME_PEPP_IN_VEHICLE (var 0xa9) is set or the record has no animation
+      const shadowed = rec === pepper || (!!rec.ctrl && (rec.ctrl.flags & SHADOW_CTRL_FLAGS) !== 0 && (mat[12] - eye[0]) ** 2 + (mat[13] - eye[1]) ** 2 + (mat[14] - eye[2]) ** 2 <= SHADOW_RANGE2);
+      if (shadowed) this.drawShadow(rec.anim && bones && bones.length >= 16 && world.vars.get(VAR_PEPP_IN_VEHICLE) === 0 ? mul(bones.subarray(0, 16), world_) : mat, rec === pepper, rec);
     }
+    this.effects?.(r, eye);
     for (const sh of this.extraShadows) this.drawShadowPoints(sh.pts, sh.type);
     this.info = { eye, target: tgt, camDist: Math.hypot(tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]), draws: r.stats.draws, triangles: r.stats.triangles };
+  }
+
+  // ---------------------------------------------------------------- faces, live part matrices, visibility
+
+  /**
+   * Faces.c (FUN_0043f1d0 set-up, FUN_0043f2f0 -> vtable +4 = FUN_0087e570 / FUN_0087e038): the face group of LOD part `li` shows expression `rec.face`.
+   * Type 1 (all island minifigs): the group's UVs are scaled x4 about v = 1 (FUN_0087e260, done once at set-up) and its `.wib` sheet is frozen on
+   * frame n (FUN_00443120(model, i, group, 2, n) -> FUN_00411202). Type 0: a 4x4 atlas, the group's UVs are offset by DAT_00981190[n].
+   * The original keeps one frame per texture (the last setter wins); the port selects the frame right before each record's draw.
+   */
+  private applyFace(rv: RecView, part: Part, li: number, o: DrawOpts) {
+    const f = rv.face!;
+    const g = f.groups[li < 0 ? 0 : li];
+    if (g === undefined || g < 0) return;
+    const n = rv.rec.face | 0;
+    if (f.type === 1) {
+      const id = part.texList[g] ?? -1;
+      if (id >= 0) this.renderer.setTextureFrame(this.archive, id, 2, n);
+      const prev = o.uvScale;
+      o.uvScale = (q) => (q === g ? FACE_WIB_SCALE : prev?.(q));
+    } else if (f.type === 0 && n >= 0 && n < 16) {
+      const off = faceAtlasOffset(n), prev = o.uvOffset;
+      o.uvOffset = (q) => {
+        if (q !== g) return prev?.(q);
+        const p = prev?.(q);
+        return p ? [p[0] + off[0], p[1] + off[1]] : off;
+      };
+    }
+  }
+
+  /** group -> live matrix of its GTOM index (undefined = the static matrix) */
+  private groupOverride(m: MeshGpu, ovr: ReadonlyMap<number, Float32Array>): (g: number) => Float32Array | undefined {
+    const gt = m.msh.gtom;
+    return (g) => (gt ? ovr.get(gt[g]) : undefined);
+  }
+
+  /**
+   * FUN_00444370 / FUN_00416590: a sphere (world centre, radius) against the six planes of the last drawn view (the original tests the record's collision
+   * sphere every frame and keeps the result in record flag 1). True before the first frame.
+   */
+  sphereVisible(c: ArrayLike<number>, radius: number): boolean {
+    const P = this.planes;
+    if (!P) return true;
+    for (let i = 0; i < 6; i++) {
+      const o = i * 4;
+      if (P[o] * c[0] + P[o + 1] * c[1] + P[o + 2] * c[2] + P[o + 3] < -radius) return false;
+    }
+    return true;
   }
 
   // ---------------------------------------------------------------- shadow
@@ -364,9 +447,9 @@ export class GameRenderer {
   }
 
   /** Pepper's blob shadow (rendering.md section 9, type 4): corners 2 units out at heading +-45 / 135 deg, ray-cast down 2 above, lifted 0.08 */
-  private drawShadow(mat: Float32Array) {
+  private drawShadow(mat: Float32Array, isPepper = true, self: GameRecord | null = null) {
     const sm = this.shadowMesh, sa = this.shadowArchive;
-    if (!sm || !sa || this.loaded.world.vars.get(V.PEPPERSSHADOW) === -1) return;
+    if (!sm || !sa || (isPepper && this.loaded.world.vars.get(V.PEPPERSSHADOW) === -1)) return;
     const w = this.loaded.world;
     const tex = this.renderer.texture(sa, SHADOW_TYPE, '');
     if (!tex) return;
@@ -376,7 +459,7 @@ export class GameRenderer {
     const rx = fz, rz = -fx;   // right = (cos h, -sin h) for forward (sin h, cos h)
     const R = 2, lift = 0.08, k = R / Math.SQRT2;
     const ground = (px: number, pz: number, base: number): number => {
-      const h = w.col.sweep(null, [px, base + 2, pz], [0, -40, 0], 3, 0.01, 0);
+      const h = w.col.sweep(self, [px, base + 2, pz], [0, -40, 0], 3, 0.01, 0);   // the original casts against the registered collision list (DAT_009e5714), never the record itself
       return h ? h.point[1] : -Infinity;
     };
     let cy = Math.max(w.seaLevel, ground(x, z, y));
@@ -397,4 +480,19 @@ export class GameRenderer {
     const id = new Float32Array(16); id[0] = id[5] = id[10] = id[15] = 1;
     this.renderer.drawMesh(sm, id, () => tex, { mode: 2 });
   }
+}
+
+/** the six frustum planes of a row-vector view * projection matrix with GL clip space (-w..w), normalised: left, right, bottom, top, near, far */
+export function clipPlanes(vp: ArrayLike<number>, out: Float32Array): Float32Array {
+  // clip = (x, y, z, 1) * VP: clip component j = column j of VP
+  const col = (j: number, k: number) => vp[k * 4 + j];
+  const sets: [number, number][] = [[0, 1], [0, -1], [1, 1], [1, -1], [2, 1], [2, -1]];
+  for (let i = 0; i < 6; i++) {
+    const [j, sgn] = sets[i];
+    let a = col(3, 0) + sgn * col(j, 0), b = col(3, 1) + sgn * col(j, 1), c = col(3, 2) + sgn * col(j, 2), d = col(3, 3) + sgn * col(j, 3);
+    const l = Math.hypot(a, b, c) || 1;
+    a /= l; b /= l; c /= l; d /= l;
+    out[i * 4] = a; out[i * 4 + 1] = b; out[i * 4 + 2] = c; out[i * 4 + 3] = d;
+  }
+  return out;
 }

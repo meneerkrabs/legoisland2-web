@@ -112,8 +112,14 @@ export const PROFILE_NL: Profile = {
 
 export interface ModelPart { mesh: number; texList: number; lod: number; flag: number }
 export interface Attachment { slot: number; bone: number; child: Model }
+/**
+ * Faces.c face set-up of a model (FUN_0043f1d0(model, slot, maxParts, groups, type), called by the zone builders): the model's (slot -1) or its attachment `slot`'s
+ * model gets a face object; `groups[i]` = the mesh group of LOD part i that shows the face; type 0 = 4x4 atlas (UV offsets of DAT_00981190), 1 = 16-frame `.wib`
+ * (UVs scaled x4 about v = 1, frame chosen with FUN_00443120 mode 2). docs/re/m4/wp10-render.md
+ */
+export interface FaceSetup { slot: number; maxParts: number; groups: number[]; type: number }
 /** A model = up to 5 level-of-detail parts (part.lod = switch-in distance) plus child models attached to skeleton bones */
-export interface Model { array: string; index: number; parts: ModelPart[]; attach: Attachment[] }
+export interface Model { array: string; index: number; parts: ModelPart[]; attach: Attachment[]; face?: FaceSetup }
 export interface PlacedRecord {
   index: number;
   name: string;
@@ -154,6 +160,9 @@ function containing(starts: number[], va: number): { start: number; end: number 
   while (lo <= hi) { const mid = (lo + hi) >> 1; if (starts[mid] <= va) { ans = mid; lo = mid + 1; } else hi = mid - 1; }
   return { start: starts[ans], end: ans + 1 < starts.length ? starts[ans + 1] : starts[ans] + 0x100000 };
 }
+
+/** FUN_0043f1d0 (GSMS_MI.c): the face set-up of a model (see FaceSetup) */
+const FN_FACE_SETUP = 0x43f1d0;
 
 export function extractZone(pe: Pe, zone: string, profile: Profile = PROFILE_NL, starts?: number[]): ZoneScene {
   const warnings: string[] = [];
@@ -240,6 +249,17 @@ export function extractZone(pe: Pe, zone: string, profile: Profile = PROFILE_NL,
         const bone = e.args[2]?.k === 'imm' ? e.args[2].v : -1, slot = e.args[3]?.k === 'imm' ? e.args[3].v : -1;
         if (parent && child) parent.attach[slot] = { slot, bone, child };
         else warnings.push(`attach at ${e.at.toString(16)}: unresolved parent/child`);
+      } else if (t === FN_FACE_SETUP) {
+        const mv = e.args[0];
+        let m: Model | undefined;
+        if (mv && mv.k === 'ret') m = modelOfRet.get(mv.id);
+        else if (mv && mv.k === 'load' && mv.base.k === 'glob' && mv.base.a === recGlobal) m = recModel.get(recIdx(mv.o, 4));
+        const imm = (v: Val | undefined) => (v && v.k === 'imm' ? (v.v | 0) : NaN);
+        const slot = imm(e.args[1]), maxParts = imm(e.args[2]), type = imm(e.args[4]);
+        const ga = e.args[3], groups: number[] = [];
+        if (ga && ga.k === 'lea') for (let i = 0; i < 5; i++) groups.push((e.locals?.get(ga.o + i * 4) ?? 0) | 0);
+        if (m && Number.isFinite(slot) && Number.isFinite(type)) m.face = { slot, maxParts, groups, type };
+        else warnings.push(`face set-up at ${e.at.toString(16)}: unresolved`);
       } else if (t === profile.fnCopyName) {
         const d = e.args[0], s = strOfArg(e.args[1]);
         if (d && d.k === 'gptr' && d.a === recGlobal && s !== null) recNames.set(d.o / profile.recordStride, pe.cstr((e.args[1] as { v: number }).v, 4).slice(0, 4));

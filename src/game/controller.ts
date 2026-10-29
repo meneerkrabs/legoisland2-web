@@ -105,7 +105,7 @@ export function updatePass(w: World) {
 export function prerenderPass(w: World) {
   for (const rec of w.records) {
     const c = rec.ctrl;
-    if (!c) continue;
+    if (!c || !c.enabled) continue;     // FUN_004225c5: `piVar1[3] & 2`: a disabled controller (a cutscene actor with ENABLEAI off, flags bit 2 cleared) keeps its stale `ran` bits
     for (let i = 0; i < c.nodes.length; i++) {
       if (!c.ran[i]) continue;
       const n = c.nodes[i];
@@ -121,7 +121,7 @@ export function drawPass(w: World, fallback: (rec: GameRecord) => void) {
   for (const rec of w.records) {
     const c = rec.ctrl;
     let handled = false;
-    if (c) {
+    if (c && c.enabled) {     // FUN_0042271b: a disabled controller takes the default draw
       for (let i = 0; i < c.nodes.length; i++) {
         if (!c.ran[i]) continue;
         const r = c.nodes[i].draw?.(w, rec, c) ?? 0;

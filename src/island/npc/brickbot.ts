@@ -1,0 +1,733 @@
+// BrickBot.c (Common\Z02LGI\c_src\BrickBot.c) and botPConly.c: the Brickster's bots of eras 1-3 (records BBT0-5 grey, BBR0 / BBG0 / BBB0 / BBY0 the
+// coloured ones). Every bot also carries the generic talking-NPC node SGMFIG at position 0 (WP3: walker, ground probe, the pizza reaction that sets
+// 0x1000 | 0x2000 in the bot's MOVE var when a pizza comes at it; the bots are targetable (controller flags 0x43) so they never talk) and a Human1
+// random walk at the end of the chain. Ported from the decompile:
+//   FUN_00531d45  follower constructor (node 0xc0, vtable 0x8eaa90)           -> BotFollowNode
+//     FUN_00530e80  update: walk 4 ticks behind the leader (or ride on top of it, type 3), clone its walker
+//     FUN_00531286  pre-render: mirror the leader's clip (FUN_00531944 maps it), the tap / spin gags every ~360 ticks
+//   FUN_005327b1  hit / collect constructor (node 0x30, vtable 0x8eaaa8)      -> BotHitNode (gate MOVE & 0x1000 in eras 1 / 2, always in era 3)
+//     FUN_00531e97  update: the pizza hit (WP5's pizzaHitOn FUN_00429556), the dazed clips, recovery; the shrink after the collect; era 3 wave gag
+//     FUN_00532557  pre-render: Pepper within 2 units of a bot in this state collects it: NUM_BOT_HEADS + 1, score, COLORED_BOTHEADS bit by colour
+//   FUN_00532acc  "harass" constructor (node 0x1c, vtable 0x8eaac8)           -> BotHarassNode
+//     FUN_00532939  update: random face every 6 ticks; a walker it bumped into becomes the leader of its second follower node (MOVE |= 8)
+//   FUN_00533ba8  "hide" constructor (node 0x44, vtable 0x8eaae0)             -> BotHideNode
+//     FUN_00532bb1  update: keep a waypoint between itself and Pepper (or a record), circling it at the lane radius; peek and wave; move to another
+//                   node of the ring DAT_008eaaf8 every 300 ticks, running along the route
+//     FUN_00533ac2  pre-render: out-of-view time (frozen after 90 ticks out of view)
+//   FUN_0053de63  botPConly constructor (node 0x2c, vtable 0x8eb248)          -> BotPcOnlyNode (BBT5 in era 1)
+//     FUN_0053d990 / FUN_0053dc65  near TBOB it tells him (MOVE_TBOB |= 0x20); with MOVE & 2 it walks to and fro and, when it falls, sits dazed
+// There is no brick effect in BrickBot.c (no FUN_00447e90 call): a collected bot shrinks (scale 0.9 - 0.2 per tick) in the Explode01.par burst
+// and is hidden (MOVE = 0x4000). docs/re/m4/wp11-brickbot.md.
+import type { BehaviourNode, Controller } from '../../game/controller.ts';
+import { NODE_NONE, NODE_STOP } from '../../game/controller.ts';
+import type { GameRecord } from '../../game/record.ts';
+import { RF_ENABLED, RF_NPC } from '../../game/record.ts';
+import type { World } from '../../game/world.ts';
+import { buildMatrix } from '../../formats/matrix.ts';
+import { waypoints, MAP_PATH } from '../../game/walker.ts';
+import type { StepOut } from '../../game/walker.ts';
+import type { Attach } from '../../formats/zonesetup.ts';
+import type { Pe } from '../../formats/exe.ts';
+import { ArgView } from '../args.ts';
+import { tryCtx } from '../ctx.ts';
+import { pizzaHitOn } from '../pizza/pizza.ts';
+import { PI, TWO_PI, actionVarOp, ctrlExtra, groupVarOp, headNodeVarOp, inView } from './globals.ts';
+
+export const CTOR_BOT_FOLLOW = 0x531d45, CTOR_BOT_HIT = 0x5327b1, CTOR_BOT_HARASS = 0x532acc, CTOR_BOT_HIDE = 0x533ba8, CTOR_BOT_PCONLY = 0x53de63;
+
+/** game variables (gamevars.tsv) */
+export const BOT_VARS = { NUM_BOT_HEADS: 0x52, COLORED_BOTHEADS: 0x8e, SCORE_LGI: 0xa6, HISCORE_LGI: 0x12, NODE: 0x58, MOVE_TBOB: 0x5c } as const;
+/** COLORED_BOTHEADS bits by the third letter of the record name (FUN_00532557: 'B' 8, 'G' 4, 'R' 2, 'Y' 1) */
+export const HEAD_BITS: Record<string, number> = { B: 8, G: 4, R: 2, Y: 1 };
+/** sounds: the hit (DAT_05d58164 = FUN_004433b0(0x102) Piza_Hit.wav, played at the bot), the collect (DAT_009da8f4 = FUN_00443580(0x2f1) Collect.wav) */
+export const BOT_SND = { HIT: 0x102, COLLECT: 0x2f1 } as const;
+/** clips (MFIG.blk; names from the set-up's animation dictionary) */
+export const BOT_CLIP = {
+  SURPRISED: 0x70, PIZZAHIT: 0x94, PIZZADAZED: 0x95, DOUBLEHIT: 0xcf, SIT2STAND: 0x11b,
+  SNEAK: 0xb4, WAVE2: 0x90, RUN2: 0xda, TAP1: 0xfe, SPIN: 0x121, RUN1: 0x118,
+} as const;
+/** the emitters of FUN_005327b1: Explode01.par at (0, 4, 0), swirl01.swl at (0, 3.2, -2) of the bot (both turned -pi/2 about x) */
+const FX_EXPLODE = 'Explode01.par', FX_SWIRL = 'swirl01.swl';
+const FX_EXPLODE_OFS = [0, 4, 0], FX_SWIRL_OFS = [0, 3.2, -2];
+
+// ---- tuning constants (EXE addresses)
+/** FUN_00532557: _DAT_008eaac0 = 4.0: squared XZ distance of Pepper for the collect */
+const COLLECT_DIST2 = 4;
+/** FUN_00532557: start scale 0x3f666666 (0.9), shrink _DAT_008920f0 (0.2) per tick; state 10 */
+const SHRINK_START = 0.9, SHRINK_RATE = 0.2;
+/** FUN_00531e97: era-3 wave gag pause 0x42700000 (60) */
+const WAVE_PAUSE = 60;
+/** FUN_00531d45: distance = argument * _DAT_00892090 (8) */
+const UNITS = 8;
+/** FUN_00530e80: a type-3 follower rides _DAT_00892080 (4) above the leader; FUN_00531286 lowers it _DAT_0089204c (0.5) in clip 0x29 */
+const RIDE_HEIGHT = 4, RIDE_DIP = 0.5;
+/** FUN_00531286: gag timer _DAT_00892154 (360), reset to -1000 (0xc47a0000) or rand(120) (0x42f00000); the tap / spin coin rand(10) > 5 */
+const GAG_TIME = 360, GAG_RESET = -1000, GAG_RAND = 120;
+/** FUN_00532bb1: frozen out of view after _DAT_00892598 (90) ticks; relocation every _DAT_008924dc (300); peek after 90; the hiding cone +-10 degrees
+ *  (_DAT_0089211c 0.174532); circling speed _DAT_008920f0 (0.2), running speed _DAT_00892118 (0.4) */
+const OUT_OF_VIEW = 90, RELOCATE_TIME = 300, PEEK_TIME = 90, HIDE_CONE = 0.174532, CIRCLE_SPEED = 0.2, RUN_SPEED = 0.4;
+const HALF_PI = 1.5707964;     // _DAT_00892220 / 0x3fc90fdb
+/** DAT_008eaaf8: the ring of PATH nodes the hiding bot BBT0 moves around (7 shorts) */
+export const RING_VA = 0x8eaaf8, RING_LEN = 7;
+const RING_DEFAULT = [0x171, 0x172, 0x173, 0x174, 0x175, 0x176, 0x177];
+/** FUN_00533ba8: the running clip when the argument has none (0xda BB_RUN2) */
+const RUN_CLIP_DEFAULT = 0xda;
+/** FUN_00532939: a random face 0..5 every 6 ticks (0x40c00000) */
+const FACE_TIME = 6;
+/** FUN_00530e80: the follower's face */
+const FOLLOW_FACE = 0xe;
+/** botPConly FUN_0053d990: TBOB is told when the bot is lower than _DAT_00892110 (96) and within sqrt(_DAT_008921a0 = 576) = 24 units;
+ *  FUN_0053dc65: a fall of more than _DAT_008925ec (0.04) per tick, the clip 0x118 for _DAT_0089237c (20) ticks */
+const PC_TBOB_Y = 96, PC_TBOB_DIST2 = 576, PC_FALL = 0.04, PC_RUN_TIME = 20;
+
+export function readRing(pe: Pe | undefined): number[] {
+  if (!pe) return RING_DEFAULT.slice();
+  const out: number[] = [];
+  for (let i = 0; i < RING_LEN; i++) out.push((pe.u32(RING_VA + i * 2) << 16) >> 16);
+  return out;
+}
+
+/** the per-world globals of BrickBot.c */
+interface BotGlobals {
+  /** DAT_05d586a4: the follower type handed out in turn (0, 1, 2) to followers whose argument is < 1 */
+  nextType: number;
+  /** DAT_05d586a0: the frame of the spin gag at which the leader is released (never written in the executable: 0) */
+  spinRelease: number;
+}
+function botGlobals(w: World): BotGlobals {
+  let g = w.ext.get('brickbot') as BotGlobals | undefined;
+  if (!g) { g = { nextType: 0, spinRelease: 0 }; w.ext.set('brickbot', g); }
+  return g;
+}
+
+/** creation order of the bot nodes = the set-up's attach order (setupZone calls the factories in that order); the constructors' work runs in it */
+let creation = 0;
+
+const rand = (x: number) => (x <= 0 ? 0 : Math.random() * x);    // FUN_004388ae
+/** FUN_0043a4a1(rec + 0xc, rx, ry, rz): rotation from the record's Euler angles, translation kept */
+const setRot = (rec: GameRecord) => rec.setEuler(rec.rx, rec.ry, rec.rz, rec.x, rec.y, rec.z);
+const wrap1 = (a: number) => (a < -PI ? a + TWO_PI : a > PI ? a - TWO_PI : a);
+/** FUN_0043b874(anim, 1.0, 0): advance without looping; 2 at the end (the frame clamps at the frame count) */
+function advanceClamp(rec: GameRecord, dt: number): number {
+  const an = rec.anim;
+  if (!an || !an.clipData) return 0;
+  an.frame += dt;
+  const n = an.frameCount;
+  if (n < an.frame) { an.frame = n; return 2; }
+  return 0;
+}
+/** FUN_0043b76a(anim, 1.0) */
+const advance = (rec: GameRecord, dt: number) => rec.anim?.advance(1, dt) ?? 0;
+const play = (rec: GameRecord, clip: number, frame = 0) => { rec.anim?.start(clip, frame); };
+const fxPos = (rec: GameRecord, o: number[]): [number, number, number] => { const p = rec.toWorld(o); return [p[0], p[1], p[2]]; };
+function particles(w: World, rec: GameRecord, name: string, mode: number, ofs: number[]) { tryCtx(w)?.particles?.(name, mode, fxPos(rec, ofs), rec.index); }
+/** FUN_004239b3(ctrl): the value of the variable of the controller's head node */
+function headVar(w: World, r: GameRecord | null): number { const n = r?.ctrl?.nodes[0]; return n ? w.vars.get(n.var) : 0; }
+/** FUN_0043cec0: normalise in place (a zero vector stays zero) */
+function normalise(v: number[]) { const l = Math.hypot(v[0], v[1], v[2]); if (l > 0) { v[0] /= l; v[1] /= l; v[2] /= l; } }
+
+// =================================================================================================== follower FUN_00531d45
+
+export interface BotFollowArgs { leader: number; dist: number; type: number }
+export function decodeBotFollow(a: ArgView): BotFollowArgs { return { leader: a.recIndex(0), dist: a.f32(4), type: a.i32(8) }; }
+
+export class BotFollowNode implements BehaviourNode {
+  /** attach order */ readonly seq = creation++;
+  readonly kind = 'BotFollow';
+  readonly ctor = CTOR_BOT_FOLLOW;
+  var = 0; mask = 0; value = 0;
+  stamp = 0xfffffffe;
+  readonly args: BotFollowArgs;
+  inited = false;
+  /** +0x94: the leader (argument +0; FUN_00532939 assigns one to the follower whose mask is not 1) */ leader: GameRecord | null = null;
+  /** +0x14: the distance behind the leader (argument +4 * 8) */ dist = 0;
+  /** +0x18: type 0..2 (the clip variant, FUN_00531944), 3 = rides on top of the leader */ type = 0;
+  /** +0x1c / +0x58: 5 places and Euler angles of the leader (a delay of 4 ticks), +0x98: the last written entry */
+  hist: number[][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  eul: number[][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  idx = 0;
+  /** +0xa8 gag timer, +0xac gag state (0 mirror, 1 waiting for the leader's clip to restart, 2 tap, 3 spin), +0xb0 the leader's clip mirrored,
+   *  +0xb4 our clip, +0xb8 our frame, +0xbc tap ticks */
+  gag = 0; state = 0; leaderClip = -1; ownClip = -1; frame = 0; taps = 0;
+  constructor(args: BotFollowArgs) { this.args = args; }
+
+  init(w: World) {
+    if (this.inited) return;
+    this.inited = true;
+    this.leader = this.args.leader >= 0 ? w.records[this.args.leader] ?? null : null;
+    this.dist = this.args.dist * UNITS;
+    this.gag = 0; this.ownClip = -1; this.frame = 0; this.state = 0;
+    if (this.args.type < 1) { const g = botGlobals(w); this.type = g.nextType; g.nextType++; if (2 < g.nextType) g.nextType = 0; }
+    else this.type = this.args.type;
+  }
+
+  // ----------------------------------------------------------------------------------------------- FUN_00530e80
+  update(w: World, rec: GameRecord, ctrl: Controller): number {
+    if (!this.inited) this.init(w);
+    const L = this.leader;
+    if (!L) return NODE_NONE;
+    const lv = headVar(w, L);
+    if (lv & 0x4000) { headNodeVarOp(w, L.ctrl, 0x2000000, 2); return NODE_NONE; }
+    if ((lv & 0x2000000) === 0) headNodeVarOp(w, L.ctrl, 0x2000000, 0);
+    const ranLast = this.stamp === w.frame;
+    if (!ranLast) { if (ctrl.walker) waypoints.unregister(ctrl.walker); this.state = 0; }
+    if (this.type === 3) {
+      // on top of the leader
+      rec.rx = L.rx; rec.ry = L.ry; rec.rz = L.rz;
+      rec.m.set(L.m);
+      rec.y = rec.y + RIDE_HEIGHT;
+    } else {
+      tryCtx(w)?.expression?.(rec, FOLLOW_FACE);
+      const t = [L.x - this.dist * L.fx, L.y - this.dist * L.fy, L.z - this.dist * L.fz];
+      let next: number;
+      if (ranLast) {
+        this.idx++;
+        if (this.idx < 5) { next = this.idx + 1; if (4 < next) next = 0; }
+        else { this.idx = 0; next = 1; }
+        this.hist[this.idx] = t; this.eul[this.idx] = [L.rx, L.ry, L.rz];
+      } else {
+        this.idx = 4;
+        for (let i = 0; i < 5; i++) { this.hist[i] = t.slice(); this.eul[i] = [L.rx, L.ry, L.rz]; }
+        next = 0;
+      }
+      // FUN_0043a340 (rotation, translation 0), then the place; only the yaw (+0x50) is stored
+      const e = this.eul[next], p = this.hist[next];
+      rec.ry = e[1];
+      rec.m.set(buildMatrix(e[0], e[1], e[2], p[0], p[1], p[2]));
+    }
+    // FUN_0046248a(leader's walker, ours, distance), FUN_0046190f(ours, 1, 2)
+    if (L.ctrl?.walker && ctrl.walker) waypoints.clone(L.ctrl.walker, ctrl.walker, this.dist);
+    if (ctrl.walker) waypoints.setIgnore(ctrl.walker, 1, 2);
+    return NODE_STOP;
+  }
+
+  // ----------------------------------------------------------------------------------------------- FUN_00531286
+  prerender(w: World, rec: GameRecord, _ctrl: Controller) {
+    w.vars.or(this.var, 0x20000);
+    const L = this.leader, la = L?.anim, an = rec.anim;
+    if (!L || !la || !an) return;
+    if (!inView(w, rec)) { this.frame = la.frame; this.leaderClip = -1; this.ownClip = -1; return; }
+    let lc = -1, oc = -1;
+    let mirror = false;
+    if (this.state === 1) {
+      const lf = la.frame;
+      if (2 <= lf) mirror = true;
+      else {
+        // the leader's clip restarted: a gag (always the tap for the follower gated on & 1 == 0; type 3 never gets here)
+        let tap = 1;
+        if (this.type !== 3) tap = (this.mask & 1) === 0 || (this.value & 1) !== 0 ? (rand(10) <= 5 ? 0 : 1) : 1;
+        if (tap === 0) { this.state = 3; play(rec, BOT_CLIP.SPIN, lf); this.state = 0; }   // (sic: the state is reset at once)
+        else { this.state = 2; play(rec, BOT_CLIP.TAP1, lf); this.ownClip = -1; this.taps = 0; }
+      }
+    } else if (this.state === 2) {
+      const end = advanceClamp(rec, w.dt);
+      this.taps++;
+      if (end !== 0) { this.state = 0; headNodeVarOp(w, L.ctrl, 2, 0); this.gag = 0; }
+    } else if (this.state === 3) {
+      // unreachable in the executable (state 3 is replaced by 0 in the same call): kept for completeness
+      const end = advanceClamp(rec, w.dt);
+      if (end === 0) { if (botGlobals(w).spinRelease <= an.frame) { headNodeVarOp(w, L.ctrl, 4, 0); headNodeVarOp(w, L.ctrl, 0x2000000, 2); } }
+      else if (this.mask === this.value) w.vars.andNot(this.var, this.mask);
+      else w.vars.or(this.var, this.mask);
+    } else mirror = true;
+    if (mirror) {
+      lc = la.clip; oc = an.clip;
+      let f = 0;
+      if (oc !== this.ownClip || oc === 0x123) this.leaderClip = -1;
+      if (this.leaderClip === -1) {
+        const lf = la.frame;
+        oc = mapClip(lc, this.type);
+        this.ownClip = oc; this.frame = lf; f = lf;
+        play(rec, oc, lf);
+        this.leaderClip = lc;
+      } else if (lc === this.leaderClip) {
+        const lf = la.frame;
+        if (this.frame <= lf) { f = lf; if (this.frame < lf - 2) f = this.frame + 2; an.seek(f); }
+        else { advance(rec, w.dt); f = an.frame; }
+        this.frame = f;
+      } else {
+        const n = an.frameCount;
+        f = an.frame;
+        if (n - 2 <= f) { an.seek(n - 1); oc = mapClip(lc, this.type); this.ownClip = oc; play(rec, oc, 0); this.leaderClip = lc; }
+        else an.seek(f + 2);
+        this.frame = an.frame;
+      }
+      const n = an.frameCount;
+      if (n <= f) { this.frame = la.frame; an.seek(n - 1); }
+      this.gag += w.dt;
+      if (GAG_TIME < this.gag) {
+        if ((lc === 0xd || lc === 0x73) && this.type !== 3) { this.state = 1; this.gag = GAG_RESET; }
+        else this.gag = rand(GAG_RAND);
+      }
+    }
+    if (oc === 0x29 && this.type === 3) rec.y -= RIDE_DIP;
+  }
+}
+
+/** FUN_00531944(leader's clip, node): the clip a follower plays for the leader's (walk 0xd / 0x73 -> the cheeky walks, wave 0x74 -> the cheeky waves ...) */
+export function mapClip(c: number, type: number): number {
+  if (type === 3) {
+    switch (c) {
+      case 0x71: case 0x79: case 0x85: return 0x123;
+      case 0x74: return 0x74;
+      case 0x78: case 0x82: return 0x78;
+      default: return 0x29;
+    }
+  }
+  if (c < 0x8e) {
+    if (c === 0x8d) return 0x8e;
+    switch (c) {
+      case 0xd: case 0x73: return type === 1 ? 0x8d : type !== 2 ? 0x113 : 0x8e;
+      case 0x74: return type === 1 ? 0x91 : 0x90;
+      case 0x85: return 0x123;
+      default: return c;
+    }
+  }
+  switch (c) {
+    case 0x8e: return 0x113;
+    case 0x90: return 0x91;
+    case 0x91: return 0x90;
+    case 0x113: return 0x8d;
+    default: return c;
+  }
+}
+
+// =================================================================================================== hit / collect FUN_005327b1
+
+export interface BotHitArgs { victim: number }
+export function decodeBotHit(a: ArgView): BotHitArgs { return { victim: a.i16(0) }; }
+
+export class BotHitNode implements BehaviourNode {
+  /** attach order */ readonly seq = creation++;
+  readonly kind = 'BotHit';
+  readonly ctor = CTOR_BOT_HIT;
+  var = 0; mask = 0; value = 0;
+  stamp = 0xfffffffe;
+  readonly args: BotHitArgs;
+  inited = false;
+  /** +0x1c: scale while shrinking, +0x20: dazed clip count, +0x22: 0 / 10 shrinking / -1 gone */ scale = 0; count = 0; dying = 0;
+  /** +0x24: armed (waiting for the hit), +0x25: the hit reaction is still to start, +0x26: how it was hit (1 pizza, 2 hand-over, 3 fall, -1 forced) */
+  armed = 1; fresh = 1; how = 0;
+  /** +0x28: the NPC the bot harasses (its MOVE var: |= 0x20000 at the start, |= 1 when the bot is hit), +0x2a: era-3 wave running, +0x2c: wave pause */
+  victim = 0; waving = 0; pause = 0;
+  constructor(args: BotHitArgs) { this.args = args; }
+
+  init(w: World, _rec: GameRecord, ctrl: Controller) {
+    if (this.inited) return;
+    this.inited = true;
+    this.count = 0; this.dying = 0; this.armed = 1; this.fresh = 1; this.waving = 0; this.pause = 0;
+    if (ctrl.walker) waypoints.setIgnore(ctrl.walker, 1, 2);
+    this.victim = this.args.victim;
+    if (1 < this.victim) w.vars.or(this.victim, 0x20000);
+  }
+
+  // ----------------------------------------------------------------------------------------------- FUN_00531e97
+  update(w: World, rec: GameRecord, ctrl: Controller): number {
+    if (!this.inited) this.init(w, rec, ctrl);
+    const node = w.vars.get(BOT_VARS.NODE);
+    let v = w.vars.get(this.var);
+    if (this.dying !== 0) {
+      if (this.dying === -1) { this.gone(w, rec); return NODE_STOP; }
+      this.scale -= SHRINK_RATE * w.dt;
+      if (0 < this.scale) {
+        rec.m.set(buildMatrix(rec.rx, rec.ry, rec.rz, rec.x, rec.y, rec.z, this.scale, this.scale, this.scale));
+        rec.scale = [this.scale, this.scale, this.scale];
+      } else { this.dying = -1; w.vars.set(this.var, 0x4000); this.stopFx(w, rec); this.count = 0; }
+      return NODE_STOP;
+    }
+    if ((v & 0x1000000) === 0) {
+      if ((v & 0x4020000) === 0 && (v & 0x3000) === 0) {
+        // the wave gag (era 3: the bots dance; Pepper waving at them = SGMFIG's 0x200)
+        if (this.waving === 0) {
+          if (0x33 < node) {
+            if (0 < this.pause) this.pause -= w.dt;
+            if ((v & 0x200) !== 0 && this.pause <= 0) { this.waving = 1; play(rec, BOT_CLIP.SURPRISED); return NODE_STOP; }
+          }
+          return NODE_NONE;
+        }
+        if (advance(rec, w.dt) !== 0) { this.waving = 0; this.pause = WAVE_PAUSE; return NODE_NONE; }
+        return NODE_STOP;
+      }
+      if (0x33 < node) return NODE_NONE;
+    } else { this.how = -1; v |= 0x3000; }
+    if ((v & 0x1000) === 0) {
+      if (this.dying < 0) { w.vars.set(this.var, 0); rec.flags &= ~RF_ENABLED; ctrl.flags &= ~2; this.stopFx(w, rec); this.count = 0; }
+      return NODE_NONE;
+    }
+    if ((v & 0x10000) === 0) {
+      if (this.armed) {
+        if ((v & 0x1000000) === 0) {
+          if ((v & 0x2000) === 0) { w.vars.andNot(this.var, 0x1000); return NODE_NONE; }   // the pizza went past
+          this.how = pizzaHitOn(w, rec);
+          if (this.how !== 0) {
+            this.armed = 0;
+            w.vars.andNot(this.var, 0xfe); w.vars.or(this.var, 1);
+            tryCtx(w)?.sfxAt(BOT_SND.HIT, [rec.x, rec.y, rec.z]);
+          }
+          // (0x53229e: also without a hit) a pizza at the bot frees the NPC it harasses
+          if (2 < this.victim) { w.vars.or(this.victim, 1); groupVarOp(w, rec, 1, 0); w.vars.andNot(this.victim, 0x20000); }
+          return NODE_STOP;
+        }
+        this.how = -1; this.armed = 0;
+        w.vars.andNot(this.var, 0xfe); w.vars.or(this.var, 1);
+      }
+    } else {
+      // knocked over by a fall (botPConly 0x11000)
+      this.armed = 0; this.how = 3;
+      w.vars.andNot(this.var, 0x10000);
+    }
+    if (this.fresh === 0) {
+      if (this.count === 0) {
+        const r = advance(rec, w.dt);
+        if (r === 1 || r === 2) {
+          // back on its feet
+          rec.flags |= RF_NPC;
+          if (ctrl.walker) waypoints.reregister(ctrl.walker);
+          w.vars.andNot(this.var, 0x1000); w.vars.andNot(this.var, 0x1000000);
+          particles(w, rec, FX_SWIRL, 1, FX_SWIRL_OFS);
+          this.armed = 1; this.fresh = 1;
+        }
+      } else {
+        ctrlExtra(ctrl).f14 |= 0x10;      // FUN_00427000: the ground probe may run
+        if ((v & 0x2000) !== 0) { this.how = pizzaHitOn(w, rec); if (this.how !== 0) this.count = 5; }
+        const r = advance(rec, w.dt);
+        if (r === 1 || r === 2) {
+          if (this.count === 5) { play(rec, BOT_CLIP.PIZZADAZED); this.count--; }
+          else { this.count--; if (this.count === 0) play(rec, BOT_CLIP.SIT2STAND); }
+        }
+      }
+    } else {
+      // the hit reaction starts: the swirl over the head, no box collision (Pepper can walk into it), the clip by how it was hit
+      particles(w, rec, FX_SWIRL, 0, FX_SWIRL_OFS);
+      particles(w, rec, FX_SWIRL, 2, FX_SWIRL_OFS);
+      rec.flags &= ~RF_NPC;
+      if (this.how === 1) { play(rec, BOT_CLIP.PIZZAHIT); this.count = 5; }
+      else if (this.how === 2) { play(rec, BOT_CLIP.DOUBLEHIT); this.count = 5; }
+      else { play(rec, BOT_CLIP.PIZZADAZED); this.count = 4; }
+      this.fresh = 0;
+    }
+    return NODE_STOP;
+  }
+
+  // ----------------------------------------------------------------------------------------------- FUN_00532557
+  prerender(w: World, rec: GameRecord, ctrl: Controller) {
+    if (!inView(w, rec) || this.dying !== 0) return;
+    if (!(ctrl.distSq < COLLECT_DIST2)) return;
+    // collected: the head counts, the bot shrinks away in the explosion
+    this.dying = 10; this.scale = SHRINK_START;
+    w.vars.add(BOT_VARS.NUM_BOT_HEADS, 1);
+    w.vars.add(BOT_VARS.SCORE_LGI, 1000);
+    w.vars.add(BOT_VARS.HISCORE_LGI, 1000);
+    tryCtx(w)?.sfx(BOT_SND.COLLECT);
+    particles(w, rec, FX_EXPLODE, 0, FX_EXPLODE_OFS);
+    particles(w, rec, FX_EXPLODE, 2, FX_EXPLODE_OFS);
+    const bit = HEAD_BITS[rec.name.charAt(2)];
+    if (bit) w.vars.or(BOT_VARS.COLORED_BOTHEADS, bit);
+  }
+
+  private gone(w: World, rec: GameRecord) {
+    w.vars.set(this.var, 0x4000);
+    this.stopFx(w, rec);
+    rec.flags &= ~RF_ENABLED;
+    this.count = 0;
+  }
+  private stopFx(w: World, rec: GameRecord) { particles(w, rec, FX_SWIRL, 1, FX_SWIRL_OFS); particles(w, rec, FX_EXPLODE, 1, FX_EXPLODE_OFS); }
+}
+
+// =================================================================================================== harass FUN_00532acc
+
+export class BotHarassNode implements BehaviourNode {
+  /** attach order */ readonly seq = creation++;
+  readonly kind = 'BotHarass';
+  readonly ctor = CTOR_BOT_HARASS;
+  var = 0; mask = 0; value = 0;
+  stamp = 0xfffffffe;
+  inited = false;
+  /** +0x18: face timer */ face = FACE_TIME;
+
+  /** FUN_00532acc: the bot's MOVE var is reset unless the bot is gone (0x4000) */
+  init(w: World) {
+    if (this.inited) return;
+    this.inited = true;
+    if ((w.vars.get(this.var) & 0x4000) === 0) w.vars.set(this.var, 0);
+    this.face = FACE_TIME;
+  }
+
+  // ----------------------------------------------------------------------------------------------- FUN_00532939
+  update(w: World, rec: GameRecord, ctrl: Controller): number {
+    if (!this.inited) this.init(w);
+    this.face -= w.dt;
+    if (this.face <= 0) { tryCtx(w)?.expression?.(rec, Math.trunc(rand(6))); this.face = FACE_TIME; }
+    const h = ctrl.walker;
+    if (h && waypoints.isYielding(h)) {
+      const o = waypoints.blockerRecord(h) as GameRecord | null;
+      if (o && o.ctrl && (headVar(w, o) & 0x2000000) === 0) {
+        for (const n of ctrl.nodes) {
+          if (n instanceof BotFollowNode && n.mask !== 1) { n.init(w); n.leader = o; w.vars.or(n.var, 8); break; }
+        }
+      }
+    }
+    return NODE_NONE;
+  }
+}
+
+// =================================================================================================== hide FUN_00533ba8
+
+export interface BotHideArgs { clip: number; node: number; actVar: number; actValue: number; actOp: number; target: number }
+export function decodeBotHide(a: ArgView): BotHideArgs {
+  return { clip: a.i32(0), node: a.i16(4), actVar: a.i16(6), actValue: a.i16(8), actOp: a.i16(0xa), target: a.recIndex(0xc) };
+}
+
+export class BotHideNode implements BehaviourNode {
+  /** attach order */ readonly seq = creation++;
+  readonly kind = 'BotHide';
+  readonly ctor = CTOR_BOT_HIDE;
+  var = 0; mask = 0; value = 0;
+  stamp = 0xfffffffe;
+  readonly args: BotHideArgs;
+  inited = false;
+  /** +0x14: the node to hide behind (< 0: the ring DAT_008eaaf8, -2: never move on), +0x16 / +0x18 / +0x1a: var / value / op of FUN_0051dc50 every 300 ticks */
+  anchor = -1; actVar = 0; actValue = 0; actOp = 0;
+  /** +0x1c: the record to hide from (0 = Pepper), +0x20: the running clip */ target: GameRecord | null = null; runClip = RUN_CLIP_DEFAULT;
+  /** +0x24: state (0 hide, 1 peek, 2 run to the new node, 3 go round the old one), +0x28 / +0x2a: old / current ring index */ state = 0; prev = 0; ring = 0;
+  /** +0x2c: ticks out of view, +0x30: relocation timer, +0x34: hidden time */ away = 0; reloc = 0; hidden = 0;
+  private nodes: number[] = RING_DEFAULT;
+  private out: StepOut = { yaw: 0, dist: 0 };
+  constructor(args: BotHideArgs) { this.args = args; }
+
+  init(w: World, _rec: GameRecord, ctrl: Controller) {
+    if (this.inited) return;
+    this.inited = true;
+    this.nodes = readRing(tryCtx(w)?.pe);
+    this.reloc = 0; this.ring = 0; this.away = 0; this.state = 0; this.hidden = 0;
+    this.anchor = this.args.node; this.actVar = this.args.actVar; this.actValue = this.args.actValue; this.actOp = this.args.actOp;
+    this.target = this.args.target >= 0 ? w.records[this.args.target] ?? null : null;
+    this.runClip = this.args.clip === 0 ? RUN_CLIP_DEFAULT : this.args.clip;
+    if (this.anchor < 1 && ctrl.walker) waypoints.teleport(ctrl.walker, this.nodes[this.ring]);
+  }
+
+  private anchorNode(i = this.ring) { return this.anchor < 0 ? this.nodes[i] : this.anchor; }
+
+  // ----------------------------------------------------------------------------------------------- FUN_00532bb1
+  update(w: World, rec: GameRecord, ctrl: Controller): number {
+    if (!this.inited) this.init(w, rec, ctrl);
+    if (OUT_OF_VIEW < this.away) return NODE_STOP;
+    const h = ctrl.walker;
+    if (this.stamp !== w.frame) {
+      play(rec, this.state === 0 ? BOT_CLIP.SNEAK : this.state === 1 ? BOT_CLIP.WAVE2 : this.runClip);
+      if ((w.frame < 10 || w.vars.get(BOT_VARS.NODE) === 0x36) && h) waypoints.teleport(h, this.anchor < 1 ? this.nodes[this.ring] : this.anchor);
+    }
+    const radius = (waypoints.get(h)?.lane ?? 0) * UNITS;    // FUN_00461ab1: the lane
+    const pos = [rec.x, rec.y, rec.z];
+    switch (this.state) {
+      case 1:
+        if (advance(rec, w.dt) === 0) break;
+        this.state = 0;
+        play(rec, BOT_CLIP.SNEAK);
+      // falls through
+      case 0: {
+        if (!this.target) this.target = w.focus;
+        const T = this.target;
+        if (!T) break;
+        const P = waypoints.nodePos(MAP_PATH, this.anchorNode());
+        let move: boolean;
+        if (this.anchor === -2) move = false;
+        else {
+          this.reloc += w.dt;
+          move = RELOCATE_TIME < this.reloc;
+          if (move) this.reloc = 0;
+        }
+        if (!move) {
+          // hide: keep P between the bot and the target, going round P at the lane radius
+          const a1 = wrap1(Math.atan2(T.x - P[0], T.z - P[2]));       // anchor -> target
+          const a2 = wrap1(Math.atan2(P[0] - pos[0], P[2] - pos[2]));   // bot -> anchor
+          const d = wrap1(a2 - a1);
+          const side = d < -HIDE_CONE ? -HALF_PI : HIDE_CONE < d ? HALF_PI : 0;
+          if (side !== 0 || this.stamp !== w.frame) { rec.ry = side === 0 ? a2 + HALF_PI : a2 + side; setRot(rec); }
+          if (side === 0) {
+            this.hidden += w.dt;
+            if (PEEK_TIME < this.hidden && this.anchor === -1) { this.state = 1; this.hidden = 0; play(rec, BOT_CLIP.WAVE2); setRot(rec); }
+          } else {
+            ctrlExtra(ctrl).f14 |= 0x10;
+            this.circle(rec, P, radius, CIRCLE_SPEED * w.dt);
+            advance(rec, w.dt);
+            this.hidden = 0;
+          }
+        } else if (this.anchor < 0) {
+          // move on to the neighbour on the ring that is farther from the target
+          const up = this.ring + 1 > 6 ? 0 : this.ring + 1, down = this.ring - 1 < 0 ? 6 : this.ring - 1;
+          const Pu = waypoints.nodePos(MAP_PATH, this.nodes[up]), Pd = waypoints.nodePos(MAP_PATH, this.nodes[down]);
+          const du = (T.x - Pu[0]) ** 2 + (T.y - Pu[1]) ** 2 + (T.z - Pu[2]) ** 2;
+          const dd = (T.x - Pd[0]) ** 2 + (T.y - Pd[1]) ** 2 + (T.z - Pd[2]) ** 2;
+          this.prev = this.ring;
+          this.ring = dd <= du ? up : down;
+          play(rec, this.runClip);
+          this.state = 3;
+          if (h) waypoints.goTo(h, this.nodes[this.ring], 0);
+        } else {
+          if (this.actVar !== 0) actionVarOp(w, rec, this.actOp, this.actVar, this.actValue);
+          this.reloc = 0;
+        }
+        break;
+      }
+      case 2: {
+        ctrlExtra(ctrl).f14 |= 0x10;
+        const r = h ? waypoints.step(h, pos, rec.ry, this.out, w.dt) : -1;
+        if (h) { rec.x = pos[0]; rec.z = pos[2]; rec.ry = this.out.yaw; }
+        setRot(rec);
+        if (r === -1) {
+          play(rec, BOT_CLIP.SNEAK);
+          this.state = 0; this.hidden = 0;
+          if (h) waypoints.teleport(h, this.nodes[this.ring]);
+        } else {
+          const s = RUN_SPEED * w.dt;
+          rec.x += s * rec.fx; rec.y += s * rec.fy; rec.z += s * rec.fz;
+          advance(rec, w.dt);
+        }
+        break;
+      }
+      case 3: {
+        // round the old node until the new one is less than 90 degrees off, then run there
+        ctrlExtra(ctrl).f14 |= 0x10;
+        const Pold = waypoints.nodePos(MAP_PATH, this.nodes[this.prev]), Pnew = waypoints.nodePos(MAP_PATH, this.nodes[this.ring]);
+        const aNew = wrap1(Math.atan2(Pnew[0] - pos[0], Pnew[2] - pos[2]));
+        const aOld = wrap1(Math.atan2(Pold[0] - pos[0], Pold[2] - pos[2]));
+        const d = wrap1(aNew - aOld);
+        if (HALF_PI <= Math.abs(d)) {
+          rec.ry = 0 <= d ? aOld - HALF_PI : aOld + HALF_PI;
+          setRot(rec);
+          this.circle(rec, Pold, radius, CIRCLE_SPEED * w.dt);
+          advance(rec, w.dt);
+        } else {
+          rec.ry = aNew;
+          this.state = 2;
+          setRot(rec);
+          const s = RUN_SPEED * w.dt;
+          rec.x += s * rec.fx; rec.y += s * rec.fy; rec.z += s * rec.fz;
+        }
+        break;
+      }
+    }
+    return NODE_STOP;
+  }
+
+  /** step along the facing, then back onto the circle of `radius` round P (in 3D, like the original) */
+  private circle(rec: GameRecord, P: number[], radius: number, s: number) {
+    rec.x += s * rec.fx; rec.y += s * rec.fy; rec.z += s * rec.fz;
+    const d = [rec.x - P[0], rec.y - P[1], rec.z - P[2]];
+    normalise(d);
+    rec.x = P[0] + d[0] * radius; rec.y = P[1] + d[1] * radius; rec.z = P[2] + d[2] * radius;
+  }
+
+  // ----------------------------------------------------------------------------------------------- FUN_00533ac2
+  prerender(w: World, rec: GameRecord) {
+    if (!inView(w, rec)) this.away += w.dt; else this.away = 0;
+  }
+}
+
+// =================================================================================================== botPConly FUN_0053de63
+
+export interface BotPcOnlyArgs { nodeA: number; nodeB: number; tbob: number }
+export function decodeBotPcOnly(a: ArgView): BotPcOnlyArgs { return { nodeA: a.i32(0), nodeB: a.i32(4), tbob: a.recIndex(8) }; }
+
+export class BotPcOnlyNode implements BehaviourNode {
+  readonly kind = 'BotPcOnly';
+  readonly ctor = CTOR_BOT_PCONLY;
+  var = 0; mask = 0; value = 0;
+  stamp = 0xfffffffe;
+  readonly args: BotPcOnlyArgs;
+  /** +0x14 / +0x18 the two PATH nodes, +0x1c TBOB, +0x20 y last tick, +0x24 run time, +0x28 which node, +0x2a arrived, +0x2b falling */
+  which = 0; arrived = 0; falling = 0; lastY = 0; run = 0;
+  private out: StepOut = { yaw: 0, dist: 0 };
+  constructor(args: BotPcOnlyArgs) { this.args = args; }
+
+  // ----------------------------------------------------------------------------------------------- FUN_0053d990
+  update(w: World, rec: GameRecord, ctrl: Controller): number {
+    const v = w.vars.get(this.var);
+    if ((v & 2) === 0) {
+      const t = this.args.tbob >= 0 ? w.records[this.args.tbob] : null;
+      if (t && rec.y < PC_TBOB_Y) {
+        const d2 = (t.x - rec.x) ** 2 + (t.y - rec.y) ** 2 + (t.z - rec.z) ** 2;
+        if (d2 < PC_TBOB_DIST2) headNodeVarOp(w, t.ctrl, 0x20, 0);
+      }
+      return NODE_NONE;
+    }
+    const h = ctrl.walker;
+    const nodeOf = (i: number) => (i === 0 ? this.args.nodeA : this.args.nodeB);
+    if (this.stamp !== w.frame) {
+      if (h) waypoints.moveToPoint(h, waypoints.nodePos(MAP_PATH, nodeOf(this.which)));
+      play(rec, BOT_CLIP.RUN1);
+      this.run = 0; this.falling = 0;
+    }
+    const pos = [rec.x, rec.y, rec.z];
+    const r = h ? waypoints.step(h, pos, rec.ry, this.out, w.dt) : -1;
+    if (r === -1 || this.arrived) {
+      if (this.which === 1) {
+        w.vars.andNot(this.var, 2);
+        if (h) waypoints.teleport(h, nodeOf(this.which));
+        this.which = 0; this.falling = 0; this.arrived = 0;
+      } else {
+        this.which = 1;
+        if (h) waypoints.moveToPoint(h, waypoints.nodePos(MAP_PATH, nodeOf(this.which)));
+        this.falling = 0; this.arrived = 0;
+      }
+    } else {
+      rec.ry = this.out.yaw;
+      rec.setEuler(rec.rx, rec.ry, rec.rz, pos[0], pos[1], pos[2]);
+      ctrlExtra(ctrl).f14 |= 0x10;
+    }
+    // the controller probe starts 4 up behind the bot (c+0x20 = (-fwd.x, 4, -fwd.z)): the bot drops over an edge it walks off
+    const p = ctrlExtra(ctrl).probe;
+    if (p) { p.from[0] = -rec.fx; p.from[1] = 4; p.from[2] = -rec.fz; }
+    this.lastY = rec.y;
+    return NODE_STOP;
+  }
+
+  // ----------------------------------------------------------------------------------------------- FUN_0053dc65
+  prerender(w: World, rec: GameRecord, ctrl: Controller) {
+    const clip = rec.anim?.clip ?? -1;
+    const head = ctrl.nodes[0] as { falling?: number } | undefined;
+    if ((head?.falling ?? 0) !== 0 || (this.falling !== 0 && PC_FALL < this.lastY - rec.y)) {
+      this.run = 0; this.falling = 1;
+      if (clip === BOT_CLIP.PIZZADAZED) advance(rec, w.dt); else play(rec, BOT_CLIP.PIZZADAZED);
+    } else {
+      this.run += w.dt;
+      if (clip === BOT_CLIP.RUN1 || this.run <= PC_RUN_TIME) advance(rec, w.dt);
+      else if (this.falling === 0) play(rec, BOT_CLIP.RUN1);
+      else { this.falling = 0; this.arrived = 1; w.vars.or(this.var, 0x11000); }
+    }
+  }
+}
+
+// =================================================================================================== set-up
+
+/**
+ * The constructors' world work for the bots (the factories of `registerCtor` do not see the world): run after the SGMFIG nodes made the walkers
+ * (`startIslandNpcs` calls it). In attach order per record, like the original's set-up: FUN_005327b1 (walker ignores others, the victim's 0x20000),
+ * FUN_00531d45 (leader, distance, type from the shared counter), FUN_00532acc (MOVE var reset unless gone), FUN_00533ba8 (walker onto the ring).
+ */
+export function startBrickBots(w: World) {
+  botGlobals(w).nextType = 0;
+  const all: { rec: GameRecord; c: Controller; n: BotFollowNode | BotHitNode | BotHarassNode | BotHideNode }[] = [];
+  for (const rec of w.records) {
+    const c = rec.ctrl;
+    if (!c) continue;
+    for (const n of c.nodes) if (n instanceof BotHitNode || n instanceof BotFollowNode || n instanceof BotHarassNode || n instanceof BotHideNode) all.push({ rec, c, n });
+  }
+  all.sort((a, b) => a.n.seq - b.n.seq);
+  for (const { rec, c, n } of all) {
+    if (n instanceof BotHitNode) n.init(w, rec, c);
+    else if (n instanceof BotFollowNode) n.init(w);
+    else if (n instanceof BotHarassNode) n.init(w);
+    else n.init(w, rec, c);
+  }
+}
+
+/** factories by constructor address (registered by src/island/npc/index.ts) */
+export const BRICKBOT_FACTORIES: [number, (a: Attach) => BehaviourNode][] = [
+  [CTOR_BOT_FOLLOW, (a) => new BotFollowNode(decodeBotFollow(ArgView.of(a)))],
+  [CTOR_BOT_HIT, (a) => new BotHitNode(decodeBotHit(ArgView.of(a)))],
+  [CTOR_BOT_HARASS, () => new BotHarassNode()],
+  [CTOR_BOT_HIDE, (a) => new BotHideNode(decodeBotHide(ArgView.of(a)))],
+  [CTOR_BOT_PCONLY, (a) => new BotPcOnlyNode(decodeBotPcOnly(ArgView.of(a)))],
+];

@@ -9,3 +9,4 @@ import './z41MAP.ts';
 import './z04IFC.ts';
 import './z50LTC.ts';
 import './z03PPH.ts';
+import './z02LGI/index.ts';
