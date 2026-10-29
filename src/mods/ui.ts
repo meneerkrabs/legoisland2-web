@@ -8,6 +8,12 @@ import { EffectMap, reportPatches } from './effects.ts';
 import type { PatchRow } from './effects.ts';
 import { loadPatches } from './store.ts';
 import { ModLayer } from './overlay.ts';
+import { CATALOGUE, THREADS, addFromCatalogue, addable, cleanTemp } from './catalogue.ts';
+import type { CatalogueEntry } from './catalogue.ts';
+import { setUnrarWasmUrl } from './rar.ts';
+import unrarWasm from 'node-unrar-js/esm/js/unrar.wasm?url';
+
+setUnrarWasmUrl(unrarWasm);
 
 export interface ModsUiHost {
   /** the game's executable when it can be had without a download (own ISO, dev copy, a stored download); else null */
@@ -62,7 +68,7 @@ export async function collectDropped(dt: DataTransfer): Promise<PickedFile[]> {
 export async function createModsSection(host: ModsUiHost): Promise<ModsSection> {
   const store: ModStore = await openModStore();
   const list = el('div', { className: 'bdb-modlist' });
-  const status = el('div', { className: 'note', style: 'margin:.4rem 0' });
+  const status = el('div', { className: 'note bdb-modstatus', style: 'margin:.4rem 0' });
   const bar = el('div', { className: 'bdb-loading-bar' });
   const track = el('div', { className: 'bdb-loading-track', style: 'width:min(60vw,26rem);display:none;margin:.4rem auto' }, bar);
   const summary = el('summary', { textContent: 'Mods' });
@@ -70,22 +76,37 @@ export async function createModsSection(host: ModsUiHost): Promise<ModsSection> 
   let effects: Promise<EffectMap | null> | null = null;
   const effectMap = () => (effects ??= host.exe().then((b) => (b ? new EffectMap(b) : null)).catch(() => null));
 
+  const stop = el('button', { textContent: 'Stoppen', style: 'display:none;margin:0 auto .4rem', title: 'Breek het downloaden of importeren af (er blijft niets half achter)' });
+  let abort: AbortController | null = null;
+  stop.onclick = () => abort?.abort();
   const progress = (p: ImportProgress) => {
     track.style.display = '';
     bar.style.width = `${p.total ? Math.min(100, (100 * p.done) / p.total) : 100}%`;
-    status.textContent = p.label === 'Klaar' ? '' : `Importeren… ${p.label} (${mb(p.done)} van ${mb(p.total)})`;
+    status.textContent = p.label === 'Klaar' ? '' : `${p.phase === 'download' ? 'Downloaden' : 'Importeren'}… ${p.label} (${mb(p.done)} van ${mb(p.total)})`;
   };
   let importing = false;
+  const busy = (on: boolean) => { importing = on; abort = on ? new AbortController() : null; stop.style.display = on ? 'block' : 'none'; details.classList.toggle('bdb-busy', on); if (on) status.textContent = 'Bezig…'; else track.style.display = 'none'; };
   const doImport = async (items: PickedFile[]) => {
     if (importing || !items.length) return;
-    importing = true;
+    busy(true);
     try {
-      const res = await importPicked(items, store, progress);
+      const res = await importPicked(items, store, progress, abort!.signal);
       status.textContent = [res.added.length ? `${res.added.length === 1 ? 'Mod' : `${res.added.length} mods`} toegevoegd: ${res.added.map((m) => m.title).join(', ')}. Geldt bij de volgende keer Spelen.` : '', ...res.errors].filter(Boolean).join('\n');
-    } catch (e) { host.error(e); } finally { importing = false; track.style.display = 'none'; await render(); }
+    } catch (e) { host.error(e); } finally { busy(false); await render(); }
+  };
+  const doAdd = async (entry: CatalogueEntry) => {
+    if (importing) return;
+    if (entry.size > 100e6 && !confirm(`"${entry.title}" downloadt ${mb(entry.size)} van de bron en neemt ${mb(entry.unpacked)} in beslag in de opslag van je browser. Dit duurt een paar minuten. Doorgaan?`)) return;
+    busy(true);
+    try {
+      const res = await addFromCatalogue(entry, store, { progress, signal: abort!.signal });
+      status.textContent = res.errors.length
+        ? `"${entry.title}" is niet toegevoegd: ${res.errors.join(' ')}`
+        : `"${entry.title}" toegevoegd${res.added.length > 1 ? ` (${res.added.join(', ')})` : ''}. Hij staat nu in de lijst hieronder en geldt bij de volgende keer Spelen.`;
+    } catch (e) { host.error(e); } finally { busy(false); await render(); }
   };
 
-  const zipInput = el('input', { type: 'file', accept: '.zip,.txt', multiple: true, hidden: true });
+  const zipInput = el('input', { type: 'file', accept: '.zip,.rar,.txt', multiple: true, hidden: true });
   zipInput.onchange = () => { void doImport([...(zipInput.files ?? [])].map((f) => ({ path: f.name, file: f }))); zipInput.value = ''; };
   const dirInput = el('input', { type: 'file', multiple: true, hidden: true });
   dirInput.webkitdirectory = true;
@@ -103,7 +124,46 @@ export async function createModsSection(host: ModsUiHost): Promise<ModsSection> 
     const cache = readCache();
     list.replaceChildren(...mods.map((m, i) => row(m, i, mods.length, lost.get(m.title) ?? 0, em, cache)));
     if (!mods.length) list.replaceChildren(el('div', { className: 'note', textContent: 'Nog geen mods.' }));
+    renderCatalogue(mods);
   }
+
+  // ---- the catalogue (src/mods/catalogue.ts)
+  const catBox = el('div', { className: 'bdb-catlist' });
+  const link = (t: { label: string; url: string }) => el('a', { href: t.url, target: '_blank', rel: 'noopener noreferrer', textContent: t.label });
+  const fitText = { nl: 'Nederlandse versie', data: 'alle versies', other: 'niet de Nederlandse' } as const;
+  function catEntry(e: CatalogueEntry, mods: InstalledMod[]): HTMLElement {
+    const have = mods.filter((m) => m.origin?.catalog === e.id);
+    const can = addable(e);
+    const btn = el('button', { textContent: have.length ? 'Opnieuw toevoegen' : 'Toevoegen', title: have.length ? 'Download opnieuw van de bron en vervang de toegevoegde mod' : 'Download deze mod van de bron en voeg hem toe aan de lijst (hij wordt niet vanzelf aangezet voor een spel dat al loopt)' });
+    btn.onclick = () => { void doAdd(e); };
+    const meta = e.status === 'dead' ? [] : [
+      e.size ? `Download: ${mb(e.size)}${e.unpacked > e.size * 1.5 ? `, neemt ${mb(e.unpacked)} in beslag in je browser` : ''}` : '',
+      `Bron: ${e.host}`,
+    ].filter(Boolean);
+    return el('div', { className: `bdb-catentry${e.status === 'dead' || e.fit === 'other' ? ' off' : ''}` },
+      el('div', { className: 'bdb-cathead' }, el('b', { textContent: e.title }), el('span', { textContent: ` door ${e.authors.join('; ')}` }),
+        el('span', { className: 'bdb-modbtns' }, ...(can ? [have.length ? el('span', { className: 'note', textContent: 'toegevoegd ✓ ' }) : '', btn] : []))),
+      el('div', { className: 'bdb-moddesc', textContent: e.description }),
+      e.status === 'dead' ? el('div', { className: 'bdb-warn', textContent: e.portNote }) : el('div', { className: 'bdb-catmeta' }, meta.join(' · ')),
+      ...(e.status === 'dead' ? [] : [
+        el('div', { className: e.fit === 'other' ? 'bdb-warn' : 'bdb-catmeta' }, el('b', { textContent: `Taalversie: ${fitText[e.fit]}. ` }), e.fitNote),
+        el('div', { className: 'bdb-catmeta', textContent: `In de port: ${e.portNote}` }),
+      ]),
+      el('div', { className: 'bdb-catmeta' }, 'Bron en discussie: ', link(e.thread)));
+  }
+  function renderCatalogue(mods: InstalledMod[]) {
+    const group = (title: string, es: CatalogueEntry[], open: boolean) => es.length ? el('details', { open }, el('summary', { textContent: title }), ...es.map((e) => catEntry(e, mods))) : '';
+    catBox.replaceChildren(
+      ...CATALOGUE.filter(addable).map((e) => catEntry(e, mods)),
+      group('Voor andere taalversies: werken niet op de Nederlandse versie', CATALOGUE.filter((e) => e.status === 'live' && e.fit === 'other'), false),
+      group('Niet meer beschikbaar bij de bron', CATALOGUE.filter((e) => e.status === 'dead'), false));
+  }
+  const catalogue = el('details', { className: 'bdb-cat' },
+    el('summary', { textContent: 'Mod-catalogus: bekende mods met één klik toevoegen' }),
+    el('div', { className: 'note', textContent: 'Deze mods zijn gemaakt door de genoemde makers en staan niet op deze website: bij "Toevoegen" haalt je browser ze rechtstreeks op bij de plek waar de maker ze publiceerde (MEGA, Rock Raiders United, GitHub, archive.org; die laatste drie via een tussenserver die alleen doorgeeft). Niets staat vanzelf aan: een toegevoegde mod komt in de lijst hieronder, als elke andere mod. Alle eer aan de makers; de links gaan naar hun oorspronkelijke topics.' }),
+    catBox,
+    el('div', { className: 'note', textContent: 'De voorbeeldmods van de LI2 Mod Manager (Debug Mode, Skipable Intros, Windowed Mode, Force Command Line) staan er niet bij: de port heeft daar eigen opties voor (Debugmenu, Introfilms overslaan; een venster is er altijd). ' },
+      el('a', { href: THREADS.manager.url, target: '_blank', rel: 'noopener noreferrer', textContent: 'LI2 Mod Manager' }), '.'));
 
   function row(m: InstalledMod, i: number, n: number, lostFiles: number, em: EffectMap | null, cache: Cache): HTMLElement {
     const byTarget = new Map<string, number>();
@@ -121,6 +181,7 @@ export async function createModsSection(host: ModsUiHost): Promise<ModsSection> 
     }
     if (m.patches.length) parts.push(patchBlock(m, em, cache));
     for (const w of m.warnings) parts.push(el('div', { className: 'bdb-warn', textContent: w }));
+    if (m.origin) parts.push(el('div', { className: 'bdb-catmeta' }, 'Uit de catalogus. Bron en discussie: ', link({ label: m.origin.label, url: m.origin.url })));
     return el('div', { className: `bdb-mod${m.enabled ? '' : ' off'}` },
       el('div', { className: 'bdb-modhead' }, check, el('b', { textContent: m.title }), el('span', { textContent: m.author ? ` door ${m.author}` : '' }),
         el('span', { className: 'bdb-modbtns' },
@@ -144,14 +205,17 @@ export async function createModsSection(host: ModsUiHost): Promise<ModsSection> 
   }
 
   details.append(
-    el('div', { className: 'note', textContent: 'Importeer een mod in het formaat van de LI2 Mod Manager: een .zip, of een map met info.txt, patch.txt en/of _data (bestanden die archiefbestanden vervangen). Je kunt een zip of map ook op deze pagina slepen. Grote pakketten (zoals de HD Texture Pack, 2 GB) worden bestand voor bestand bewaard. Een RAR-bestand? Pak het eerst uit en kies de map.' }),
+    catalogue,
+    el('div', { className: 'note', textContent: 'Importeer een mod in het formaat van de LI2 Mod Manager: een .zip of .rar, of een map met info.txt, patch.txt en/of _data (bestanden die archiefbestanden vervangen). Je kunt een bestand of map ook op deze pagina slepen. Grote pakketten (zoals de HD Texture Pack, 2 GB) worden bestand voor bestand bewaard. Een RAR-bestand met een wachtwoord, uit meerdere delen, of een groot RAR 5-bestand "solid" kan niet worden gelezen: pak het dan eerst uit en kies de map.' }),
     el('div', { className: 'books' },
-      el('button', { textContent: 'Mod kiezen (.zip)…', onclick: () => zipInput.click() }),
+      el('button', { textContent: 'Mod kiezen (.zip of .rar)…', onclick: () => zipInput.click() }),
       el('button', { textContent: 'Map kiezen…', onclick: () => dirInput.click() })),
-    track, status, list,
+    el('hr'),
+    track, stop, status, list,
     ...(store.persistent ? [] : [el('div', { className: 'bdb-warn', textContent: 'Deze browser kan de mods niet bewaren: ze gelden alleen zolang dit venster openstaat.' })]),
     el('div', { className: 'note', textContent: 'Mods gelden bij de volgende keer Spelen. Bovenaan de lijst laadt eerst; als twee mods hetzelfde bestand vervangen, wint de onderste.' }),
     zipInput, dirInput);
+  void cleanTemp();   // a cut-off download of an earlier visit
   await render();
   return { element: details, importPicked: doImport };
 }

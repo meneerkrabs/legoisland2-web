@@ -1,4 +1,4 @@
-# Mods (file replacement + EXE patches)
+# Mods (file replacement + EXE patches), the mod catalogue, RAR, MEGA and IXS-look
 
 `src/mods/*`; start-screen section "Mods" (`src/mods/ui.ts`), applied by `main.ts` `play()` at the next "Spelen". `?mods=off` starts without them.
 
@@ -37,9 +37,8 @@ Hence the LI2 Mod Manager's File Replacement: a mod's `_data\<archive>\<member p
 
 * A **zip** (also several gigabytes) is read through its central directory (zip64 supported) with `Blob.slice`; each member is piped through
   `DecompressionStream('deflate-raw')` and a CRC/length check straight into OPFS (`createWritable`), with a progress bar. Memory use is a few MB.
-* A **folder** (`<input webkitdirectory>` or a dropped folder) is the same without the zip layer (files are streamed from the picked `File`s). **RAR is not read**:
-  a RAR v4/v5 decoder in the browser would be a large dependency (libarchive.js = WASM that holds the whole archive and its output in memory; a RAR 3.x decoder is
-  LZ + PPMd + VM filters) and the unrar licence forbids nothing here but the pack is 512 MB packed / 2 GB unpacked: the UI says "pak het RAR-bestand eerst uit en kies de map".
+* A **folder** (`<input webkitdirectory>` or a dropped folder) is the same without the zip layer (files are streamed from the picked `File`s).
+* A **RAR** (`rar.ts`, below) is unpacked file by file in the same way; recognised by its first bytes, not only its name.
 * A mod = a folder with `info.txt` (title / author / description), `patch.txt`, `_data/...` (the format of the LI2 Mod Manager wiki, "Creating Mods"); a zip may hold several
   (the bi-plane fix has a fullscreen and a windowed variant) or none-wrapped files at its root. `installed` markers and `__MACOSX` are ignored; files outside `_data` are
   reported and skipped. Loose single files cannot be placed (no folder = no path): pick a folder or a zip.
@@ -100,7 +99,76 @@ files). What the port needed:
   original; a pack that only enlarges the sheet needs nothing (glyph UVs are fractions). (This pack has no font.)
 * memory: the island's pictures are 215 MB as RGBA (plus 164 MB of `.wib` frames kept for the animation) while the zone runs; GPU memory is 4/3 of that with mips.
 
-## Verification (headless, muted; `tools/steps/mods-flow.mjs`, `tools/test-formats.mjs` test `mods`, `tools/test-mods-large.mjs`)
+## RAR (`rar.ts`)
+
+RARLAB's own UnRAR source compiled to WebAssembly (npm `node-unrar-js` 2.0.2, MIT wrapper around UnRAR 6.1.7; licence paragraph in the README; `unrar.wasm` is 207 kB, loaded the
+first time a RAR is used, the JS wrapper is a lazy chunk). The wrapper wants the whole archive in memory (and copies it); a 512 MB archive that unpacks to 2 GB must not be. So:
+
+* **"blocks" mode** (RAR 1.5 - 4.x block format, not solid, not encrypted, one volume: the HD pack, the Skeleton Mod, most mods): the archive is walked header by header through a
+  `ZipSource` (a `Blob` / OPFS file; slices come from disk) and every file is extracted from a tiny archive built on the fly: marker + main header + that file's header block + its
+  packed bytes + an end block. Files of a non-solid archive are independent, so UnRAR decodes them exactly as in place. Memory = one packed + one unpacked file. The extractor
+  subclass (`One` in `rar.ts`) feeds UnRAR from that buffer and collects the output (the wrapper's own `ExtractorData` copies the data and keys output by file name, which breaks
+  on backslash names). Names with the unicode flag (0x200) are decoded (`decodeRarName`). Size and CRC-32 are checked for every file (UnRAR checks them too).
+* **"whole" mode** (RAR 5, solid archives): the archive goes into memory once (capped at 768 MB) and UnRAR lists / extracts by name. Solid archives are extracted file by file, which is
+  quadratic for big ones; fine for mod-sized archives.
+* Refused with a Dutch message: password (headers or files), several volumes, damaged headers, too large for "whole" mode.
+
+Measured (node, `tools/test-mods-large.mjs --rar`): the real HD pack (512 MB, 5034 files, 2.16 GB) imports into the store in 24 s with a peak RSS of 285 MB, byte-identical to the
+earlier unpacked folder; listing the 5160 headers of the archive takes 14 ms.
+
+## The mod catalogue (`catalogue.ts`, the "Mod-catalogus" in the start screen)
+
+Nothing of any mod is in the repository or on GitHub Pages. Every entry is fetched by the player's browser at "Toevoegen" and imported like any other mod (`importPicked` with
+`ImportOptions`: only the picked folder of a multi-mod archive, a `catalogus:<id>` source so that adding again replaces the old copy, the catalogue's title / authors / Dutch
+description, and an `origin` that the list shows as "Uit de catalogus. Bron en discussie: <link>"). Nothing is enabled by the catalogue itself beyond what any import does
+(a new mod is on in the list, applies at the next "Spelen").
+
+Sources: the relay (`tools/proxy/nginx/le2-proxy.conf`: `/ia/...` archive.org, `/x/ore/misc/...` RRU's file bucket, `/x/gh/...` GitHub; CORS only for the Pages origin and the dev
+ports 5498 / 5499), MEGA directly (`mega.ts`), and the IXS disc (below). Small downloads become a `Blob`; the 512 MB MEGA file is streamed (4 MB blocks, 3 in flight, AES-CTR in WebCrypto) into a
+temporary OPFS file (`le2-tmp/`, deleted afterwards and cleaned at the next start), which the RAR reader slices. Free storage is checked first ("Te weinig opslagruimte ...").
+Failures (offline, 404, a damaged or changed file, MEGA error codes, no room, a mod of a pair failing) give a Dutch message and leave nothing: all mods an entry adds are
+removed again when one fails, the temp file is deleted, `importPicked` removes its own unfinished mod. "Stoppen" aborts.
+
+Language fit decides what can be added (the port is the Dutch build):
+
+| kind | rule | entries |
+|---|---|---|
+| nl | made for the Dutch build | Nicer Skies (NL), Bi-Plane Fuel Fix (NL), Skateboard Speed Modifier (NL) (JappaWakka; the last two are "genegeerd" in the port, see Patch mods) |
+| data | only replaces archive members, which have the same names in every language | HD Texture Pack, IXS-look, Island Grass, Legal Tracks (the Dutch `land.col` differs from the mod's in about 530 bytes: the edit only), Skeleton Mod (2806 members, all present in the Dutch z02LGI, 2697 of the same size; shown working: Pepper and the Infomaniac are skeletons) |
+| other | patch of the English / German / Italian executable, or data that does not fit | listed with credits, **no button**: Nicer Skies + Castle Island Day (EN), Bi-Plane Fuel Fix (EN 1, EN 2, IT), Skateboard Speed Modifier (EN/ES, DE) and **HD Font (EN)** |
+
+Why patches of other versions get no button: without "original bytes" a patch line is written unconditionally, so the English Nicer Skies would write `FFDD7F` at English offsets
+inside the Dutch EXE (11 writes, 6 of them landing in `SetupFog` operands of other zones, the rest in code); the bi-plane patches likewise. The skateboard patches with original bytes are
+skipped by the guard anyway. **HD Font (EN)** replaces `Balloon12/24.tga` with 8x sheets, which are 8x the size of the Dutch ones but not the same picture (mean difference ~115-160 of 255 after
+downscaling): in the port the menu text is unreadable (checked in the headless browser, screenshot of the main menu). webfischi's "HD Font for non-English versions" is the one that
+would fit and it is dead. Dead entries (webfischi's Castle Island Day HD, HD Font non-English, Island Grass HD; Nicer Skies German; MEGA error -16) are listed under "Niet meer beschikbaar bij de bron"
+with credits and thread, no button, so the player sees why they are missing. The Mod Manager's own sample mods (Debug Mode, Skipable Intros, Windowed Mode, Force Command Line) are
+not offered: the port has start-screen options for them.
+
+## MEGA (`mega.ts`)
+
+Public file links (`#!id!key` and `/file/id#key`). `POST https://g.api.mega.co.nz/cs [{a:'g',g:1,ssl:2,p:id}]` -> `{s, at, g}`; AES key = k[0..16] xor k[16..32], CTR counter block =
+k[16..24] + a 64-bit block counter, attributes AES-CBC with a zero IV (WebCrypto has no raw CBC, so a valid padding block is appended: encrypt an empty message with the last ciphertext block as IV).
+Content blocks are `GET <g>/<first>-<last>` (a plain GET: no CORS preflight; the storage hosts send `Access-Control-Allow-Origin: *`), decrypted with `AES-CTR` and `length: 64` at
+`counter = nonce || offset/16`. Retries (4 per block), Dutch error text for MEGA's codes (-16 blocked, -9 gone, -17 limit ...). MEGA's own MAC is not verified; every RAR / zip member has a CRC.
+Verified: the stream of the real pack is byte-identical to the copy that was downloaded by hand.
+
+## IXS-look (`ixs.ts`, `rawdisc.ts`, `ixslook.ts`)
+
+The mod is built in the browser from Island Xtreme Stunts' disc on archive.org (item `lixsrgn-1`, `LIXSRGN1.BIN` through the relay, Range requests): raw 2352-byte sectors (MODE 2 /
+XA form 1: user data at +24; MODE 1: +16), ISO 9660 (`rawdisc.ts` reads the primary volume descriptor, walks the directories and reads a file's sectors; ~12 requests, 470 kB, ~10 s because
+every archive.org request costs a second or more). Needed: `TEXTURES/SEA.BMB` (113,198 bytes), `Z07JSK/MODEL002.BMB` (258,927), `Z00DEF/CHAR003.BMB` (3,694), `Z00INT/CHAR019.BMB`
+(8,749): a different size is refused ("niet de IXS-schijf waarvoor de mod is gemaakt"). (`Z05KST/MODEL002.BMB` was only needed for the grass, which was dropped.)
+`ixs.ts` is the IXS LZ unpacker (Game.exe 0x417d5e), the `.BMB` bank parser and the DXT5 / 32 / 24 / 8 bit decoders; `ixslook.ts` is the recipe: sea -> 8 zone copies of text004, the
+backdrop (the sea flattened over a sea blue) -> 7 `Sea0` copies, sand -> text001 + 2 copies (IXS beach, mean colour shifted to the original's, which is hard-coded:
+226.98 / 194.98 / 136.98), Pepper's and the Infomaniac's shirts (top-left 64x64) -> 23 + 4 copies = 45 files, written as the originals (bottom-up TGA, 24 bit, 32 bit with alpha for the sea).
+The member list is hard-coded (found once by comparing pixels), so the mod can be built before any game file is available. Result: **byte-identical** to the reference mod (45 of 45
+files + `info.txt`), in node from the real IXS files and in the browser from the disc.
+
+Look in the game (headless): the sea is the bright, semi-transparent IXS water; text001 turns out to be the shallow seabed / shore tile (magenta test: only visible through the water at the
+coast), which the more opaque IXS sea mostly hides, and where it shows (shore edges) its tint matches the neighbours: no patchwork like the grass had, so the sand stays in the recipe.
+
+## Verification (headless, muted; `tools/steps/mods-flow.mjs`, `mods-catalogue.mjs`, `mods-hd-mega.mjs`, `mods-visual.mjs`, `tools/test-formats.mjs` tests `mods` and `mods-catalogue`, `tools/test-mods-large.mjs`)
 
 * the three Dutch Mod Manager mods of archive.org `legoeiland2dutch` (and the manager's own samples + Island Grass from its GitHub release 1.2.5, as a zip with 5 mods in it and as a
   folder): import, order, enable / disable, remove, persistence across a reload; Nicer Skies changes the island sky (cyan -> pale blue), Island Grass replaces the grass textures
@@ -110,5 +178,11 @@ files). What the port needed:
   --profile <dir>`; a throw-away profile's quota is ~100s of MB and the import then stops with a Dutch "opslagruimte" message and leaves nothing behind); island: 379 textures of
   which 378 HD (30.7 megapixels instead of 1.9), mip-mapped, `.wib` animations keep stepping; mini-game z38PAR, the front end's menus, Pepper's house show the HD pictures; JS heap 561 MB
   on the island (179 MB without the pack); a synthetic 2.4 GB zip (zip64 headers, deflate + stored) imports in 17 s at 281 MB peak.
-* **Not checked with the real pack**: a pack with its own `Balloon12/24.fnt` + `.tga` (the real pack has no font; `logicalFont` is tested with a synthetic 4x font only), the browser
-  RAR route (not built), Safari / Firefox storage quotas, and the GPU memory of the front end (z60FRE: 303 MB of RGBA pictures + 144 MB of `.wib` frames in the pack) on a weak GPU.
+* the catalogue (`tools/steps/mods-catalogue.mjs`, dev server on port 5499 because of the relay's CORS list): the list (credits, links, language notes), adding the three Dutch mods, Island Grass
+  (one mod of the manager's zip), Legal Tracks (two mods), the Skeleton Mod (RAR, 2806 files, ~3-6 s), IXS-look from the real disc (15 s, 45 files byte-identical to the reference mod),
+  re-adding replaces, and the failure paths (404, unreachable, damaged download, MEGA blocked / offline) with nothing left in OPFS (`le2-mods` without a `mod.json`, `le2-tmp`);
+* **the real HD pack through MEGA in the headless browser** (`tools/steps/mods-hd-mega.mjs --profile`): 512 MB download 46 s + unpack and store 24 s = 70 s; peak resident memory of the whole browser
+  1134 MB (renderer 692, GPU 194; it starts at ~400-540), JS heap at most 15 MB (the wasm heap is outside it); 5032 files, 2,164,645,571 bytes, the temp file gone afterwards; the island then runs with
+  the pack (JS heap 624 MB). In node the same import (`--rar`) peaks at 285 MB RSS;
+* **Not checked with the real pack**: a pack with its own `Balloon12/24.fnt` + `.tga` (the real pack has no font; `logicalFont` is tested with a synthetic 4x font only), Safari / Firefox
+  (WebCrypto, OPFS and quota differences; MEGA's CORS was only tried from Chromium), the GPU memory, and the GPU memory of the front end (z60FRE: 303 MB of RGBA pictures + 144 MB of `.wib` frames in the pack) on a weak GPU.

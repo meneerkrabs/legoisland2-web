@@ -2,6 +2,8 @@
 // Streaming import of a LARGE mod (a multi-gigabyte HD texture pack) in node, with memory measured: nothing may be read whole into memory.
 //   node tools/test-mods-large.mjs --pack "<folder with info.txt + _data>" [--zip] [--ratio-check]   a real pack (folder as picked, or zipped to /tmp first with --zip)
 //   node tools/test-mods-large.mjs --synthetic [--gb 2.2] [--zip]                                     a generated pack under /tmp: real textures 4x upscaled + padding
+//   node tools/test-mods-large.mjs --rar "<HD Texture.rar>" [--pack "<the same pack unpacked>"]        a real RAR (webfischi's 512 MB pack), unpacked file by file by src/mods/rar.ts;
+//                                                                                                     with --pack the stored files are compared with the unpacked folder
 // Both import into a directory store (tools/lib/fsmodstore.mjs, the OPFS layout) under /tmp, then compare files with their sources, open the z02LGI archive with the pack's
 // files in it (needs the dev data in public/data/le2) and decode the replaced textures. Prints the peak resident memory. Never writes into the repo; the pack stays where it is.
 import fs from 'node:fs';
@@ -76,14 +78,16 @@ async function zipPack(root) {
   return zip;
 }
 
+const rarFile = opt('--rar', '');
 const root = flag('--synthetic') ? await makeSynthetic(Number(opt('--gb', '2.2'))) : opt('--pack');
-if (!root) { console.error('usage: --pack <folder> | --synthetic [--gb n] [--zip]'); process.exit(2); }
-const files = walk(root);
-const totalBytes = files.reduce((n, f) => n + f.size, 0);
-console.log(`pack: ${files.length} files, ${(totalBytes / 1e9).toFixed(2)} GB`);
+if (!root && !rarFile) { console.error('usage: --pack <folder> | --synthetic [--gb n] [--zip] | --rar <file> [--pack <folder>]'); process.exit(2); }
+const files = root ? walk(root) : [];
+let totalBytes = files.reduce((n, f) => n + f.size, 0);
+console.log(rarFile ? `RAR: ${rarFile} (${(fs.statSync(rarFile).size / 1e6).toFixed(0)} MB)${root ? `, compared with ${files.length} unpacked files` : ''}` : `pack: ${files.length} files, ${(totalBytes / 1e9).toFixed(2)} GB`);
 
 let items;
-if (flag('--zip')) { const z = await zipPack(root); items = [{ path: 'pack.zip', file: await fs.openAsBlob(z) }]; }
+if (rarFile) items = [{ path: path.basename(rarFile), file: await fs.openAsBlob(rarFile) }];
+else if (flag('--zip')) { const z = await zipPack(root); items = [{ path: 'pack.zip', file: await fs.openAsBlob(z) }]; }
 else items = await Promise.all(files.map(async (f) => ({ path: `${path.basename(root)}/${f.rel}`, file: await fs.openAsBlob(f.abs) })));
 
 const store = new FsModStore(path.join(TMP, 'store'));
@@ -95,12 +99,13 @@ const res = await importPicked(items, store, (p) => { if (Date.now() - last > 30
 clearInterval(timer);
 console.log(`import: ${((Date.now() - t0) / 1000).toFixed(1)} s, peak RSS ${(peak / 2 ** 20).toFixed(0)} MB`);
 expect('import: one mod, no errors', res.added.length === 1 && res.errors.length === 0, res.errors.join('; '));
-expect('import: every file stored with its size', res.added[0].files.length === files.filter((f) => /^_data\//i.test(f.rel)).length && res.added[0].files.reduce((n, f) => n + f.size, 0) <= totalBytes);
+if (rarFile && !totalBytes) totalBytes = res.added[0].files.reduce((n, f) => n + f.size, 0);
+expect('import: every file stored with its size', files.length === 0 || (res.added[0].files.length === files.filter((f) => /^_data\//i.test(f.rel)).length && res.added[0].files.reduce((n, f) => n + f.size, 0) <= totalBytes));
 expect(`memory: peak RSS ${(peak / 2 ** 20).toFixed(0)} MB stays far below the pack size`, peak < 900 * 2 ** 20 && peak < totalBytes / 2 + 400 * 2 ** 20);
 
 // ---- compare with the sources (sample of 30 + every file < 1 MB hash would be too slow: sample)
 const mod = res.added[0];
-const sample = [...mod.files].sort(() => Math.random() - 0.5).slice(0, 30);
+const sample = (rarFile && !files.length ? [] : [...mod.files].sort(() => Math.random() - 0.5).slice(0, rarFile ? 400 : 30));
 let bad = 0;
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 for (const f of sample) {
@@ -109,7 +114,7 @@ for (const f of sample) {
   if (src.size > 300 << 20) continue;
   if (sha(await store.readFile(mod.id, f.key)) !== sha(fs.readFileSync(src.abs))) bad++;
 }
-expect('stored bytes equal the source files (30 sampled)', bad === 0, `${bad} different`);
+expect(`stored bytes equal the source files (${sample.length} sampled)`, bad === 0, `${bad} different`);
 
 // ---- the archive with the pack's files in it
 if (fs.existsSync(path.join(dataDir, 'z02LGI.bod'))) {

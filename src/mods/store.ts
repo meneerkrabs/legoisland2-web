@@ -5,6 +5,14 @@
 import type { PatchLine } from './package.ts';
 
 export interface StoredPatch { offset: number; bytes: string; original?: string; line: number }
+/** where a mod came from, when it was not picked by the user: the catalogue (credits are shown in the list) */
+export interface ModOrigin {
+  catalog: string;
+  /** the original thread (or page) of the mod */
+  url: string;
+  /** shown as "Uit de catalogus: <label>" */
+  label: string;
+}
 export interface ModFileRef { path: string; size: number; key: string }
 export interface InstalledMod {
   id: string;
@@ -21,6 +29,7 @@ export interface InstalledMod {
   files: ModFileRef[];
   patches: StoredPatch[];
   warnings: string[];
+  origin?: ModOrigin;
 }
 export type ModMeta = Omit<InstalledMod, 'id' | 'seq' | 'enabled' | 'addedAt' | 'files'>;
 
