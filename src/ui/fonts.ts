@@ -53,6 +53,28 @@ export interface UiFontData {
   scale: number;
   /** wrap width multiplier (WRAP_SCALE) */
   wrapScale: number;
+  /** a texture pack made the glyph sheet larger than the original (mip-mapped; the metrics were brought back to the original's logical size, see `logicalFont`) */
+  hd: boolean;
+}
+
+/** the line height (the cell height in pixels) and glyph sheet size of the shipped fonts: what a pack's replacement is compared with */
+export const ORIGINAL_FONT = [{ lineHeight: 20, width: 256, height: 128 }, { lineHeight: 40, width: 256, height: 256 }] as const;
+
+/**
+ * An HD font pack may ship the `.fnt` metrics in its own (larger) pixel size next to the larger sheet. Everything in the 2D layer is laid out in the original's
+ * logical size, so a font whose line height is a whole multiple k > 1 of the original's is scaled back by 1/k (glyph boxes, offsets, line height, kerning). The
+ * texture coordinates are fractions of the sheet and need nothing. k = 1 (the shipped fonts, or a pack that only enlarged the sheet) returns the font as it is.
+ */
+export function logicalFont(font: Font, slot: number): Font {
+  const k = font.lineHeight / ORIGINAL_FONT[slot].lineHeight;
+  if (!(k > 1.5) || Math.abs(k - Math.round(k)) > 0.05) return font;
+  const r = Math.round(k), d = (v: number) => Math.round(v / r);
+  return {
+    ...font,
+    lineHeight: d(font.lineHeight),
+    glyphs: font.glyphs.map((g) => ({ ...g, width: d(g.width), height: d(g.height), offsetX: d(g.offsetX), offsetY: d(g.offsetY) })),
+    kern: font.kern.map((v) => d(v)) as unknown as Uint8Array,
+  };
 }
 
 /** Read both fonts (`Balloon12`, `Balloon24`: `.fnt` + `.tga`) from the `Fonts` archive. Index = slot. */
@@ -60,6 +82,7 @@ export function loadFontData(archive: Archive): UiFontData[] {
   return FONT_FILES.map((name, slot) => {
     const fnt = archive.find(`${name}.fnt`), tga = archive.find(`${name}.tga`);
     if (!fnt || !tga) throw new Error(`Fonts: ${name}.fnt/.tga missing`);
-    return { name, font: parseFnt(archive.read(fnt)), image: parseTga(archive.read(tga)), scale: FONT_SCALE[slot], wrapScale: WRAP_SCALE[slot] };
+    const image = parseTga(archive.read(tga));
+    return { name, font: logicalFont(parseFnt(archive.read(fnt)), slot), image, scale: FONT_SCALE[slot], wrapScale: WRAP_SCALE[slot], hd: image.width * image.height > ORIGINAL_FONT[slot].width * ORIGINAL_FONT[slot].height };
   });
 }

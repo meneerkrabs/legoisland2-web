@@ -16,7 +16,8 @@ import type { Align, LayoutFont, ScreenEnv, TextCmd } from './layout.ts';
 /** a UI texture: full size, CLAMP, bilinear, no mip maps (the UI textures are loaded with flag byte 0xffffff80) */
 export interface UiTexture { tex: WebGLTexture; w: number; h: number }
 
-function makeTexture(gl: WebGL2RenderingContext, rgba: Uint8Array, w: number, h: number): UiTexture {
+/** `mips`: an HD texture pack's picture (larger than the original): mip-mapped, because it is drawn much smaller than it is */
+function makeTexture(gl: WebGL2RenderingContext, rgba: Uint8Array, w: number, h: number, mips = false): UiTexture {
   const tex = gl.createTexture()!;
   const prev = gl.getParameter(gl.TEXTURE_BINDING_2D) as WebGLTexture | null;
   gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -24,7 +25,8 @@ function makeTexture(gl: WebGL2RenderingContext, rgba: Uint8Array, w: number, h:
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, prevAlign);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  if (mips) gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mips ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -55,9 +57,9 @@ export class UiTextureSet {
       const n = `${d}Text${String(i).padStart(3, '0')}`;
       try {
         const tg = archive.find(`${n}.tga`);
-        if (tg) { const im = parseTga(archive.read(tg)); list.push(makeTexture(gl, im.rgba, im.width, im.height)); continue; }
+        if (tg) { const im = parseTga(archive.read(tg)); list.push(makeTexture(gl, im.rgba, im.width, im.height, archive.isUpscaled(tg, im.width, im.height))); continue; }
         const wb = archive.find(`${n}.wib`);
-        if (wb) { const w = parseWib(archive.read(wb)); list.push(makeTexture(gl, w.frames[w.sequence[0] ?? 0], w.width, w.height)); continue; }
+        if (wb) { const w = parseWib(archive.read(wb)); list.push(makeTexture(gl, w.frames[w.sequence[0] ?? 0], w.width, w.height, archive.isUpscaled(wb, w.width, w.height))); continue; }
       } catch (e) { console.warn('ui texture', n, e); }
       list.push(null);
     }
@@ -68,7 +70,7 @@ export class UiTextureSet {
     const e = archive.find(path);
     if (!e) throw new Error(`${archive.name}: no ${path}`);
     const im = parseTga(archive.read(e));
-    return new UiTextureSet(gl, [makeTexture(gl, im.rgba, im.width, im.height)]);
+    return new UiTextureSet(gl, [makeTexture(gl, im.rgba, im.width, im.height, archive.isUpscaled(e, im.width, im.height))]);
   }
   dispose() { for (const t of this.textures) if (t) this.gl.deleteTexture(t.tex); this.textures.length = 0; }
 }
@@ -142,11 +144,13 @@ export class Ui2D {
   private u32 = new Uint32Array(this.data);
   private nv = 0;
   private layers: Batch[][] = [[], [], []];
-  private texts: (TextCmd & { shadow: boolean })[] = [];
+  private texts: (TextCmd & { shadow: boolean; dx: number })[] = [];
   private cur: Batch | null = null;
   private layer = 0;
   // letterbox state (FUN_0045f750 / FUN_0045f771)
   private lbMode = 0; private lbH = 0; private lbRate = 0;
+  /** horizontal shift (canvas pixels) of what is queued next: see `anchor()` */
+  private dx = 0;
 
   constructor(gl: WebGL2RenderingContext, opts: { fit?: 'fit' | 'stretch' } = {}) {
     this.gl = gl;
@@ -177,7 +181,7 @@ export class Ui2D {
   setFonts(data: UiFontData[]) {
     for (const t of this.fontTex) this.gl.deleteTexture(t.tex);
     this.fonts = data;
-    this.fontTex = data.map((d) => makeTexture(this.gl, d.image.rgba, d.image.width, d.image.height));
+    this.fontTex = data.map((d) => makeTexture(this.gl, d.image.rgba, d.image.width, d.image.height, d.hd));
   }
   loadFonts(fontsArchive: Archive) { this.setFonts(loadFontData(fontsArchive)); }
   /** the fonts as the layout module wants them */
@@ -196,7 +200,16 @@ export class Ui2D {
       const w = Math.min(canvasW, Math.floor((canvasH * 4) / 3)), h = Math.min(canvasH, Math.floor((canvasW * 3) / 4));
       this.view = { x: Math.floor((canvasW - w) / 2), y: Math.floor((canvasH - h) / 2), w, h };
     }
-    this.nv = 0; this.layers = [[], [], []]; this.texts = []; this.cur = null; this.layer = 0;
+    this.nv = 0; this.layers = [[], [], []]; this.texts = []; this.cur = null; this.layer = 0; this.dx = 0;
+  }
+  /**
+   * Widescreen: where the sprites / text queued from now on are anchored horizontally. `'centre'` (default) = the 4:3 area; `'left'` / `'right'` move them with the
+   * left / right edge of the canvas (the 640x480 grid is unchanged, only the area's own offset is replaced by the edge's). With a 4:3 canvas all three are the same.
+   * Reset to `'centre'` by `begin()`.
+   */
+  anchor(side: 'left' | 'centre' | 'right') {
+    const v = this.view;
+    this.dx = side === 'left' ? -v.x : side === 'right' ? this.cw - v.x - v.w : 0;
   }
   /** the 2D area as the layout's screen environment */
   get env(): ScreenEnv { return { w: this.view.w, h: this.view.h }; }
@@ -264,7 +277,7 @@ export class Ui2D {
     if (y0 < 0) { v1 = 1 - (y0 * -1) / (y1 - y0); y0 = 0; }
     if (v.w <= x1) { u1 = ((v.w - x1) * (1 - u0)) / (x1 - x0) + 1; x1 = v.w; }
     if (v.h <= y1) { v0 = ((v.h - y1) * (0 - v1)) / (y1 - y0) + 0; y1 = v.h; }
-    return { x0: x0 + v.x, y0: y0 + v.y, x1: x1 + v.x, y1: y1 + v.y, u0, u1, v0, v1 };
+    return { x0: x0 + v.x + this.dx, y0: y0 + v.y, x1: x1 + v.x + this.dx, y1: y1 + v.y, u0, u1, v0, v1 };
   }
 
   /**
@@ -304,7 +317,7 @@ export class Ui2D {
   text(font: number, text: string, x: number, y: number, o: TextOpts = {}): number {
     const env = this.env;
     const cmds = layoutMessage(this.fonts, env, { font, text, x, y, colour: o.colour ?? 0, maxChars: o.maxChars, align: o.maxChars !== undefined ? 'centre' : (o.align ?? 'left') });
-    for (const c of cmds) this.texts.push({ ...c, shadow: o.shadow !== false });
+    for (const c of cmds) this.texts.push({ ...c, shadow: o.shadow !== false, dx: this.dx });
     return cmds.length;
   }
   /** text width in the 640x480 grid (what the menu engine centres with) */
@@ -318,13 +331,13 @@ export class Ui2D {
     const gl = this.gl;
     // text layer -> quads
     const env = this.env, v = this.view;
-    const textQuads = (cmds: (TextCmd & { shadow: boolean })[]) => {
+    const textQuads = (cmds: (TextCmd & { shadow: boolean; dx: number })[]) => {
       for (let i = 0; i < cmds.length; i++) {
         const cmd = cmds[i], f = this.fonts[cmd.font];
         if (!f) continue;
         const tex = this.fontTex[cmd.font].tex;
         const emit = (x: number, y: number, colour: number) => {
-          for (const q of drawString(f, env, x, y, cmd.text, colour).quads) this.quad(2, MODE_SPRITE, tex, q.x0 + v.x, q.y0 + v.y, q.x1 + v.x, q.y1 + v.y, q.u0, q.v0, q.u1, q.v1, q.c);
+          for (const q of drawString(f, env, x, y, cmd.text, colour).quads) this.quad(2, MODE_SPRITE, tex, q.x0 + v.x + cmd.dx, q.y0 + v.y, q.x1 + v.x + cmd.dx, q.y1 + v.y, q.u0, q.v0, q.u1, q.v1, q.c);
         };
         if (cmd.shadow) emit(cmd.x + 2, cmd.y + 2, COLOUR_SHADOW);
         emit(cmd.x, cmd.y, cmd.colour);

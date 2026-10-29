@@ -18,7 +18,9 @@ InstallShield cabinet (own ISO, CD folder, dev copy, or archive.org).
 | `src/vendor/jsmpeg/` | vendored JSMpeg decoders (MIT, with our B-frame / MP2 fixes; see the header of `jsmpeg.js`) |
 | `src/files.ts` | `GameFiles` interface, `FileSet`, movie table, helpers to find the cabinet on a CD |
 | `src/library.ts` | where the files come from: `availableSource()`, `isoFiles`, `cdFolder`, `addIso`, archive.org download + OPFS |
-| `src/main.ts` | start screen (Dutch), intro movies, placeholder page with the file list |
+| `src/main.ts` | start screen (Dutch: Spelen, Beeld / Introfilms overslaan / Debugmenu, Mods, own ISO), intro movies, placeholder page with the file list; `play()` wraps the files with the enabled mods |
+| `src/display.ts` | start-up preferences of the port (localStorage `le2-display`): `mode` 4:3 / wide ("Beeld"), `skipIntro`, `debugMenu`; URL `?wide= ?intro=0 ?debug=1`; `canvasBox()`; docs/re/widescreen.md |
+| `src/mods/` | mod import and override layer: `zip.ts` (streaming zip / zip64 reader), `package.ts` (LI2 Mod Manager package format), `store.ts` (OPFS store), `manage.ts` (streamed import), `overlay.ts` (`ModLayer`, `ModdedFiles`, `withMods`), `patch.ts` + `effects.ts` (EXE patches and which can have an effect), `ui.ts` (start-screen section); docs/re/mods.md |
 | `vite.config.ts` | dev-only plugin: `/__le2/manifest.json` lists `public/data/le2` and `public/data/le2-movies` |
 | `src/render/` | the shared WebGL2 renderer reproducing the game's Direct3D 7 look: `renderer.ts` (`Renderer`), `states.ts` (state presets), `lighting.ts`, `camera.ts`, `environment.ts` (sky / sea), `math.ts`; see "Rendering" below |
 | `src/formats/zoneparams.ts` | `extractRenderParams(pe, builderAt)`: per-zone fog / draw-distance setup and sea level read from the executable |
@@ -39,6 +41,7 @@ interface GameFiles {
 interface MediaFile { size: number; stream(): ReadableStream<Uint8Array> }
 ```
 
+- With mods enabled `files` is a `ModdedFiles` (src/mods/overlay.ts): loose files of the mods win over the same path, `GameData.archive()` puts a mod's `_data/<archive>/...` files into the `Archive` (`Archive.override`) and `read('LEGO eiland 2.exe')` returns the patched bytes (docs/re/mods.md).
 - Paths are looked up case-insensitively and may use `\` or `/` (the EXE asks for `_data\Bricks.bob`, `_Data\sounds\...`).
 - The listing is the cabinet's `Game` group (3029 files, 659 MB): `LEGO eiland 2.exe`, `mss32.dll`, `LeesMij.txt`, `redist/win32/*.flt`, `_data/...`.
 - `read` of a compressed file decompresses on demand (about 55 MB/s in node); the biggest file is `_data/z02LGI.bob` (44 MB).

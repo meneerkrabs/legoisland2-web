@@ -6,7 +6,7 @@ import { S } from './options.ts';
 import type { GameVars } from '../game/vars.ts';
 import type { MenuStrings } from '../ui/strings.ts';
 import type { Ui2D, UiTextureSet } from '../ui/renderer2d.ts';
-import type { MenuPage as RawPage } from './tables.ts';
+import type { MenuPage as RawPage, LevelEntry } from './tables.ts';
 import { IT, MenuEngine } from './menu.ts';
 import type { MenuItem, MenuPage, PointerState } from './menu.ts';
 import { drawMenu, menuLabel, readRowTables } from './menudraw.ts';
@@ -47,6 +47,11 @@ export interface MenuContext {
   optionChanged(index: number): void;
   /** font metrics for the panel widths */
   measure(font: 0 | 1, s: string): number;
+  /** "Beeld" (src/display.ts): the current mode, and the switch to the other one (the Graphics page's resolution entry becomes this choice) */
+  display?: { wide(): boolean; toggle(): void };
+  /** the original's story-checkpoint list (page 17, the Mod Manager's "Debug Mode") and what choosing an entry does (FUN_0041be4e); absent = the page stays empty */
+  checkpoints?: LevelEntry[];
+  gotoCheckpoint?(entry: LevelEntry): void;
 }
 
 export function toEnginePages(raw: RawPage[]): MenuPage[] {
@@ -56,6 +61,7 @@ export function toEnginePages(raw: RawPage[]): MenuPage[] {
 /** result codes of the event handler (FUN_0041b500) */
 export const MR = { STAY: 0, RESUME: 1, QUIT: -1, RESTART: -2, ABANDON: -3, CREDITS: -4 } as const;
 
+const GFX_DISPLAY_ITEM = 4, GFX_DISPLAY_ACTION = 14, CHECKPOINT_PAGE = 17;
 const LOAD_PAGE = 2, SAVE_PAGE = 3, ERASE_PAGE = 8, NEWGAME_LIST = 7, OPTIONS_SOUND = 11, OPTIONS_GAME = 12, OPTIONS_GFX = 10, OPTIONS_CTRL = 9, KEYS_PAGE = 13, PAUSE_ISLAND = 5;
 
 export class MenuUi {
@@ -113,6 +119,14 @@ export class MenuUi {
         return -1;
       }
       case 0x41afbc: break;
+      case 0x41b227: { // story checkpoints (page 17; reachable through the Debug Mode patch): list entry `index` = record `index` of the table at 0x8a5c68 (label, disable mask)
+        if (!item) return 0;
+        const t = c.checkpoints;
+        if (!t || index < 0 || index >= t.length) return -1;
+        item.label = t[index].label;
+        item.disable = t[index].mask;
+        return t.length - 1 - index;   // FUN_0041b227 returns 0x24 - index: the entries that follow this one
+      }
       case 0x41b037: { // key list (FUN_0041b037): entry `index` of the 13 keys
         if (!item) return 0;
         if (index < 0 || index >= 13) return -1;
@@ -147,6 +161,13 @@ export class MenuUi {
       }
     }
     if (e.page === OPTIONS_GFX) { for (let i = 3; i < p.items.length; i++) p.items[i].disable = 0x20; } // resolution: nothing to choose in a browser
+    // ... except the resolution entry (action 14, item 4): it is the browser's "Beeld" choice, 4:3 (original) or widescreen; the page keeps its rows
+    if (e.page === OPTIONS_GFX && c.display && p.items[GFX_DISPLAY_ITEM]?.value === GFX_DISPLAY_ACTION) {
+      const it = p.items[GFX_DISPLAY_ITEM];
+      it.label = c.display.wide() ? 'Beeld: breedbeeld' : 'Beeld: 4:3 (origineel)';
+      it.type = IT.ACTION;   // the original's entry is "go to page 14" (the resolution list); here it is a switch
+      it.disable = 0;
+    }
     if (e.page === OPTIONS_SOUND) p.items[3].disable = c.options.a[S.SPEECH_ON] === 0 ? 0x20 : 0;
     if (e.page === PAUSE_ISLAND) {
       for (const it of p.items) if (it.label === '!LEVPPH') it.disable = c.storyNode() < 4 ? 0x20 : c.cutsceneRunning() ? 0x20 : 0;
@@ -203,6 +224,14 @@ export class MenuUi {
   private action(id: number): number {
     const c = this.ctx;
     let res: number = MR.RESUME;
+    if (id === GFX_DISPLAY_ACTION && this.engine.page === OPTIONS_GFX && c.display) { c.display.toggle(); return MR.STAY; }
+    if (this.engine.page === CHECKPOINT_PAGE && c.gotoCheckpoint) {
+      // FUN_0041be4e, page 0x11: the chosen record's zone goes to var 5, its node (when >= 0) is jumped to; the front end then starts the game there
+      const entry = c.checkpoints?.[this.engine.scroll + this.engine.item / 10 - 1];
+      if (!entry) return MR.STAY;
+      c.gotoCheckpoint(entry);
+      return MR.ABANDON;
+    }
     if (id === 1) res = MR.ABANDON;
     if (id === 0x11) { c.vars.set(5, 3); c.vars.set(0xb, 0); }
     if (id === 0xf) res = MR.RESTART;

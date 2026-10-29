@@ -82,10 +82,10 @@ export default {
 
     // -- level select
     const ls = readLevelSelect(pe);
-    ok(ls.replays.length === 19 && ls.checkpoints.length === 36 && ls.allZones.length === 25 && ls.sounds.length === 22, 'level select counts 19 / 36 / 25 / 22');
+    ok(ls.replays.length === 19 && ls.checkpoints.length === 37 && ls.allZones.length === 26 && ls.sounds.length === 22, 'level select counts 19 / 37 / 26 / 22');
     ok(ls.replays.every((r) => r.node === -1) && ls.replays[0].label === '!LEVBPK' && ls.replays[0].zone === 1 && ls.replays[0].gateVar === 141 && ls.replays[18].zone === 28, 'replay list: BPK first, MAP last, no node jumps');
     ok(ls.replays.every((r) => zt[r.zone].kind !== 1 || r.zone === 1), 'replays are mini-games (or the skate park)');
-    ok(ls.checkpoints.filter((c) => c.node >= 0).length === 32 && ls.checkpoints[2].node === 2 && ls.checkpoints[35].zone === 29 && ls.checkpoints[35].node === 67, 'checkpoint list');
+    ok(ls.checkpoints.filter((c) => c.node >= 0).length === 33 && ls.checkpoints[2].node === 2 && ls.checkpoints[35].zone === 29 && ls.checkpoints[35].node === 67, 'checkpoint list');
     ok(ls.checkpoints.every((c) => c.node < 0 || zt[fsm[c.node].zone].archive === zt[c.zone].archive), 'checkpoint nodes belong to their zones (island variants share the archive)');
     ok(ls.allZones.every((c) => c.node === -1 && zt[c.zone].hasRun) && ls.allZones[0].zone === 25, 'all-zones list');
     ok(ls.sounds[0].musicKey === 'Z01BPK' && ls.sounds[21].label === 'LEVFRE', 'sound test list');

@@ -39,3 +39,19 @@ html, body { margin: 0; height: 100%; background: #000; color: #eee; font-family
 .le2-files details summary { cursor: pointer; }
 .le2-loadbadge { position: fixed; left: 0.6rem; bottom: 0.6rem; z-index: 40; padding: 0.3rem 0.7rem; border-radius: 999px; background: rgba(0, 0, 0, 0.65); color: #fc3; font: 0.8rem Arial, sans-serif; pointer-events: none; }
 .le2-loadbadge.le2-err { background: #600; color: #fff; }
+.bdb-mods { max-width: 46rem; text-align: left; }
+.bdb-mods summary { text-align: center; }
+.bdb-mods .books { margin: .5rem 0; }
+.bdb-mod { border: 1px solid #4a5a30; border-radius: 8px; padding: .4rem .7rem; margin: .4rem 0; background: rgba(0, 0, 0, .25); }
+.bdb-mod.off { opacity: .55; }
+.bdb-modhead { display: flex; gap: .5rem; align-items: center; }
+.bdb-modbtns { margin-left: auto; display: flex; gap: .3rem; }
+.bdb-modbtns button { padding: .1rem .5rem !important; font-size: .85rem !important; border-width: 1px !important; border-radius: 6px !important; }
+.bdb-moddesc { opacity: .8; margin: .2rem 0; white-space: pre-wrap; }
+.bdb-warn { color: #f0b060; margin: .2rem 0; }
+.bdb-mod pre { max-height: 14rem; overflow: auto; font-size: .72rem; background: #111; padding: .4rem; border-radius: 6px; }
+.bdb-patch { font-size: .8rem; margin: .15rem 0; }
+.bdb-patch code { background: #111; padding: 0 .25rem; border-radius: 4px; }
+.bdb-works b { color: #8ee08e; } .bdb-maybe b { color: #f0d060; } .bdb-ignored b { color: #e08080; }
+.bdb-opts { display: flex; gap: 1.2rem; flex-wrap: wrap; justify-content: center; align-items: center; }
+.bdb-opts select { font-size: .9rem; padding: .15rem .3rem; }

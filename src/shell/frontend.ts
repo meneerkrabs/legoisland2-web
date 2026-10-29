@@ -35,6 +35,7 @@ const FE_EYE: [number, number, number] = [0, 11, 56.8], FE_TARGET: [number, numb
 
 export async function loadingScreen(sh: Shell) {
   const ui = sh.ui, gl = sh.gl;
+  gl.fixed43 = false;
   gl.resize();
   gl.begin([0, 0, 0], new Float32Array(16));
   ui.begin(sh.canvas.width, sh.canvas.height);
@@ -45,6 +46,7 @@ export async function loadingScreen(sh: Shell) {
 
 export async function runFrontEnd(sh: Shell, _info: ZoneInfo): Promise<number> {
   await loadingScreen(sh);
+  sh.gl.fixed43 = true;   // widescreen: the stage's backdrop is a flat 4:3 painting (docs/re/widescreen.md)
   const archive = await sh.data.archive('z60FRE');
   const scene = await sh.data.zoneScene('z60FRE');
   const data = buildRecords('z60FRE', scene, archive);
@@ -157,6 +159,7 @@ export async function runFrontEnd(sh: Shell, _info: ZoneInfo): Promise<number> {
     sh.ui.flush();
   };
   await sh.runLoop(tick, render);
+  sh.gl.fixed43 = false;
   sh.detachMenuKeys();
   offOpt();
   sh.menu.close();

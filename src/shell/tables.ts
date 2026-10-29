@@ -21,10 +21,12 @@ export const REPLAY_TABLE_VA = 0x8a57f0;
 export const REPLAY_COUNT = 0x13;
 /** "story checkpoint" list (page 17, setup FUN_0041b227; the 0x8a5c88 of the notes is the zone field of record 0): 36 records of 0x2c bytes */
 export const CHECKPOINT_TABLE_VA = 0x8a5c68;
-export const CHECKPOINT_COUNT = 0x24;
+/** the set-up function returns `0x24 - index` = the entries that FOLLOW entry `index`, so the list has 0x25 = 37 entries (record 36 = the last island era, node 68); the earlier notes said 36 */
+export const CHECKPOINT_COUNT = 0x25;
 /** "all zones" debug list (page 26, setup FUN_0041b274; the 0x8a62e8 of the notes is the zone field of record 1): 25 records of 0x2c bytes */
 export const ALLZONES_TABLE_VA = 0x8a62c8;
-export const ALLZONES_COUNT = 0x19;
+/** `0x19 - index` in FUN_0041b274: 26 entries (record 25 = z42BRP is the last real one) */
+export const ALLZONES_COUNT = 0x1a;
 /** sound test list (page 23, setup FUN_0041b0d2): count at 0x8a5c64, pairs of char* {music key, label id} at 0x8a5bb0 */
 export const SOUNDTEST_TABLE_VA = 0x8a5bb0;
 export const SOUNDTEST_COUNT_VA = 0x8a5c64;
@@ -165,9 +167,9 @@ export interface SoundTestEntry { index: number; musicKey: string; label: string
 export interface LevelSelect {
   /** page 24 (Pepper's house computer, "mini-game replays"): the one that is reachable in the shipped game */
   replays: ReplayEntry[];
-  /** page 17, story checkpoints (FRONTEND-less debug list, 36) */
+  /** page 17, story checkpoints (the Debug Mode list of the LI2 Mod Manager, 37) */
   checkpoints: LevelEntry[];
-  /** page 26, every zone (debug list, 25) */
+  /** page 26, every zone (debug list, 26) */
   allZones: LevelEntry[];
   /** page 23, sound test (22) */
   sounds: SoundTestEntry[];

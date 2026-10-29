@@ -14,7 +14,7 @@ export interface HudIcon { tex: number; tint: number }
  * at x = 732 (800x600 grid; `segments[i]` = texture of segment i, -1 none), a 32x32 marker at x = 696 that slides up with `value` (0..192 px: y centre = 508 - 192 f)
  * when `marker` >= 0, otherwise the first round(12 f) segments are lit; the icon (`icon`, 60x60 at x = 716, y = 516) is drawn last.
  */
-export interface HudGauge { value: number; min: number; max: number; segments: number[]; marker: number; icon: number }
+export interface HudGauge { value: number; min: number; max: number; segments: number[]; marker: number; icon: number; /** ARGB tint of the segments and the icon (z08BKD: 0xff77ffff); default white */ tint?: number }
 const NONE: HudIcon = { tex: -1, tint: 0xffffffff };
 
 export class Hud {
@@ -97,13 +97,17 @@ export class Hud {
     if (!this.visible || this.letterbox === 1 || this.letterbox === 2) return;
     const k = 0.8;
     const icon = (i: HudIcon, x: number, y: number) => { if (i.tex >= 0) ui.sprite(this.set, i.tex, [x * k, y * k, (x + 60) * k, (y + 60) * k], i.tint); };
+    // widescreen (docs/re/widescreen.md): the corner groups stay in the corners of the window, the centre text in the 4:3 area (no-op in 4:3)
+    ui.anchor('left');
     icon(this.left, 20, 20);
-    icon(this.right, 716, 20);
     if (this.leftText) ui.text(1, this.leftText, 100 * k, 69 * k, { colour: 0, align: 'left' });
-    if (this.rightText) ui.text(1, this.rightText, 699 * k, 69 * k, { colour: 0, align: 'right' });
-    if (this.centreText) ui.text(1, this.centreText, 400 * k, 69 * k, { colour: 0, align: 'centre' });
     this.column.forEach((c, i) => icon(c, 20, 516 - 72 * i));
+    ui.anchor('right');
+    icon(this.right, 716, 20);
+    if (this.rightText) ui.text(1, this.rightText, 699 * k, 69 * k, { colour: 0, align: 'right' });
     if (this.gauge) this.drawGauge(ui);
+    ui.anchor('centre');
+    if (this.centreText) ui.text(1, this.centreText, 400 * k, 69 * k, { colour: 0, align: 'centre' });
   }
 
   /** FUN_00460214 (800x600 reference grid scaled by 0.8) */
@@ -124,8 +128,8 @@ export class Hud {
       const t = g.segments[i] ?? -1;
       if (t < 0) continue;
       const y0 = 492 - 16 * i;
-      ui.sprite(this.set, t, [732 * k, y0 * k, (732 + 32) * k, (y0 + 16) * k]);
+      ui.sprite(this.set, t, [732 * k, y0 * k, (732 + 32) * k, (y0 + 16) * k], g.tint);
     }
-    if (g.icon >= 0) ui.sprite(this.set, g.icon, [716 * k, 516 * k, (716 + 60) * k, 576 * k]);
+    if (g.icon >= 0) ui.sprite(this.set, g.icon, [716 * k, 516 * k, (716 + 60) * k, 576 * k], g.tint);
   }
 }

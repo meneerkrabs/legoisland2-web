@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Headless, muted browser for testing the app without opening a window.
 //
-//   node tools/browse.mjs <url> [steps.mjs] [--out /tmp/shots] [--size 1024x768]
+//   node tools/browse.mjs <url> [steps.mjs] [--out /tmp/shots] [--size 1024x768] [--profile /tmp/some-dir]
+// `--profile <dir>`: a persistent browser profile in that folder (still headless and muted, never your own browser): storage (OPFS / IndexedDB: imported mods, the downloaded
+// game) survives between runs, and the storage quota is the real one instead of the small quota of a throw-away profile (needed for multi-gigabyte mod imports).
 //
 // steps.mjs (optional) default-exports `async ({ page, click, key, shot, wait, evaluate, log }) => {}`:
 //   click(x, y, { button })  logical screen coordinates (640x480 or 800x600) on the game canvas
@@ -26,6 +28,7 @@ const opt = (name, def) => {
 };
 const out = opt('--out', '/tmp/bdb-shots');
 const [w, h] = opt('--size', '1024x768').split('x').map(Number);
+const profile = opt('--profile', '');
 const [url, stepsFile] = args;
 if (!url) {
   console.error('usage: node tools/browse.mjs <url> [steps.mjs] [--out dir] [--size WxH]');
@@ -33,11 +36,11 @@ if (!url) {
 }
 fs.mkdirSync(out, { recursive: true });
 
-const browser = await chromium.launch({
-  headless: true,
-  args: ['--mute-audio', '--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
-});
-const page = await browser.newPage({ viewport: { width: w, height: h } });
+const launchArgs = ['--mute-audio', '--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+const browser = profile
+  ? await chromium.launchPersistentContext(profile, { headless: true, args: launchArgs, viewport: { width: w, height: h } })
+  : await chromium.launch({ headless: true, args: launchArgs });
+const page = profile ? (browser.pages()[0] ?? (await browser.newPage())) : await browser.newPage({ viewport: { width: w, height: h } });
 page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') console.log(`[${m.type()}] ${m.text()}`);
 });

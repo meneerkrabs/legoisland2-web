@@ -9,12 +9,18 @@ export const OTHER_ARCHIVES = ['Bricks', 'BrickMorph', 'GENERICBITS', 'Shadow', 
 export interface Status { (msg: string): void }
 
 /** Something that reads installed-layout paths (`GameFiles` of src/files.ts). */
-export interface FileSource { read(path: string): Promise<Uint8Array> }
+export interface FileSource {
+  read(path: string): Promise<Uint8Array>;
+  /** loose files (mods) that replace / add members of the archive `name` (paths relative to its root); see src/mods */
+  archiveOverrides?(name: string): { path: string; size: number; load(): Promise<Uint8Array>; done?(replaced: boolean): void }[];
+}
 
 export class GameData {
   readonly base: string;
   private files: FileSource | null = null;
   private archives = new Map<string, Promise<Archive>>();
+  /** archives whose mod files are (being) put in: the loose files of src/mods replace members (`Archive.override`) */
+  private overlays = new Map<string, Promise<void>>();
   private pe: Promise<Pe> | null = null;
   private starts: number[] | null = null;
   /** `source`: a URL prefix of a plain game folder (dev), or the game's files from the library (archive.org / own ISO). */
@@ -41,7 +47,41 @@ export class GameData {
     return out;
   }
 
-  archive(name: string, status?: Status): Promise<Archive> {
+  async archive(name: string, status?: Status): Promise<Archive> {
+    const a = await this.rawArchive(name, status);
+    await this.applyOverrides(name, a);
+    return a;
+  }
+
+  private applyOverrides(name: string, a: Archive): Promise<void> {
+    const key = name.toLowerCase();
+    const have = this.overlays.get(key);
+    if (have) return have;
+    const list = this.files?.archiveOverrides?.(name) ?? [];
+    if (!list.length) return Promise.resolve();
+    const p = (async () => {
+      for (const o of list) {
+        try { o.done?.(a.override(o.path, await o.load())); } catch (e) { console.warn(`mod-bestand ${o.path} niet geladen, het spelbestand blijft`, e); }   // a missing / damaged stored file must not stop the zone
+      }
+    })();
+    this.overlays.set(key, p);
+    return p;
+  }
+
+  /**
+   * Let go of the mod files of the zone archives (`zNNxxx`): a zone's replaced textures can be hundreds of megabytes and are only needed while the zone runs.
+   * They are loaded again when the archive is asked for again. The shared archives (Bricks, Overlays, menu ...) keep theirs.
+   */
+  async releaseZoneOverrides() {
+    for (const [key, p] of [...this.overlays]) {
+      if (!/^z\d\d/.test(key)) continue;
+      await p.catch(() => { /* a failed load has nothing to release */ });
+      this.overlays.delete(key);
+      (await this.archives.get(key))?.clearOverrides();
+    }
+  }
+
+  private rawArchive(name: string, status?: Status): Promise<Archive> {
     let p = this.archives.get(name.toLowerCase());
     if (!p) {
       p = (async () => {

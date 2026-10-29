@@ -9,16 +9,18 @@ import { GameData } from '../viewer/data.ts';
 import type { GameFiles } from '../files.ts';
 import { INTRO_MOVIES } from '../files.ts';
 import { audio } from '../engine/audio.ts';
+import { canvasBox, currentDisplayMode, storeDisplayMode } from '../display.ts';
+import type { DisplayMode } from '../display.ts';
 import { playMovie } from '../engine/movie.ts';
-import { GameVars } from '../game/vars.ts';
+import { GameVars, V } from '../game/vars.ts';
 import { InputMapper, readKeyTable } from '../game/input.ts';
 import { Ui2D } from '../ui/renderer2d.ts';
 import type { UiTextureSet } from '../ui/renderer2d.ts';
 import { loadMenuStrings, loadMessages, STD_FILES } from '../ui/strings.ts';
 import type { MenuStrings, MessageTable } from '../ui/strings.ts';
-import { readFsmCaptions, readInitialVars, readMenuPages, readStoryFsm, readZoneTable } from './tables.ts';
+import { readFsmCaptions, readInitialVars, readLevelSelect, readMenuPages, readStoryFsm, readZoneTable } from './tables.ts';
 import type { ZoneInfo, StoryNode, MenuPage as RawMenuPage } from './tables.ts';
-import { StoryFsm, ZoneLoopState } from './story.ts';
+import { GV, StoryFsm, ZoneLoopState } from './story.ts';
 import { Options, S } from './options.ts';
 import { IdbBackend, SaveStore } from './savestore.ts';
 import type { SaveHeader, SaveGame, EntityRecord } from './save.ts';
@@ -93,6 +95,8 @@ export class Shell {
   pendingSave: SaveGame | null = null;
   /** set when the player chose "Stoppen" */
   quit = false;
+  /** "Beeld": 4:3 (original) or widescreen (src/display.ts): the canvas fills the window, the 3D scene uses its aspect, the 2D layer stays a 4:3 area */
+  displayMode: DisplayMode = currentDisplayMode();
   /** after the outro movie the front end shows the credits and then continues with this zone (null = normal front end) */
   creditsThen: number | null = null;
   /** how often each zone (table index) was started in this session: `ZoneGameCtx.attempt` */
@@ -134,6 +138,7 @@ export class Shell {
     const gl = new Renderer(canvas);
     const ui = new Ui2D(gl.gl, { fit: 'stretch' });
     const sh = new Shell(root, files, params, data, pe, canvas, wrap, gl, ui);
+    ui.fit = sh.displayMode === 'wide' ? 'fit' : 'stretch';
     sh.installStyle();
     sh.fitCanvas();
     addEventListener('resize', () => sh.fitCanvas());
@@ -170,20 +175,27 @@ export class Shell {
     document.head.appendChild(this.styleEl);
   }
 
-  /** the canvas is the largest 4:3 box that fits the window (the original only knows 4:3 modes) */
+  /** the canvas is the largest 4:3 box that fits the window (the original only knows 4:3 modes) or, in widescreen, the whole window */
   fitCanvas() {
-    const W = innerWidth, H = innerHeight;
-    const w = Math.min(W, Math.floor((H * 4) / 3)), h = Math.min(H, Math.floor((W * 3) / 4));
+    const { w, h } = canvasBox(this.displayMode, innerWidth, innerHeight);
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
+  }
+  /** switch between 4:3 and widescreen while running (the 3D scene follows at the next frame, the 2D area is re-centred by `Ui2D.begin`) */
+  setDisplayMode(mode: DisplayMode) {
+    this.displayMode = mode;
+    this.ui.fit = mode === 'wide' ? 'fit' : 'stretch';
+    this.fitCanvas();
   }
 
   private attachPointer() {
     const c = this.canvas;
     const at = (e: PointerEvent) => {
-      const r = c.getBoundingClientRect();
-      this.pointer.x = ((e.clientX - r.left) / r.width) * 640;
-      this.pointer.y = ((e.clientY - r.top) / r.height) * 480;
+      const r = c.getBoundingClientRect(), v = this.ui.view;
+      // client px -> canvas px -> the 4:3 area of the 2D layer (the whole canvas in 4:3 mode) -> the 640x480 grid
+      const cx = ((e.clientX - r.left) / r.width) * c.width, cy = ((e.clientY - r.top) / r.height) * c.height;
+      this.pointer.x = ((cx - v.x) / v.w) * 640;
+      this.pointer.y = ((cy - v.y) / v.h) * 480;
       this.pointer.moved = true;
     };
     c.addEventListener('pointermove', at);
@@ -307,6 +319,14 @@ export class Shell {
       keysChanged: () => this.applyKeys(),
       optionChanged: (i) => this.optionChanged(i),
       measure: (font, s) => this.ui.measure(font === 0 ? 1 : 0, s).w,
+      checkpoints: readLevelSelect(this.pe).checkpoints,
+      gotoCheckpoint: (e) => {
+        if (e.node >= 0) { this.story.jump(e.node); this.vars.set(GV.LGI_GAMELOOP, 3); }
+        this.vars.set(V.NS_NEXT_SUBGAME, e.zone);
+        this.vars.set(GV.STARTEDFROMMENU, 0);
+        this.loop.pending = { kind: 2, node: this.story.node, zone: e.zone };   // the front end hands over to this zone / node (like a new game does)
+      },
+      display: { wide: () => this.displayMode === 'wide', toggle: () => { const m = this.displayMode === 'wide' ? '4:3' : 'wide'; this.setDisplayMode(m); storeDisplayMode(m); this.audio.menu('onoff'); } },
     };
   }
 
@@ -391,6 +411,7 @@ export class Shell {
       const next = await runner(this, info);
       this.live = null;
       this.gl.clearCaches();      // the zone's meshes and textures (the shared renderer would keep them for the whole session)
+      await this.data.releaseZoneOverrides();   // the zone's mod files (src/mods) are let go of; they are read again when the zone is entered again
       zone = this.loop.afterZone(next);
     }
     this.audio.leaveZone();

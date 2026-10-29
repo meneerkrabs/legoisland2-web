@@ -66,6 +66,8 @@ export class GameRenderer {
   extraShadows: { type: number; pts: number[] }[] = [];
   /** the camera zoom DAT_0089df2c (FUN_0040cd1a), the vertical field of view in radians (default 1.0); zones with a fixed camera (z17WAS 0.4) set it */
   fov = DEFAULT_FOV;
+  /** distance within which animated records are posed every frame (default POSE_RANGE 150; a zone whose characters are seen from further away, z15SSH's snakes, raises it) */
+  poseRange = POSE_RANGE;
   /** near plane override of the zone code (DAT_0089df30 is written by the camera code of some zones, e.g. z41MAP FUN_00816220); null = the zone's fog set-up (`cameraFromFog`) */
   near: number | null = null;
   /** a zone's own background drawn right after the frame starts, before the records (z39ASB: the star field quad of FUN_007b7c24 / FUN_0088002d); gets the interpolated eye and the forward vector */
@@ -169,6 +171,20 @@ export class GameRenderer {
         if (rv && !rv.kind) rv.mode = e.mode;
       }
     }
+  }
+
+  /**
+   * FUN_0043e930(model, child, bone, slot) / FUN_0043e970 at run time: the model attached to `slot` of the record's skeleton becomes `child` (null: detached). The zone game does this
+   * for models the original swaps while playing (z08BKD: the diver's empty hand / carried brick, the skeleton's spark part).
+   */
+  setAttach(rec: GameRecord, slot: number, bone: number, child: Model | null) {
+    const rv = this.views.find((v) => v.rec === rec);
+    if (!rv) return;
+    const sc = this.scene;
+    const i = rv.attach.findIndex((a) => a.slot === slot);
+    if (!child) { if (i >= 0) rv.attach.splice(i, 1); return; }
+    const parts: Part[] = child.parts.filter(Boolean).map((p) => ({ meshPath: sc.meshPaths[p.mesh] ?? null, texList: sc.texLists[p.texList] ?? [], lod: p.lod }));
+    if (i >= 0) rv.attach[i] = { bone, slot, parts }; else rv.attach.push({ bone, slot, parts });
   }
 
   /** add (du, dv) to the texture coordinates of mesh group `group` of the record's first part (accumulates; the repeating texture wraps) */
@@ -290,8 +306,7 @@ export class GameRenderer {
     if (this.near !== null) setup.near = this.near;
     r.fog = setup.fog; r.lights = fog0 ? this.lights : defaultLights();
     r.cull = 1; r.cwFront = true;
-    const cv = r.gl.canvas as HTMLCanvasElement;
-    const aspect = cv.width / cv.height;
+    const aspect = r.aspect;
     const view = lookDirLH(eye, [fx, fy, fz]);
     const viewProj = mul(view, projection(setup, aspect));
     r.begin(setup.clear, viewProj);
@@ -324,7 +339,7 @@ export class GameRenderer {
 
       // skinning: pose live near the camera (animated records), bind pose otherwise
       let bones: Float32Array | null = null;
-      const animated = !!rec.anim && dist < POSE_RANGE && !rv.kind;
+      const animated = !!rec.anim && dist < this.poseRange && !rv.kind;
       if (animated) bones = rec.anim!.pose(alpha);
       let drawMesh = m;
       if (m.msh.svwl) {
@@ -380,6 +395,7 @@ export class GameRenderer {
     this.effects?.(r, eye);
     for (const sh of this.extraShadows) this.drawShadowPoints(sh.pts, sh.type);
     this.info = { eye, target: tgt, camDist: Math.hypot(tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]), draws: r.stats.draws, triangles: r.stats.triangles };
+    r.endFrame();
   }
 
   // ---------------------------------------------------------------- faces, live part matrices, visibility

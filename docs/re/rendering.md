@@ -75,7 +75,7 @@ m[2][2] = far / (far - near)   m[2][3] = 1   m[3][2] = -far * near / (far - near
 
 * `fov` is `DAT_0089df2c`, the camera zoom factor, in **radians, vertical**: default **1.0 rad (57.3 deg vertical, 72.4 deg horizontal at 4:3)**. Game code changes it with `FUN_0040cd1a`
   (values seen: 1.0 normal, 0.9 / 0.57 / 0.4 / 0.3 in cut scenes and zoomed views). The same value scales the LOD test (section 7.4) and the particle size (section 8).
-* **near** `DAT_0089df30 = max(zoneNear, 1.0)`; **far** `DAT_0089df34`, see 3.2. The aspect is fixed at 4:3, the game never widens the view (what a wide display mode would do is not covered by the code: UNCERTAIN). **[viewer]** keeps the vertical FOV and uses the real canvas aspect.
+* **near** `DAT_0089df30 = max(zoneNear, 1.0)`; **far** `DAT_0089df34`, see 3.2. The aspect is fixed at 4:3, the game never widens the view (the push of `0.75f` sits at file offset 0xCAC3, VA 0x40CAC3 in the Dutch EXE: what the LI2 Mod Manager's widescreen hack overwrites with height / width, keeping the vertical FOV, which shows more at the sides). **[viewer]** keeps the vertical FOV and uses the real canvas aspect. **[port]** the option "Beeld: breedbeeld" does the same for the 3D scene and keeps the 2D layer a centred 4:3 area: docs/re/widescreen.md.
 * The view is a left-handed look-at (formats.md 7.1); the camera placement itself is gameplay code (not covered here).
 
 ### 3.2 Draw distance and fog (`FUN_00442d90` -> `FUN_004096e0` -> `FUN_004095ab`, `FUN_0040943f`)

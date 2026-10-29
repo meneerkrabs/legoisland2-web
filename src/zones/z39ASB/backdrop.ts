@@ -17,15 +17,15 @@ export const BACKDROP_UV = 0.005;
 export const BACKDROP_INDICES = [0, 2, 1, 0, 3, 2] as const;
 
 /** the four corners (bottom-left, bottom-right, top-right, top-left) in world space for an eye and a forward vector (up = world y: the camera never rolls) */
-export function backdropCorners(eye: ArrayLike<number>, fwd: ArrayLike<number>, up0: ArrayLike<number> = [0, 1, 0]): number[][] {
+export function backdropCorners(eye: ArrayLike<number>, fwd: ArrayLike<number>, up0: ArrayLike<number> = [0, 1, 0], widen = 1): number[][] {
   // view basis like FUN_0043cc5c: right = up0 x forward, up = forward x right
   let rx = up0[1] * fwd[2] - up0[2] * fwd[1], ry = up0[2] * fwd[0] - up0[0] * fwd[2], rz = up0[0] * fwd[1] - up0[1] * fwd[0];
   const rl = Math.hypot(rx, ry, rz) || 1; rx /= rl; ry /= rl; rz /= rl;
   const ux = fwd[1] * rz - fwd[2] * ry, uy = fwd[2] * rx - fwd[0] * rz, uz = fwd[0] * ry - fwd[1] * rx;
-  const k = BACKDROP_HALF;
+  const k = BACKDROP_HALF, kr = k * widen;   // `widen` = canvas aspect / (4:3): the quad grows with the horizontal field of view in widescreen
   const cx = eye[0] + fwd[0], cy = eye[1] + fwd[1], cz = eye[2] + fwd[2];
   const corner = (sr: number, su: number) => {
-    const px = cx + su * k * ux + sr * k * rx, py = cy + su * k * uy + sr * k * ry, pz = cz + su * k * uz + sr * k * rz;
+    const px = cx + su * k * ux + sr * kr * rx, py = cy + su * k * uy + sr * kr * ry, pz = cz + su * k * uz + sr * kr * rz;
     return [eye[0] + (px - eye[0]) * BACKDROP_DISTANCE, eye[1] + (py - eye[1]) * BACKDROP_DISTANCE, eye[2] + (pz - eye[2]) * BACKDROP_DISTANCE];
   };
   return [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)];
@@ -57,7 +57,8 @@ export class Backdrop {
     if (!this.tex) this.tex = r.texture(this.archive, this.texId);
     const tex = this.tex;
     if (!tex) return;
-    const pts = backdropCorners(eye, fwd);
+    const cv = r.canvas;
+    const pts = backdropCorners(eye, fwd, [0, 1, 0], cv.width > 0 && cv.height > 0 ? cv.width / cv.height / (4 / 3) : 1);
     const pos = new Float32Array(12), uvs = this.mesh.msh.uvs;
     for (let i = 0; i < 4; i++) {
       for (let k = 0; k < 3; k++) pos[i * 3 + k] = pts[i][k];

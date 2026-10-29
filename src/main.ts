@@ -3,6 +3,13 @@ import { audio } from './engine/audio.ts';
 import { playMovie } from './engine/movie.ts';
 import { addIso, ARCHIVE_PAGE, availableSource, cdFolder, GAME_TITLE, removeArchiveCache, removeIso } from './library.ts';
 import { MOVIES, type GameFiles, type Progress } from './files.ts';
+import { currentPrefs, storePrefs, storedPrefs } from './display.ts';
+import { collectDropped, createModsSection, saveEffects } from './mods/ui.ts';
+import { openModStore } from './mods/store.ts';
+import { loadActiveMods } from './mods/manage.ts';
+import { ModdedFiles, withMods } from './mods/overlay.ts';
+import type { ActiveMod } from './mods/overlay.ts';
+import { EffectMap, reportPatches } from './mods/effects.ts';
 
 const app = document.getElementById('app')!;
 if (new URLSearchParams(location.search).has('trace')) (window as unknown as { __le2Trace: unknown[] }).__le2Trace = []; // ?trace=1: every files.read() is logged (tools/steps/trace.mjs)
@@ -92,11 +99,36 @@ async function startScreen() {
       ? 'De spelbestanden worden gelezen uit je eigen ISO, die in je browser is bewaard.'
       : 'De spelbestanden komen uit de ontwikkelmap public/data (alleen in de dev-server).';
 
+  // display + start options (src/display.ts)
+  const prefs = storedPrefs();
+  const modeSelect = el('select', { id: 'le2-mode' }, el('option', { value: '4:3', textContent: '4:3 (origineel)' }), el('option', { value: 'wide', textContent: 'breedbeeld' }));
+  modeSelect.value = prefs.mode;
+  modeSelect.onchange = () => storePrefs({ mode: modeSelect.value as '4:3' | 'wide' });
+  const checkbox = (id: string, text: string, title: string, on: boolean, set: (v: boolean) => void) => {
+    const c = el('input', { type: 'checkbox', id, checked: on });
+    c.onchange = () => set(c.checked);
+    return el('label', { title }, c, ` ${text}`);
+  };
+  const options = el('div', { className: 'note bdb-opts' },
+    el('label', { title: 'Breedbeeld toont aan de zijkanten meer van de 3D-wereld; menu\'s, films en schermen blijven 4:3' }, 'Beeld: ', modeSelect),
+    checkbox('le2-skipintro', 'Introfilms overslaan', 'De openingsfilms van het spel niet afspelen', prefs.skipIntro, (v) => storePrefs({ skipIntro: v })),
+    checkbox('le2-debug', 'Debugmenu', 'Zet het verhaalpuntenmenu van de ontwikkelaars in het hoofdmenu in de plaats van "Credits" (docs/re/mods.md)', prefs.debugMenu, (v) => storePrefs({ debugMenu: v })));
+
+  // mods: the executable is only read here when that costs nothing (own ISO, dev copy, a download that is already stored)
+  const mods = await createModsSection({
+    error: showError,
+    exe: async () => {
+      if (lib.source === 'archive' && !lib.cached) return null;
+      return (await lib.open(() => {})).read('LEGO eiland 2.exe');
+    },
+  });
+
   const screen = el('div', { className: 'bdb-start' },
     el('h1', { textContent: GAME_TITLE }),
     el('div', { className: 'books' }, el('button', { textContent: 'Spelen', title: SOURCE_NAMES[lib.source], onclick: start })),
     track,
     status,
+    options,
     el('div', { className: 'note', innerHTML: note }),
     el('details', { className: 'note' },
       el('summary', { textContent: 'Eigen cd of ISO gebruiken' }),
@@ -106,12 +138,18 @@ async function startScreen() {
         ...(lib.source === 'iso' ? [el('button', { textContent: 'Eigen ISO verwijderen', onclick: async () => { await removeIso(); startScreen(); } })] : []),
         ...(lib.source === 'archive' && lib.cached ? [el('button', { textContent: 'Gedownloade bestanden verwijderen', onclick: async () => { await removeArchiveCache(); startScreen(); } })] : [])),
       'Je kunt een ISO ook hierheen slepen. Een ISO wordt in je browser bewaard (ongeveer 450 MB); een cd-map alleen tijdens deze sessie.'),
+    mods.element,
     isoInput, dirInput,
   );
   screen.ondragover = (e) => e.preventDefault();
-  screen.ondrop = (e) => {
+  screen.ondrop = async (e) => {
     e.preventDefault();
-    void addIsos(e.dataTransfer?.files ?? []);
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    const isos = [...dt.files].filter((f) => /\.iso$/i.test(f.name));
+    if (isos.length) { void addIsos(isos); return; }
+    const picked = await collectDropped(dt);   // must be read before the event ends: do it first
+    if (picked.length) { mods.element.open = true; void mods.importPicked(picked); }
   };
   app.appendChild(screen);
 }
@@ -149,6 +187,8 @@ function showLoadBadge(files: GameFiles) {
  * `?zone=z02LGI[&node=N]` starts in that zone, `?save=N` loads save slot N (docs/engine-api.md "Dev / test URLs"). */
 async function play(files: GameFiles, params = new URLSearchParams(location.search)) {
   app.replaceChildren();
+  const prefs = currentPrefs(`?${params.toString()}`);
+  files = await applyMods(files, params, prefs.debugMenu);
   showLoadBadge(files);
   const only = params.get('movie');
   if (only) { await runMovie(files, only); showFiles(files); return; }
@@ -159,19 +199,58 @@ async function play(files: GameFiles, params = new URLSearchParams(location.sear
   const direct = params.has('zone') || params.has('save') || params.get('start') === 'frontend';
   const sh = await Shell.create(app, files, {
     mute: params.get('mute') === '1',
-    intro: params.get('intro') !== '0' && !direct,
+    intro: params.get('intro') !== '0' && !direct && !prefs.skipIntro,
     zone: params.get('zone') ?? undefined,
     node: params.has('node') ? Number(params.get('node')) : undefined,
     save: params.has('save') ? Number(params.get('save')) : undefined,
     start: params.get('start') ?? undefined,
   }, (m) => { document.title = m; });
   (window as unknown as { __shell?: unknown }).__shell = sh;
+  recordModReport(files);
   document.title = GAME_TITLE; // the loading status lines went to the tab title
   if (sh.params.intro) await sh.runIntro();
   await sh.run();
   // "Stoppen": back to the start screen
   sh.canvas.remove();
   startScreen();
+}
+
+/** the original's Debug Mode as a built-in patch (docs/re/mods.md): the main menu's "Credits" item (type 4, action 2) becomes "go to page 0x11", the story-checkpoint list. Guarded by the original bytes. */
+const DEBUG_MENU_MOD: ActiveMod = {
+  id: 'builtin-debug', title: 'Debugmenu', files: [],
+  patches: [{ offset: 0x4a7834, bytes: Uint8Array.of(1, 0, 0, 0, 0x11), original: Uint8Array.of(4, 0, 0, 0, 2), line: 0 }],
+};
+
+/** the files of the game with the enabled mods applied (src/mods); `?mods=off` skips them. Nothing is wrapped when there is nothing to apply. */
+async function applyMods(files: GameFiles, params: URLSearchParams, debugMenu: boolean): Promise<GameFiles> {
+  if (params.get('mods') === 'off') return files;
+  try {
+    const active = await loadActiveMods(await openModStore());
+    if (debugMenu) active.push(DEBUG_MENU_MOD);
+    const out = withMods(files, active);
+    if (out instanceof ModdedFiles) (window as unknown as { __le2Mods?: unknown }).__le2Mods = { layer: out.layer, files: out, mods: active.map((m) => m.title) };
+    return out;
+  } catch (e) {
+    console.warn('mods konden niet worden toegepast', e);
+    return files;
+  }
+}
+
+/** after the game read its executable: what the patches did, logged and kept for the mod list of the start screen */
+function recordModReport(files: GameFiles) {
+  if (!(files instanceof ModdedFiles) || !files.originalExe || !files.layer.patches.length) return;
+  const em = new EffectMap(files.originalExe);
+  const byMod = new Map<string, ReturnType<typeof reportPatches>>();
+  files.layer.patches.forEach((p, i) => {
+    const rows = byMod.get(p.modId) ?? [];
+    const row = reportPatches(em, [p.patch])[0];
+    const st = files.layer.patchResults[i]?.status;
+    if (st && st !== 'applied' && st !== 'already') { row.effect = 'ignored'; row.note = `overgeslagen: ${st === 'mismatch' ? 'de oorspronkelijke bytes kloppen niet (andere versie van het spel?)' : 'adres buiten het programma'}`; }
+    rows.push(row);
+    byMod.set(p.modId, rows);
+  });
+  for (const [id, rows] of byMod) if (id !== 'builtin-debug') saveEffects(id, files.originalExe.length, rows);
+  console.info('mods: patches', files.layer.patches.map((p, i) => `${p.modTitle} @${p.patch.offset.toString(16)} ${files.layer.patchResults[i]?.status}`).join('; '));
 }
 
 /** the engine's dev entry (src/game/play.ts) on a zone; keeps the URL's other params (pos, era, mute) */

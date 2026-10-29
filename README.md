@@ -26,6 +26,13 @@ Bronnen (in volgorde van voorkeur, zie `src/library.ts`):
 Op archive.org staan twee Nederlandse ISO's met dezelfde indeling en identieke cabinet-bestanden
 (`legoeiland2dutch` en `legoeiland2`); de eerste is de standaard, de tweede de reserve.
 
+## Beeld, introfilms en mods
+
+Op het beginscherm: **Beeld** (4:3 zoals het origineel, of breedbeeld: de 3D-wereld toont dan meer aan de zijkanten, menu's en films blijven 4:3; ook te kiezen in
+Opties > Afbeeldingen, zie [docs/re/widescreen.md](docs/re/widescreen.md)), **Introfilms overslaan**, **Debugmenu** (het verhaalpuntenmenu van de ontwikkelaars) en **Mods**:
+importeer een mod in het formaat van de [LI2 Mod Manager](https://github.com/JeffRuLz/LI2-Mod-Manager) (een zip of map; bestandsvervangers en patches van het programma,
+ook de 2 GB grote HD Texture Pack). Mods worden in je browser bewaard en gelden bij de volgende keer Spelen, zie [docs/re/mods.md](docs/re/mods.md).
+
 ## Ontwikkelen
 
 ```bash

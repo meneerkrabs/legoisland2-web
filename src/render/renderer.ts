@@ -8,7 +8,7 @@ import { parseMsh, groupMatrices } from '../formats/msh.ts';
 import type { Msh } from '../formats/msh.ts';
 import { parseTga } from '../formats/tga.ts';
 import { parseWib } from '../formats/wib.ts';
-import type { Archive } from '../formats/archive.ts';
+import type { Archive, ArchiveEntry } from '../formats/archive.ts';
 import type { Mat4 } from './math.ts';
 import { PRESETS, modePreset } from './states.ts';
 import type { Preset } from './states.ts';
@@ -110,7 +110,7 @@ export interface TexAnim {
   /** FUN_00411202 mode 2 (and the expression sheets): not stepped by `updateTextures`, `setTextureFrame` picks the entry */
   frozen?: boolean;
 }
-export interface TexGpu { tex: WebGLTexture; soft: boolean; cutout: boolean; w: number; h: number; frames: number; anim?: TexAnim; mips: boolean }
+export interface TexGpu { tex: WebGLTexture; soft: boolean; cutout: boolean; w: number; h: number; frames: number; anim?: TexAnim; mips: boolean; /** a mod's picture larger than the original: always mip-mapped */ hd?: boolean }
 
 export interface FogState { enabled: boolean; color: [number, number, number]; start: number; end: number }
 
@@ -159,6 +159,8 @@ export class Renderer {
   private ul: Record<string, WebGLUniformLocation | null> = {};
   private white: WebGLTexture;
   private boxVao: WebGLVertexArrayObject;
+  private lineVao: WebGLVertexArrayObject | null = null;
+  private lineBuf: WebGLBuffer | null = null;
   private meshes = new Map<string, MeshGpu | null>();
   private textures = new Map<string, TexGpu | null>();
   private txl = new Map<string, Uint8Array | null>();
@@ -169,6 +171,8 @@ export class Renderer {
   cwFront = true;
   /** the game creates textures without mip chains (TextureManager.cpp FUN_004100a1); true = generate mipmaps (smoother, not the original look) */
   mipmaps = false;
+  private maxTexture: number | null = null;
+  private aniso: EXT_texture_filter_anisotropic | false | null = null;
   fog: FogState = { enabled: false, color: [0, 0, 0], start: 0, end: 1e6 };
   lights: LightSet = defaultLights();
   stats = { draws: 0, triangles: 0 };
@@ -201,12 +205,30 @@ export class Renderer {
     gl.bindVertexArray(null);
   }
 
+  /**
+   * Widescreen (src/display.ts): keep the 3D picture in a centred 4:3 area of the canvas and the rest black. For zones whose scene is a flat 4:3 painting that does not
+   * continue sideways (the front end's backdrop planes); every other zone uses the whole canvas and the canvas' aspect with the same vertical field of view.
+   */
+  fixed43 = false;
+  /** the area of the canvas the 3D picture uses (canvas pixels, y from the bottom like GL) */
+  viewRect = { x: 0, y: 0, w: 1, h: 1 };
+  /** width / height of the 3D picture: what the projection is built with */
+  get aspect() { return this.viewRect.w / this.viewRect.h; }
+
   resize() {
     const dpr = Math.min(devicePixelRatio || 1, 2);
     const w = Math.max(1, Math.floor(this.canvas.clientWidth * dpr)), h = Math.max(1, Math.floor(this.canvas.clientHeight * dpr));
     if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
-    this.gl.viewport(0, 0, w, h);
+    let x = 0, y = 0, vw = w, vh = h;
+    if (this.fixed43 && w * 3 !== h * 4) {
+      vw = Math.max(1, Math.min(w, Math.floor((h * 4) / 3))); vh = Math.max(1, Math.min(h, Math.floor((w * 3) / 4)));
+      x = Math.floor((w - vw) / 2); y = Math.floor((h - vh) / 2);
+    }
+    this.viewRect = { x, y, w: vw, h: vh };
+    this.gl.viewport(x, y, vw, vh);
   }
+  /** after the frame's 3D drawing: the scissor of a 4:3 area is switched off again (the 2D layer draws over the whole canvas) */
+  endFrame() { this.gl.disable(this.gl.SCISSOR_TEST); this.gl.viewport(0, 0, this.canvas.width, this.canvas.height); }
 
   clearCaches() {
     const gl = this.gl;
@@ -305,11 +327,13 @@ export class Renderer {
     try {
       let rgba: Uint8Array | null = null, w = 0, h = 0, frames = 1;
       let anim: TexAnim | undefined;
+      let member: ArchiveEntry | undefined;
       const tg = archive.find(`${dir ? dir + '/' : ''}Text${num}.tga`);
-      if (tg) { const im = parseTga(archive.read(tg)); rgba = im.rgba; w = im.width; h = im.height; }
+      if (tg) { const im = parseTga(archive.read(tg)); rgba = im.rgba; w = im.width; h = im.height; member = tg; }
       else {
         const wb = archive.find(`${dir ? dir + '/' : ''}Text${num}.wib`);
         if (wb) {
+          member = wb;
           const wi = parseWib(archive.read(wb));
           rgba = wi.frames[wi.sequence[0] ?? 0]; w = wi.width; h = wi.height; frames = wi.frameCount;
           // the 16-frame sheets with the identity sequence are expression sheets (faces): the game freezes them on one frame (FUN_00411202); only real animations play
@@ -319,19 +343,33 @@ export class Renderer {
         }
       }
       if (rgba) {
+        // HD texture packs (src/mods, docs/re/mods.md): a picture a mod made larger than the original gets mip maps (4x pictures shimmer without them) and is halved
+        // until it fits the GPU's limit; the textures the game ships itself take the unchanged path below
+        const hd = !!member && archive.isUpscaled(member, w, h);
+        const max = (this.maxTexture ??= gl.getParameter(gl.MAX_TEXTURE_SIZE) as number);
+        while (w > max || h > max) {
+          const r = halve(rgba, w, h);
+          if (anim) anim.frames = anim.frames.map((f) => halve(f, w, h).rgba);
+          rgba = r.rgba; w = r.w; h = r.h;
+        }
         let soft = false, cutout = false;
         for (let i = 3; i < rgba.length; i += 4) { const a = rgba[i]; if (a === 0) cutout = true; else if (a !== 255) { soft = true; break; } }
         const tex = gl.createTexture()!;
         gl.bindTexture(gl.TEXTURE_2D, tex);
         gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
-        if (this.mipmaps) gl.generateMipmap(gl.TEXTURE_2D);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.mipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+        const mips = this.mipmaps || hd;
+        if (mips) gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mips ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+        if (hd) {
+          const an = (this.aniso ??= gl.getExtension('EXT_texture_filter_anisotropic') ?? false);
+          if (an) gl.texParameterf(gl.TEXTURE_2D, an.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(4, gl.getParameter(an.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number));
+        }
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         const fl = this.textureFlags(archive, dir)?.[id];
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, fl === undefined || (fl & 1) ? gl.REPEAT : gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, fl === undefined || (fl & 2) ? gl.REPEAT : gl.CLAMP_TO_EDGE);
-        t = { tex, soft, cutout, w, h, frames, anim, mips: this.mipmaps };
+        t = { tex, soft, cutout, w, h, frames, anim, mips, hd };
         if (anim) this.animated.add(t);
       }
     } catch (e) { console.warn('texture', id, e); }
@@ -347,7 +385,7 @@ export class Renderer {
     for (const t of this.textures.values()) if (t) {
       gl.bindTexture(gl.TEXTURE_2D, t.tex);
       if (on && !t.mips) { gl.generateMipmap(gl.TEXTURE_2D); t.mips = true; }
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, on ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, on || t.hd ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
     }
   }
 
@@ -410,10 +448,18 @@ export class Renderer {
     const gl = this.gl;
     this.resize();
     this.viewProj = viewProj;
-    gl.clearColor(clear[0], clear[1], clear[2], 1);
     gl.depthMask(true);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
+    const vr = this.viewRect;
+    if (vr.w < this.canvas.width || vr.h < this.canvas.height) {
+      gl.disable(gl.SCISSOR_TEST);
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);   // the bars beside / above the 4:3 area
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(vr.x, vr.y, vr.w, vr.h);
+    } else gl.disable(gl.SCISSOR_TEST);
+    gl.clearColor(clear[0], clear[1], clear[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.useProgram(this.prog);
     gl.uniform1i(this.u.uTex, 0);
@@ -524,4 +570,42 @@ export class Renderer {
     gl.useProgram(this.prog);
     if (this.cull) gl.enable(gl.CULL_FACE);
   }
+
+  /** a world-space line segment (z21FSH's fishing line, FUN_004445e0 -> FUN_0087da0b of the original): depth tested, drawn after the records */
+  drawLine(a: ArrayLike<number>, b: ArrayLike<number>, color = [1, 1, 1, 1]) {
+    const gl = this.gl;
+    if (!this.lineVao) {
+      this.lineVao = gl.createVertexArray()!;
+      gl.bindVertexArray(this.lineVao);
+      this.lineBuf = gl.createBuffer()!;
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, 24, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+    }
+    gl.bindVertexArray(this.lineVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array([a[0], a[1], a[2], b[0], b[1], b[2]]));
+    gl.useProgram(this.lineProg);
+    gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND);
+    gl.uniformMatrix4fv(this.ul.uMVP, false, this.viewProj);
+    gl.uniform4f(this.ul.uColor, color[0], color[1], color[2], color[3]);
+    gl.drawArrays(gl.LINES, 0, 2);
+    gl.bindVertexArray(null);
+    gl.useProgram(this.prog);
+    if (this.cull) gl.enable(gl.CULL_FACE);
+  }
+}
+
+/** a picture at half size (2x2 box filter; an odd or 1-pixel side keeps the last row / column), for textures larger than the GPU allows */
+function halve(src: Uint8Array, w: number, h: number): { rgba: Uint8Array; w: number; h: number } {
+  const nw = Math.max(1, w >> 1), nh = Math.max(1, h >> 1), out = new Uint8Array(nw * nh * 4);
+  for (let y = 0; y < nh; y++) {
+    const y0 = Math.min(h - 1, y * 2), y1 = Math.min(h - 1, y * 2 + 1);
+    for (let x = 0; x < nw; x++) {
+      const x0 = Math.min(w - 1, x * 2), x1 = Math.min(w - 1, x * 2 + 1);
+      for (let c = 0; c < 4; c++) out[(y * nw + x) * 4 + c] = (src[(y0 * w + x0) * 4 + c] + src[(y0 * w + x1) * 4 + c] + src[(y1 * w + x0) * 4 + c] + src[(y1 * w + x1) * 4 + c] + 2) >> 2;
+    }
+  }
+  return { rgba: out, w: nw, h: nh };
 }
