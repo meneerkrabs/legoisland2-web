@@ -7,7 +7,7 @@ import { buildMatrix } from '../../formats/matrix.ts';
 import type { Archive } from '../../formats/archive.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { ZoneScene } from '../../formats/exe.ts';
-import { mul } from '../../render/math.ts';
+import { eulerMatrix, rotateVector, matThen } from '../common/matrix.ts';
 
 export class PartStore {
   private readonly base = new Map<GameRecord, Float32Array[] | null>();
@@ -53,18 +53,13 @@ export class PartStore {
 }
 
 /** FUN_0043a9e5(out, a, b): out = b * a (row vectors: b first) */
-export const then = (b: Float32Array, a: Float32Array, out = new Float32Array(16)): Float32Array => mul(b, a, out) as Float32Array;
+export const then = (b: Float32Array, a: Float32Array, out = new Float32Array(16)): Float32Array => matThen(b, a, out);
 
-/** FUN_0043abe6(out, M, v): the vector rotated by the matrix's 3 x 3 part (v * M, no translation) */
-export function rotate(m: ArrayLike<number>, v: ArrayLike<number>, out: [number, number, number] = [0, 0, 0]): [number, number, number] {
-  out[0] = v[0] * m[0] + v[1] * m[4] + v[2] * m[8];
-  out[1] = v[0] * m[1] + v[1] * m[5] + v[2] * m[9];
-  out[2] = v[0] * m[2] + v[1] * m[6] + v[2] * m[10];
-  return out;
-}
+/** FUN_0043abe6(out, M, v): the vector rotated by the matrix's 3 x 3 part (v * M, no translation); each component is summed z, y, x (+ 0.0) in double and stored as float32 */
+export function rotate(m: ArrayLike<number>, v: ArrayLike<number>, out: [number, number, number] = [0, 0, 0]): [number, number, number] { return rotateVector(m, v, out) as [number, number, number]; }
 
 /** FUN_0043a340(m, rx, ry, rz): the rotation matrix of the three Euler angles (translation 0) */
-export const rotation = (rx: number, ry: number, rz: number): Float32Array => buildMatrix(rx, ry, rz, 0, 0, 0);
+export const rotation = (rx: number, ry: number, rz: number): Float32Array => eulerMatrix(rx, ry, rz, 0, 0, 0);
 
 /** FUN_0043a5e4(m, rx, ry, rz, x, y, z) */
-export function setEulerPos(m: Float32Array, rx: number, ry: number, rz: number, x: number, y: number, z: number) { m.set(buildMatrix(rx, ry, rz, x, y, z)); }
+export function setEulerPos(m: Float32Array, rx: number, ry: number, rz: number, x: number, y: number, z: number) { eulerMatrix(rx, ry, rz, x, y, z, m as Float32Array<ArrayBuffer>); }

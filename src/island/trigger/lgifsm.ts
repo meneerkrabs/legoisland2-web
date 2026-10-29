@@ -7,7 +7,7 @@
 // Merged port (WP9): WP4's node and constants, WP7's particle emitters / cue sounds read from the executable / WORM = record 370 (verified: the
 // decompile's +0x96b0 flags and +0x965c matrix are 370 * 0x68 + 0x60 / + 0xc), and the FX_Bricks manager's per-tick update (the original runs it in
 // the draw pass, FUN_00442930 -> FUN_00447de0; it polls the SWITCH_LGI_BRICKFX_* variables itself: src/fx/bricks).
-// Not ported: FUN_00444550 of the constructor (render mode of record 370).
+// FUN_00444550 of the constructor (render mode 2 of record 370) goes through ctx.partMode (WP-RENDER setPartMode).
 import { NODE_NONE } from '../../game/controller.ts';
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import { RF_ENABLED, RF_NO_COLLIDE } from '../../game/record.ts';
@@ -19,8 +19,9 @@ import { registerCtor } from '../../game/setup.ts';
 import { tryCtx } from '../ctx.ts';
 import { partMatrix, setRotation } from './parts.ts';
 import { wrapAngle } from './startcsm.ts';
+import { ad, sb, ml, dv, fr } from '../../zones/common/f32.ts';
 import { islandSoundHandles } from '../ambient/common.ts';
-import { bonePos } from '../ambient/misc.ts';
+import { GATE_OFF, GATE_ON, boneWorld, fxGate, fxMatrix, setupEmitter, staticMatrix } from '../emitters.ts';
 import { islandBrickFx, tickIslandBrickFx, buildingSlot } from '../../fx/bricks/island.ts';
 
 export const CTOR_LGI_FSM = 0x4b8c73;
@@ -41,9 +42,11 @@ export const REC = {
 /** sound handle globals: DAT_05d580f4 (the info centre doors, 0x33e), DAT_05d58180 (switch 0x110 = 1, 0x33d), DAT_05d581d8 (switch 0xff, 0x354) */
 export const SND = { INFO_DOORS: 0x05d580f4, FX110: 0x05d58180, FXFF: 0x05d581d8 } as const;
 /** 0x892060: rotor speed = switch value / 10; 0x892578 / 0x8920cc: door speeds -/+0.1 x value; 0x892570 (double 1.8): bounce angle; 0x892568: bounce factor -0.5; 0x892560 (double 0.05): rest angle */
-export const ROTOR_DIV = 10, DOOR_SPEED = 0.1, DOOR_BOUNCE_AT = 1.7999999523162842, DOOR_BOUNCE = -0.5, DOOR_REST = 0.05000000074505806;
+export const ROTOR_DIV = 10, DOOR_SPEED = 0.10000000149011612, DOOR_BOUNCE_AT = 1.7999999523162842, DOOR_BOUNCE = -0.5, DOOR_REST = 0.05000000074505806;
 /** 0x8d95fc: timer step of switch 0x11f; 0x8922b8: scale-in speed (1 / 30 per tick); 0x89255c / 0.1: the jail door (speed 0.1, stops past 1.8) */
-export const HIDE_STEP = 0.01, SCALE_STEP = 0.0333, JAIL_SPEED = 0.1, JAIL_STOP = Math.fround(1.8);
+export const HIDE_STEP = 0.009999999776482582, SCALE_STEP = 0.0333000011742115, JAIL_SPEED = 0.10000000149011612, JAIL_STOP = Math.fround(1.8);
+/** the executable's private matrices of the era functions' emitters (BSS): the rocket01 pairs DAT_05d58410 + 0x40 k, zzz DAT_05d585e8, bill01 DAT_05d58390 / 05d583d0, twinkle03 DAT_05d58590 */
+const DAT_ROCKET_M = 0x5d58410, DAT_ZZZ_M = 0x5d585e8, DAT_BILL_M = 0x5d58390, DAT_TWINKLE_M = 0x5d58590;
 /** switch 0x110: bit -> (record, first rocket emitter DAT_05d585d0 + 4 k) of the flying figures (rocket01.par at bones 5 / 7) */
 const ROCKETS: Record<number, [number, number]> = { 1: [0x0b, 0], 2: [0x17, 0], 4: [0x11, 0], 8: [0x12, 2], 0x10: [0x16, 0], 0x20: [0x0a, 4] };
 /** switch 0xff: the value -> record twinkle03.par (DAT_05d58300) and its sound start at */
@@ -88,18 +91,16 @@ export class DirectorState {
     this.inited = true;
     const pe = tryCtx(w)?.pe;
     if (pe) this.sounds = cueTable(pe);
-    for (const k of [0, 1]) { const m = partMatrix(w, w.records[REC.INFO], k + 1); if (m) this.win[k] = Math.atan2(m[8], m[10]); }
+    for (const k of [0, 1]) { const m = partMatrix(w, w.records[REC.INFO], k + 1); if (m) this.win[k] = fr(Math.atan2(m[8], m[10])); }
     this.scale = 1;
-    w.records[REC.SCALE]?.hide();
+    const worm = w.records[REC.SCALE];
+    worm?.hide();
+    if (worm) tryCtx(w)?.partMode?.(worm, 0xff, 2);   // FUN_00444550(&rec370, 0xff, 2) at 0x4b8df4
     const j = partMatrix(w, w.records[REC.JAIL], 1);
-    if (j) this.jail = wrapAngle(Math.atan2(j[8], j[10]));
+    if (j) this.jail = wrapAngle(fr(Math.atan2(j[8], j[10])));
   }
 }
 
-function emit(w: World, st: DirectorState, name: string, owner: number, mode: number, p: [number, number, number]) {
-  st.log.push(`emit ${name} ${owner} ${mode}`);
-  tryCtx(w)?.particles?.(name, mode, p, owner);
-}
 function cueSfx(w: World, st: DirectorState, id: number, p: [number, number, number]) {
   st.log.push(`sfx ${id}`);
   if (id < 0) return;
@@ -110,7 +111,7 @@ function cueSfx(w: World, st: DirectorState, id: number, p: [number, number, num
 /** FUN_004b7c78 */
 export function directorTick(w: World, st: DirectorState): number {
   st.init(w);
-  const V = w.vars, R = w.records, dt = w.dt, c = tryCtx(w);
+  const V = w.vars, R = w.records, dt = fr(w.dt), c = tryCtx(w);
   const node = V.get(0x58);
 
   // ---- 3D sound cues: 1 = play at the record (then 2), 4 = keep playing, 8 = stop (then 2)
@@ -124,7 +125,7 @@ export function directorTick(w: World, st: DirectorState): number {
   // ---- rotors: PHEL part 3, BHEL part 2 turn by value / 10 per tick
   let v = V.get(SW.ROTOR);
   if (v !== 0) {
-    st.rotor += (v / ROTOR_DIV) * dt;
+    st.rotor = ad(ml(dv(fr(v), ROTOR_DIV), dt), st.rotor);
     for (const [r, p] of [[REC.ROTOR_A, 3], [REC.ROTOR_B, 2]] as const) { const m = R[r] ? partMatrix(w, R[r], p) : null; if (m) setRotation(m, 0, st.rotor, 0); }
   }
 
@@ -135,19 +136,19 @@ export function directorTick(w: World, st: DirectorState): number {
     const parts = [1, 2].map((p) => (R[REC.INFO] ? partMatrix(w, R[REC.INFO], p) : null));
     if (v === -1 || v === 1) {
       st.win = [0, 0];
-      st.winSpeed = [v * -DOOR_SPEED, v * DOOR_SPEED];
+      st.winSpeed = [ml(fr(v), -DOOR_SPEED), ml(fr(v), DOOR_SPEED)];
       cueSfx(w, st, handleId(w, SND.INFO_DOORS), pos(R[REC.INFO]));
       V.set(SW.INFO_DOORS, 2);
     }
     if (v === -1 || v === 1 || v === 2) {
       for (const k of [0, 1]) {
-        st.win[k] += st.winSpeed[k] * dt;
-        if (Math.abs(st.win[k]) > DOOR_BOUNCE_AT) { st.winSpeed[k] *= DOOR_BOUNCE; V.set(SW.INFO_DOORS, 3); }
+        st.win[k] = ad(ml(st.winSpeed[k], dt), st.win[k]);
+        if (Math.abs(st.win[k]) > DOOR_BOUNCE_AT) { st.winSpeed[k] = ml(st.winSpeed[k], DOOR_BOUNCE); V.set(SW.INFO_DOORS, 3); }
         const m = parts[k]; if (m) setRotation(m, 0, st.win[k], 0);
       }
     } else if (v === 3) {
       for (const k of [0, 1]) {
-        st.win[k] += st.winSpeed[k] * dt;
+        st.win[k] = ad(ml(st.winSpeed[k], dt), st.win[k]);
         if (Math.abs(st.win[k]) < DOOR_REST) { st.winSpeed = [0, 0]; st.win = [0, 0]; V.set(SW.INFO_DOORS, 0); }
         const m = parts[k]; if (m) setRotation(m, 0, st.win[k], 0);
       }
@@ -157,7 +158,7 @@ export function directorTick(w: World, st: DirectorState): number {
   // ---- SWITCH_LGI_CSM_BRICKESC_02 bit 1: record 78 (PIZ3) goes away once the count-down +0x48 ran out
   if ((V.get(SW.HIDE78) & 1) !== 0) {
     if (st.scale <= 0) R[REC.HIDE]?.hide();
-    else st.scale -= HIDE_STEP * dt;
+    else st.scale = sb(st.scale, ml(HIDE_STEP, dt));
   }
 
   // ---- SWITCH_LGI_CSM_FX_SWITCH02: 1 = a sound at INFO (record 11); bit 0x1000 starts the rocket emitters at the feet (bones 5 / 7) of the flying
@@ -173,19 +174,22 @@ export function directorTick(w: World, st: DirectorState): number {
       const [ri, slot] = hit;
       const rec = R[ri];
       if (!rec) continue;
+      const ma = staticMatrix(w, DAT_ROCKET_M + slot * 0x40), mb = staticMatrix(w, DAT_ROCKET_M + (slot + 1) * 0x40);
+      const ha = setupEmitter(w, DAT_ROCKET_M + slot * 0x40), hb = setupEmitter(w, DAT_ROCKET_M + (slot + 1) * 0x40);   // DAT_05d585d0 + 4 slot, + 4 slot + 4
       if ((v & 0x80) === 0) {
         if ((v & 0x7f) === 1) {
+          // FUN_0043a9e5(&DAT_05d585e8, record 11 + 0xc, bone 10): the matrix zzz.par (gate 0x110 & 1) is bound to
           const info = R[REC.FX110_SOUND];
-          if (info) emit(w, st, 'zzz.par', -20, 0, bonePos(info, 10));
+          if (info) boneWorld(staticMatrix(w, DAT_ZZZ_M), info, 10);
         } else {
-          const a = bonePos(rec, 5), b = bonePos(rec, 7);
-          if (on) { emit(w, st, 'rocket01.par', -1 - slot, 2, a); emit(w, st, 'rocket01.par', -2 - slot, 2, b); }
-          emit(w, st, 'rocket01.par', -1 - slot, 0, a); emit(w, st, 'rocket01.par', -2 - slot, 0, b);
+          // the two rocket01 emitters at bones 5 and 7 (feet) of the flying figure: their private matrices follow the bones every tick
+          boneWorld(ma, rec, 5); boneWorld(mb, rec, 7);
+          if (on) {   // bit 0x1000: FUN_00442a20(h, 2, 1, 1) + FUN_00442a00(h, matrix) for both
+            fxGate(w, ha, GATE_ON); fxGate(w, hb, GATE_ON);
+            fxMatrix(w, ha, ma); fxMatrix(w, hb, mb);
+          }
         }
-      } else {
-        emit(w, st, 'rocket01.par', -1 - slot, 1, pos(rec));
-        emit(w, st, 'rocket01.par', -2 - slot, 1, pos(rec));
-      }
+      } else { fxGate(w, ha, GATE_OFF); fxGate(w, hb, GATE_OFF); }   // 0x80: FUN_00442a20(h, 1, 1, 1) for both
     }
   }
 
@@ -209,43 +213,49 @@ export function directorTick(w: World, st: DirectorState): number {
   else if (v === 2) {
     if (st.scale < 1 && worm) {
       worm.flags |= RF_ENABLED;
-      st.scale += SCALE_STEP * dt;
+      st.scale = ad(ml(SCALE_STEP, dt), st.scale);
       if (1 < st.scale) V.set(sv, sv === SW.SCALE_ERA4 ? 5 : 0);
       st.scale = Math.min(st.scale, 1);
       worm.m.set(buildMatrix(worm.rx, worm.ry, -worm.rz, worm.x, worm.y, worm.z, st.scale, st.scale, st.scale));
     }
   } else if (v === 3) { worm?.hide(); V.set(sv, 0); }
 
-  // ---- SWITCH_LGI_CSM_FX_SWITCH05 (0x109): Bill's hands (bones 14 / 16), emitters bill01 x 2: 1 = start (-> 2), 3 = stop (-> 0), else follow
+  // ---- SWITCH_LGI_CSM_FX_SWITCH05 (0x109): Bill's hands (bones 14 / 16): the bill01 emitters' private matrices DAT_05d58390 / 05d583d0 follow them every tick;
+  //      1 = both emitters on (FUN_00442a20 + FUN_00442a00 with the matrices) and -> 2, 3 = both off and -> 0
   v = V.get(SW.FX109);
-  if (v !== 0 && R[REC.BILL]) {
+  if (v !== 0) {
     const bill = R[REC.BILL];
-    const a = bonePos(bill, 0xe), b = bonePos(bill, 0x10);
+    const m1 = staticMatrix(w, DAT_BILL_M), m2 = staticMatrix(w, DAT_BILL_M + 0x40);
+    const h1 = setupEmitter(w, DAT_BILL_M), h2 = setupEmitter(w, DAT_BILL_M + 0x40);   // DAT_05d58384 / 05d58388
+    if (bill) { boneWorld(m1, bill, 0xe); boneWorld(m2, bill, 0x10); }
     if (v === 1) {
-      emit(w, st, 'bill01', -11, 2, a); emit(w, st, 'bill01', -12, 2, b);
-      emit(w, st, 'bill01', -11, 0, a); emit(w, st, 'bill01', -12, 0, b);
+      fxGate(w, h1, GATE_ON); fxGate(w, h2, GATE_ON);
+      fxMatrix(w, h1, m1); fxMatrix(w, h2, m2);
       V.set(SW.FX109, 2);
     } else if (v === 3) {
-      emit(w, st, 'bill01', -11, 1, a); emit(w, st, 'bill01', -12, 1, b);
+      fxGate(w, h1, GATE_OFF); fxGate(w, h2, GATE_OFF);
       V.set(SW.FX109, 0);
-    } else { emit(w, st, 'bill01', -11, 0, a); emit(w, st, 'bill01', -12, 0, b); }
+    }
   }
 
-  // ---- SWITCH_LGI_CSM_FX_SWITCH06 (0xff): bit 1 = twinkle03.par + sound at the record of the value's other bit; 0x80 = stop
+  // ---- SWITCH_LGI_CSM_FX_SWITCH06 (0xff): bit 1 = twinkle03.par (DAT_05d58300, bound to the private matrix DAT_05d58590 = a COPY of the record's matrix) + the sound at it; 0x80 = stop
   v = V.get(SW.FXFF);
   if (v !== 0) {
     let on = false;
     if (v & 1) { on = true; v &= ~1; V.set(SW.FXFF, v); }
+    const h = setupEmitter(w, DAT_TWINKLE_M);
     if ((v & 0x80) === 0) {
       const ri = TWINKLE[v];
       const rec = ri !== undefined ? R[ri] : undefined;
       if (rec && on) {
-        emit(w, st, 'twinkle03.par', -30, 2, pos(rec));
-        emit(w, st, 'twinkle03.par', -30, 0, pos(rec));
-        cueSfx(w, st, handleId(w, SND.FXFF), pos(rec));
+        const m = staticMatrix(w, DAT_TWINKLE_M);
+        m.set(rec.m);
+        fxGate(w, h, GATE_ON);
+        fxMatrix(w, h, m);
+        cueSfx(w, st, handleId(w, SND.FXFF), [m[12], m[13], m[14]]);   // FUN_004433f0(DAT_05d581d8, &DAT_05d585c0)
       }
     } else {
-      emit(w, st, 'twinkle03.par', -30, 1, [0, 0, 0]);
+      fxGate(w, h, GATE_OFF);
       V.set(SW.FXFF, v & ~0x80);
     }
   }
@@ -259,7 +269,7 @@ export function directorTick(w: World, st: DirectorState): number {
   v = V.get(SW.JAIL_DOOR);
   if (v === 1 || v === 2) {
     if (v === 1) { st.jail = 0; st.jailSpeed = JAIL_SPEED; V.set(SW.JAIL_DOOR, 2); }
-    st.jail += st.jailSpeed * dt;
+    st.jail = ad(ml(st.jailSpeed, dt), st.jail);
     if (Math.abs(st.jail) > JAIL_STOP) { st.jailSpeed = 0; V.set(SW.JAIL_DOOR, 0); }
     const m = R[REC.JAIL] ? partMatrix(w, R[REC.JAIL], 1) : null;
     if (m) setRotation(m, 0, st.jail, 0);

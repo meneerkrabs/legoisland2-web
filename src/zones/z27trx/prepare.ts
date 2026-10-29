@@ -6,14 +6,14 @@ import { AnimInstance } from '../../game/anim.ts';
 import { Controller } from '../../game/controller.ts';
 import type { BehaviourNode } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
-import { RF_SOLID_HIDDEN } from '../../game/record.ts';
+import { RF_ENABLED, RF_SOLID_HIDDEN } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { V } from '../../game/vars.ts';
 import { CLIP, END_CLIP, PHASE, REC, SCORE, VAR } from './consts.ts';
 import { TrxRun, makeRandom, NullSound, nameOf } from './run.ts';
 import type { TrxSound, TrxRandom } from './run.ts';
 import { TrexNode } from './trex.ts';
-import { GateNode, VolcNode, SlogNode, BldrNode, EggNode, BrontyNode, SpectatorNode } from './props.ts';
+import { GateNode, VolcNode, SlogNode, BldrNode, EggNode, BrontyNode, SpectatorNode, FlyNode } from './props.ts';
 
 export interface TrxRigs { TREX: Blk; MFIG: Blk; TRIC?: Blk | null; STEG?: Blk | null; BREX?: Blk | null; BRON?: Blk | null }
 
@@ -60,6 +60,9 @@ export function prepareTrx(world: World, pepper: GameRecord, d: PrepareDeps): Tr
     for (let i = 0; i < 6; i++) { run.rumbleTime[i] = f32(pe, TABLES.RUMBLE_TIME + 4 * i); run.rumbleStrength[i] = pe.u32(TABLES.RUMBLE_STRENGTH + 4 * i) | 0; }
   }
   // animation: PEPP is the rex (TREX.blk), DRKR the rider (MFIG.blk); the spectators have their own rigs
+  // FUN_0076b230 (the builder, run by the loop's FUN_00766e19 before every start) resets the rex's flags to 2; FUN_0076649a(0) then adds LOD part 1 (0x200): the rex is 0x202 (the scene's
+  // 0x10 'non-solid' bit is gone); the rider keeps what the zone's extraction gave it (0x202). Found by the differential test (tools/tests/m7-z27TRX-emu.mjs).
+  pepp.flags = RF_ENABLED | 0x200;
   pepp.anim = new AnimInstance(d.rigs.TREX); pepp.anim.start(CLIP.WAIT, 0);
   drkr.anim = new AnimInstance(d.rigs.MFIG); drkr.anim.start(8, 0);
   for (const r of recs) r.ctrl = null;
@@ -103,6 +106,7 @@ export function prepareTrx(world: World, pepper: GameRecord, d: PrepareDeps): Tr
       default: break;
     }
   }
+  { const ptra = recs[REC.PTRA]; if (ptra && nameOf(ptra) === 'PTRA') { const n = new FlyNode(); n.run = run; attach(ptra, n); } }     // FUN_00768188 (the original gives record 2 alone a controller + the no-op `fly`)
   world.vars.set(VAR.PHASE, PHASE.WAIT);
   for (const v of [VAR.STATUE, VAR.VOLCANO, VAR.EGG, VAR.BOULDER, VAR.MEDAL]) world.vars.set(v, 0);
   world.vars.set(V.PEPPER_CONTROL, 1);

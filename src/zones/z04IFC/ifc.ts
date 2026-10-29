@@ -38,11 +38,12 @@ export const CAM = {
   TARGET_Z: f32(-12.8),      // default target z
   FAR_Z: f32(7.2),           // 0x89261c: eye z while far from the wall (idle view, zoom, turn)
   START_X: 24,               // 0x8921a4: the fly-in starts 24 units to the side
-  SLIDE: f32(0.15) * 8,      // 0x892624 * 0x892090: x per tick of the fly-in
-  ZOOM: f32(0.065) * 8,      // 0x892620 * 0x892090: z per tick of the zoom
+  SLIDE: f32(0.15),          // 0x892624 (x87, 24-bit: x = 24 - ((cnt * 0.15) * 8), every operation rounded to a float)
+  ZOOM: f32(0.065),          // 0x892620 (z = 7.2 - ((cnt * 0.065) * 8) / (cnt * 0.065) * 8 + -4.8)
+  EIGHT: 8,                  // 0x892090
   PI: f32(Math.PI),          // 0x89207c
   TURN_DIV: 20,              // 0x89237c: the turn is `cnt * pi / 20`
-  TURN_Z: -2,                // 0x892610: target z = -2 - cos(angle)
+  TURN_Z: 7.199999809265137, // the DOUBLE at 0x892610 (`fsubr qword ptr`, the decompile shows a float -2.0): target z = 7.2 - cos(angle), found by the M5 oracle test (m5-audit-z04IFC-emu)
   HOLD: 1.2566370964050293,  // the double 0x3ff41b2f80000000 of state 8 (= 0.4 pi, the angle after 8 steps)
   STEPS: 0x14,               // fly-in / zoom: `0x14 < cnt`
   TURN_STEPS: 8,             // turn: `8 < cnt`
@@ -92,8 +93,8 @@ export class IfcRoom {
   menuOpen = 0;
   /** the menu was open when this tick started: the runner's pause trigger (Esc) must not fire (the menu uses the key) */
   pauseBlocked = false;
-  /** DAT_05d587d0: state != 1, the pins ignore the keys */
-  pinsOff = 1;
+  /** DAT_05d587d0: state != 1, the pins ignore the keys (a zeroed global until the first pre-render pass sets it) */
+  pinsOff = 0;
   /** DAT_05d587cc: the exit question is due (loop mode 5) */
   exitAsk = 0;
   /** DAT_05d587d4: the door wants to be open */
@@ -177,32 +178,36 @@ export class IfcRoom {
   camera() {
     const e = this.eye, t = this.target;
     e[0] = 0; e[1] = CAM.EYE_Y; e[2] = CAM.EYE_Z; t[0] = 0; t[1] = CAM.EYE_Y; t[2] = CAM.TARGET_Z;
-    const turn = (a: number) => { t[0] = Math.sin(a); t[2] = CAM.TURN_Z - Math.cos(a); };
+    // the original runs in 24-bit x87 (Direct3D 7): every product / sum rounds to a float; the CRT's sin / cos return doubles (the argument is the rounded float widened);
+    // target z = double 7.2 - cos(a), the difference rounded to a float
+    const turn = (a: number) => { t[0] = Math.fround(Math.sin(a)); t[2] = Math.fround(CAM.TURN_Z - Math.cos(a)); };
+    const ang = (k: number) => Math.fround(Math.fround(k * CAM.PI) / CAM.TURN_DIV);   // (float)k * pi / 20
+    const steps = (c: number) => Math.fround(Math.fround(c * CAM.ZOOM) * CAM.EIGHT);     // cnt * 0.065 * 8
     if (this.state === ST.ENTER) {
-      e[0] = CAM.START_X - this.cnt * CAM.SLIDE;
+      e[0] = Math.fround(CAM.START_X - Math.fround(Math.fround(this.cnt * CAM.SLIDE) * CAM.EIGHT));
       e[2] = CAM.FAR_Z;
       this.cnt++;
       if (CAM.STEPS < this.cnt) this.state = ST.SETTLE;
     }
     if (this.state === ST.ZOOM_IN) {
-      e[2] = CAM.FAR_Z - this.cnt * CAM.ZOOM;
+      e[2] = Math.fround(CAM.FAR_Z - steps(this.cnt));
       this.cnt++;
       if (CAM.STEPS < this.cnt) this.state = ST.MAP;
     }
     if (this.state === ST.ZOOM_OUT) {
-      e[2] = this.cnt * CAM.ZOOM + CAM.EYE_Z;
+      e[2] = Math.fround(steps(this.cnt) + CAM.EYE_Z);
       this.cnt++;
       if (CAM.STEPS < this.cnt) this.state = ST.IDLE;
     }
     if (this.state === ST.TURN) {
       e[2] = CAM.FAR_Z;
-      turn((this.cnt * CAM.PI) / CAM.TURN_DIV);
+      turn(ang(this.cnt));
       this.cnt++;
       if (CAM.TURN_STEPS < this.cnt) { this.exitAsk = 1; this.state = ST.TURNED; }
     }
     if (this.state === ST.TURN_BACK) {
       e[2] = CAM.FAR_Z;
-      turn(((10 - this.cnt) * CAM.PI) / CAM.TURN_DIV);
+      turn(ang(10 - this.cnt));
       this.cnt++;
       if (CAM.TURN_STEPS < this.cnt) this.state = ST.IDLE;
     }
@@ -229,7 +234,7 @@ export class IfcRoom {
       if ((this.keys & B.LEFT) !== 0 && this.pins.has(rec - 1)) { this.setSelected(rec - 1); this.keys = 0; h.restart(SND.POINTER); }
       if ((this.keys & B.RIGHT) !== 0 && this.pins.has(rec + 1)) { this.setSelected(rec + 1); this.keys = 0; h.restart(SND.POINTER); }
     } else this.caption = '';
-    y = f32(Math.sin(pin.angle) * PIN.AMP + y);
+    y = f32(f32(Math.sin(pin.angle) * PIN.AMP) + y);   // 24-bit x87: the product rounds before the add
     pin.angle = f32(pin.angle + PIN.STEP);
     if (PIN.WRAP < pin.angle) pin.angle = 0;
     return y;

@@ -17,8 +17,8 @@ import type { Pe, ZoneScene } from './exe.ts';
 import type { Archive } from './archive.ts';
 import { Cpu, Memory, createCpu, EmuError } from './x86emu.ts';
 import type { HostFn } from './x86emu.ts';
-import { zoneCodeIndex, ctorName as ctorNameOf, RECORD_STRIDE, RF, GLOBALS, FN } from './zonesetup.ts';
-import type { ZoneSetup, Attach, FlagWrite, FieldWrite, Box, RenderMode, Cutscene, HudHint, VarWrite, CtrlFlags, WaypointMap, Place } from './zonesetup.ts';
+import { zoneCodeIndex, extractShadowSetup, extractCtorRenderCalls, readZoneTable, ctorName as ctorNameOf, RECORD_STRIDE, RF, GLOBALS, FN } from './zonesetup.ts';
+import type { ZoneSetup, Attach, FlagWrite, FieldWrite, Box, RenderMode, Shiny, Cutscene, HudHint, VarWrite, CtrlFlags, WaypointMap, Place } from './zonesetup.ts';
 
 // ---------------------------------------------------------------------------------------------------
 // memory layout of the emulation (outside the EXE image)
@@ -57,6 +57,10 @@ const NATIVE_ENGINE: number[] = [
   0x43a5e4,   // FUN_0043a5e4(m, rx, ry, rz, px, py, pz): record matrix
   0x43a742,   // FUN_0043a742(m, rx, ry, rz, px, py, pz, sx, sy, sz)
   0x43cec0,   // FUN_0043cec0(v): normalise in place (CRT sqrt; the arrival code's harbour / helipad offsets, WP10)
+  0x43a340,   // FUN_0043a340(m, rx, ry, rz): rotation matrix (the hubs' set-ups turn records)
+  0x442810,   // FUN_00442810(rec, out): the record's collision object extents (col +0x18..0x20 = half extents; the emulated block holds the .col header, see `colBlock`)
+  0x51e475,   // FUN_0051e475(hub, a, b, c): the hub's three vehicle records (DAT_05d58688 table)
+  0x51e4b0,   // FUN_0051e4b0(hub, hideOthers): shows the vehicle record chosen by var 0xbb, returns its record pointer
 ];
 
 // ---------------------------------------------------------------------------------------------------
@@ -85,6 +89,8 @@ export interface EmuAttach extends Attach {
   ctrlFlags?: number;
   /** made while the story handler ran */
   story: boolean;
+  /** `stores.length` when the node was attached: the record stores before it were made earlier than the node's constructor (which the original runs at the attach), the later ones afterwards (M5, z07CSI) */
+  storeIndex: number;
   /** the gate the node has after the whole set-up when code changed it after the attach (FUN_004236f3); `toZoneSetup` uses it */
   gate?: { var: number; mask: number; value: number };
 }
@@ -100,7 +106,7 @@ export interface IslandSetup {
   records: EmuRecord[]; changed: RecordChange[];
   /** every store into the record array, in execution order */
   stores: RecordStore[];
-  boxes: Box[]; modes: RenderMode[];
+  boxes: Box[]; modes: RenderMode[]; shiny: Shiny[];
   cutscenes: (Cutscene & { area: string | null; zoneDir: string | null })[];
   /** FUN_0045c310(n) calls: the number of cutscene slots */
   cutsceneSlots: number[];
@@ -116,6 +122,14 @@ export interface IslandSetup {
   /** WP9: the FX_Bricks calls of the vehicle roster FUN_0051c823 (PepSwitc's constructor FUN_004bbef8 calls it when the era set builds Pepper's node
    *  chain, right after the era set's own brick effects). Run after the set-up with record writes / render modes discarded (only the brick calls kept). */
   vehicleRoster: EmuCall[];
+  /** M5 (`spec.loaderRigs`): the animation instances the zone's loader gives records: record, rig name (`MFIG`, from the `.blk` path), the clip FUN_0043b6a3 started (-1: none); empty otherwise */
+  loaderRigs: { record: number; rig: string; path: string; clip: number }[];
+  /**
+   * M5: the sound / music handles the set-up (and the loader) obtained: `FUN_004433b0(id)` (3D sound), `FUN_00443580(id)` (2D sound), `FUN_00443290(name)` (the zone's music
+   * / sound bank). The hosts hand out tokens, so the globals the code stored them into can be read back: `addr` = the global (`DAT_05d588f0` ...), `id` = sound id (-1 for music),
+   * `name` = the string of `FUN_00443290`. The hub's runtime code plays `FUN_004435a0(DAT_...)`: the port maps the global to the sound id with this table.
+   */
+  soundHandles: { addr: number; kind: 'sfx3d' | 'sfx2d' | 'music'; id: number; name: string | null }[];
   /** every hosted / unhooked call in order */
   calls: EmuCall[];
   /** engine functions without a host entry that were called (logged, returned 0) */
@@ -125,7 +139,19 @@ export interface IslandSetup {
   steps: number; ms: number;
   /** the same data in the shapes of the symbolic extraction (`cond: []` everywhere: the code ran for concrete variables), for `setupZone` */
   toZoneSetup(): ZoneSetup;
+  /**
+   * M5: call a function of the original in the same emulated machine after the set-up ran (the hubs' story handlers `FUN_00574e40(&next, &prev, node)`, per-frame
+   * functions ...): the oracle of the hub ports' tests. `args` are cdecl stack words (pointers into `alloc` blocks for the `&next` / `&prev` style arguments); returns eax and
+   * the calls / record stores / variable writes the call made. Game variables for the call: `setVar` (the emulated array and `env.vars` stay in step).
+   */
+  run(fn: number, args?: number[], opts?: { maxSteps?: number }): EmuRun;
+  /** a zeroed block of emulated heap (argument buffers for `run`) */
+  alloc(size: number): number;
+  /** set a game variable in the emulated machine (and `env.vars`) */
+  setVar(i: number, v: number): void;
 }
+/** what a function called with `IslandSetup.run` did */
+export interface EmuRun { eax: number; calls: EmuCall[]; stores: RecordStore[]; varWrites: EmuVarWrite[]; records: EmuRecord[]; steps: number }
 /** a TDict built with FUN_0045bf20(capacity - 1) / FUN_0045bff4(dict, name, value) */
 export interface EmuDict {
   handle: number; builtBy: number; at: number; capacity: number;
@@ -142,6 +168,12 @@ export interface EmuEnv {
   maxSteps?: number;
   /** extra host functions (address -> host), applied over the built-in table */
   hooks?: Map<number, HostFn>;
+  /**
+   * FUN_0043cd62(&pos, dy) = FUN_004425f0(pos + (0, dy, 0)): the height of the ground record below the point (the hubs' set-ups put Pepper and props on the terrain).
+   * `groundRecord` = the record the set-up named with FUN_004425e0; return null for "no ground hit" (the original returns the constant at 0x8920c4).
+   * Without it the host returns that constant.
+   */
+  terrainHeight?: (groundRecord: number, x: number, y: number, z: number, dy: number) => number | null;
 }
 
 /** record index of a pointer into the emulated record array (any field), -1 otherwise */
@@ -177,12 +209,72 @@ export const HOST_NAMES: Record<number, string> = {
   0x447cc0: 'brickFxInit', 0x447da0: 'brickMorphLoad', 0x447d70: 'brickFx447d70', 0x447d20: 'brickFx447d20', 0x447f00: 'brickFx447f00', 0x447ed0: 'brickFx447ed0',
   0x442900: 'particlesLoad', 0x442960: 'particleEmitter', 0x43f160: 'modelPart', 0x444530: 'partSetup', 0x43ebe0: 'partUv', 0x4430f0: 'backdrop',
   0x46063b: 'overlayLoad', 0x422b50: 'cameraPlace', 0x44e8d0: 'particlesReset',
+  // M5 (hubs): sound / music loads (no set-up data: the sound ids are in the arguments), animation time, sub-object matrix, ground height
+  0x443290: 'zoneSounds', 0x4431e0: 'ambience', 0x4432c0: 'music', 0x443c90: 'sound443c90', 0x443ca0: 'sound443ca0', 0x4433b0: 'sfxLoad3D', 0x443580: 'sfxLoad',
+  0x4359d5: 'soundInit', 0x43b64d: 'animTime', 0x43ea60: 'subMatrix', 0x43cd62: 'terrainHeight', 0x43b1ff: 'rigLoad', 0x43b4e2: 'animNew',
 };
 
+/** what differs between zones in `emulateZoneSetup` */
+export interface ZoneEmuSpec {
+  /** archive name ('z02LGI', 'z07CSI' ...): selects the code region / loader / root of `zoneCodeIndex` */
+  zone: string;
+  /** the zone's story handler (calls, stores and attaches made while it runs are flagged `story`), omitted: none */
+  story?: number;
+  /** override of the set-up root (default: the loader's only caller, `zoneCodeIndex`) */
+  root?: number;
+  /** story era of a node (island: `eraOfNode`; hubs: 0) */
+  eraOf?: (node: number) => number;
+  /** run the island's vehicle roster FUN_0051c823 after the set-up (WP9) */
+  vehicleRoster?: boolean;
+  /** functions the zone's wrapper calls before the set-up root (the sound handle loaders, the HUD overlay loaders): run first, so `soundHandles` / `calls` include them */
+  pre?: number[];
+  /** record the rigs (`.blk` files) the loader loads (FUN_0043b1ff) and the animation instances it gives records (FUN_0043b4e2 + FUN_0043b6a3 -> record +8): `IslandSetup.loaderRigs` */
+  loaderRigs?: boolean;
+  /** extra pure engine functions (addresses) that execute natively in this zone (e.g. a hub's own data helpers outside its region) */
+  native?: number[];
+  /** extra code ranges that execute natively besides the zone's region and the C runtime (shared library code the set-up calls) */
+  exec?: [number, number][];
+  /** zones (archive names) whose whole code region also executes natively: the hubs call the island's shared code (vehicle roster FUN_0051e4b0 ...) */
+  shared?: string[];
+  /** extra host functions (address -> host) for this zone, below `env.hooks` */
+  hooks?: (ctx: HostCtx) => Map<number, HostFn>;
+}
+
+/** what a zone's own host functions get (logging, memory, records) */
+export interface HostCtx {
+  cpu: Cpu; mem: Memory; pe: Pe;
+  /** log a call like the built-in hosts do (`nargs` stack words); returns the logged call */
+  log(fn: number, nargs: number, info?: Record<string, unknown>): EmuCall | null;
+  /** record index of a pointer into the record array (-1 when it is none) */
+  recOf(ptr: number): number;
+  /** bump allocation in the emulated heap (zeroed) */
+  alloc(size: number): number;
+  /** read a C string from a pointer when mapped */
+  str(ptr: number): string | null;
+  getVar(i: number): number;
+  putVar(i: number, v: number, op: EmuVarWrite['op']): void;
+}
+
+/** the island's emulation spec (`emulateZoneSetup`): FUN_004b6475, the story handler FUN_004b7040, the era of the story node, the vehicle roster */
+export const ISLAND_SPEC: ZoneEmuSpec = { zone: 'z02LGI', story: ISLAND.STORY, eraOf: eraOfNode, vehicleRoster: true };
+
+/** the island's set-up (FUN_004b6475) run in the x86 emulation: `emulateZoneSetup` with `ISLAND_SPEC` (docs/re/m4/emu.md) */
 export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): IslandSetup {
+  return emulateZoneSetup(pe, scene, env, ISLAND_SPEC);
+}
+
+/**
+ * Any zone's set-up RUN out of the executable (M5, docs/re/m5/foundation.md): the zone's code region, loader, builder and set-up root come from
+ * `zoneCodeIndex` (the loader's only caller = the root, which calls the loader itself); `spec.story` = the zone's story handler. Everything else is as for
+ * the island: the host table below, the native C runtime, the loader that builds the zone's dictionaries.
+ */
+export function emulateZoneSetup(pe: Pe, scene: ZoneScene, env: EmuEnv, spec: ZoneEmuSpec): IslandSetup {
   const t0 = performance.now();
-  const code = zoneCodeIndex(pe).get('z02lgi');
-  if (!code) throw new Error('emusetup: no island code in this executable');
+  const code = zoneCodeIndex(pe).get(spec.zone.toLowerCase());
+  if (!code) throw new Error(`emusetup: no code of ${spec.zone} in this executable`);
+  if (!code.root) throw new Error(`emusetup: ${spec.zone}: no set-up root`);
+  const ROOT = spec.root ?? code.root, LOADER = code.loader, STORY = spec.story ?? -1;
+  const zoneDirRe = new RegExp('^\\.?[\\\\/]*_data[\\\\/]+' + spec.zone.toLowerCase() + '[\\\\/]+', 'i');
   const cpu = createCpu(pe);
   const mem = cpu.mem;
   const n = scene.records.length;
@@ -196,6 +288,16 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
     return p;
   };
 
+  // the collision objects' header (.col file: centre, half extents, radius) in the emulated block: col +0x0c centre, +0x18 half extents, +0x24 radius
+  // (file offsets + 8, FUN_00442810 reads +0x18..0x20, the frustum test +0x0c / +0x24)
+  const colHeader = (slot: number, block: number) => {
+    const path = scene.colPaths[slot];
+    const e = path && env.archive ? env.archive.find(path.split('\\').slice(2).join('/')) : null;
+    if (!e) return;
+    const d = env.archive!.read(e);
+    if (d.length < 32 || d[0] !== 0x43 || d[1] !== 0x42 || d[2] !== 0x42 || d[3] !== 0x58) return;   // 'CBBX'
+    for (let k = 4; k < 32; k += 4) mem.w32(block + 8 + k, d[k] | (d[k + 1] << 8) | (d[k + 2] << 16) | (d[k + 3] << 24));
+  };
   // --- records (zone.ts buildRecords: flags = scene flags || 2, matrix / Euler from the builder)
   const initial: EmuRecord[] = [];
   for (const r of scene.records) {
@@ -204,7 +306,11 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
     if (r.model) mem.w32(a + RF.MODEL, alloc(0x40));
     for (let k = 0; k < 16; k++) mem.wf32(a + RF.MATRIX + 4 * k, r.matrix[k]);
     for (let k = 0; k < 3; k++) mem.wf32(a + RF.EULER + 4 * k, r.rot[k]);
-    if (r.col >= 0) mem.w32(a + RF.COL, alloc(0x80));
+    if (r.col >= 0) {
+      const cb = alloc(0x80);
+      mem.w32(a + RF.COL, cb);
+      colHeader(r.col, cb);
+    }
     mem.w16(a + RF.FLAGS, r.flags || 2);
   }
   const readRecord = (i: number): EmuRecord => {
@@ -223,9 +329,9 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
   const stores: RecordStore[] = [];
   mem.wlo = RECORDS_BASE; mem.whi = RECORDS_BASE + n * RECORD_STRIDE;
   mem.onWrite = (a, size, v) => {
-    if (cpu.frames.includes(ISLAND.LOADER)) return;   // the loader's animation instances (rec + 8)
+    if (cpu.frames.includes(LOADER)) return;   // the loader's animation instances (rec + 8)
     const r = Math.floor((a - RECORDS_BASE) / RECORD_STRIDE);
-    stores.push({ record: r, field: a - RECORDS_BASE - r * RECORD_STRIDE, size, value: v, at: mem.eip, fn: cpu.frames[cpu.frames.length - 1] ?? 0, story: cpu.frames.includes(ISLAND.STORY) });
+    stores.push({ record: r, field: a - RECORDS_BASE - r * RECORD_STRIDE, size, value: v, at: mem.eip, fn: cpu.frames[cpu.frames.length - 1] ?? 0, story: (STORY >= 0 && cpu.frames.includes(STORY)) });
   };
 
   // --- game variables: the array mirrors env.vars (hosted get / set keep both in step; direct writes are diffed after the run)
@@ -241,7 +347,7 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
   };
 
   // --- logging
-  const storyDepth = () => cpu.frames.includes(ISLAND.STORY);
+  const storyDepth = () => (STORY >= 0 && cpu.frames.includes(STORY));
   const caller = () => cpu.frames[cpu.frames.length - 1] ?? 0;
   const calls: EmuCall[] = [];
   const argCount = (): number => {
@@ -251,7 +357,7 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
     if (mem.r8(r) === 0x81 && mem.r8(r + 1) === 0xc4) return mem.u32(r + 2) >> 2;
     return 0;
   };
-  const inLoader = () => cpu.frames.includes(ISLAND.LOADER);
+  const inLoader = () => cpu.frames.includes(LOADER);
   const log = (fn: number, nargs: number, info?: Record<string, unknown>): EmuCall | null => {
     if (fn !== 0x45bf20 && fn !== 0x45bff4 && inLoader()) return null;   // the loader's mesh / texture / model calls are not set-up data
     const args: number[] = [];
@@ -266,7 +372,7 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
 
   // --- results
   const attaches: EmuAttach[] = [];
-  const boxes: Box[] = [], modes: RenderMode[] = [], hudHints: HudHint[] = [];
+  const boxes: Box[] = [], modes: RenderMode[] = [], shiny: Shiny[] = [], hudHints: HudHint[] = [];
   const cutscenes: IslandSetup['cutscenes'] = [];
   const cutsceneSlots: number[] = [];
   let csDir: string | null = null, csArea: string | null = null;
@@ -291,6 +397,22 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
   H.set(0x433d38, (c) => { const p = alloc(c.arg(0)); c.eax = p; });   // FUN_00433d38(size, 1, file, line): SDMem2 allocator
   H.set(0x858d30, (c) => { c.eax = alloc(c.arg(0)); });                // CRT malloc
   H.set(0x85abc0, (c) => { if (!c.zf) throw new EmuError(`emusetup: __chkesp failed after the call before ${hex(c.retAddr)} (a host function popped the wrong number of bytes?)`, c.retAddr, c.lastSteps()); });
+  // M5: sound handles as tokens (read back from the globals the code stored them in, `soundHandles`)
+  const SND_TOK = 0x5a000000;
+  const sndTok: { kind: 'sfx3d' | 'sfx2d' | 'music'; id: number; name: string | null }[] = [];
+  const sndHost = (fn: number, kind: 'sfx3d' | 'sfx2d' | 'music') => H.set(fn, (c) => {
+    const name = kind === 'music' ? str(c.arg(0)) : null, id = kind === 'music' ? -1 : c.arg(0) | 0;
+    log(fn, 1, kind === 'music' ? { name } : { id });
+    c.eax = SND_TOK + sndTok.length; sndTok.push({ kind, id, name });
+  });
+  sndHost(0x4433b0, 'sfx3d'); sndHost(0x443580, 'sfx2d'); sndHost(0x443290, 'music');
+  // M5: the rigs the loader loads and the animation instances it gives records (the port's `ensureAnim`): tokens in emulated memory, read back after the run
+  const rigTok = new Map<number, string>(), instTok = new Map<number, { rig: number; clip: number }>();
+  if (spec.loaderRigs) {
+    H.set(0x43b1ff, (c) => { const t = alloc(0x20); rigTok.set(t, str(c.arg(0)) ?? ''); c.eax = t; });
+    H.set(0x43b4e2, (c) => { const t = alloc(0x20); instTok.set(t, { rig: c.arg(0), clip: -1 }); mem.w32(t + 8, c.arg(0)); c.eax = t; });
+    H.set(0x43b6a3, (c) => { const i = instTok.get(c.arg(0)); if (i) i.clip = c.arg(1) | 0; log(0x43b6a3, 3); c.eax = 0; });
+  }
   // the loader runs natively (it builds the animation-name dictionary DAT_05d4d484 between its mesh / texture calls, which fall back to 0);
   // the builder it calls is a no-op: the records come from the scene
   H.set(code.builder, () => { mem.w32(GLOBALS.RECORD_COUNT, n); mem.w32(GLOBALS.RECORDS, RECORDS_BASE); });   // the loader allocated its own array before
@@ -327,7 +449,7 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
       mem.w32(node, v); mem.w32(node + 8, 0xfffffffe); mem.w16(node + 0xc, mask); mem.w16(node + 0xe, value);
     }
     const flags = ctrlFlags.filter((f) => f.record === record && record >= 0).pop();
-    const at: EmuAttach = { ...base(c.callAt), record, ctor, ctorName: ctorName(ctor), arg, argWords, pos, var: v, mask, value, args, hasController: !!ctrl, node, story: storyDepth() };
+    const at: EmuAttach = { ...base(c.callAt), record, ctor, ctorName: ctorName(ctor), arg, argWords, pos, var: v, mask, value, args, hasController: !!ctrl, node, story: storyDepth(), storeIndex: stores.length };
     if (flags) at.ctrlFlags = flags.flags;
     attaches.push(at);
     c.eax = node;
@@ -336,8 +458,18 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
   H.set(FN.BOX_FILE, (c) => { log(FN.BOX_FILE, 1); boxes.push({ ...base(c.callAt), record: recOf(c.arg(0)), kind: 'file', dims: [] }); });
   H.set(FN.BOX_RADIUS_HEIGHT, (c) => { log(FN.BOX_RADIUS_HEIGHT, 3); boxes.push({ ...base(c.callAt), record: recOf(c.arg(0)), kind: 'radiusHeight', dims: [c.argf(1), c.argf(2)] }); });
   H.set(FN.BOX_DIMS, (c) => { log(FN.BOX_DIMS, 4); boxes.push({ ...base(c.callAt), record: recOf(c.arg(0)), kind: 'dims', dims: [c.argf(1), c.argf(2), c.argf(3)] }); });
+  H.set(FN.SHINY, (c) => { log(FN.SHINY, 2); shiny.push({ ...base(c.callAt), record: recOf(c.arg(0)), on: c.arg(1) !== 0 }); });
   H.set(FN.RENDER_MODE, (c) => { log(FN.RENDER_MODE, 3); modes.push({ ...base(c.callAt), record: recOf(c.arg(0)), partMask: c.arg(1), mode: c.arg(2) }); });
-  H.set(FN.GROUND, (c) => { log(FN.GROUND, 1, { record: recOf(c.arg(0)) }); });
+  let groundRecord = -1;
+  H.set(FN.GROUND, (c) => { groundRecord = recOf(c.arg(0)); log(FN.GROUND, 1, { record: groundRecord }); });
+  // FUN_0043cd62(&pos, dy): ground height (the port's collision, `env.terrainHeight`); the constant 0x8920c4 when nothing is hit
+  H.set(0x43cd62, (c) => {
+    const p = c.arg(0), dy = c.argf(1);
+    const x = mem.f32(p), y = mem.f32(p + 4), z = mem.f32(p + 8);
+    const h = env.terrainHeight?.(groundRecord, x, y, z, dy) ?? null;
+    log(0x43cd62, 2, { pos: [x, y, z], dy, ground: groundRecord, height: h });
+    c.fpush(Math.fround(h ?? mem.f32(0x8920c4)));
+  });
   H.set(FN.SETUP_FOG, () => { log(FN.SETUP_FOG, 6); });
   // cutscenes
   H.set(0x45c310, (c) => { log(0x45c310, 1); cutsceneSlots.push(c.arg(0)); });
@@ -402,7 +534,7 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
   H.set(0x43bfb7, (c) => {
     const path = str(c.arg(0)) ?? '';
     log(0x43bfb7, 1, { path });
-    const member = path.replace(/^\.?[\\/]*_data[\\/]+z02lgi[\\/]+/i, '').replace(/\\/g, '/');
+    const member = path.replace(zoneDirRe, '').replace(/\\/g, '/');
     const e = env.archive?.find(member);
     if (!e) { c.eax = 0; return; }
     const h = (nextFile += 0x10);
@@ -421,9 +553,10 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
   // the named engine functions without an own host: logged with their arguments, return 0
   for (const k of Object.keys(HOST_NAMES)) {
     const a = +k;
-    if (H.has(a) || a === ISLAND.LOADER || NATIVE_ENGINE.includes(a)) continue;
+    if (H.has(a) || a === LOADER || NATIVE_ENGINE.includes(a)) continue;
     H.set(a, () => { log(a, argCount() || 0); cpu.eax = 0; });
   }
+  if (spec.hooks) for (const [a, h] of spec.hooks({ cpu, mem, pe, log, recOf, alloc, str, getVar, putVar })) H.set(a, h);
   for (const [a, h] of env.hooks ?? []) H.set(a, h);
   cpu.hooks = H;
 
@@ -442,8 +575,11 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
   });
 
   // everything else outside the island's region and the CRT: logged, returns 0
-  cpu.exec = [[code.lo, code.hi], CRT];
+  const shared: [number, number][] = [];
+  for (const z of spec.shared ?? []) { const c = zoneCodeIndex(pe).get(z.toLowerCase()); if (c) shared.push([c.lo, c.hi]); }
+  cpu.exec = [[code.lo, code.hi], CRT, ...shared, ...(spec.exec ?? [])];
   for (const a of NATIVE_ENGINE) cpu.native.add(a);
+  for (const a of spec.native ?? []) cpu.native.add(a);
   cpu.fallback = (addr: number) => (c: Cpu) => {
     c.eax = 0;
     if (inLoader()) return;
@@ -458,7 +594,8 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
 
   // --- run FUN_004b6475
   const node = getVar(0x58);
-  cpu.call(ISLAND.ROOT, [], { maxSteps: env.maxSteps ?? 20_000_000 });
+  for (const f of spec.pre ?? []) cpu.call(f, [], { maxSteps: env.maxSteps ?? 20_000_000 });
+  cpu.call(ROOT, [], { maxSteps: env.maxSteps ?? 20_000_000 });
 
   // --- after the run: direct variable writes, record diff, node snapshots
   for (let i = 0; i < VAR_COUNT; i++) {
@@ -495,17 +632,45 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
     anims: dictOf((d) => [...d.entries.keys()].some((k) => /^PEP_/i.test(k))),
     all: allDicts,
   };
+  const soundHandles: IslandSetup['soundHandles'] = [];
+  if (sndTok.length) {
+    for (let pg = 0; pg < (0x6000000 >>> 12); pg++) {
+      const page = mem.pages[pg];
+      if (!page) continue;
+      for (let o = 0; o < 4096; o += 4) {
+        const v = (page[o] | (page[o + 1] << 8) | (page[o + 2] << 16) | (page[o + 3] << 24)) >>> 0;
+        if (v >= SND_TOK && v < SND_TOK + sndTok.length) soundHandles.push({ addr: (pg << 12) + o, ...sndTok[v - SND_TOK] });
+      }
+    }
+  }
+  const loaderRigs: IslandSetup['loaderRigs'] = [];
+  if (spec.loaderRigs) {
+    for (let i = 0; i < n; i++) {
+      const inst = instTok.get(mem.u32(RECORDS_BASE + i * RECORD_STRIDE + 8));
+      const path = inst ? rigTok.get(inst.rig) : undefined;
+      if (inst && path !== undefined) loaderRigs.push({ record: i, rig: (path.split('\\').pop() ?? '').replace(/\.blk$/i, ''), path, clip: inst.clip });
+    }
+  }
   const out: IslandSetup = {
-    node, era: eraOfNode(node), attaches, records, changed, stores, boxes, modes, cutscenes, cutsceneSlots, hudHints, varWrites, waypointMaps, places, controllers, ctrlFlags,
-    dictionaries, storyHandler: calls.filter((c) => c.story), calls, vehicleRoster: [],
+    node, era: spec.eraOf ? spec.eraOf(node) : 0, attaches, records, changed, stores, boxes, modes, shiny, cutscenes, cutsceneSlots, hudHints, varWrites, waypointMaps, places, controllers, ctrlFlags,
+    dictionaries, storyHandler: calls.filter((c) => c.story), calls, vehicleRoster: [], loaderRigs, soundHandles,
     unhooked: [...unhooked.values()].map((u) => ({ fn: u.fn, count: u.count, callers: [...u.callers] })).sort((a, b) => b.count - a.count),
     mem, steps: cpu.steps, ms: performance.now() - t0,
     toZoneSetup: () => toZoneSetup(pe, out, code, initial),
+    alloc,
+    setVar: (i, v) => { if (i >= 0 && i < VAR_COUNT) mem.w32(VAR_ARRAY + 4 * i, v); env.vars.set(i, v | 0); },
+    run: (fn, args = [], opts = {}) => {
+      const c0 = calls.length, s0 = stores.length, v0 = varWrites.length, st0 = cpu.steps;
+      const eax = cpu.call(fn, args, { maxSteps: opts.maxSteps ?? env.maxSteps ?? 20_000_000 });
+      const recs: EmuRecord[] = [];
+      for (let i = 0; i < n; i++) recs.push(readRecord(i));
+      return { eax, calls: calls.slice(c0), stores: stores.slice(s0), varWrites: varWrites.slice(v0), records: recs, steps: cpu.steps - st0 };
+    },
   };
   // --- FUN_0051c823, the vehicle roster's brick effects (WP9): the constructors are not run by the set-up emulation; its record writes (+0x64,
-  //     flags of the 0x8e9c30 list) and render modes are not part of the set-up data above, only its FX_Bricks calls are kept
-  {
-    const nCalls = calls.length, nModes = modes.length;
+  //     flags of the 0x8e9c30 list) are not part of the set-up data above, its FX_Bricks calls are kept (`vehicleRoster`) and its render modes (mode 1 of the listed records) stay in `modes`
+  if (spec.vehicleRoster) {
+    const nCalls = calls.length;
     const onW = mem.onWrite;
     mem.onWrite = () => {};
     const snap = mem.read(RECORDS_BASE, n * RECORD_STRIDE);
@@ -513,7 +678,7 @@ export function emulateIslandSetup(pe: Pe, scene: ZoneScene, env: EmuEnv): Islan
     mem.write(RECORDS_BASE, snap);
     mem.onWrite = onW;
     out.vehicleRoster = calls.splice(nCalls).filter((c) => c.fn >= 0x447c00 && c.fn < 0x448000);
-    modes.length = nModes;
+    // the roster's FUN_00444550(record, 0xff, 1) calls (every record of the 0x8e9c30 list is drawn in mode 1 = lit at every draw) stay in `modes` (WP-RENDER R4 / R7)
   }
   return out;
 }
@@ -523,6 +688,8 @@ const FN_VEHICLE_ROSTER = 0x51c823;
 
 /** the emulation in the shapes of `extractZoneSetup` (everything active, `cond: []`); flag / field writes are the stores the original code made */
 function toZoneSetup(pe: Pe, s: IslandSetup, code: { zone: string; root: number; lo: number; hi: number }, initial: EmuRecord[]): ZoneSetup {
+  // zone table entries whose run function lies in the zone's region (the island: 2, 31, 32, 33; a hub: its one entry), like extractZoneSetup
+  const sub = readZoneTable(pe).filter((t) => t.run >= code.lo && t.run < code.hi).map((t) => t.index);
   const flagWrites: FlagWrite[] = [], fieldWrites: FieldWrite[] = [];
   const hide: FlagWrite[] = [], show: FlagWrite[] = [];
   const flags = initial.map((r) => r.flags);
@@ -547,15 +714,48 @@ function toZoneSetup(pe: Pe, s: IslandSetup, code: { zone: string; root: number;
   }
   const varWrites: VarWrite[] = s.varWrites.filter((w) => w.op !== 'direct').map((w) => ({ at: w.at, fn: w.caller, cond: [], var: w.var, op: w.op as VarWrite['op'], value: w.value }));
   const ground = s.calls.filter((c) => c.fn === FN.GROUND).pop();
+  // the render calls of the attached nodes' constructors (they are not run by the emulation): the symbolic walk over each constructor (WP-RENDER R4)
+  const starts = pe.functionStarts(), full = zoneCodeIndex(pe, starts).get(code.zone.toLowerCase());
+  const attachesOut = s.attaches.map((a) => (a.gate ? { ...a, ...a.gate } : a));
+  const ctorRender = full ? extractCtorRenderCalls(pe, full, starts, attachesOut, { modes: s.modes, shiny: s.shiny }) : { modes: [] as RenderMode[], shiny: [] as Shiny[] };
   return {
-    zone: code.zone, root: code.root, region: [code.lo, code.hi], functions: [], subgame: 2, variants: [],
-    attaches: s.attaches.map((a) => (a.gate ? { ...a, ...a.gate } : a)), flagWrites, hide, show, fieldWrites, boxes: s.boxes, modes: s.modes, cutscenes: s.cutscenes, hudHints: s.hudHints,
+    zone: code.zone, root: code.root, region: [code.lo, code.hi], functions: [], subgame: sub.length ? sub[0] : -1, variants: sub.slice(1),
+    attaches: s.attaches.map((a) => (a.gate ? { ...a, ...a.gate } : a)), flagWrites, hide, show, fieldWrites, boxes: s.boxes, modes: s.modes, shiny: s.shiny, ctorModes: ctorRender.modes, ctorShiny: ctorRender.shiny, cutscenes: s.cutscenes, hudHints: s.hudHints,
     globalWrites: [], varWrites, ctrlFlags: s.ctrlFlags, waypointMaps: s.waypointMaps, places: s.places,
-    controllers: s.controllers.map((c) => ({ record: c.record, at: c.at, cond: [] })), fogCalls: [], fog: [],
+    controllers: s.controllers.map((c) => ({ record: c.record, at: c.at, cond: [] })), shadow: extractShadowSetup(pe, code, pe.functionStarts()), fogCalls: [], fog: [],
     seaLevel: s.mem.f32(GLOBALS.SEA_LEVEL), gravity: s.mem.u32(GLOBALS.GRAVITY) !== pe.u32(GLOBALS.GRAVITY) ? s.mem.f32(GLOBALS.GRAVITY) : null,
     groundRecord: ground ? recIndexOfPtr(ground.args[0]) : null, groundName: ground ? s.records[recIndexOfPtr(ground.args[0])]?.name ?? null : null,
     focusRecord: recIndexOfPtr(s.mem.u32(GLOBALS.FOCUS)) >= 0 ? recIndexOfPtr(s.mem.u32(GLOBALS.FOCUS)) : null,
     accessoryRecord: (s.mem.r32(GLOBALS.ACCESSORY) | 0) >= 0 ? s.mem.r32(GLOBALS.ACCESSORY) | 0 : null,
     dynamic: {}, unresolved: [],
   };
+}
+
+// ---------------------------------------------------------------------------------------------------
+// M5: the hubs
+
+/**
+ * The emulation specs of the six hubs (docs/re/m5/foundation.md): zone code, loader and set-up root come from `zoneCodeIndex`; the hubs call the island's
+ * shared code (the vehicle roster FUN_0051e475 / FUN_0051e4b0, ...), which therefore executes natively too (`shared`). `story` = the story handler the set-up
+ * calls (only the castle's, FUN_00574e40; the other hubs' loops have none: their story state is read by the nodes).
+ */
+export const HUB_SPECS: Record<string, ZoneEmuSpec> = {
+  z07csi: { zone: 'z07CSI', story: 0x574e40, shared: ['z02LGI'], loaderRigs: true, pre: [0x572ef0] },
+  z13cai: { zone: 'z13CAI', shared: ['z02LGI'], loaderRigs: true, pre: [0x61bf50, 0x61b000] },
+  // z14OSD: PEPPSW's roster FUN_00655de3 (+ FUN_00655dc0, FUN_006561e9, FUN_0065627e) lie just behind the zone's region: native, so the hub game can run the roster after the set-up (M5 z14OSD)
+  z14osd: { zone: 'z14OSD', shared: ['z02LGI'], loaderRigs: true, pre: [0x6285e0, 0x6283c0], exec: [[0x655dc0, 0x656300]] },
+  // z16PYA: PeppSw's roster FUN_00698963 and its helpers (0x698940 .. 0x698e79) lie just behind the zone's region: native, so the hub game can run the roster after the set-up (M5 z16PYA)
+  z16pya: { zone: 'z16PYA', shared: ['z02LGI'], loaderRigs: true, pre: [0x6762a0, 0x676080], exec: [[0x698940, 0x698e80]] },
+  z23dip: { zone: 'z23DIP', shared: ['z02LGI'], loaderRigs: true, pre: [0x7267e0, 0x7265c0] },
+  z40ogl: { zone: 'z40OGL', shared: ['z02LGI'], loaderRigs: true, pre: [0x7e2a80] },
+};
+/** the emulation spec of a zone (island or hub), undefined for zones whose set-up is not run in the emulator */
+export function emuSpecOf(zone: string): ZoneEmuSpec | undefined {
+  return zone.toLowerCase() === 'z02lgi' ? ISLAND_SPEC : HUB_SPECS[zone.toLowerCase()];
+}
+/** run the set-up of any zone `emuSpecOf` knows (island or hub) */
+export function emulateSetup(pe: Pe, scene: ZoneScene, env: EmuEnv, zone: string): IslandSetup {
+  const spec = emuSpecOf(zone);
+  if (!spec) throw new Error(`emusetup: no emulation spec for ${zone}`);
+  return emulateZoneSetup(pe, scene, env, spec);
 }

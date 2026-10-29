@@ -1,7 +1,7 @@
 // A mini-game STUB (zones with a ZoneGame bring their own gameplay and have no F9 / F10 aids; Whack-A-Bot z05WAB is ported, see m3-z05WAB.mjs): this runs on Brick Dive z08BKD, which
 // still is a stub: intro / help (Enter), pause menu (page 18), finishing (F9 -> banner -> result menu page 16 -> Continue is not tested here), failing (F10 -> banner -> page 19 -> Abort ->
 // rewinds to the last hub), restart from the pause menu. Change ZONE when z08BKD gets a port (any zone without a registered zone game works).
-//   node tools/browse.mjs "http://localhost:5499/?zone=z08BKD&mute=1" tools/steps/shell-minigame.mjs --size 1024x768
+//   node tools/browse.mjs "http://localhost:5499/?zone=z08BKD&mute=1&debug=1" tools/steps/shell-minigame.mjs --size 1024x768
 export default async ({ page, shot, wait, log, key }) => {
   const fail = [];
   const expect = (name, cond, extra = '') => { log(cond ? 'ok  ' : 'FAIL', name, extra); if (!cond) fail.push(name); };

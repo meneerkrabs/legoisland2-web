@@ -1,7 +1,17 @@
 // A bot for z08BKD "Brick Dive" (node tests and the headless browser steps, docs/re/m6/z08BKD.md): it plans a path over a grid of the scenery (the diver's quad cast
 // against the static records at every cell, like the game does), flies it with the zone's own controls (LEFT / RIGHT turn, UP forward, DOWN back: the heading's
 // forward vector is (-sin h, cos h)), fetches the bricks one at a time and brings each to the surface (y >= 86.5).
-import { castQuad } from '../../src/zones/z08bkd/physics.ts';
+import { castQuad as castQuadGame } from '../../src/zones/z08bkd/physics.ts';
+
+/**
+ * The bot's own questions about the scenery ("is this cell free?") are geometric: they must not run through the engine's ray hit cache (FUN_00441b10 answers a ray near the last hit
+ * with the cached polygon) and must not disturb the cache state the game's own rays use. So the cache is off for the call and its state is put back.
+ */
+function castQuad(world, pts, n, self, list) {
+  const col = world.col, keep = { on: col.hitCache, rec: col.cacheRec, from: col.cacheFrom, to: col.cacheTo };
+  col.hitCache = false;
+  try { return castQuadGame(world, pts, n, self, list); } finally { col.hitCache = keep.on; col.cacheRec = keep.rec; col.cacheFrom = keep.from; col.cacheTo = keep.to; }
+}
 import { rotateShape } from '../../src/zones/z08bkd/math.ts';
 
 export const KEY = { LEFT: 1, RIGHT: 2, UP: 4, DOWN: 8 };

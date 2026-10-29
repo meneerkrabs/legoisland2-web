@@ -113,7 +113,7 @@ export default {
         const rb = code(0x699e80, 0x1500); const rdv = new DataView(rb.buffer, rb.byteOffset, rb.byteLength);
         const rseen = new Set(); for (let i = 0; i + 4 <= 0x1500; i++) rseen.add(rdv.getUint32(i, true));
         for (const u of [0x41700000, 0x41980000, 0x41c00000]) ok(rseen.has(u), `rules store ${u32f(u)} (${hex(u)})`);
-        ok(K.SPAWN_GAP.join() === [15, 19, 24].join(), 'spawn gaps 15 / 19 / 24');
+        ok(K.SPAWN_GAP.join() === [15, 19, 24].join() && K.GAP_START === 30, 'spawn gaps 30 at the start, then 24 / 19 / 15 (the immediates 0x41f00000 / 0x41c00000 / 0x41980000 / 0x41700000)');
         ok(u32f(pe.u32(0x892044)) === 480 && u32f(pe.u32(0x892634)) === 930 && u32f(pe.u32(0x892630)) === 1830, 'gap thresholds .rdata 480 / 930 / 1830');
         ok(K.GAP_AT.join() === [480, 930, 1830].join(), 'GAP_AT');
         ok(near(u32f(pe.u32(0x892084)), 0.8) && near(u32f(pe.u32(0x8921f0)), 0.75) && near(u32f(pe.u32(0x8920cc)), 0.1) && u32f(pe.u32(0x892038)) === 30 && u32f(pe.u32(0x892788)) === 7, '.rdata: 0.8 top margin, 0.75 holder lift, 0.1 gem lift, 30 ticks / s, 7.0 eye shift');
@@ -187,29 +187,29 @@ export default {
         ok(near(node.closedY, 2.32, 0.01), 'closed lid y');
       }
 
-      // ---- the first snake: tick 15 (elapsed > 14), then the rise
+      // ---- the first snake: tick 30 (the clock stage 1: the pause between two snakes starts at 30 and `lastRise` at -1, so elapsed > 29; M5 audit: M3 had 15), then the rise
       {
         const g = make({ baskets: [0], gem: [1] });
         const { node, tick, R, sh, log } = g;
-        tick(14);
-        ok(node.state.every((s) => s === 0) && log.filter((e) => e.id !== SND.TORCH).length === 0, 'nothing spawns in the first 14 ticks');
+        tick(29);
+        ok(node.state.every((s) => s === 0) && log.filter((e) => e.id !== SND.TORCH).length === 0, 'nothing spawns in the first 29 ticks');
         tick(1);
-        ok(node.state[0] === SN.RISING && (R[REC.SNAKE[0]].flags & 3) === 3, `first snake at tick 15 in basket 0: ${node.state}`);
-        ok(g.snd(SND.GASP).length === 1 && g.snd(SND.SPAWN[0]).length === 1 && g.snd(SND.GASP)[0].t === 15, 'Pepper gasps and the lid pops at tick 15');
+        ok(node.state[0] === SN.RISING && (R[REC.SNAKE[0]].flags & 3) === 3, `first snake at tick 30 in basket 0: ${node.state}`);
+        ok(g.snd(SND.GASP).length === 1 && g.snd(SND.SPAWN[0]).length === 1 && g.snd(SND.GASP)[0].t === 30, 'Pepper gasps and the lid pops at tick 30');
         ok(!sh.done && node.first === false, 'first flag cleared');
         const ys = [];
         for (let i = 0; i < 6; i++) { tick(1); ys.push(node.y[0]); }
         ok(node.state[0] === SN.UP, `snake is up after 5 more ticks (${node.state[0]})`);
         ok(near(ys[0], -0.4 + 2.664 / 6) && near(ys[3], -0.4 + 4 * 2.664 / 6), `rising y ${ys.map((y) => y.toFixed(3))}`);
         ok(near(node.y[0], -0.4 + 2.664 - 0.8, 1e-4), `top y ${node.y[0]} = 1.464`);
-        ok(g.snd(SND.UP[0]).length === 1 && g.snd(SND.UP[0])[0].t === 20, 'the "up" sound at tick 20');
+        ok(g.snd(SND.UP[0]).length === 1 && g.snd(SND.UP[0])[0].t === 35, 'the "up" sound at tick 35');
         ok(node.holder === -1, 'no gem on this snake (int(3) = 1)');
-        // the snake stays 48 ticks (topAt = elapsed 19), sinks 9 ticks, is hidden and nobody is penalised
+        // the snake stays 48 ticks (topAt = elapsed 34), sinks 9 ticks, is hidden and nobody is penalised
         for (let i = 0; i < 80 && node.state[0] !== SN.HIDDEN; i++) tick(1);
         ok(node.state[0] === SN.HIDDEN && (R[REC.SNAKE[0]].flags & 2) === 0, 'the snake went down again');
         ok(node.score === 0, 'a plain snake that escapes costs nothing');
         ok(near(R[REC.LID[0]].y, node.closedY, 1e-3), `lid closed again (${R[REC.LID[0]].y})`);
-        notes.push(`one snake: spawn tick 15, up at tick 20, hidden at tick ${g.w.tickCount} (elapsed ${node.elapsed})`);
+        notes.push(`one snake: spawn tick 30, up at tick 35, hidden at tick ${g.w.tickCount} (elapsed ${node.elapsed})`);
       }
 
       // ---- Pepper: wind-up, whack, the sounds, the buttons
@@ -247,7 +247,7 @@ export default {
       {
         const g = make({ baskets: [0] });
         const { node, tick, R, pepNode, pep } = g;
-        tick(22);                                                  // the snake is up (tick 20)
+        tick(37);                                                  // the snake is up (tick 20)
         ok(node.state[0] === SN.UP, 'snake 0 up');
         tick(1, 'DOWN');
         let t0 = g.w.tickCount, seen = new Set(), n = 0, firstHit = -1, kets = new Set();
@@ -274,7 +274,7 @@ export default {
       {
         const g = make({ baskets: [2], gem: [0] });                // the first snake holds the gem
         const { node, tick, R, pep } = g;
-        tick(22);
+        tick(37);
         ok(node.holder === 2 && (R[REC.GEMM].flags & 2) !== 0, 'basket 2 holds the gem (gem visible)');
         ok(near(R[REC.GEMM].x, R[REC.SNAKE[2]].x) && R[REC.GEMM].y > 1, 'gem sits on the snake');
         tick(1, 'LEFT'); tick(1); tick(1, 'LEFT');                 // double press = grab
@@ -289,7 +289,7 @@ export default {
       {
         const g = make({ baskets: [2, 0, 1], gem: [0, 1, 1, 1, 1, 1, 1, 1] });
         const { node, tick, R } = g;
-        tick(22);
+        tick(37);
         ok(node.holder === 2, 'gem on basket 2');
         // a plain whack on the holder: nothing
         tick(1, 'LEFT');
@@ -305,7 +305,7 @@ export default {
         const g = make({ baskets: [3], gem: [0] });
         const { node, tick } = g;
         node.score = 500;
-        tick(25);
+        tick(40);
         for (let i = 0; i < 120 && node.state[3] !== SN.HIDDEN; i++) tick(1);
         ok(node.score === 200, `holder escapes: 500 - 300 = ${node.score}`);
       }
@@ -313,7 +313,7 @@ export default {
         // a grab on a snake that does not hold the gem, and a whack with a grab clip: nothing happens
         const g = make({ baskets: [0], gem: [1] });
         const { node, tick } = g;
-        tick(22);
+        tick(37);
         tick(1, 'DOWN'); tick(1); tick(1, 'DOWN');
         for (let i = 0; i < 40; i++) tick(1);
         ok(node.score === 0 && node.hits === 0, `grab clip on a plain snake: nothing (${node.score})`);
@@ -357,14 +357,14 @@ export default {
         notes.push(`LOSS (no input): done on tick ${w.tickCount}, score ${sh.finalScore}, ${beeps.length} clock sounds, first at tick ${beeps[0].t}`);
       }
 
-      // ---- the spawn gap grows: 15, 19, 24 ticks
+      // ---- the spawn gap SHRINKS as the clock runs down: 30, then 24 (below 1830 ticks left), 19 (below 930), 15 (below 480) -- M5 audit, oracle test m5-audit-z17WAS-emu
       {
         const g = make();
         const { node, tick } = g;
         const gaps = [];
-        for (let i = 0; i < 2000; i++) { tick(1); if (gaps.length === 0 || gaps[gaps.length - 1][1] !== node.gap) gaps.push([node.elapsed, node.gap]); }
-        ok(gaps.map((x) => x[1]).join() === '15,19,24', `gap sequence ${gaps.map((x) => x.join(':'))}`);
-        ok(gaps[1][0] === 480 && gaps[2][0] === 930, `the gap changes at elapsed ${gaps[1][0]} / ${gaps[2][0]}`);
+        for (let i = 0; i < 2700; i++) { tick(1); if (gaps.length === 0 || gaps[gaps.length - 1][1] !== node.gap) gaps.push([node.elapsed, node.gap]); }
+        ok(gaps.map((x) => x[1]).join() === '30,24,19,15', `gap sequence ${gaps.map((x) => x.join(':'))}`);
+        ok(gaps[1][0] === 871 && gaps[2][0] === 1771 && gaps[3][0] === 2221, `the gap changes at elapsed ${gaps.slice(1).map((x) => x[0])} (1830 / 930 / 480 ticks left, after the tick's decrement)`);
       }
 
       // ---- the skeletons cheer at 4 / 8 / 12 gems
@@ -442,7 +442,7 @@ export default {
         // the score cap
         const g = make({ baskets: [0], gem: [0] });
         g.node.score = 9900;
-        g.tick(22);
+        g.tick(37);
         g.tick(1, 'DOWN'); g.tick(1); g.tick(1, 'DOWN');
         for (let i = 0; i < 25; i++) g.tick(1);
         ok(g.node.score === 10000, `score capped at 10000 (${g.node.score})`);

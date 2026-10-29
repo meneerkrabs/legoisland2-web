@@ -42,13 +42,47 @@ BLDR: hidden 54 up and 24 off; within 56 (xz) it drops (0.8 / tick sideways, gra
 (`GameRenderer.partMatrices`). BRON roars when the rex is within 48 ahead. Spectators advance their clip in view and make random calls.
 
 ## 5. Approximations / not ported / open
-* **Jump key**: the code tests bit 0x20 (BUTTON_2, default Alt, asm 0x768ab6) but the help text says `BUTTON_1 Springen` (0x10, Ctrl): the original disagrees with itself. The port accepts both (`BUTTON.JUMP`).
+* **Jump key**: the code tests bit 0x20 (BUTTON_2, default Alt, asm 0x768ab6) but the help text says `BUTTON_1 Springen` (0x10, Ctrl): the original disagrees with itself. The port accepts both (`BUTTON.JUMP`). **Closed by the differential test (section 7)**: the original's code reacts to bit 0x20 only (a press of 0x10 does nothing in the emulation); accepting Ctrl too is a deliberate extension of the port, the only known difference in the controls.
 * Particles (trexfeet / burn / volcano / statue / egg emitters) and the 4-corner shadow points (+0x88..+0xb4, written, read nowhere in the zone) are not ported (no particle system); the rex has the generic blob shadow. Rumble (force feedback): timers kept, `run.rumble` hook is a no-op.
 * The zone-timeout probe of the original gets an uninitialised position (never hits): ported as "no collision while slowing down".
 * Music starts with the zone (the original starts it when the help is left). The frustum flag of the spectators is a distance test (220). Random numbers are uniform (original: `rand()` scaled by the tick count).
-* Floats are doubles (the original stores float32): no effect on the thresholds.
+* Floats: the original runs the x87 in 24-bit precision (every + - * / sqrt rounds to float32; control word 0x7f, Direct3D 7). The node code of this zone (`trex.ts`, `props.ts`, `run.ts` groundAt, `src/zones/exact.ts`) now rounds per operation like the original, so the port is bit-identical to the emulated original (section 7); the earlier double-precision port drifted ~5e-3 within 600 ticks.
 
 ## 6. Tests / runs
 `node tools/test-formats.mjs --only m6-z27TRX` (125 checks, ~7 s): EXE constants (arrival / finish / clock, medal and end-clip tables, constructor immediates, the 47 sounds FUN_00766060 loads, speech indices),
 controls, jump, roar, each crash type, fire, lane bounce, boulder / egg / log / volcano / gate / bronto, clock text, score and medal table (strict `>`), variables only raised, arrival, scripted LOSS (clock, no input), scripted WIN (bot: 5 hits, 8750, gold, 3534 ticks), RIGHT only (26 hits, bronze), determinism.
 Browser (snapshot server on 5603): `tools/steps/m6-z27TRX.mjs` (real keys, win, banner, result menu, continue) and `-loss.mjs` (pause, timeout, banner, retry, abort).
+
+## 7. Differential test (WP-VERIFY): the original's code in the emulator next to the port
+
+`node tools/test-formats.mjs --only m7-z27TRX-emu` (tools/tests/m7-z27TRX-emu.mjs + tools/lib/m7-z27TRX-emu.mjs, ~25 s; runs the original functions of the executable in `src/formats/x86emu.ts`).
+
+**What runs natively (the executable's own code):** the rex node `FUN_0076a39b` with its phases (`FUN_00769cb0` / `FUN_00768510` / `FUN_00769d6e` / `FUN_0076a05c`), the probes (`FUN_007692a1`, `FUN_007698cf`), rumble (`FUN_00769200` /
+`FUN_00769859` / `FUN_0076ab2b`), footsteps (`FUN_00769b26`), the rider copy (`FUN_0076a194`), both cameras (`FUN_0076ab5e` / `FUN_0076ac33`), the prop updates (gate, egg + `FUN_00767295`, log + `FUN_007676ea`, volcano,
+boulder, brontosaurus, spectators, fly), all constructors, the zone set-up exactly as the loop runs it (`FUN_00766b85` -> `FUN_0076649a(1)` with allocating constructors, then `FUN_00766e19` = builder `FUN_0076b230` +
+`FUN_0076649a(0)` with the constructors re-run on the existing nodes), the sound loads `FUN_00766060`, the ground probe (`FUN_0043ce45` / `FUN_004425f0`), `FUN_00441a90`, the matrix builders, the HUD sprintf (`FUN_0076560f`, the banner `FUN_007653be`) and the C runtime.
+**Hosted engine services** (not the subject): game variables (the port's `GameVars`), animation instances (the port's `AnimInstance`: start / advance / frame / clip / `FUN_0043b92a`), collision (`FUN_00441270` -> `CollisionWorld.sweep`, `FUN_00441b10` ->
+`rayRecord`), sounds / speech / rumble (recorded), particles (no-ops), the random numbers (a scripted integer keyed by tick, record and draw; `FUN_00435c91` = 32767 so that `ftol(rand / 32767 * tick) % n` = the raw integer % n, which is the port's `int(n)`).
+
+**How:** one update pass of the original over all 337 records (every node in record order) is run from exactly the state of one port tick (the port's own objects are the shared state: snapshot / restore around the original pass; the port now holds float32 values by construction), then the port ticks; compared per tick: every record's matrix / Euler / flags / model / variant, every node's fields (rex 25 fields, props), run globals (timeout, clock, score, bridge, volcano, camera flag, HUD hit text, HUD dim colour),
+variables 0xfa..0xff / 0x1a / 0x87, camera eye / target, animation clip + frame of every record, the number of random draws per node, and the ORDERED list of sound / speech / rumble / fog calls with their positions. Tolerance: 0 (bit-exact; the emulated x87 runs in 24-bit precision, `cpu.cw = 0x7f`).
+Every scenario runs at dt = 1 and at dt = 0.5 (`world.dt`; `DAT_008b1718` / `008b171c` written in the emulator).
+
+**Scenarios (~22 k compared ticks):** two whole bot games (dt 1 every 2nd tick, dt 0.5 every 5th), every hazard kind (STMP, FENC, LOGS, STAT, BURN, SLOG, EGGS, VOLC, BLDR) with random speed / lane / keys (jumps, roars, braking), lane changes into blocked lanes (the bounce), standing in a fire patch (clips 5 -> 6),
+renamed records for the arms the shipped data has no record for (ROCK, STP2, BLDF, YOLK), boulders / eggs / swinging logs / volcanoes (incl. leaving a volcano in x only) / brontosaurus, free runs with random keys and sounds ending at random (the engine's 'playing' state is perturbed identically on both sides), the arrival run from z 4100 with 0 / 10 / 20 / 30 hits,
+finishes at z 4326 with 5 .. 50 hits (every medal and score, hi-score / trophy only raised), a rumble still on at the arrival, the clock running out anywhere (also in the air, also near the camp), the waiting phases 0 / 1, the HUD clock text for every half tick 0 .. 5400 against `FUN_0076560f`, the banner (`FUN_007653be`) for 4 medals x 11 scores against `BANNER`.
+A negative control (a port whose speed is off by 0.001) is detected. Instruction coverage of the original's functions (visited by the scenarios): 100 % of the executable lines of the rex node and all props except the instructions after the `ret`s (jump tables), the probe-hit branch of the timeout phase (`FUN_00769d6e`, never reachable: the probe gets an uninitialised position) and one `jmp` per unreachable fall-through.
+
+**Result:** the port matches the original at every compared tick at dt = 1 and, after the fixes below, at dt = 0.5. Visited: phases 4 / 5 / 6 / 7 (+ 0 / 1 as start states), rex clips 1 .. 9, d, f, 10, 11, 13 .. 19, 1a, 1c, 1d, crashes by every hazard, lane bounces, fire, jumping / blinking / timeout / arrival.
+
+**Fixed in the port (found by this test):**
+* `GateNode`: the doors open by one degree per update in the original with **no dt factor** (`FUN_00766ef0`); the port scaled it by `world.dt` (half speed at dt 0.5). `props.ts`.
+* `TrexNode.footsteps`: `FUN_0043b92a(anim, 1.0)` is `frameCount < 1.0 * dt + 1.0 + frame`; the port used 2.0 (wrong at dt 0.5, the footstep sounds came a tick off). `trex.ts`.
+* `prepareTrx`: after the loop's restart pass the rex's record flags are 0x202 (the builder `FUN_0076b230` resets them to 2, `FUN_0076649a` adds 0x200); the port kept the scene's 0x212 (non-solid bit). `prepare.ts`.
+
+**Known differences (counted by the test, not fixed):**
+* PTRA (record 2) gets a controller + the no-op `fly` node (`FUN_00768188`) in the original; `prepareTrx` attaches nothing (the update is empty; no observable effect).
+* The jump key: Ctrl (bit 0x10) also jumps in the port, in the original only Alt (0x20) does (see section 5).
+* Spectators: the original reads the frustum flag (record flag bit 0) and draws a random number **every tick** whether in view or not; the port uses a distance test (220) and draws only in view. The test hands the original the port's decision as bit 0; the draws of the spectators are compared only when the port draws.
+* Float32: fixed (see section 5): per-operation `Math.fround` everywhere the original rounds; tolerance of the test is 0. The two worlds side by side (original in the emulator, port native, same keys, no resync) are bit-identical over three whole runs (3554 / 3612 / 2500 ticks). The scene's static record matrices (`formats/matrix.ts`, double products) differ from the builder's float32 products by <= 2.5e-7 (compared with that tolerance; not a zone module).
+* PTRA (record 2) gets the controller + the no-op `fly` node (`FlyNode`, `trx-fly`) like the original; `m7-z27TRX-emu` compares the attach list with no exception left. Rescan of the API calls: 4 starts, 17 matrix (12 of them on the dead handle 0xbabababa, the rest `feetMatrix`), 3 param, 12 gate: all covered.

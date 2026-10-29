@@ -13,8 +13,7 @@
 import { parseBlk } from '../../formats/anim.ts';
 import type { Blk } from '../../formats/anim.ts';
 import type { Archive } from '../../formats/archive.ts';
-import { mul } from '../../render/math.ts';
-import { buildMatrix } from '../../formats/matrix.ts';
+import { eulerMatrix, mulMatrices, normalise3 } from '../exact.ts';
 import { AnimInstance } from '../../game/anim.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
@@ -24,25 +23,33 @@ import type { GameRecord } from '../../game/record.ts';
 import { B } from '../../game/input.ts';
 import type { WaypointSystem } from '../../game/walker.ts';
 import { MAP_PATH } from '../../game/walker.ts';
+import { boneOfPose } from '../common/pose.ts';
 import { REC, REC_NAMES, SND, VAR, RUN, ROOF, BOT, FLOOR, BOSS, PARTS, CLIP } from './rules.ts';
 
 /** constructor addresses of the zone (the extraction's attaches, docs/re/zone-setup.md) */
 export const CTOR = { PEPBRP: 0x823f08, PEPTOP: 0x8224ba, BOTTOP: 0x824a02, ZONETOP: 0x825378, ZONEBRP: 0x826516, BRICKST: 0x82714a } as const;
 
-const TWO_PI = 6.283185307179586, PI = Math.PI, HALF_PI = Math.PI / 2;
+/** pi and pi / 2 as the executable has them (floats 0x40490fdb, 0x3fc90fdb: _DAT_0089207c / _DAT_00892220) */
+const PI = Math.fround(Math.PI), HALF_PI = Math.fround(Math.PI / 2);
+/** the side run keeps its angle as a float32 and wraps it with `fmod(angle, 6.2831854820251465)`: the 2 pi of the original is the double 0x401921fb60000000 (the float32 of 2 pi), not the true 2 pi */
+const F = Math.fround, TWO_PI_F32 = 6.2831854820251465;
 type V3 = [number, number, number];
 
 // ------------------------------------------------------------------------------------------------ small engine functions the zone uses
 
-/** FUN_0043a9e5(dst, a, b): dst = b * a (row vectors; the translation row of b is added through a) */
-function m43a9e5(a: Float32Array, b: Float32Array): Float32Array { return mul(b, a); }
-/** FUN_0043cec0: normalise in place (a zero vector stays) */
-function normalise(v: number[]) {
-  const l2 = v[2] * v[2] + v[1] * v[1] + v[0] * v[0];
-  if (l2 !== 0) { const k = 1 / Math.sqrt(l2); v[0] *= k; v[1] *= k; v[2] *= k; }
+/** FUN_0043a9e5(dst, a, b): dst = b * a, every product and sum float32 (src/zones/exact.ts) */
+function m43a9e5(a: Float32Array, b: Float32Array): Float32Array { return mulMatrices(b, a); }
+/** FUN_0043cec0: normalise in place, float32 per operation (a zero vector stays) */
+const normalise = normalise3;
+/** FUN_0043a5e4 / FUN_0043a340 (src/zones/exact.ts) */
+function eulerF(rx: number, ry: number, rz: number, px: number, py: number, pz: number): Float32Array {
+  const m = new Float32Array(16);
+  eulerMatrix(m, rx, ry, rz, px, py, pz);
+  return m;
 }
+const setEulerF = (r: GameRecord, rx: number, ry: number, rz: number, px: number, py: number, pz: number) => { r.m.set(eulerF(rx, ry, rz, px, py, pz)); };
 /** FUN_00823bfb / FUN_008263b4(vec, angle, r): (sin(angle) r, y kept, cos(angle) r) */
-function polar(v: number[], angle: number, r: number) { const y = v[1]; v[0] = Math.sin(angle) * r; v[1] = 0 * r; v[2] = Math.cos(angle) * r; v[1] = y; }
+function polar(v: number[], angle: number, r: number) { const y = v[1]; v[0] = F(F(Math.sin(angle)) * r); v[1] = 0 * r; v[2] = F(F(Math.cos(angle)) * r); v[1] = y; }
 const posOf = (r: GameRecord): V3 => [r.x, r.y, r.z];
 const setPos = (r: GameRecord, x: number, y: number, z: number) => { r.m[12] = x; r.m[13] = y; r.m[14] = z; };
 
@@ -116,6 +123,16 @@ export class BrpState {
   spoken: string[] = [];
   /** the world the state belongs to (the game clock counts its ticks) */
   w: World | null = null;
+  /**
+   * DAT_05d5f608: the static matrix of Brickster's three emitters (smoke2, flame1, flame1: DAT_05d5f648 / 64c / 650, started by FUN_0082714a on it, identity at the start): bone 10 of
+   * BSTR's pose of the last draw x the record matrix (FUN_0043bc58 + FUN_0043a9e5), refreshed by the Brickster node after a hit and by the roof node while a cutscene runs
+   */
+  readonly bossFxM = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  /** FUN_00442a20(h, 2, 1, 1) / (h, 1, 1, 1) on the three emitters: `on[k]` true = gate on (the zone game binds it to the particle engine; a log for the tests) */
+  bossFx: (on: [boolean, boolean, boolean]) => void = (on) => { this.fxLog.push(on.map((b) => (b ? 1 : 0)).join('')); };
+  fxLog: string[] = [];
+  /** FUN_0043bc58(BSTR anim, 10) + FUN_0043a9e5(DAT_05d5f608, BSTR + 0xc, bone): `clip` / `frame` = the pose the last draw evaluated */
+  bossBone(w: World, clip: number, frame: number) { boneOfPose(this.bossFxM, w.records[REC.BSTR], clip, frame, 10); }
 
   constructor() {
     const rng = lcg(1);
@@ -134,8 +151,8 @@ export class BrpState {
   sfx3(id: number, pos: V3, voice = 0) { this.env.sfx3(id, pos, voice); }
   /** FUN_004388ae(x) of the original: rand() / 32767 * x */
   rand(x: number): number { return x <= 0 ? 0 : this.env.rng() * x; }
-  /** FUN_00435cbb: ticks of 1/60 s (the port runs 2 per 30 Hz tick) */
-  clock(): number { return (this.w?.tickCount ?? 0) * 2; }
+  /** FUN_00435cbb: ticks of 1/60 s (a tick of step `dt` is 2 * dt of them: 2 at 30 Hz, 1 at 60 Hz; the clock is `GetTickCount`-based in the original) */
+  clock(): number { return Math.trunc((this.w?.tickCount ?? 0) * 2 * (this.w?.dt ?? 1)); }
 }
 
 const states = new WeakMap<World, BrpState>();
@@ -168,7 +185,10 @@ abstract class BrpNode implements BehaviourNode {
 
 /** the sweep of FUN_00441270(rec, from, delta, ..., 3, radius, skin) */
 function sweep(w: World, ignore: GameRecord | null, from: ArrayLike<number>, delta: ArrayLike<number>, radius: number, skin: number) {
-  return w.col.sweep(ignore, from, delta, 3, radius, skin);
+  // the original keeps the start and the delta in float32 locals (`local_3c = y + 2.4`) and writes the contact point and the normal into float32 out parameters
+  const h = w.col.sweep(ignore, [F(from[0]), F(from[1]), F(from[2])], [F(delta[0]), F(delta[1]), F(delta[2])], 3, radius, skin);
+  if (h) { h.point = [F(h.point[0]), F(h.point[1]), F(h.point[2])]; h.normal = [F(h.normal[0]), F(h.normal[1]), F(h.normal[2])]; }
+  return h;
 }
 
 // ---------------------------------------------------------------------------------------------- phase 1: pepbrp (Pepper's side run)
@@ -176,17 +196,21 @@ function sweep(w: World, ignore: GameRecord | null, from: ArrayLike<number>, del
 /** FUN_008229b0: the camera of the side run: the eye is 0.8 of the way from Pepper to the tower's axis (at Pepper's height + 15.625), pushed 8 % sideways; target = Pepper + (0, 3, 0) */
 export function runCamera(w: World, r: GameRecord) {
   const c = w.camera.c;
-  const topY = r.y + 15.625;
-  let vx = (0 - r.x) * 0.8, vy = (topY - r.y) * 0.8, vz = (0 - r.z) * 0.8;
-  const sx = (vz * 1.0 - vy * 0.0) * 0.08, sy = (vx * 0.0 - vz * 0.0) * 0.08, sz = (vy * 0.0 - vx * 1.0) * 0.08;
-  vx += sx; vy += sy; vz += sz;
-  c[0] = vx + r.x; c[1] = vy + r.y; c[2] = vz + r.z;
+  // every operation float32 (24-bit x87); constants 0.8 = _DAT_00892084, 0.08 = _DAT_0089212c
+  const K8 = F(0.8), K08 = F(0.08);
+  const topY = F(r.y + 15.625);
+  let vx = F(F(0 - r.x) * K8), vy = F(F(topY - r.y) * K8), vz = F(F(0 - r.z) * K8);
+  const sx = F(F(F(vz * 1.0) - F(vy * 0.0)) * K08), sy = F(F(F(vx * 0.0) - F(vz * 0.0)) * K08), sz = F(F(F(vy * 0.0) - F(vx * 1.0)) * K08);
+  vx = F(vx + sx); vy = F(vy + sy); vz = F(vz + sz);
+  c[0] = F(vx + r.x); c[1] = F(vy + r.y); c[2] = F(vz + r.z);
   // FUN_00422c7e: target = focus + (0, 3, 0) (preset 0)
-  c[3] = 0 + r.x; c[4] = 3 + r.y; c[5] = 0 + r.z;
+  c[3] = F(0 + r.x); c[4] = F(3 + r.y); c[5] = F(0 + r.z);
 }
 
 export class PepBrpNode extends BrpNode {
   readonly kind = 'pepbrp';
+  /** the widened switch probe (T1a, docs/re/gaps.md), only at a step coarser than 60 Hz (`w.dt > 0.5`): at dt = 0.5 the original's own probe hits switch 2 (tools/tests/m7-z42BRP-emu.mjs, T1a); false = always the original's probe (tests) */
+  static widenTrigger = true;
   /** +0x14: the radius of the circle (BRP's collision radius * 0.465) */
   R = 0;
   /** +0x18: the start angle; +0x78: the angle now; +0x7c: the angle one tick ago; +0x74: angular speed this tick (-0.0192 / 0 / +0.0192) */
@@ -211,9 +235,9 @@ export class PepBrpNode extends BrpNode {
     const S = stateOf(w);
     S.pepbrp = this;
     const brp = rec(w, REC.BRP);
-    this.R = (brp.colObj?.radius ?? 0) * RUN.RADIUS_FACTOR;
+    this.R = F(F(brp.colObj?.radius ?? 0) * RUN.RADIUS_FACTOR);
     const x = r.x, y = r.y, z = r.z;
-    this.angle = this.prevAngle = this.angle0 = Math.atan2(x, z);
+    this.angle = this.prevAngle = this.angle0 = F(Math.atan2(x, z));
     const p: number[] = [x, y, z];
     polar(p, this.angle, this.R);
     setPos(r, p[0], y, p[2]);
@@ -237,8 +261,8 @@ export class PepBrpNode extends BrpNode {
     this.omega = 0;
     this.prevFacing = this.facing;
     const held = w.input.held;
-    if ((held & B.LEFT) !== 0) { this.dirFlags |= 1; this.facing = 1; this.omega = -RUN.TURN_RATE * w.dt; }
-    else if ((held & B.RIGHT) !== 0) { this.dirFlags |= 2; this.facing = 2; this.omega = RUN.TURN_RATE * w.dt; }
+    if ((held & B.LEFT) !== 0) { this.dirFlags |= 1; this.facing = 1; this.omega = F(-RUN.TURN_RATE * F(w.dt)); }
+    else if ((held & B.RIGHT) !== 0) { this.dirFlags |= 2; this.facing = 2; this.omega = F(RUN.TURN_RATE * F(w.dt)); }
     if (!this.air && (held & (B.ALT | B.CTRL)) !== 0) {
       this.air = true;
       animOf(r).start(CLIP.JUMP, 0);
@@ -259,8 +283,8 @@ export class PepBrpNode extends BrpNode {
       if (this.dirFlags === 0 && this.prevDirFlags !== 0) anim.start(CLIP.IDLE, 0);
       if (this.dirFlags !== 0 && this.prevDirFlags === 0 && !this.air) anim.start(CLIP.RUN, 0);
       this.prevAngle = this.angle;
-      this.angle += this.omega;
-      this.angle %= TWO_PI;
+      this.angle = F(this.angle + this.omega);
+      this.angle = F(this.angle % TWO_PI_F32);
       pos[0] = r.x; pos[1] = r.y; pos[2] = r.z;
       this.prevPos = [pos[0], pos[1], pos[2]];
       polar(pos, this.angle, this.R);
@@ -269,20 +293,21 @@ export class PepBrpNode extends BrpNode {
         const h = sweep(w, r, [pos[0], pos[1] + RUN.PROBE_UP, pos[2]], [0, RUN.PROBE_DOWN, 0], RUN.SWEEP_RADIUS, RUN.SWEEP_SKIN);
         if (h && !this.ignored(w, h.rec)) pos[1] = h.point[1];
       } else {
-        this.t += RUN.JUMP_DT * w.dt;
-        this.vel = this.g * this.t + this.v0;
-        const t2 = this.t * this.t;
-        const half = this.g * t2 * 0.5;
-        this.yAir = this.vel * this.t + this.y0 + half;
+        // the original keeps these as float32 (node fields and locals): t += 0.1 * dt, vel = g t + v0, y = vel t + y0 + g t^2 / 2
+        this.t = F(F(RUN.JUMP_DT * w.dt) + this.t);
+        this.vel = F(F(this.g * this.t) + this.v0);
+        const t2 = F(this.t * this.t);
+        const half = F(F(this.g * t2) * 0.5);
+        this.yAir = F(F(F(this.vel * this.t) + this.y0) + half);
         pos[1] = this.yAir;
         changed = true;
       }
-      const d: V3 = [pos[0] - this.prevPos[0], pos[1] - this.prevPos[1], pos[2] - this.prevPos[2]];
+      const d: V3 = [F(pos[0] - this.prevPos[0]), F(pos[1] - this.prevPos[1]), F(pos[2] - this.prevPos[2])];
       if (!this.air) {
         const v = [d[0], d[1], d[2]];
         normalise(v);
         const dot = 0 * v[2] + 1 * v[1] + 0 * v[0];
-        if (RUN.SLOPE_COS < dot) d[1] = d[1] / RUN.SLOPE_DAMP;
+        if (RUN.SLOPE_COS < dot) d[1] = F(d[1] / RUN.SLOPE_DAMP);
         if (dot < -RUN.SLOPE_COS) d[1] = 0;
       }
       // the wall: sweep from where Pepper was
@@ -303,10 +328,10 @@ export class PepBrpNode extends BrpNode {
       setPos(r, pos[0], pos[1], pos[2]);
       // the turn: the matrix turns by the step, by pi more when the key changed sides
       let th = this.omega;
-      if ((this.facing ^ this.prevFacing) !== 0) th += PI;
+      if ((this.facing ^ this.prevFacing) !== 0) th = F(th + PI);
       if (th !== 0) {
         const old = new Float32Array(r.m);
-        r.m.set(m43a9e5(old, buildMatrix(0, th, 0, 0, 0, 0)));
+        r.m.set(m43a9e5(old, eulerF(0, th, 0, 0, 0, 0)));
         changed = true;
       }
       // the second probe: what is under Pepper now
@@ -314,7 +339,7 @@ export class PepBrpNode extends BrpNode {
       const hr = h2?.rec ?? null;
       // the switches: the original steps 0.0192 * dt per frame (dt = the frame time, usually well below 1): at the port's fixed 30 Hz step the second switch's window (0.0066 rad
       // wide at the tower's radius) is a third of a step and, on the lap it sits on, holds no step position at all: the trigger probe is widened by half a step
-      const tr = sweep(w, r, [pos[0], pos[1] + RUN.PROBE_UP, pos[2]], [0, RUN.PROBE_DOWN, 0], RUN.SWEEP_RADIUS + 0.5 * RUN.TURN_RATE * this.R, RUN.SWEEP_SKIN)?.rec ?? null;
+      const tr = sweep(w, r, [pos[0], pos[1] + RUN.PROBE_UP, pos[2]], [0, RUN.PROBE_DOWN, 0], RUN.SWEEP_RADIUS + (PepBrpNode.widenTrigger && w.dt > 0.5 ? 0.5 * RUN.TURN_RATE * this.R : 0), RUN.SWEEP_SKIN)?.rec ?? null;
       if (tr === rec(w, REC.SWIC1)) { this.sw1 = true; S.sfx3(SND.MOVEP_BIG, posOf(rec(w, REC.BRI2))); }
       if (tr === rec(w, REC.SWIC2)) { this.sw2 = true; S.sfx3(SND.MOVEP_BIG, posOf(rec(w, REC.BRI3))); }
       if (hr === rec(w, REC.BRI7)) this.crumble = true;
@@ -355,13 +380,13 @@ export class PepBrpNode extends BrpNode {
         this.hold2 = RUN.RESTART_HOLD;
       }
       if (!this.air) {
-        this.animRes = anim.advance(1.0);
+        this.animRes = anim.advance(1.0, w.dt);
         if (anim.clip === CLIP.RUN) {
           const f = anim.frame;
           if (15 <= f && f <= 16) S.sfx(SND.FSPLASTIC[0]);
           if (5 <= f && f <= 6) S.sfx(SND.FSPLASTIC[1]);
         } else if (this.omega !== 0) anim.start(CLIP.RUN, 0);
-      } else this.animRes = anim.advance(2.0);
+      } else this.animRes = anim.advance(2.0, w.dt);
       if (this.omega === 0) { if (this.animRes !== 0) { anim.start(CLIP.IDLE, 0); this.animRes = 0; } }
       else if (this.animRes !== 0) { anim.start(CLIP.RUN, 0); this.animRes = 0; }
       if (r.y !== this.prevPos[1]) changed = true;
@@ -407,9 +432,10 @@ export class ZoneBrpNode extends BrpNode {
     for (const i of REC.SLIDERS) {
       const r = rec(w, i);
       this.start.push(posOf(r));
+      // sin of the unrounded atan2 result, cos of its float32 (the decompile passes `(double)fVar2` and `(double)fVar5`)
       const a = Math.atan2(r.x, r.z);
-      const v: V3 = [Math.sin(a), 0, Math.cos(a)];
-      this.out.push([v[0] * PARTS.SLIDE, v[1] * PARTS.SLIDE, v[2] * PARTS.SLIDE]);
+      const v: V3 = [F(Math.sin(a)), 0, F(Math.cos(F(a)))];
+      this.out.push([F(v[0] * PARTS.SLIDE), F(v[1] * PARTS.SLIDE), F(v[2] * PARTS.SLIDE)]);
     }
     const bri2 = rec(w, REC.BRI2), bri3 = rec(w, REC.BRI3), bri7 = rec(w, REC.BRI7), bri5 = rec(w, REC.BRI5), bri8 = rec(w, REC.BRI8);
     this.y2 = bri2.y; bri2.y += PARTS.BRI2_RAISE;
@@ -417,11 +443,11 @@ export class ZoneBrpNode extends BrpNode {
     this.y7 = bri7.y;
     const ax = bri5.x, ay = bri5.y, az = bri5.z;
     this.arcY = ay;
-    this.arcHi = Math.atan2(ax, az);
+    this.arcHi = F(Math.atan2(ax, az));
     this.arcAngle = this.arcHi;
     this.arcNow = ay;
-    this.arcLo = this.arcAngle - PARTS.ARC_WIDTH;
-    this.arcR = Math.sqrt(az * az + ax * ax + 0);
+    this.arcLo = F(this.arcAngle - PARTS.ARC_WIDTH);
+    this.arcR = F(Math.sqrt(F(F(az * az) + F(ax * ax))));
     this.y8 = bri8.y;
     this.bobY = [30, 31, 32, 33].map((i) => rec(w, i).y);
     this.bobStart = S.clock();
@@ -466,12 +492,12 @@ export class ZoneBrpNode extends BrpNode {
       if (!run) return false;
       return n === 1 ? run.sw1 : n === 2 ? run.sw2 : n === 3 ? run.crumble : n === 4 ? run.arc : run.lift;
     };
-    this.timer += 1 * w.dt;
+    this.timer = F(1 * w.dt + this.timer);
     const sl = REC.SLIDERS.map((i) => rec(w, i));
     if (this.movingOut) {
       for (let i = 0; i < 6; i++) {
-        sl[i].x = (this.out[i][0] / PARTS.SLIDE_TICKS) * w.dt + sl[i].x;
-        sl[i].z = (this.out[i][2] / PARTS.SLIDE_TICKS) * w.dt + sl[i].z;
+        sl[i].x = F(F(F(this.out[i][0] / PARTS.SLIDE_TICKS) * w.dt) + sl[i].x);
+        sl[i].z = F(F(F(this.out[i][2] / PARTS.SLIDE_TICKS) * w.dt) + sl[i].z);
       }
       if (PARTS.SLIDE_TICKS <= this.timer) {
         this.movingOut = false;
@@ -480,8 +506,8 @@ export class ZoneBrpNode extends BrpNode {
       }
     } else {
       for (let i = 0; i < 6; i++) {
-        sl[i].x = sl[i].x - (this.out[i][0] / PARTS.SLIDE_TICKS) * w.dt;
-        sl[i].z = sl[i].z - (this.out[i][2] / PARTS.SLIDE_TICKS) * w.dt;
+        sl[i].x = F(sl[i].x - F(F(this.out[i][0] / PARTS.SLIDE_TICKS) * w.dt));
+        sl[i].z = F(sl[i].z - F(F(this.out[i][2] / PARTS.SLIDE_TICKS) * w.dt));
         // (as in the original the test sits inside the loop: only the first slider is put back exactly, the timer is 0 for the others)
         if (PARTS.SLIDE_TICKS <= this.timer) {
           this.movingOut = true;
@@ -497,26 +523,26 @@ export class ZoneBrpNode extends BrpNode {
       swic1.flags = 0;
       swup1.flags |= 1; swup1.flags |= 2;
       swup1.m.set(this.m1);
-      if (this.y2 < bri2.y) bri2.y -= PARTS.BRI2_DROP * w.dt;
+      if (this.y2 < bri2.y) bri2.y = F(bri2.y - F(PARTS.BRI2_DROP * w.dt));
     }
     if (!flag(2)) swup2.flags = 0;
     else {
       swic2.flags = 0;
       swup2.flags |= 1; swup2.flags |= 2;
       swup2.m.set(this.m2);
-      if (this.y3 < bri3.y) bri3.y -= PARTS.BRI3_DROP * w.dt;
+      if (this.y3 < bri3.y) bri3.y = F(bri3.y - F(PARTS.BRI3_DROP * w.dt));
     }
     if (flag(3)) {
-      bri7.y -= this.fallSpeed;
-      this.fallSpeed = (this.fallSpeed / PARTS.BRI7_GROW) * w.dt + this.fallSpeed;
+      bri7.y = F(bri7.y - this.fallSpeed);
+      this.fallSpeed = F(F(F(this.fallSpeed / PARTS.BRI7_GROW) * w.dt) + this.fallSpeed);
       if (bri7.y < 0) bri7.flags = 0;
     }
     if (flag(4)) {
       if (this.arcDir === 1) {
         if (this.arcAngle <= this.arcLo) this.arcDir = 0;
         else {
-          this.arcAngle -= PARTS.ARC_STEP * w.dt;
-          this.arcNow += PARTS.ARC_RISE * w.dt;
+          this.arcAngle = F(this.arcAngle - F(PARTS.ARC_STEP * w.dt));
+          this.arcNow = F(F(PARTS.ARC_RISE * w.dt) + this.arcNow);
           const v: number[] = [0, 0, 0];
           polar(v, this.arcAngle, this.arcR);
           bri5.x = v[0]; bri5.y = this.arcNow; bri5.z = v[2];
@@ -525,8 +551,8 @@ export class ZoneBrpNode extends BrpNode {
       if (this.arcDir === 0) {
         if (this.arcHi <= this.arcAngle) this.arcDir = 1;
         else {
-          this.arcAngle += PARTS.ARC_STEP * w.dt;
-          this.arcNow -= PARTS.ARC_RISE * w.dt;
+          this.arcAngle = F(F(PARTS.ARC_STEP * w.dt) + this.arcAngle);
+          this.arcNow = F(this.arcNow - F(PARTS.ARC_RISE * w.dt));
           const v: number[] = [0, 0, 0];
           polar(v, this.arcAngle, this.arcR);
           bri5.x = v[0]; bri5.y = this.arcNow; bri5.z = v[2];
@@ -537,14 +563,14 @@ export class ZoneBrpNode extends BrpNode {
       for (const i of REC.BBOT) rec(w, i).flags = 0;
       if (RUN.LIFT_TOP <= bri8.y) {
         w.vars.set(VAR.PHASE, 2);
-      } else bri8.y = ((RUN.LIFT_TOP - this.y8) / RUN.LIFT_TICKS) * w.dt + bri8.y;
+      } else bri8.y = F(F(F(F(RUN.LIFT_TOP - this.y8) / RUN.LIFT_TICKS) * w.dt) + bri8.y);
     }
     // the four flame bobbers bob on the 1/60 s clock
     const now = S.clock();
     for (let i = 0; i < 4; i++) {
       const c = (now - this.bobStart + this.bobPhase[i]) % PARTS.BOB_PERIOD;
-      const s = Math.sin(c * PARTS.BOB_STEP);
-      rec(w, 30 + i).y = s * PARTS.BOB_AMPLITUDE + this.bobY[i];
+      const s = Math.sin(F(c * PARTS.BOB_STEP));
+      rec(w, 30 + i).y = F(F(s * PARTS.BOB_AMPLITUDE) + this.bobY[i]);
     }
   }
 }
@@ -554,8 +580,8 @@ export class ZoneBrpNode extends BrpNode {
 /** FUN_008216a0: the camera of the roof: behind (z - 10) and above (y + 6), looking at Pepper + (0, 3, 0) */
 export function roofCamera(w: World, r: GameRecord) {
   const c = w.camera.c;
-  c[0] = r.x + ROOF.CAM_EYE[0]; c[1] = r.y + ROOF.CAM_EYE[1]; c[2] = r.z + ROOF.CAM_EYE[2];
-  c[3] = r.x; c[4] = r.y + ROOF.CAM_TARGET_UP; c[5] = r.z;
+  c[0] = F(r.x + F(ROOF.CAM_EYE[0])); c[1] = F(r.y + ROOF.CAM_EYE[1]); c[2] = F(r.z + ROOF.CAM_EYE[2]);
+  c[3] = r.x; c[4] = F(r.y + ROOF.CAM_TARGET_UP); c[5] = r.z;
 }
 
 export class PepTopNode extends BrpNode {
@@ -585,10 +611,10 @@ export class PepTopNode extends BrpNode {
     const a = rec(w, REC.ROW_A), b = rec(w, REC.ROW_B), c = rec(w, REC.ROW_C);
     // the yaw of the floor's rows: from tile 61 to tile 57 (dx, dz)
     const dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
-    const yaw = Math.atan2(dx, dz);
+    const yaw = F(Math.atan2(dx, dz));
     // dir 0 (up) +0x18 = yaw; dir 1 (down) +0x20 = yaw + pi; dir 2 (right) +0x24 = yaw + pi/2; dir 3 (left) +0x1c = yaw - pi/2
-    this.yaw = [yaw, yaw + PI, yaw + HALF_PI, yaw - HALF_PI];
-    this.spawn.set(buildMatrix(0, yaw, 0, b.x, b.y, b.z));
+    this.yaw = [yaw, F(yaw + PI), F(yaw + HALF_PI), F(yaw - HALF_PI)];
+    this.spawn.set(eulerF(0, yaw, 0, b.x, b.y, b.z));
     const up: number[] = [dx, dy, dz];
     normalise(up);
     this.dirs[0] = [up[0], up[1], up[2]];
@@ -659,10 +685,10 @@ export class PepTopNode extends BrpNode {
     else {
       if (S.knockTimer === 20) { anim.start(CLIP.STUMBLE, 0); S.sfx(SND.RUNOVER); }
       this.dir = -1;
-      const k = ROOF.KNOCK_STEP * w.dt;
-      x = S.knockDir[0] * k + this.startPos[0];
-      y = S.knockDir[1] * k + this.startPos[1];
-      z = S.knockDir[2] * k + this.startPos[2];
+      const k = F(ROOF.KNOCK_STEP * w.dt);
+      x = F(F(S.knockDir[0] * k) + this.startPos[0]);
+      y = F(F(S.knockDir[1] * k) + this.startPos[1]);
+      z = F(F(S.knockDir[2] * k) + this.startPos[2]);
       S.knockTimer -= 1 * w.dt;
       if (S.knockTimer <= 0) { S.knock = 0; S.knockTimer = 0; anim.start(CLIP.IDLE, 0); }
     }
@@ -674,9 +700,9 @@ export class PepTopNode extends BrpNode {
     else {
       const v = this.dirs[this.dir];
       yawNow = this.yaw[this.dir];
-      const sx = v[0] * ROOF.STEP, sy = v[1] * ROOF.STEP, sz = v[2] * ROOF.STEP;
-      x += sx; y += sy; z += sz;
-      this.step = [x - this.startPos[0], y - this.startPos[1], z - this.startPos[2]];
+      const sx = F(v[0] * ROOF.STEP), sy = F(v[1] * ROOF.STEP), sz = F(v[2] * ROOF.STEP);
+      x = F(x + sx); y = F(y + sy); z = F(z + sz);
+      this.step = [F(x - this.startPos[0]), F(y - this.startPos[1]), F(z - this.startPos[2])];
     }
     if (S.knock === 0) {
       // the walls of the roof (STR3) hold Pepper back: the step is undone
@@ -687,13 +713,13 @@ export class PepTopNode extends BrpNode {
     const fl = sweep(w, r, [x, y + ROOF.FLOOR_PROBE_UP, z], [0, ROOF.FLOOR_PROBE_DOWN, 0], ROOF_SWEEP.RADIUS, ROOF_SWEEP.SKIN);
     if (!fl || fl.point[1] < this.floorY) {
       this.fall += 1;
-      y -= ROOF.FALL_STEP;
+      y = F(y - ROOF.FALL_STEP);
       if (this.fall === ROOF.FALL_TICKS) { this.fall = 0; S.respawn = 1; S.reset5fc = 1; S.reset600 = 1; S.falls++; }
     }
     if (fl && fl.rec !== rec(w, REC.PIZZ)) { x = fl.point[0]; y = fl.point[1]; z = fl.point[2]; }
-    r.setEuler(0, yawNow, 0, x, y, z);
+    setEulerF(r, 0, yawNow, 0, x, y, z);
     if (this.flying) this.flyPizza(w, r, S);
-    this.animRes = anim.advance(1.0);
+    this.animRes = anim.advance(1.0, w.dt);
     const f = anim.frame;
     if (15 <= f && f <= 16) S.sfx(SND.FSPLASTIC[0]);
     if (5 <= f && f <= 6) S.sfx(SND.FSPLASTIC[1]);
@@ -705,13 +731,13 @@ export class PepTopNode extends BrpNode {
     const pz = rec(w, REC.PIZZ);
     this.pizzaStart = posOf(pz);
     const k = ROOF.PIZZA_SPEED * w.dt;
-    this.pizzaStep = [k * this.throwDir[0], k * this.throwDir[1], k * this.throwDir[2]];
+    this.pizzaStep = [F(k * this.throwDir[0]), F(k * this.throwDir[1]), F(k * this.throwDir[2])];
     pz.m[13] = this.pizzaStart[1] + this.pizzaStep[1];
     pz.m[12] = this.pizzaStart[0] + this.pizzaStep[0];
     pz.m[14] = this.pizzaStart[2] + this.pizzaStep[2];
     this.age += 1;
-    this.spin += ROOF.PIZZA_SPIN;
-    pz.setEuler(HALF_PI, this.spin, 0, pz.m[12], pz.m[13], pz.m[14]);
+    this.spin = F(this.spin + ROOF.PIZZA_SPIN);
+    setEulerF(pz, HALF_PI, this.spin, 0, pz.m[12], pz.m[13], pz.m[14]);
     const h = sweep(w, pz, this.pizzaStart, this.pizzaStep, ROOF.PIZZA_RADIUS, ROOF_SWEEP.SKIN);
     const hr = h?.rec ?? null;
     for (const bi of REC.BOTS) {
@@ -740,7 +766,7 @@ export class PepTopNode extends BrpNode {
 }
 
 /** the roof's sweeps: radius 0.16, skin 0.4 (0x3e23d70a / 0x3ecccccd) */
-const ROOF_SWEEP = { RADIUS: 0.16, SKIN: 0.4 } as const;
+const ROOF_SWEEP = { RADIUS: 0.15999999642372131, SKIN: 0.4000000059604645 } as const;
 
 // ---------------------------------------------------------------------------------------------- phase 2: Brickster
 
@@ -765,9 +791,9 @@ export class BricksterNode extends BrpNode {
     const b0 = rec(w, REC.BOTS[0]), b1 = rec(w, REC.BOTS[1]);
     down(b0); down(b1);
     this.start = posOf(r);
-    this.vec[0] = [b0.x - r.x, b0.y - r.y, b0.z - r.z];
-    this.vec[1] = [b1.x - r.x, b1.y - r.y, b1.z - r.z];
-    this.yawTo = [Math.atan2(this.vec[0][0], this.vec[0][2]), Math.atan2(this.vec[1][0], this.vec[1][2])];
+    this.vec[0] = [F(b0.x - r.x), F(b0.y - r.y), F(b0.z - r.z)];
+    this.vec[1] = [F(b1.x - r.x), F(b1.y - r.y), F(b1.z - r.z)];
+    this.yawTo = [F(Math.atan2(this.vec[0][0], this.vec[0][2])), F(Math.atan2(this.vec[1][0], this.vec[1][2]))];
     this.idx = 0; this.timer = 0; this.going = true; this.period = BOSS.LEG;
     S.reset600 = 0;
     r.flags |= 0x40;
@@ -780,7 +806,8 @@ export class BricksterNode extends BrpNode {
     if (S.endState >= 1) return;
     if (S.reset600 === 0) {
       const anim = animOf(r);
-      this.animRes = anim.advance(1.0);
+      const drawnClip = anim.clip, drawnFrame = anim.frame;      // the pose the last draw left (FUN_0043bc58 reads it)
+      this.animRes = anim.advance(1.0, w.dt);
       if (this.animRes !== 0) anim.start(CLIP.BRIK_RUN, 0);
       const frame = Math.trunc(anim.frame);
       if (this.stage === 0) {
@@ -795,7 +822,12 @@ export class BricksterNode extends BrpNode {
         this.reacting = true;
         this.seen = S.hits;
         anim.start(CLIP.BRIK_HIT, 0);
+        // FUN_00826b40: the hit count picks the emitter: 0 none, 1 smoke2, 2 the first flame1
+        if (this.seen === 0) S.bossFx([false, false, false]);
+        else if (this.seen === 1) S.bossFx([true, false, false]);
+        else if (this.seen === 2) S.bossFx([false, true, false]);
       }
+      if (this.seen !== 0) S.bossBone(w, drawnClip, drawnFrame);
       if (this.reacting) {
         if (this.animRes === 0) return;
         this.reacting = false;
@@ -803,21 +835,22 @@ export class BricksterNode extends BrpNode {
         this.animRes = 0;
       }
       this.animRes = 0;
-      this.timer += 1 * w.dt;
+      this.timer = F(1 * w.dt + this.timer);
       if (this.period < this.timer) {
         if (this.going) this.going = false;
         else { this.idx = this.idx === 1 ? 0 : 1; this.going = true; }
         this.timer = 0;
       }
-      const scale = 100 / this.period;
-      let c = this.going ? this.timer : this.period - this.timer;
-      c *= scale;
+      const scale = F(100 / this.period);
+      let c = this.going ? this.timer : F(this.period - this.timer);
+      c = F(c * scale);
       const v = this.vec[this.idx];
-      const tx = this.start[0] + v[0] * 0.01 * c, ty = this.start[1] + v[1] * 0.01 * c, tz = this.start[2] + v[2] * 0.01 * c;
+      const C01 = F(0.01);      // _DAT_00892030
+      const tx = F(F(F(v[0] * C01) * c) + this.start[0]), ty = F(F(F(v[1] * C01) * c) + this.start[1]), tz = F(F(F(v[2] * C01) * c) + this.start[2]);
       const h = sweep(w, r, [tx, ty, tz], [0, BOSS.PROBE_DOWN, 0], ROOF_SWEEP.RADIUS, ROOF_SWEEP.SKIN);
       const p: V3 = h ? [h.point[0], h.point[1], h.point[2]] : [tx, ty, tz];
-      const yaw = this.going ? this.yawTo[this.idx] : this.yawTo[this.idx] - PI;
-      r.setEuler(0, yaw, 0, p[0], p[1], p[2]);
+      const yaw = this.going ? this.yawTo[this.idx] : F(this.yawTo[this.idx] - PI);
+      setEulerF(r, 0, yaw, 0, p[0], p[1], p[2]);
     } else {
       S.reset600 = 0;
       setPos(r, this.start[0], this.start[1], this.start[2]);
@@ -846,10 +879,10 @@ export class BotNode extends BrpNode {
     this.index = Math.max(0, REC.BOTS.indexOf(w.records.indexOf(r)));
     const a = rec(w, REC.ROW_A), b = rec(w, REC.ROW_B);
     // the yaw: from tile 57 to tile 61 (dx, dz)
-    this.yaw = Math.atan2(b.x - a.x, b.z - a.z);
+    this.yaw = F(Math.atan2(F(b.x - a.x), F(b.z - a.z)));
     const s76 = rec(w, REC.SPAWN_A), s75 = rec(w, REC.SPAWN_B);
     this.baseY = s76.y;
-    this.row = [s75.x - s76.x, s75.y - s76.y, s75.z - s76.z];
+    this.row = [F(s75.x - s76.x), F(s75.y - s76.y), F(s75.z - s76.z)];
     r.flags = 0;
     this.timer = Math.trunc(S.rand(S.env.ms())) % BOT.FIRST_DELAY_MOD;
     if (this.timer === 0) this.spawn(w, r);
@@ -862,10 +895,10 @@ export class BotNode extends BrpNode {
   spawn(w: World, r: GameRecord) {
     const S = stateOf(w);
     const k = Math.trunc(S.rand(S.env.ms())) % BOT.START_MOD;
-    const f = BOT.START_STEP * k;
+    const f = F(F(BOT.START_STEP) * k);
     const s76 = rec(w, REC.SPAWN_A);
-    const x = s76.x + f * this.row[0], y = s76.y + f * this.row[1], z = s76.z + f * this.row[2];
-    r.setEuler(0, this.yaw, 0, x, y, z);
+    const x = F(s76.x + F(f * this.row[0])), y = F(s76.y + F(f * this.row[1])), z = F(s76.z + F(f * this.row[2]));
+    setEulerF(r, 0, this.yaw, 0, x, y, z);
     this.prev = [x, y, z];
   }
 
@@ -880,12 +913,12 @@ export class BotNode extends BrpNode {
       } else {
         const f: V3 = [r.m[8], r.m[9], r.m[10]];
         this.prev = [r.x, r.y, r.z];
-        const st: V3 = [f[0] * BOT.SPEED, f[1] * BOT.SPEED, f[2] * BOT.SPEED];
-        const nx = st[0] + this.prev[0], ny = st[1] + this.prev[1], nz = st[2] + this.prev[2];
+        const st: V3 = [F(f[0] * BOT.SPEED), F(f[1] * BOT.SPEED), F(f[2] * BOT.SPEED)];
+        const nx = F(st[0] + this.prev[0]), ny = F(st[1] + this.prev[1]), nz = F(st[2] + this.prev[2]);
         r.flags |= 1; r.flags |= 2;
         // Pepper in the way: a ray from 1.6 above the bot along its step
         if (S.knockTimer === 0) {
-          const hit = w.col.rayRecord(pep, [this.prev[0], this.prev[1] + BOT.RAY_UP, this.prev[2]], st, 3, BOT.RAY_RADIUS, BOT.RAY_SKIN);
+          const hit = w.col.rayRecord(pep, [this.prev[0], F(this.prev[1] + BOT.RAY_UP), this.prev[2]], st, 3, BOT.RAY_RADIUS, BOT.RAY_SKIN);
           if (hit) {
             S.knock = 1;
             S.knockDir = [r.m[8], r.m[9], r.m[10]];
@@ -896,29 +929,29 @@ export class BotNode extends BrpNode {
         }
         r.y = ny; r.x = nx; r.z = nz;
         const g = sweep(w, r, [nx, ny + BOT.PROBE_UP, nz], [0, BOT.PROBE_DOWN, 0], ROOF_SWEEP.RADIUS, ROOF_SWEEP.SKIN);
-        if (!g || REC.BOTS.some((i) => g.rec === rec(w, i)) || g.point[1] < this.baseY - BOT.FALL_LIMIT) {
+        if (!g || REC.BOTS.some((i) => g.rec === rec(w, i)) || g.point[1] < F(this.baseY - BOT.FALL_LIMIT)) {
           r.flags = 0; r.flags |= 0x40;
           this.timer = BOT.RESPAWN;
         }
       }
     } else {
-      this.timer -= 1 * w.dt;
+      this.timer = F(this.timer - F(1 * w.dt));
       if (this.timer < 0) this.timer = 0;
       r.flags = 0; r.flags |= 0x40;
     }
     const anim = animOf(r);
-    this.animRes = anim.advance(1.0);
+    this.animRes = anim.advance(1.0, w.dt);
     let f = anim.frame;
     if (15 <= f && f <= 16) S.sfx3(SND.BBFSMETAL[0], posOf(r));
     f = anim.frame;
     if (5 <= f && f <= 6) S.sfx3(SND.BBFSMETAL[1], posOf(r));
     if (this.animRes !== 0) { anim.start(CLIP.BOT_WALK, 0); this.animRes = 0; }
     const frame = Math.trunc(anim.frame);
-    // the per-bot footstep handles alternate 0x246 / 0x247 (DAT_05d5f534 + 4 * (2 bot + 0 / 1)); stage 2 is never left (the result was cleared above, as in the original)
+    // the per-bot footstep handles alternate 0x246 / 0x247 (DAT_05d5f534 + 4 * (2 bot + 0 / 1)): bot 0's are the very handles the generic frame-15 / frame-5 step above uses (voice 0 of each sound), bot n has its own voice n; stage 2 is never left (the result was cleared above, as in the original)
     if (this.stage === 0) {
-      if (4 < frame) { S.sfx3(SND.BBFSMETAL[0], posOf(r), 1 + this.index * 2); this.stage = 1; }
+      if (4 < frame) { S.sfx3(SND.BBFSMETAL[0], posOf(r), this.index); this.stage = 1; }
     } else if (this.stage === 1) {
-      if (0xe < frame) { S.sfx3(SND.BBFSMETAL[1], posOf(r), 2 + this.index * 2); this.stage = 2; }
+      if (0xe < frame) { S.sfx3(SND.BBFSMETAL[1], posOf(r), this.index); this.stage = 2; }
     } else if (this.stage === 2 && this.animRes !== 0) this.stage = 0;
   }
 }
@@ -944,7 +977,7 @@ export class ZoneTopNode extends BrpNode {
     this.door = rec(w, REC.DOOR);
     this.doorSaved.set(this.door.m);
     this.slugs = REC.SLUGS.map((i) => rec(w, i));
-    this.door.setEuler(0, HALF_PI, 0, this.door.x, this.door.y, this.door.z);
+    setEulerF(this.door, 0, HALF_PI, 0, this.door.x, this.door.y, this.door.z);
     S.reset5fc = 0;
     this.period = FLOOR.PERIOD; this.fallLen = FLOOR.FALL_TICKS;
     this.nextRow = 0; this.timer = 0; this.falling = -1; this.fallTicks = -1; this.speed = FLOOR.FALL_START; this.doorTimer = FLOOR.DOOR_TICKS;
@@ -968,17 +1001,22 @@ export class ZoneTopNode extends BrpNode {
         if (this.fallTicks < this.fallLen) {
           // (the original also counts a word at tile + 0x62 down from 8 here; nothing reads it)
           for (const t of this.tiles[this.falling]) t.y -= this.speed;
-          this.speed = this.speed / FLOOR.FALL_GROW + this.speed;
+          this.speed = F(this.speed / FLOOR.FALL_GROW + this.speed);
           this.fallTicks += 1;
         } else {
           for (const t of this.tiles[this.falling]) t.flags = 0;
           this.fallTicks = -1; this.falling = -1;
         }
       }
+      // FUN_00824c80: while a cutscene runs the emitters follow Brickster's bone 10; the cutscene's door variable 2 lights the second flame1, 3 puts all three out
+      if (S.env.cutsceneActive()) { const a = rec(w, REC.BSTR).anim; S.bossBone(w, a?.clip ?? 0, a?.frame ?? 0); }
+      const door = w.vars.get(VAR.DOOR);
+      if (door === 2) S.bossFx([false, false, true]);
+      else if (door === 3) S.bossFx([false, false, false]);
       if (w.vars.get(VAR.DOOR) === 1) {
-        this.doorTimer -= 1 * w.dt;
+        this.doorTimer = F(this.doorTimer - F(1 * w.dt));
         const d = this.door!;
-        d.setEuler(0, this.doorTimer * FLOOR.DOOR_STEP, 0, d.x, d.y, d.z);
+        setEulerF(d, 0, F(this.doorTimer * F(FLOOR.DOOR_STEP)), 0, d.x, d.y, d.z);
         if (this.doorTimer <= 0) { w.vars.set(VAR.DOOR, 0); d.m.set(this.doorSaved); }
       }
     } else {
@@ -1001,7 +1039,7 @@ export class ZoneLoop {
   help2Pending = false;
   /** call after the nodes ran; returns 1 when the banner follows (the result is always a success: FUN_00404d14(&next, exit == 2, 1)) */
   update(w: World, S: BrpState, cutsceneActive = S.env.cutsceneActive()): number {
-    if (!cutsceneActive && S.endState === 0) S.elapsed += 2;
+    if (!cutsceneActive && S.endState === 0) S.elapsed += 2 * w.dt;
     if (w.vars.get(VAR.PHASE) === 2 && !this.help2Done) this.help2Pending = true;
     if (S.endTimer !== 0 && !cutsceneActive) {
       if (S.endTimer === 1) return 1;
@@ -1092,6 +1130,8 @@ export function prepareWorld(w: World, archive: Archive): BrpState {
     const r = w.records[i];
     for (const node of r?.ctrl?.nodes ?? []) (node as unknown as { ensureInit?(w: World, r: GameRecord): void }).ensureInit?.(w, r);
   }
+  // FUN_00820f4e ends with `FUN_0043b6a3(Pepper's animation, 1, 0)` after the attaches: Pepper shows clip 1 until the first update starts the idle clip
+  w.records[REC.PEPP]?.anim?.start(1, 0);
   for (const r of w.records) r.savePrev();
   w.camera.savePrev();
   return S;

@@ -156,3 +156,35 @@ Music: `Z38PAR` (`Asteroids.sgt`, the same as z38PAR / z40aPO; started by the sh
 
 The island hands over to this zone by completing story node 61 (var 284 = 2, the hub's F9 aid in the stub): the story moves to node 62 and `frame()` returns 6. The zone leaves with `story.miniGameExit(true, true)` (success, node 63 = z40aPO) or rewinds to the island.
 Variables the island / information centre read: 0x29 (best score, `SWITCH_GME_HISCORE_ASB`) and 0x44 (trophy 0..3, `SWITCH_GME_TROPHY_ASB`); both are only raised. Var 0x102 is a scratch variable of the zone (medal index of the last run).
+
+## Differential test (WP-VERIFY)
+
+`node tools/test-formats.mjs --only m7-z39ASB-emu` (tools/tests/m7-z39ASB-emu.mjs + tools/lib/m7-z39ASB-emu.mjs on tools/lib/m7-zone-emu.mjs; about 15 M checks, 17 s; `ASB_FULL=1` runs every scenario at both dt):
+the ORIGINAL's shuttle node runs in the x86 emulation next to `AsteroidBelt` + `BeltSound`: constructor `FUN_007b96a0` (with the star table `FUN_007b780c` and the asteroid layout `FUN_007b9917`, both drawing the original's own
+`rand()` values), update `FUN_007b82dd` (state machine, controls incl. the pad axes, hull / score, camera, HUD values) with the hit test `FUN_007b7f68`, the asteroid motion `FUN_007b91b9`, the thrust / gyro pitch `FUN_007b6f1f` /
+`FUN_007b6de3`, the draw hook `FUN_007b9434` / `FUN_007b959c`, the end of a run `FUN_007b7e9a` and the banner frame `FUN_007b61a4`. Same buttons / axes and the same random numbers (the port's rng is fed the C `rand()` values 0..32767
+that the host hands the original: the hit-sound choices of the original scale `rand()` with `GetTickCount` (`ftol(FUN_004388ae(tick)) & 1`, `% 3`): the host returns the raw `rand()` for those calls, so the port's `rng.next() & 1` is compared
+like for like; the stars' 100 rand() values before the layout are skipped on the port side). Compared tick by tick: the node's fields (+0x18 .. +0x2d8), SHUT / HULL / 235 asteroid records (matrix, Euler, frustum / enabled bits),
+the camera, the HUD globals (gauge, score text, frame tint, hit-icon tints), result / game variables, the engine pitch counters, the pitch each loop ends the tick with and every sound / speech call (as a multiset per tick: the port plays the
+state loops after the whole update, the original inside it). dt is a parameter of both sides (M7 gave `AsteroidBelt.update(inp, dt)` and the `EngineModel` steps their dt). Scenarios (dt 1 and 0.5): a dodging bot flies the whole course
+(win, 2442 ticks at dt 1, 4887 at dt 0.5, same z and about the same score), idle (five hits, failure), a dodging bot that burns fuel until the hull is empty, random keys, pad-stick input; `FUN_007b7e9a` over 420 cases (scores around
+5000 / 7000 x stored hiscore x stored trophy) and `FUN_007b61a4` over 24 cases (result x medal x trophy: the trophy raise and the lines drawn at y 100 / 150 / 200).
+
+Deviations found and FIXED in the port (`belt.ts`, `sound.ts`, `game.ts`):
+* the switch from the fly-in to the flight clears SHUT's enabled bit for that tick (`flags &= 0xfffd` in `FUN_007b82dd` case 0); `SHUT.flags |= 3` is the START of the update, not part of the draw state (tools/tests/m3-z39ASB.mjs asserted the old order).
+* dt: the node had no dt at all; the original scales 27 places by `DAT_008b1718` (`FUN_007b82dd` x20, `FUN_007b91b9` x5, the loop's fade x2) and the engine counters `FUN_007b6f1f` / `FUN_007b6de3` by `ftol(counter +- step * dt)`
+  (steps 245 / 98 / 270 / 200; the decompile hides these expressions behind `__ftol()`), the tilt decay by 0.0052360 * dt. All scaled now; `ShuttleNode` / the zone game pass `world.dt`.
+* engine pitch: `FUN_007b6f1f` sets the thrust pitch to `spool + 0x5622` WITHOUT the steering drop, `FUN_007b6de3` to `spool + 0x5622 - drop`, and only the calls that change a counter set anything; the port set `spool + 0x5622 - drop` every tick
+  (the drop kept lowering the pitch after the steering stopped and in the end states). `EngineModel.thrustHz / gyroHz` are the last values set; `BeltSound.tick` sets the thrust pitch in every state.
+* float32 stores of the stick path (`dx`, the tilt accumulators `+0x2a8 / +0x2ac / +0x2b4`): drifted by about 2e-6 per 16 ticks of full stick.
+
+Recorded, not changed: the port logs no `rate` call when nothing changed (the original does not either), but plays / stops the alarm and miss sounds as the groups they are (one `warnEnd` event = the four stops the original makes one by one);
+a loop stopped twice in the same tick (the gyro by both `FUN_007b6f1f(0)` calls of the tick the run ends) is stopped once by the port. The random sound choices still use `rand()` where the original multiplies with the tick count (same distribution,
+cannot be reproduced). The constructor also draws 100 values for the star table before the layout (not ported: nothing reads the table), so a seeded layout differs from the original's by that offset only.
+
+## WP-PART-WIRE / WP-MINI (2026-10-29)
+
+* The three exhaust emitters are wired exactly (`createAsbGame`, `ASB_EXHAUST`): `FUN_007b780c` (first call, `DAT_008adc74 == -1`) starts `rocket01.par` x 3 (0x7b7920 / 54 / 88) on the SHUT record's live matrix (record 1, 0x74) at (0, 4.08, 0) / (1.44, 1.65, 0) / (-1.44, 1.65, 0), rotation 0, gate (2, 1, 1) = on; `FUN_007b82dd` (`AsteroidBelt.fxGate`): off when the fly-in ends (0x7b857c.., state 0 -> 1) and on every tick of the states 3 / 4 / 5 (0x7b8e4d.. / 0x7b8f3c..). `FUN_007b60e8` (start of the play loop) also switches them on: no change (they are on until the fly-in ends). The `DAT_008adc74 == 0` branch of `FUN_007b780c` (a restart in place: gates on + `FUN_0044ec30` = kill every source) is the port's restart (re-enters the zone: fresh engine, same state).
+* `starfield.par` (the archive's file; first line `starfield`) is never started: no string reference and no call in the executable. The star field is the backdrop quad (`Backdrop`). Closed.
+* Verified: `m8-wire-z39ASB` (names, offsets, gate sequence of a success and a failure run), `m7-z39ASB-emu` (14.9 M checks) and `m3-z39ASB` unchanged.
+* Visible behaviour (headless run `tools/steps/m8-asb-fx.mjs`): 386 exhaust particles listed during the fly-in (state 0: one saturated white / yellow additive cloud behind the shuttle), none in the controlled flight (the gates are off from the end of the fly-in), on again in the end states. Not compared with a reference video.

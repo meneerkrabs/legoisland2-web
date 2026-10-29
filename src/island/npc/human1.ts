@@ -8,7 +8,7 @@
 //   FUN_004bdc90  a car (records 165..168, 172 with the 0x20000000 bit of their head var) 4 units ahead                          -> carAhead
 // The walker is the controller's (created by the SGMFIG constructor on the same record, map PATH). The node returns 1 (stops the chain).
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
-import { NODE_STOP } from '../../game/controller.ts';
+import { NODE_NONE, NODE_STOP } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
 import { RF_ENABLED } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
@@ -16,9 +16,11 @@ import { waypoints, STATUS_ROUTE } from '../../game/walker.ts';
 import type { StepOut } from '../../game/walker.ts';
 import type { Pe } from '../../formats/exe.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
+import { ad, sb, ml, fr, fromBits } from '../../zones/common/f32.ts';
+import { rand, randTrunc } from '../rng.ts';
 import { ArgView } from '../args.ts';
 import { tryCtx } from '../ctx.ts';
-import { actionVarOp, ctrlExtra, inView, pepperSide, probeSet, runProbe } from './globals.ts';
+import { nextSeq, actionVarOp, ctrlExtra, inView, pepperSide, probeSet } from './globals.ts';
 
 export const CTOR_HUMAN1 = 0x4bec00;
 
@@ -28,17 +30,19 @@ const RANDOM_NODES_DEFAULT = [[26, 31, 96, 99, 307, 345], [44, 46, 47, 113, 119,
 /** default walk / idle clip (0x78) */
 const CLIP_DEFAULT = 0x78;
 /** the hop over a walker (clip 0x116, 10 degrees of the arc per tick up to 90, 6 units high: _DAT_0089211c / _DAT_00892554 / _DAT_0089228c) */
-const CLIP_HOP = 0x116, HOP_STEP = 0.174532, HOP_MAX = 1.5707964, HOP_HEIGHT = 6;
+const CLIP_HOP = 0x116, HOP_STEP = fromBits(0x3e32b884), HOP_MAX = fromBits(0x3fc90f94), HOP_HEIGHT = 6;
 /** stop for Pepper: in front (80 degrees, 0x3fb2b884) within 2.4 (0x4019999a, compared with the squared distance) */
-const PEP_STOP_R2 = 2.4, PEP_STOP_CONE = 1.39626;
+const PEP_STOP_R2 = fromBits(0x4019999a), PEP_STOP_CONE = fromBits(0x3fb2b884);
 /** the wait after a stop (0x41f00000) */
 const STOP_WAIT = 30;
 /** out of the island: back to PATH node 164 (|x| > 600, |y| > 300, |z| > 600) */
 const LOST_XZ = 600, LOST_Y = 300, LOST_NODE = 0xa4;
 /** _DAT_00892284: moving at all */
-const MOVE_EPS = 0.0001;
+const MOVE_EPS = fromBits(0x38d1b717);
 /** FUN_00427014(ctrl, (0, sin(hop) * 6, 0), (0, -16, 0), 0x41, 0x110): the ground probe while hopping */
 const HOP_PROBE_MASK = 0x41, HOP_PROBE_FLAGS = 0x110;
+/** the debug heap / stack fill 0xcccccccc read as a float (a local of the original that is not written on one path) */
+const UNSET_F = -107374176.0;
 /** the cars FUN_004b6475 lists at DAT_05d58648 (record offsets 0x43d8, 0x4370, 0x4648, 0x4440, 0x44a8) */
 export const CAR_RECORDS = [166, 165, 172, 167, 168];
 
@@ -69,6 +73,7 @@ export function readRandomNodes(pe: Pe | undefined): number[][] {
 
 export class Human1Node implements BehaviourNode {
   readonly kind = 'Human1';
+  /** attach order */ readonly seq = nextSeq();
   var = 0; mask = 0; value = 0;
   stamp = 0xfffffffe;
   readonly args: Human1Args;
@@ -94,7 +99,7 @@ export class Human1Node implements BehaviourNode {
     this.idleClip = this.args.idleClip;
     this.walkClip = rec.anim ? this.args.walkClip : -1;
     this.speed = waypoints.get(ctrl.walker)?.speed ?? 0;
-    if (0 < this.args.speedScale) this.speed *= this.args.speedScale;
+    if (0 < this.args.speedScale) this.speed = fr(this.speed * this.args.speedScale);
   }
 
   private get count() { return this.args.count; }
@@ -104,7 +109,6 @@ export class Human1Node implements BehaviourNode {
   update(w: World, rec: GameRecord, ctrl: Controller): number {
     if (!this.inited) this.init(w, rec, ctrl);
     const h = ctrl.walker;
-    if (!h || !waypoints.get(h)) return NODE_STOP;
     const ranLast = this.stamp === w.frame;
     if (this.wait <= 0) {
       if (LOST_XZ < Math.abs(rec.x) || LOST_Y < Math.abs(rec.y) || LOST_XZ < Math.abs(rec.z)) waypoints.setNode(h, LOST_NODE, rec);
@@ -146,22 +150,24 @@ export class Human1Node implements BehaviourNode {
       // the hop over the walker ahead (clip 0x116, up and down along sin)
       if (this.hopping === 0) {
         if (0 < this.hop) {
-          this.hop -= HOP_STEP * w.dt;
+          this.hop = sb(this.hop, ml(HOP_STEP, fr(w.dt)));
           if (this.hop < 0) { this.hop = 0; if (this.walkClip >= 0) rec.anim?.start(this.walkClip, 0); }
-          probeSet(ctrl, [0, Math.sin(this.hop) * HOP_HEIGHT, 0], [0, -16, 0], HOP_PROBE_MASK, HOP_PROBE_FLAGS);   // the original's segment is uninitialised here
+          // the original passes `&local_48`, a local of FUN_004be20f that only the rising branch below assigns: here it still holds the debug stack fill 0xcccccccc (float -1.0737418e8)
+          probeSet(ctrl, [0, fr(Math.sin(this.hop) * HOP_HEIGHT), 0], [UNSET_F, UNSET_F, UNSET_F], HOP_PROBE_MASK, HOP_PROBE_FLAGS);
         }
       } else {
         if (HOP_MAX <= this.hop) this.hopping = 0;
         else {
           if (rec.anim && rec.anim.clip !== CLIP_HOP) rec.anim.start(CLIP_HOP, 0);
-          this.hop += HOP_STEP * w.dt;
+          this.hop = ad(ml(HOP_STEP, fr(w.dt)), this.hop);
           if (HOP_MAX <= this.hop) { this.hop = HOP_MAX; this.hopping = 0; }
         }
-        probeSet(ctrl, [0, Math.sin(this.hop) * HOP_HEIGHT, 0], [0, -16, 0], HOP_PROBE_MASK, HOP_PROBE_FLAGS);
+        probeSet(ctrl, [0, fr(Math.sin(this.hop) * HOP_HEIGHT), 0], [0, -16, 0], HOP_PROBE_MASK, HOP_PROBE_FLAGS);
       }
       if (res === -1 && this.count === 1) {
         this.due = this.index;
         this.action(w, rec);
+        return NODE_NONE;   // M5 (z07CSI worker): asm 0x4be7f8 `xor eax, eax; jmp 0x4beadd` = this path returns 0 (not "ran": the chain goes on to the next nodes); every other path returns 1
       } else {
         ctrlExtra(ctrl).f14 |= 0x10;               // FUN_00427000: the ground probe of the SGMFIG node may run
         if (playIdle) rec.anim?.start(this.idleClip, 0);
@@ -190,13 +196,11 @@ export class Human1Node implements BehaviourNode {
         } else if (this.walkClip >= 0 && rec.anim && rec.anim.clip !== this.walkClip) this.restartClip = 2;
       }
     } else {
-      this.wait -= w.dt;
+      this.wait = sb(this.wait, ml(1, fr(w.dt)));
       if (rec.anim) { rec.anim.advance(1, w.dt); if (this.wait <= 0) this.restartClip = 2; }
     }
     return NODE_STOP;
   }
-
-  prerender(w: World, rec: GameRecord, ctrl: Controller) { runProbe(w, rec, ctrl); }
 
   /** FUN_004bdea9(count, walker, blocked): the next goal of a random route */
   private pickGoal(h: number, blocked: number): number {
@@ -215,12 +219,12 @@ export class Human1Node implements BehaviourNode {
         t = t === 0 ? 1 : 0;
       }
     }
-    const rnd = (x: number) => Math.trunc(Math.random() * x);     // FUN_004388ae + __ftol
+    const rnd = (x: number) => randTrunc(x);     // FUN_004388ae + __ftol
     if (code === -1) return rnd(waypoints.mapCount(wk.map));
     const i = rnd(6);
     if (code === -2) return this.random[0][i];
     if (code === -3) return this.random[1][i];
-    if (code === -4 || code === -5) return Math.random() * 10 < 5 ? this.random[0][i] : this.random[1][i];
+    if (code === -4 || code === -5) return rand(10) < 5 ? this.random[0][i] : this.random[1][i];
     return rnd(waypoints.mapCount(wk.map));
   }
 
@@ -251,7 +255,7 @@ export class Human1Node implements BehaviourNode {
 
   /** FUN_004bdc90: a driving car (its head node's var has 0x20000000) within the ray (x, y + 2, z) + forward * 4 */
   private carAhead(w: World, rec: GameRecord): boolean {
-    const from = [rec.x, rec.y + 2, rec.z], d = [rec.fx * 4, rec.fy * 4, rec.fz * 4];
+    const from = [rec.x, ad(rec.y, 2), rec.z], d = [ml(rec.fx, 4), ml(rec.fy, 4), ml(rec.fz, 4)];
     for (const i of CAR_RECORDS) {
       const car = w.records[i];
       if (!car || car === rec || !car.ctrl) continue;

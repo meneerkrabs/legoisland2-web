@@ -118,3 +118,34 @@ bunnies within 45 of home and on the terrain while hopping, butterflies within r
 point, PORA spins; Shift startles a bunny (sound 0x103), five pokes give the score; a butterfly follows Pepper; BML1's var counts on after 300 ticks (sound 0x364);
 Music: LGIBirds + Z02LGIT far away, each building's segment within 40, back to LGIT, notification -> LGIM and back, node 0x38 radio; director: cue values 1 / 4 / 8,
 windows 1 -> 2 -> 3 -> 0, wormhole scale-in / hide, jail door, rotor speed, rockets on / off, FX_SWITCH11 collision.
+
+## Differential test (WP-VERIFY): ambient nodes against the original's code
+
+> Status after WP-ISLAND-FIX: every KNOWN DEVIATION named in this section is fixed in the port and the test runs at tolerance 0 without the filters (`docs/re/gaps.md`, "Deviations FIXED by WP-ISLAND-FIX"); the sentences below describe the state when the deviation was found.
+
+Tests `m7-isl-veh-ambient`, `m7-isl-veh-swift`, `m7-isl-veh-brikimal`, `m7-isl-veh-music`, `m7-isl-veh-bots` (`tools/tests/`; helpers `tools/lib/m7-isl-veh-ambient.mjs` + `m7-isl-veh-ambient-sc.mjs`, on top of the island emulation
+`tools/lib/m7-isl-veh-emu.mjs`). The ORIGINAL's constructors (run through the original's own attach `FUN_00423532`), the update pass `FUN_0042226e`, the pre-render pass `FUN_004225c5`, the draw pass `FUN_0042271b` and the nodes'
+code run natively (x87 at 24 bit, `cpu.cw = 0x7f`) next to the port's nodes with the same scripted Pepper position / buttons, at dt 1 and dt 0.5 (free-running, with the graze guard) and in sync mode (the original's continuous
+state is copied into the port before each tick; tolerances 5e-6 relative). Random numbers: `FUN_004388ae` runs natively on a scripted CRT `rand()` (0x85daf0); the port's `rand` gets the same 15-bit integers
+(`setAmbientRandom`): the number and order of the draws of every tick are compared. The engine services are hosted and logged (not the subject): game variables, collision / terrain ray, animation instances (the port's `AnimInstance`),
+audio (Music: `FUN_00443290 / 004432c0 / 00443310 / 004431e0 / 00873e00 / 00443370`), emitters, expressions. Everything of `src/island/ambient/**` except the bunnies (NPC oracle `m7-isl-npc-emu`) is covered:
+
+| test | node | compared per tick | checks |
+|---|---|---|---|
+| `m7-isl-veh-ambient` | Butterfly (BFS0-9, BFG0-9) 0x4b2d44: update + pre-render, Shift follow / release, 200 ticks out of view; Spin (PORA / PORS); SeaAmin (SEAE phase / scroll); Sound3d (HSE2) | records (matrix, Euler, flags), node block (flap, flapState, cnt, cnt2, vy, off, follow, speed, shiftT; axis, rate; phase), all vars, sounds, rand draws | 8.3 M |
+| `m7-isl-veh-swift` | SwiftLeader 0x4b31db + Swift 0x4b3a92 (SFT0-9): **the original's spline engine (SplineBase.cpp 0x445000.., `FUN_0043ecd0` on the archive's swift.man) runs natively** | records, leader t / state / target, follower cnt / dyaw / dpitch / timer, clip / frame (rig SWFT), sound 0xfd at SFT9, rand draws; `spline(t)` = the port's `BSpline` at the original's t against the native evaluation | 4.8 M |
+| `m7-isl-veh-brikimal` | Brikimal (BML1 / BML3) 0x4bd4a8: the 8 shapes of both animals, 300 tick counter, Enter within 16, waiting within 4.8 | record pose, node block (timers, phase, toggles, morph matrix 16 floats), var (shape), morph sound, rand draws | 3.6 M |
+| `m7-isl-veh-music` | Music 0x4bc773 on PEPP for the story nodes 2 / 10 / 30 / 52 / 61 (dt 1, and 2 at dt 0.5) | every audio call (key, groove, ambience, mute) incl. the constructor's, node block (mode, building, main, groove, last, sub, flag, timer), vars | 3.3 M |
+| `m7-isl-veh-bots` | BOTMUSIC (10 bots) 0x536e16 + GETO 0x536961, story node 52 (+ var 0x58 = 0x37 .. 0x3d) | bot records, clip / frame (clip 0xfa, rate), node timer, emitter matrix, music01 emitter calls (gate / matrix / parameters), expression calls, mute calls, vars | 12.3 M |
+
+Coverage printed in the notes: butterflies follow Pepper (15 k ticks), reset after 200 ticks out of view (4.4 k), 162 Shift presses; all 8 Brikimal shapes; 111 music calls over the town / bot / radio modes (every building segment, LGIM <->
+LGIT on notifications, grooves -2 / -1 / 0); bots dancing (170 k bot-ticks), blaster shown / hidden. **Result: the port is exact (float32 noise only: worst 1.8e-4 on butterfly matrices at |coordinate| ~ 500, 6e-5 spline
+evaluation on |p| ~ 300) except the KNOWN DEVIATIONS below.**
+
+* **GETO (the ghetto blaster, `FUN_005366b0`) returns 0 when it is hidden** (`xor eax, eax` at 0x5366f7: story node < 0x38 or >= 0x3d) and 1 (0x5367a6) when it shows. The pre-render pass runs a node's hooks only if its update returned 1 / 2
+  (`FUN_004225c5`, `ctrl[2]` ran bits), so while the blaster is hidden the original runs neither its pre-render `FUN_005367b9` (the music mute) nor the draw hook `FUN_00536806` (matrix at Pepper's bone 16, `flags | 3`). The port's `GhettoNode.update`
+  returns 1 on both paths: **in the whole of era 3 before story node 0x38 (nodes 52 .. 55) the blaster record is visible at Pepper's hand (flags 0x13 instead of 0x10, matrix = scaled pose) and the music is muted every tick unless a bot dances**
+  (`ctx.musicMute(true)`); one tick after it shows, the original still sees the stale dance flag DAT_05d586d4 (`mute 0`), the port `mute 1`. Fix: `return 0` in the hide path of `GhettoNode.update` (misc.ts); counted by the test as
+  `geto-hidden-prerender` (16 k ticks) / `geto-stale-dance-flag`.
+* Documentation: "Music ... `FUN_004432c0(0)`: nothing" is right (`if (param_1 != 0)` in the decompile of 0x4432c0); the SOUND players differ: `FUN_004435a0(0)` plays slot 0 (see the skateboard section of wp6-vehicles.md).
+* Not reachable on the island and so not run: the bats' mode 1 of the swift leader (perch, `FUN_0043b874` end-of-clip), `Spin` field +0x16 (never set), Brikimal kind 2 (the swimmer, not attached).

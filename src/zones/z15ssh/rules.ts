@@ -6,6 +6,7 @@
 //   `Snake`  constructor FUN_0065a3c3 on the records SNK1..3 (4, 5, 6): an inert node (the state lives in the buggy's node); the snakes are drawn at scale 0.75
 // The original keeps the state in the node struct (offsets in the comments: `p+0x..`) and a few globals (DAT_05d5bcdc the result, DAT_05d5bd48 the final score).
 import { NODE_STOP, NODE_CONTINUE } from '../../game/controller.ts';
+import { restoreHooks } from '../../restore/flag.ts';
 import type { BehaviourNode } from '../../game/controller.ts';
 import { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
@@ -15,7 +16,11 @@ import type { Blk } from '../../formats/anim.ts';
 import { PathSpline, atPathEnd } from './spline.ts';
 import type { PathFrame } from './spline.ts';
 import { PartStore, then, rotate, rotation, setEulerPos } from './parts.ts';
+import { ad, sb, ml, dv, sq } from '../common/f32.ts';
+import { transformPoint } from '../common/matrix.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
+import { GATE_OFF, NO_HANDLE } from '../../fx/particles/zone.ts';
+import type { ZoneParticles } from '../../fx/particles/zone.ts';
 
 /** constructor addresses in the EXE (the `ctor` of the set-up's attaches, docs/re/zone-setup.md) */
 export const CTOR_CART = 0x659d94, CTOR_SNAKE = 0x65a3c3;
@@ -23,6 +28,14 @@ export const CTOR_CART = 0x659d94, CTOR_SNAKE = 0x65a3c3;
 /** the 32-bit float of a hex literal of the code stream (the decompile shows floats as hex ints) */
 export const hexf = (u: number): number => { const d = new DataView(new ArrayBuffer(4)); d.setUint32(0, u >>> 0, true); return d.getFloat32(0, true); };
 export const f32 = Math.fround;
+const fr = Math.fround;
+/**
+ * `__ftol` (FUN_0085c920): truncate to a 64-bit integer (fistp qword) and return its low 32 bits; a value outside +-2^63 (or NaN) gives the 'integer indefinite'
+ * 0x8000000000000000, i.e. 0. The hit test of the coconuts depends on it: a snake at y = 4.29e9 (see `updateSnakes`) has a squared distance of 1.8e19 -> 0 < 40 = a hit.
+ */
+export const ftol = (x: number): number => { const t = Math.trunc(x); return Math.abs(t) < 2 ** 63 ? Number(BigInt.asIntN(32, BigInt(t))) : 0; };
+/** DAT_008adbfc: the least height of the camera above the buggy (6.4 as a float32) */
+const CAM_MIN_ABOVE = hexf(0x40cccccd);
 
 /** record indices (byte offset / 0x68 of the builder FUN_0065a5c0 / the constructors); the names are checked at run time (`checkRecords`) */
 export const REC = {
@@ -71,7 +84,7 @@ export const K = {
   /** _DAT_00892748: the ride ends when the buggy passes z = 7000 (or the end of the path, `FUN_00447800`) */
   END_Z: 7000,
   /** FUN_00658c16's move: position += forward * speed * 8 (_DAT_00892090) * 0.2 (_DAT_008920f0) * dt, the forward vector of length 8 (the literal 0x41000000) */
-  MOVE_LEN: 8, MOVE_K: f32(8 * hexf(0x3e4ccccd)),
+  MOVE_LEN: 8, POINT_TWO: hexf(0x3e4ccccd),
   /** the ground follow: probe from y + 15 (_DAT_00892074) with 2.0 above it, else from y with 80.0 (0x42a00000); a rise above 0.8 (_DAT_00892084) is probed again from y */
   PROBE_UP: 15, PROBE_DY: 2, PROBE_DY_FAR: 80, MAX_RISE: hexf(0x3f4ccccd),
   /** the start parameter of the buggy on the CARBUT path (0x3ca3d70a); the snakes' (0x3a83126f on CARBUT, 0x3b449ba6 on SNAKEPOSL, 0 on SNAKEPOSR); the carts' (0, 0x3b83126f, 0x3be56042 on cartpos1) */
@@ -79,6 +92,8 @@ export const K = {
   /** the camera: the target 16 (_DAT_0091c728) behind the buggy, the eye 32 (_DAT_0091c72c) further on, 5 (_DAT_0091c730) above the target; the easing of the yaw 1 / 8 (_DAT_00892090) */
   CAM_BACK: 16, CAM_SPAN: 32, CAM_UP: 5, YAW_EASE: 8, CAM_GROUND: 4, CAM_LIFT: 6,
   /** snakes: spawn wait 3 * (10 - (variant >> 16) / 100) ticks (+0x64 of the buggy's record), speed + 0.1 (_DAT_008920cc) over the buggy, the jump starts when the buggy is within 24 (_DAT_008921a4) ahead of it (z), lateral offsets 0 / -2.4 / +2.4 */
+  /** _DAT_0089274c (42.0): the attack's homing divides the remaining distance by ftol(42 - frame) */
+  ATTACK_REF: 42,
   SPAWN_PER: 3, SNAKE_FASTER: f32(0.1), JUMP_Z: 24, LATERAL: [0, -2.4, 2.4] as readonly number[], SNAKE_PROBE: 8, SNAKE_SCALE: hexf(0x3f400000),
   /** coconuts: 15 slots of 0x54 bytes at +0x64, speed -1.5679 (0xbfc8b439) along the gun's forward, life 500 time units, the time runs 8 per tick, a hit sphere of squared radius 40 (0x28), 50 points, the reload 6 ticks (_DAT_0089228c), the drawn scale 1.5 (0x3fc00000) */
   COCONUTS: 15, COCO_SPEED: hexf(0xbfc8b439), COCO_LIFE: 500, TIME_STEP: 8, HIT_R2: 40, HIT_SCORE: 50, RELOAD: 6, COCO_SCALE: hexf(0x3fc00000),
@@ -143,6 +158,7 @@ export interface SshSounds {
 }
 export const silentSounds: SshSounds = { play() {}, stop() {}, rate() {}, volume() {}, play3D() {}, stop3D() {} };
 export interface SshRng { int(n: number): number }
+// RNG: the default source (the original's rand()); the tests inject a seeded one (`SshBinding.rng`)
 export const mathRng: SshRng = { int: (n) => Math.floor(Math.random() * n) };
 
 /** one flying coconut: 0x54 bytes at p+0x64 + 0x54 k: the matrix (position at +0x30), the velocity +0x40, the birth time +0x4c, the flag +0x50 */
@@ -183,6 +199,9 @@ function scaleRows(m: Float32Array, s: number) {
   }
 }
 
+/** the step of the buggy / carts / snakes: ((v * 8) * 0.2) * dt, three float32 results (asm 0x6592a9: fmul 0x892090, 0x8920f0, DAT_008b1718) */
+const stepOf = (v: number, dt: number) => ml(ml(ml(v, K.MOVE_LEN), K.POINT_TWO), dt);
+
 const frame: PathFrame = { pos: [0, 0, 0], right: [0, 0, 0], up: [0, 0, 0], fwd: [0, 0, 0] };
 
 /** FUN_00445680(path, t, 0, rec + 0xc, 1): the record's matrix from the curve at t (rows and position, the fourth column zero) */
@@ -203,8 +222,8 @@ export function orientOnPath(rec: GameRecord, path: PathSpline) {
   m[0] = frame.right[0]; m[1] = frame.right[1]; m[2] = frame.right[2]; m[3] = 0;
   m[4] = frame.up[0]; m[5] = frame.up[1]; m[6] = frame.up[2]; m[7] = 0;
   m[8] = frame.fwd[0]; m[9] = frame.fwd[1]; m[10] = frame.fwd[2]; m[11] = 0;
-  rec.ry = Math.atan2(m[8], m[10]);
-  rec.rx = Math.atan2(-m[9], Math.sqrt(m[8] * m[8] + m[10] * m[10]));
+  rec.ry = fr(Math.atan2(m[8], m[10]));                                  // float32 stores (+0x50 / +0x4c)
+  rec.rx = fr(Math.atan2(-m[9], sq(ad(ml(m[8], m[8]), ml(m[10], m[10])))));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -242,6 +261,19 @@ export class CartNode implements BehaviourNode {
   private rng: SshRng = mathRng;
   private rec: readonly GameRecord[] = [];
   bound = false;
+
+  /** +0x588 / +0x58c: the two `trexfeet` dust emitters at the rear wheels (FUN_00659d94) and the zone's particle engine (null in node tests without one) */
+  fx: ZoneParticles | null = null;
+  feet: [number, number] = [NO_HANDLE, NO_HANDLE];
+  /** the constructor's FUN_00442960 calls (first run only): the buggy's matrix is the parent, offsets (1.705, 1.237, 0.0408) and (-1.756, 1.2528, 0.016), rotation 0, gate off, then switched off again */
+  startFx(fx: ZoneParticles, rec: GameRecord) {
+    this.fx = fx;
+    this.feet = [
+      fx.start('trexfeet', rec.m, [hexf(0x3fda3d71), hexf(0x3f9e5604), hexf(0x3d27ef9e)], [0, 0, 0], GATE_OFF),
+      fx.start('trexfeet', rec.m, [hexf(0xbfe0e560), hexf(0x3fa020c5), hexf(0x3c83126f)], [0, 0, 0], GATE_OFF),
+    ];
+    fx.off(this.feet[0]); fx.off(this.feet[1]);
+  }
 
   /** the constructor FUN_00659d94 plus what the loader FUN_0066f47d and the zone init FUN_0065760c leave behind: rigs, start places, clips, initial values */
   bind(b: SshBinding) {
@@ -304,10 +336,11 @@ export class CartNode implements BehaviourNode {
     if (!this.bound || !this.b) return NODE_CONTINUE;      // not bound by the zone game (a stub world): inert
     const b = this.b, dt = w.dt;
     this.ticks++;
-    // (the dust emitters p+0x588 / p+0x58c, `trexfeet.par` at the rear wheels, FUN_00442a20(emitter, 2, 1, 1): particles are not drawn)
+    // the dust emitters p+0x588 / p+0x58c at the rear wheels: FUN_00442a20(emitter, 2, 1, 1) at the start of every update
+    this.fx?.on(this.feet[0]); this.fx?.on(this.feet[1]);
     // the wheels: all four turn by speed * 0.05236 each (the add sits inside the loop of the original)
     for (let i = 0; i < 4; i++) {
-      this.wheel = f32(K.WHEEL_K * this.speed + this.wheel);
+      this.wheel = ad(ml(K.WHEEL_K, this.speed), this.wheel);
       const p = b.parts.get(rec, i);
       if (p) setEulerPos(p, this.wheel, 0, 0, p[12], p[13], p[14]);
     }
@@ -315,7 +348,7 @@ export class CartNode implements BehaviourNode {
     const finished = atPathEnd(b.paths.cart, rec.x, rec.y, rec.z) || rec.z > K.END_Z;
     if (finished) {
       this.snd.rate(SND.WIND, 0x7a80);
-      this.speed = f32(this.speed - K.ACCEL * dt);
+      this.speed = sb(this.speed, ml(K.ACCEL, dt));
       if (this.speed < 0) this.speed = 0;
       if (this.speed > 0) this.result = 0;
       else {
@@ -327,15 +360,15 @@ export class CartNode implements BehaviourNode {
     } else {
       this.engineSounds(rec);
       if (this.maxSpeed <= this.speed) this.speed = this.maxSpeed;
-      else this.speed = f32(K.ACCEL * dt + this.speed);
+      else this.speed = ad(ml(K.ACCEL, dt), this.speed);
     }
     // the turret: the arrow keys held turn it (2 degrees per tick), with the swivel / tilt sounds
     const held = w.input.held;
     let moved = false;
-    if (held & 1) { this.aimYaw = f32(this.aimYaw - K.AIM_STEP * dt); this.snd.play(SND.GUN_SWIVEL); moved = true; }
-    if (held & 2) { this.aimYaw = f32(K.AIM_STEP * dt + this.aimYaw); this.snd.play(SND.GUN_SWIVEL); moved = true; }
-    if (held & 8) { this.aimPitch = f32(this.aimPitch - K.AIM_STEP * dt); this.snd.stop(SND.GUN_SWIVEL); this.snd.play(SND.GUN_TILT); moved = true; }
-    if (held & 4) { this.aimPitch = f32(K.AIM_STEP * dt + this.aimPitch); this.snd.stop(SND.GUN_SWIVEL); this.snd.play(SND.GUN_TILT); moved = true; }
+    if (held & 1) { this.aimYaw = sb(this.aimYaw, ml(K.AIM_STEP, dt)); this.snd.play(SND.GUN_SWIVEL); moved = true; }
+    if (held & 2) { this.aimYaw = ad(ml(K.AIM_STEP, dt), this.aimYaw); this.snd.play(SND.GUN_SWIVEL); moved = true; }
+    if (held & 8) { this.aimPitch = sb(this.aimPitch, ml(K.AIM_STEP, dt)); this.snd.stop(SND.GUN_SWIVEL); this.snd.play(SND.GUN_TILT); moved = true; }
+    if (held & 4) { this.aimPitch = ad(ml(K.AIM_STEP, dt), this.aimPitch); this.snd.stop(SND.GUN_SWIVEL); this.snd.play(SND.GUN_TILT); moved = true; }
     if (!moved) { this.snd.stop(SND.GUN_SWIVEL); this.snd.stop(SND.GUN_TILT); }
     if (this.aimPitch < K.PITCH_MIN) this.aimPitch = K.PITCH_MIN;
     if (K.PITCH_MAX < this.aimPitch) this.aimPitch = K.PITCH_MAX;
@@ -353,25 +386,25 @@ export class CartNode implements BehaviourNode {
     this.yaw = rec.ry;
     const rot = rotation(0, this.yaw, 0);
     const v = rotate(rot, [0, 0, K.MOVE_LEN]);
-    const vx = v[0] * this.speed, vz = v[2] * this.speed;
-    rec.x += vx * K.MOVE_K * dt;
-    rec.z += vz * K.MOVE_K * dt;
-    let gy = w.col.terrainHeight(rec.x, rec.y + K.PROBE_UP, rec.z, K.PROBE_DY);
+    const vx = fr(v[0] * this.speed), vz = fr(v[2] * this.speed);          // float32 stores (0x659... local_58[0] / [2])
+    rec.x += stepOf(vx, dt);
+    rec.z += stepOf(vz, dt);
+    let gy = w.col.terrainHeight(rec.x, ad(rec.y, K.PROBE_UP), rec.z, K.PROBE_DY);
     if (gy === NO_GROUND) {
       gy = w.col.terrainHeight(rec.x, rec.y, rec.z, K.PROBE_DY_FAR);
       if (gy === NO_GROUND) gy = rec.y;
     }
-    if (K.MAX_RISE < gy - rec.y) {
+    if (K.MAX_RISE < sb(gy, rec.y)) {
       gy = w.col.terrainHeight(rec.x, rec.y, rec.z, K.PROBE_DY);
       if (gy === NO_GROUND) { gy = w.col.terrainHeight(rec.x, rec.y, rec.z, K.PROBE_DY_FAR); if (gy === NO_GROUND) gy = rec.y; }
     }
     rec.y = gy;
     // the camera's heading eases towards the buggy's
     const target = this.yaw;
-    if (this.smoothYaw !== target) this.yawRate = (target - this.smoothYaw) / K.YAW_EASE;
-    this.smoothYaw = this.smoothYaw + this.yawRate;
+    if (this.smoothYaw !== target) this.yawRate = fr(fr(target - this.smoothYaw) / K.YAW_EASE);     // float32 stores (+0x20)
+    this.smoothYaw = fr(this.smoothYaw + this.yawRate);
     this.updateCamera(w, rec, gy);
-    this.placeCrew(true);
+    this.placeCrew(true, dt);
     return NODE_STOP;
   }
 
@@ -383,48 +416,48 @@ export class CartNode implements BehaviourNode {
     const R = rotation(0, this.smoothYaw, 0);
     const back = rotate(R, [0, 0, K.CAM_BACK]);
     const span = rotate(R, [0, 0, K.CAM_SPAN]);
-    const tx = rec.x - back[0], ty = rec.y, tz = rec.z - back[2];
-    c[3] = tx; c[4] = ty; c[5] = tz;
-    c[0] = span[0] + tx; c[1] = K.CAM_UP + ty; c[2] = span[2] + tz;
-    // FUN_00422ddc(cam, y, 0): the eye at least 6.4 (DAT_008adbfc) above the buggy, coming down 0.8 per tick when more than 32 above it
-    const floor = 6.4 + gy;
-    if (floor <= c[1]) { if (32 < c[1] - floor) c[1] -= 0.8; } else c[1] = floor;
+    // every store of the original is a float32 (the camera DAT_009da5e8 is float[]): target = the buggy - 16 along the eased heading, eye = target + 32 along it, 5 above the target
+    c[3] = fr(rec.x - back[0]); c[4] = rec.y; c[5] = fr(rec.z - back[2]);
+    c[0] = fr(span[0] + c[3]); c[1] = fr(K.CAM_UP + c[4]); c[2] = fr(span[2] + c[5]);
+    // FUN_00422ddc(cam, y, 0): the eye at least 6.4 (DAT_008adbfc, float32) above the buggy, coming down 0.8 per tick when more than 32 above it
+    const floor = fr(CAM_MIN_ABOVE + gy);
+    if (floor <= c[1]) { if (32 < sb(c[1], floor)) c[1] = fr(c[1] - K.MAX_RISE); } else c[1] = floor;
     const ground = w.col.terrainHeight(c[0], c[1], c[2], 2);
-    const lim = ground + K.CAM_GROUND;
+    const lim = fr(ground + K.CAM_GROUND);
     if (c[1] < lim) c[1] = lim;
-    c[1] += K.CAM_LIFT;
+    c[1] = fr(c[1] + K.CAM_LIFT);
     c[6] = 0; c[7] = 1; c[8] = 0;
   }
 
   // ------------------------------------------------------------------------------------------------------------------------------------ the crew
 
   /** FUN_00658c16's last part: Johnny (part 6) and Pippin (part 5) sit in the buggy, Pippin flinches in sharp turns, Johnny leans, the Brickbots ride their carts */
-  placeCrew(moving = false) {
+  placeCrew(moving = false, dt = 1) {
     const b = this.b!, R = this.rec;
     const cart = R[REC.CART];
     const seat = (rec: GameRecord, part: number) => {
       rec.m.set(cart.m);
       const p = b.parts.get(cart, part);
-      if (p) { const t = cart.toWorld([p[12], p[13], p[14]]); rec.m[12] = t[0]; rec.m[13] = t[1]; rec.m[14] = t[2]; }
+      if (p) { const t = transformPoint(cart.m, [p[12], p[13], p[14]]); rec.m[12] = t[0]; rec.m[13] = t[1]; rec.m[14] = t[2]; }
     };
     seat(R[REC.JOHN], 6);
     seat(R[REC.PIPP], 5);
     if (!moving) return;
     const pip = R[REC.PIPP].anim, joh = R[REC.JOHN].anim;
     if (this.flinch && pip) {
-      if (K.FLINCH_FRAME <= pip.frame) { this.flinch = false; pip.start(CREW_CLIP.FLINCH, 0); } else pip.advance(1.0);
+      if (K.FLINCH_FRAME <= pip.frame) { this.flinch = false; pip.start(CREW_CLIP.FLINCH, 0); } else pip.advance(1.0, dt);
     }
-    let lean = (cart.ry - this.smoothYaw) * K.LEAN_K;
+    let lean = ml(sb(cart.ry, this.smoothYaw), K.LEAN_K);
     if (lean < -1) lean = -1;
     if (1 < lean) lean = 1;
     if (lean < -K.FLINCH_AT || K.FLINCH_AT < lean) this.flinch = true;
-    if (joh) { const half = (joh.frameCount - 1) * 0.5; joh.seek(half * lean + half); }
+    if (joh) { const half = ml(sb(joh.frameCount, 1), 0.5); joh.seek(ad(ml(half, lean), half)); }
     REC.BBT.forEach((bi, k) => {
       const crt = R[REC.CRT[k]], bot = R[bi];
       bot.m.set(crt.m);
       const p = b.parts.get(crt, 5);
-      if (p) { const t = crt.toWorld([p[12], p[13], p[14]]); bot.m[12] = t[0]; bot.m[13] = t[1]; bot.m[14] = t[2]; }
-      bot.anim?.advance(1.0);
+      if (p) { const t = transformPoint(crt.m, [p[12], p[13], p[14]]); bot.m[12] = t[0]; bot.m[13] = t[1]; bot.m[14] = t[2]; }
+      bot.anim?.advance(1.0, dt);
     });
   }
 
@@ -438,12 +471,12 @@ export class CartNode implements BehaviourNode {
     this.snd.play3D(SND.TRAIN, c0.x, c0.y, c0.z);
     for (const i of REC.CRT) {
       const crt = R[i];
-      const fy = Math.trunc(crt.y);
+      const fy = ftol(crt.y);
       orientOnPath(crt, b.paths.crt);
       const rot = rotation(0, crt.ry, 0);
       const v = rotate(rot, [0, 0, K.MOVE_LEN]);
-      crt.x += v[0] * this.speed * K.MOVE_K * dt;
-      crt.z += v[2] * this.speed * K.MOVE_K * dt;
+      crt.x += stepOf(ml(v[0], this.speed), dt);
+      crt.z += stepOf(ml(v[2], this.speed), dt);
       let gy = w.col.terrainHeight(crt.x, crt.y, crt.z, 4);
       if (gy === NO_GROUND) gy = fy;
       crt.y = gy;
@@ -456,19 +489,20 @@ export class CartNode implements BehaviourNode {
   private engineSounds(rec: GameRecord) {
     const fo = this.rec[REC.FOUNTAIN];
     this.snd.play3D(SND.FOUNTAIN, fo.x, fo.y, fo.z);
+    restoreHooks.cue?.('ssh-tick', { sfxAt: (id: number, p: readonly number[]) => this.snd.play3D(id, p[0], p[1], p[2]), pos: [fo.x, fo.y, fo.z] });   // restored content (option off: unset)
     this.snd.play(SND.AMBIENT);
-    const u = (rec.rx + hexf(0x3e32b884)) / hexf(0x3eb2b884);
-    let rate = Math.trunc(0x7a80 + 0x7e54 * u);
+    const u = dv(ad(rec.rx, hexf(0x3e32b884)), hexf(0x3eb2b884));
+    let rate = ftol(ad(0x7a80, ml(0x7e54, u)));
     if (rate < 0x7a80) rate = 0x7a80; else if (rate > 0xf8d4) rate = 0xf8d4;
     this.snd.rate(SND.ENGINE, rate);
     this.snd.play(SND.ENGINE);
-    this.snd.volume(SND.WIND, Math.trunc(80 - u * 80));
+    this.snd.volume(SND.WIND, ftol(sb(80, ml(u, 80))));
     this.snd.rate(SND.WIND, rate);
     this.snd.play(SND.WIND);
     const ay = Math.abs(rec.ry);
-    const d = Math.abs(this.prevYaw - ay);
-    if (d > 0.1) this.snd.play(SND.SKID_LARGE);
-    else if (d > 0.06) this.snd.play(SND.SKID_SMALL);
+    const d = Math.abs(sb(this.prevYaw, ay));
+    if (d > fr(0.1)) this.snd.play(SND.SKID_LARGE);
+    else if (d > fr(0.06)) this.snd.play(SND.SKID_SMALL);
     this.prevYaw = ay;
     const z = rec.z;
     if (z > 4402 && this.stage === 0) { this.snd.play(SND.UNDER_TRACK); this.stage = 1; }
@@ -492,37 +526,44 @@ export class CartNode implements BehaviourNode {
     for (let i = 0; i < 3; i++) {
       const sn = R[REC.SNAKE[i]], anim = sn.anim;
       const px = sn.x, py = sn.y, pz = sn.z;
-      const fy = Math.trunc(sn.y);
+      const fy = ftol(sn.y);
       if (this.timers[i] === 0) {
         if (this.states[i] === SN.RUN) {
           orientOnPath(sn, b.paths.snakes[i]);
-          const v = rotate(rotation(0, sn.ry, 0), [0, 0, K.MOVE_LEN]);
-          const k = this.speed + K.SNAKE_FASTER;
-          sn.x += k * v[0] * K.MOVE_K * dt;
-          sn.z += k * v[2] * K.MOVE_K * dt;
+          // FUN_0043abe6(out, rec + 0xc, (0, 0, 8)): the heading is the record's matrix just set from the path (pitch included: the horizontal step is 8 cos(pitch));
+          // the buggy and the carts use a yaw-only matrix (FUN_0043a340), the snakes do not (WP-VERIFY: asm 0x657b62 pushes record + 0xc)
+          const v = rotate(sn.m, [0, 0, K.MOVE_LEN]);
+          const k = ad(this.speed, K.SNAKE_FASTER);
+          sn.x += stepOf(ml(k, v[0]), dt);
+          sn.z += stepOf(ml(k, v[2]), dt);
         }
         if (this.states[i] === SN.ATTACK) {
-          let dx = (rec.x - sn.x) + K.LATERAL[i];
-          let dz = rec.z - sn.z;
-          let yaw = Math.atan2(dx, dz);
-          if (yaw > Math.PI) yaw -= 2 * Math.PI;
+          // dx, dz, the yaw are float32 locals; the offset is a float32 (-2.4 / 2.4), pi and 2 pi the float32 constants _DAT_0089207c / _DAT_00892094
+          let dx = ad(sb(rec.x, sn.x), fr(K.LATERAL[i]));
+          let dz = sb(rec.z, sn.z);
+          let yaw = fr(Math.atan2(dx, dz));
+          if (yaw > fr(Math.PI)) yaw = sb(yaw, fr(2 * Math.PI));
           sn.ry = yaw;
           sn.setEuler(0, yaw, 0, sn.x, sn.y, sn.z);
-          let fr = Math.trunc(anim?.frame ?? 0);
-          if (fr === 0) fr = 1;
-          dx /= fr; dz /= fr;
+          // the divisor is the frames LEFT of a 42 frame run (fsubr [0x89274c] before the __ftol at 0x657cb3: ftol(42 - frame)), not the current frame; it turns
+          // negative in the last frames of the 45 frame clip (the snake then steps away from the buggy) and 0 becomes 1
+          let left = ftol(sb(K.ATTACK_REF, anim?.frame ?? 0));
+          if (left === 0) left = 1;
+          dx = dv(dx, left); dz = dv(dz, left);
           sn.x += dx; sn.z += dz;
         }
       }
       let gy = w.col.terrainHeight(sn.x, sn.y, sn.z, K.SNAKE_PROBE);
-      if (gy === NO_GROUND) gy = fy;
+      // a miss keeps the integer part of the old y, converted as an UNSIGNED 64-bit value (0x657ca... `local_64` is a uint, `fild qword` with a zero high word):
+      // a negative y becomes about 4.29e9 (the snake is gone from view until the ray hits again)
+      if (gy === NO_GROUND) gy = fy >>> 0;
       sn.y = gy;
       const st = this.states[i];
       if (st === SN.RUN) {
         sn.flags |= 2;
-        anim?.advance(1.0);
+        anim?.advance(1.0, dt);
         this.snd.play3D(SND.SNAKE_MOVE, px, py, pz);
-        if (rec.z - sn.z < K.JUMP_Z) {
+        if (sb(rec.z, sn.z) < K.JUMP_Z) {
           anim?.start(SNAKE_CLIP.ATTACK, 0);
           this.saved[i] = [sn.x, sn.y, sn.z];
           this.snd.stop3D(SND.SNAKE_MOVE);
@@ -531,9 +572,9 @@ export class CartNode implements BehaviourNode {
           this.log.push(`jump ${i}`);
         }
       } else if (st === SN.HIT) {
-        if (anim && anim.advance(1.0) !== 0) { this.timers[i] = 0; this.states[i] = SN.IDLE; sn.flags &= ~2; }
+        if (anim && anim.advance(1.0, dt) !== 0) { this.timers[i] = 0; this.states[i] = SN.IDLE; sn.flags &= ~2; }
       } else if (st === SN.ATTACK) {
-        if (anim && anim.advance(1.0) !== 0) {
+        if (anim && anim.advance(1.0, dt) !== 0) {
           if (this.timers[i] === 0 && this.gems > 0) {
             this.snd.play3D(SND.SNAKE_GET_GEM, px, py, pz);
             this.gems--;
@@ -548,7 +589,7 @@ export class CartNode implements BehaviourNode {
       } else {
         sn.flags &= ~2;
         if (!atPathEnd(b.paths.cart, rec.x, rec.y, rec.z) && rec.z < K.END_Z) {
-          this.timers[i] = f32(1.0 * dt + this.timers[i]);
+          this.timers[i] = ad(ml(1.0, dt), this.timers[i]);
           if (limit < this.timers[i]) {
             this.timers[i] = 0; this.states[i] = SN.RUN;
             anim?.start(SNAKE_CLIP.SLITHER, this.rng.int(10));
@@ -574,11 +615,11 @@ export class CartNode implements BehaviourNode {
       this.snd.stop(SND.GUN); this.snd.play(SND.GUN);
       this.reload = f32(this.reload + 1);
       const gun = then(part, rec.m);                       // FUN_0043a9e5(out, rec + 0xc, part 4): the gun's world matrix
-      const px = rec.x + part[12], py = rec.y + part[13], pz = rec.z + part[14];
+      const px = ad(rec.x, part[12]), py = ad(rec.y, part[13]), pz = ad(rec.z, part[14]);
       c.m.set(gun);
       c.m[12] = px; c.m[13] = py; c.m[14] = pz;
       rotate(gun, [0, 0, K.COCO_SPEED], c.vel);
-      c.birth = Math.trunc(this.time);
+      c.birth = ftol(this.time);
       this.log.push('shot');
       break;
     }
@@ -591,15 +632,15 @@ export class CartNode implements BehaviourNode {
       const c = this.coconuts[k];
       if (!c.active) continue;
       if (this.time <= c.birth + K.COCO_LIFE) {
-        c.m[12] = c.vel[0] * 1 * dt + c.m[12];
-        c.m[13] = c.vel[1] * 1 * dt + c.m[13];
-        c.m[14] = c.vel[2] * 1 * dt + c.m[14];
+        c.m[12] = ad(ml(c.vel[0], dt), c.m[12]);
+        c.m[13] = ad(ml(c.vel[1], dt), c.m[13]);
+        c.m[14] = ad(ml(c.vel[2], dt), c.m[14]);
       } else c.active = false;
       for (let i = 0; i < 3; i++) {
         const sn = R[REC.SNAKE[i]];
         if (this.states[i] !== SN.RUN && this.states[i] !== SN.ATTACK) continue;
-        const dx = sn.x - c.m[12], dy = sn.y - c.m[13], dz = sn.z - c.m[14];
-        const d2 = Math.trunc(dx * dx + dy * dy + dz * dz);
+        const dx = sb(sn.x, c.m[12]), dy = sb(sn.y, c.m[13]), dz = sb(sn.z, c.m[14]);
+        const d2 = ftol(ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz)));
         if (d2 < K.HIT_R2) {
           const r = this.rng.int(15);
           if (r === 0) this.say('PEPPA'); else if (r === 1) this.say('PIPPC'); else if (r === 2) this.say('ADSGSS13');
@@ -614,9 +655,9 @@ export class CartNode implements BehaviourNode {
       }
     }
     this.syncCoconutRecords();
-    this.time = f32(K.TIME_STEP * dt + this.time);
+    this.time = ad(ml(K.TIME_STEP, dt), this.time);
     if (this.reload !== 0) {
-      this.reload = f32(1.0 * dt + this.reload);
+      this.reload = ad(ml(1.0, dt), this.reload);
       if (K.RELOAD < this.reload) this.reload = 0;
     }
   }
@@ -648,10 +689,10 @@ export class CartNode implements BehaviourNode {
   crosshair(rec: GameRecord, W = 640, H = 480): { x: number; y: number } {
     const cx0 = Math.trunc(W >> 1);
     let pitch = rec.rx;
-    if (pitch < -Math.PI) pitch += 2 * Math.PI;
-    const cy0 = Math.trunc(Math.trunc(H / 4) - (H * pitch) / 3);
-    let x = Math.trunc(cx0 + (W * this.aimYaw) / 3);
-    let y = Math.trunc(cy0 - (H * this.aimPitch) / 3);
+    if (pitch < -fr(Math.PI)) pitch = ad(pitch, fr(2 * Math.PI));           // float32 constants _DAT_00892098 / _DAT_00892094
+    const cy0 = Math.trunc(sb(Math.trunc(H / 4), dv(ml(H, pitch), 3)));
+    let x = Math.trunc(ad(cx0, dv(ml(W, this.aimYaw), 3)));
+    let y = Math.trunc(sb(cy0, dv(ml(H, this.aimPitch), 3)));
     if (y < 0) y = 0;
     if (x < 0x20) x = 0x20;
     if (x > W - 0x20) x = W - 0x20;

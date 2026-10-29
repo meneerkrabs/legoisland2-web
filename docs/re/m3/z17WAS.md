@@ -93,11 +93,11 @@ The HUD (generic `Hud`): overlay texture 0 (red gem) at (20, 20) with the gem co
 
 ## 8. Known differences, approximations, not ported
 
-* **Torch fire**: the constructor creates four `wasfire.par` particle emitters at the torches (`FUN_00442960`); the engine has no particle system yet, so the torches are drawn without flames (the sound loop plays).
+* **Torch fire**: wired (WP-PART-WIRE, verified): the four `wasfire.par` emitters of the constructor 0x69b42b / 46a / 4ab / 4ec on the `WAS ` record, rotation -pi/2 about x, gate (2,1,1) = always on, offsets read from the asm (`src/zones/z17WAS.ts`).
 * **Music** starts with the zone (`audiohost.enterZone`), the original starts it when the game starts (`FUN_004432c0` when leaving the help screen).
 * The original's random numbers come from `GetTickCount` (`FUN_00435c91` + `FUN_004388ae`); the port draws uniform integers (`WasRng.int(n)`, injectable): same distribution.
-* `DAT_05d5be54` (the result variable) keeps its value across a restart in the original, the port starts every run at 0; it only matters for abandoning a later run through the pause menu. `DAT_00925e58` likewise starts at 1 each run.
-* The `GEMM` record's second flag word (`+0x62 = 0x20`) is not modelled. The snake's bone-10 pose is sampled at the current frame (the original reads the matrices of the previous draw): at most one frame of difference.
+* `DAT_05d5be54` / `DAT_05d5be50` (final score / gems) and `DAT_00925e58` (clip) persist across restarts like the original's statics (WP-MINI: `WasShared` statics; only `DAT_05d5be4c` is cleared at 0x69b864).
+* The `GEMM` record's second flag word (`+0x62 = 0x20`) is set (record flags are one 32 bit word: `0x20 << 16`). The snake's bone-10 pose is read one frame behind like the original (M5 audit: `pose(1)` before the advance).
 * Port-only: records that are moved by teleport (a spawning snake, a dented basket, the gem when it appears) get `savePrev()` so the renderer does not interpolate across the jump; a spawn loop cannot hang with a degenerate random source.
 * The intro text is drawn by the zone at (320, 200) / 28 characters (the loop's own call), not at the runner's generic (320, 120) / 30: `introId` is null and `config.intro` is true.
 * The runner's generic `say()` returns false while muted (no speech engine); the result line and the intro are drawn by the zone anyway, only the subtitle copy is missing then.

@@ -12,8 +12,8 @@ import { NODE_CONTINUE } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
 import { RF_ENABLED } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
-import { buildMatrix } from '../../formats/matrix.ts';
-import { mul } from '../../render/math.ts';
+import { euler24, eulerScaled24, normalize24 } from '../common/x87.ts';
+import { mulGame } from '../../render/math.ts';
 import { DspShared, SND, VAR, terrain } from './shared.ts';
 
 /** constructor addresses of the attaches of FUN_006be930 */
@@ -57,8 +57,8 @@ export class FallingNode extends PropNode {
     if (!sh?.world) return 2;      // not prepared (generic stub test)
     const pep = car(sh);
     if (this.state === 0) {
-      const dx = rec.x - pep.x, dz = rec.z - pep.z, r = this.radius;
-      if (-r < dx && dx < r && -r < dz && dz < r && dz * dz + dx * dx < r * r) {
+      const dx = f32(rec.x - pep.x), dz = f32(rec.z - pep.z), r = this.radius;
+      if (-r < dx && dx < r && -r < dz && dz < r && f32(f32(dz * dz) + f32(dx * dx)) < f32(r * r)) {
         rec.anim?.start(4, 0);
         this.state = 1; rec.flags |= RF_ENABLED; this.vy = 0;
       }
@@ -85,7 +85,7 @@ export class TurboNode extends PropNode {
   bind(sh: DspShared, _w: World, rec: GameRecord) { this.shared = sh; rec.ry = 0; }
   update(_w: World, rec: GameRecord): number {
     rec.ry = f32(rec.ry + 0.06981279700994492);
-    const m = buildMatrix(0, rec.ry, 0, rec.x, rec.y, rec.z);
+    const m = euler24(0, rec.ry, 0, rec.x, rec.y, rec.z);
     rec.m.set(m);
     return NODE_CONTINUE;
   }
@@ -132,16 +132,16 @@ export class SpinNode extends PropNode {
   update(w: World, rec: GameRecord): number {
     const wh = this.whirl, dt = w.dt;
     rec.variant = wh.variant;
-    const orbit = this.radius * 0.25;
-    this.px = f32(Math.cos(this.phase) * orbit + wh.x);          // FUN_0085d374 = cos, FUN_0085d1c4 = sin
+    const orbit = f32(this.radius * 0.25);
+    this.px = f32(f32(f32(Math.cos(this.phase)) * orbit) + wh.x);          // FUN_0085d374 = cos, FUN_0085d1c4 = sin
     this.py = f32(wh.y + this.radius);
-    this.pz = f32(Math.sin(this.phase) * orbit + wh.z);
-    this.radius = f32(Math.cos(this.phase * 0.25) * 8.0 + 24.0);
-    const dphi = this.radius * 0.125 * 0.06981279700994492;
-    if (this.radius <= 40.0) this.phase = f32(dphi * dt + this.phase); else this.radius = 40.0;
-    this.rx = f32(0.06981279700994492 * dt + this.rx);
-    this.rz = f32(0.05235959589481354 * dt + this.rz);
-    rec.m.set(buildMatrix(this.rx, this.ry, this.rz, this.px, this.py, this.pz));
+    this.pz = f32(f32(f32(Math.sin(this.phase)) * orbit) + wh.z);
+    this.radius = f32(f32(Math.cos(f32(this.phase * 0.25)) * 8.0) + 24.0);
+    const dphi = f32(f32(this.radius * 0.125) * 0.06981279700994492);
+    if (this.radius <= 40.0) this.phase = f32(f32(dphi * dt) + this.phase); else this.radius = 40.0;
+    this.rx = f32(f32(0.06981279700994492 * dt) + this.rx);
+    this.rz = f32(f32(0.05235959589481354 * dt) + this.rz);
+    rec.m.set(euler24(this.rx, this.ry, this.rz, this.px, this.py, this.pz));
     return NODE_CONTINUE;
   }
 }
@@ -169,13 +169,13 @@ export class SaucerNode extends PropNode {
   }
   update(w: World, rec: GameRecord): number {
     const dt = w.dt, sh = this.shared;
-    const ang = this.orbit + this.ry0;
-    const x = f32(Math.cos(ang) * this.ax + this.x0);
-    const z = f32(Math.sin(ang) * this.az + this.z0);
-    rec.m.set(buildMatrix(this.tilt, this.spin, 0, x, this.y0, z));
+    const ang = f32(this.orbit + this.ry0);
+    const x = f32(f32(Math.cos(ang) * this.ax) + this.x0);
+    const z = f32(f32(Math.sin(ang) * this.az) + this.z0);
+    rec.m.set(euler24(this.tilt, this.spin, 0, x, this.y0, z));
     rec.ry = this.ry0;
-    this.orbit = f32(this.speed * dt + this.orbit);
-    this.spin = f32(0.06981279700994492 * dt + this.spin);
+    this.orbit = f32(f32(this.speed * dt) + this.orbit);
+    this.spin = f32(f32(0.06981279700994492 * dt) + this.spin);
     if (this.sound !== 0) sh.sounds.play3D(SND.UFO, x, this.y0, z);
     return NODE_CONTINUE;
   }
@@ -185,7 +185,7 @@ export class ScrConeNode extends PropNode {
   readonly kind = 'ScrCone';
   saucer!: GameRecord; sauIndex: number;
   /** +0x1c / +0x20 / +0x24 / +0x28 the range (128, 128^2) and the catch radius (8, 8^2), +0x2c state, +0x30 timer, +0x34 / +0x38 the scales */
-  rangeR = 128; rangeR2 = 128 * 128; catchR = 8; catchR2 = 64; state = 5; timer = 30; sy = 0; sxz = 0.03125;
+  rangeR = 128; rangeR2 = f32(128 * 128); catchR = 8; catchR2 = 64; state = 5; timer = 30; sy = 0; sxz = 0.03125;
   constructor(sauIndex: number) { super(); this.sauIndex = sauIndex; }
   bind(sh: DspShared, w: World, _rec: GameRecord) {
     this.shared = sh; this.saucer = w.records[this.sauIndex];
@@ -195,52 +195,52 @@ export class ScrConeNode extends PropNode {
     const sh = this.shared, dt = w.dt, pep = car(sh);
     switch (this.state) {
       case 0:
-        this.sy = f32(0.125 * dt + this.sy);
+        this.sy = f32(f32(0.125 * dt) + this.sy);
         if (1 <= this.sy) { this.state = 1; this.sy = 1; }
         break;
       case 1:
-        this.sxz = f32(0.0625 * dt + this.sxz);
+        this.sxz = f32(f32(0.0625 * dt) + this.sxz);
         if (1 <= this.sxz) { this.state = 2; this.sxz = 1; this.timer = 0; }
         break;
       case 2:
-        this.timer = f32(1.0 * dt + this.timer);
+        this.timer = f32(f32(1.0 * dt) + this.timer);
         if (this.timer < 250) {
           if (sh.get(VAR.SHRINK) === 0) {
-            const dx = pep.x - rec.x, dz = pep.z - rec.z, r = this.catchR;
-            this.timer = f32(1.0 * dt + this.timer);
-            if (dx < r && -r < dx && dz < r && -r < dz && dz * dz + dx * dx < this.catchR2) { this.state = 6; sh.set(VAR.SHRINK, 1); }
+            const dx = f32(pep.x - rec.x), dz = f32(pep.z - rec.z), r = this.catchR;
+            this.timer = f32(f32(1.0 * dt) + this.timer);
+            if (dx < r && -r < dx && dz < r && -r < dz && f32(f32(dz * dz) + f32(dx * dx)) < this.catchR2) { this.state = 6; sh.set(VAR.SHRINK, 1); }
           }
         } else this.state = 3;
         break;
       case 3:
-        this.sxz = f32(this.sxz - 0.0625 * dt);
+        this.sxz = f32(this.sxz - f32(0.0625 * dt));
         if (this.sxz <= 0.0625) { this.state = 4; this.sxz = 0.0625; this.timer = 0; }
         break;
       case 4:
-        this.sy = f32(this.sy - 0.125 * dt);
+        this.sy = f32(this.sy - f32(0.125 * dt));
         if (this.sy <= 0) { this.state = 5; this.sy = 0; this.timer = 0; }
         break;
       case 5:
-        this.timer = f32(1.0 * dt + this.timer);
+        this.timer = f32(f32(1.0 * dt) + this.timer);
         if (30 <= this.timer) {
-          const dx = pep.x - rec.x, dz = this.saucer.z - rec.z;
+          const dx = f32(pep.x - rec.x), dz = f32(this.saucer.z - rec.z);
           // `*(car + 0x44) - rec.z` in the original is the car's z
-          const dzc = pep.z - rec.z, r = this.rangeR;
+          const dzc = f32(pep.z - rec.z), r = this.rangeR;
           void dz;
-          if (dx < r && -r < dx && dzc < r && -r < dzc && dzc * dzc + dx * dx < this.rangeR2) this.state = 0;
+          if (dx < r && -r < dx && dzc < r && -r < dzc && f32(f32(dzc * dzc) + f32(dx * dx)) < this.rangeR2) this.state = 0;
         }
         break;
       case 6:
         if (sh.get(VAR.SHRINK) === 0) this.state = 2;
         break;
       case 7:
-        this.timer = f32(1.0 * dt + this.timer);
+        this.timer = f32(f32(1.0 * dt) + this.timer);
         if (30 < this.timer) { this.state = 2; this.timer = 0; }
         break;
     }
     const s = this.saucer;
     // FUN_0043a742(matrix, 0, 0, 0, saucer position, scale (+0x38, +0x34, +0x38))
-    rec.m.set(buildMatrix(0, 0, 0, s.x, s.y, s.z, this.sxz, this.sy, this.sxz));
+    eulerScaled24(rec.m, 0, 0, 0, s.x, s.y, s.z, this.sxz, this.sy, this.sxz);
     rec.variant = s.variant;
     return NODE_CONTINUE;
   }
@@ -260,30 +260,30 @@ export class WhirlwindNode extends PropNode {
   update(w: World, rec: GameRecord): number {
     const sh = this.shared, dt = w.dt, pep = car(sh);
     const t = this.phase;
-    const x = f32(Math.cos(t * 4) * this.amp + this.hx);
-    const z = f32(Math.sin(t) * this.amp + this.hz);
+    const x = f32(f32(Math.cos(f32(t * 4)) * this.amp) + this.hx);
+    const z = f32(f32(Math.sin(t) * this.amp) + this.hz);
     let y = ground(w, x, rec.y, z);
     if (y === -1e38) y = rec.y;
-    rec.m.set(buildMatrix(0, t * 64.0, 0, x, y, z));
+    rec.m.set(euler24(0, f32(t * 64.0), 0, x, y, z));
     this.phase = f32(t + this.dphi);
     this.x = x; this.z = z;
-    let dx = pep.x - x, dz = pep.z - z;
+    let dx = f32(pep.x - x), dz = f32(pep.z - z);
     sh.sounds.play3D(SND.TWISTER, rec.x, rec.y, rec.z);
     if (sh.get(VAR.SPIN) === 0) {
       const R = this.outer;
-      dx *= 0.125; dz *= 0.125;
+      dx = f32(dx * 0.125); dz = f32(dz * 0.125);
       if (dx <= -R || R <= dx || dz <= -R || R <= dz) sh.sounds.stop3D(SND.TWISTER);
       else {
         const r0 = this.inner;
-        const d2 = dz * dz + dx * dx;
+        const d2 = f32(f32(dz * dz) + f32(dx * dx));
         sh.sounds.play3D(SND.TWISTER, rec.x, rec.y, rec.z);
-        if (r0 * r0 <= d2) {
-          if (this.caught === 0 && d2 < R * R) {
+        if (f32(r0 * r0) <= d2) {
+          if (this.caught === 0 && d2 < f32(R * R)) {
             const len = Math.sqrt(d2);
-            const k = this.strength * ((R - len) / R);
-            const ex = (dx / len) * k;
-            sh.push[0] = -ex + sh.push[0];
-            sh.push[2] = -((dz / len) * k) + sh.push[2];
+            const k = f32(this.strength * (f32((f32(R - len)) / R)));
+            const ex = f32((f32(dx / len)) * k);
+            sh.push[0] = f32(-ex + sh.push[0]);
+            sh.push[2] = f32(-(f32((f32(dz / len)) * k)) + sh.push[2]);
           }
         } else {
           sh.set(VAR.SPIN, 1);
@@ -299,12 +299,12 @@ export class WhirlwindNode extends PropNode {
 
 // ------------------------------------------------------------------ WalkRock (FUN_006c07d4 / FUN_006c0250)
 /** the argument blocks of the attach loop (FUN_006be930: DAT_05d5c140 ..): the record pairs (bot, rock) of the table at 0x92af70 and the constants 9 / 4.8 / 80 / 192 */
-export const ROCK = { PAIRS_VA: 0x92af70, BOT_CLIP_HIT: 12, STAND: 4.8, ROLL: 80.0, TRIGGER: 192.0 } as const;
+export const ROCK = { PAIRS_VA: 0x92af70, BOT_CLIP_HIT: 12, STAND: f32(4.8), ROLL: 80.0, TRIGGER: 192.0 } as const;
 export class WalkRockNode extends PropNode {
   readonly kind = 'WalkRock';
   bot: GameRecord | null = null;
   /** +0x20 side (0 / 1), +0x24 1 / 4.8, +0x28 4.8 (the bot's height), +0x2c / +0x34 start x / z, +0x38 / +0x40 direction, +0x44 80, +0x48 192, +0x4c 192^2 */
-  side = 0; invH = 0; h = 4.8; sx = 0; sy = 0; sz = 0; dirx = 0; diry = 0; dirz = 0; span = 80; trig = 192; trig2 = 192 * 192;
+  side = 0; invH = 0; h = 4.8; sx = 0; sy = 0; sz = 0; dirx = 0; diry = 0; dirz = 0; span = 80; trig = 192; trig2 = f32(192 * 192);
   /** +0x50 yaw -+ pi/2, +0x54 the sound, +0x58 state, +0x5c phase, +0x60 roll, +0x64 distance, +0x68 the bot's yaw */
   yaw = 0; soundId = 0; state = 0; phase = 0; roll = 0; dist = 0; botYaw = 0;
   constructor(bot: GameRecord | null) { super(); this.bot = bot; }
@@ -313,16 +313,15 @@ export class WalkRockNode extends PropNode {
     this.sx = rec.x; this.sy = rec.y; this.sz = rec.z;
     const t = sh.track.nearest([rec.x, rec.y, rec.z]);        // FUN_004478d0: the path parameter nearest to the rock
     const p = sh.track.position(t);                            // FUN_00445680(DAT_05d5cc14, t, ., ., 0): the position on the track
-    let d: [number, number, number] = [rec.x - p[0], rec.y - p[1], rec.z - p[2]];
-    const l2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
-    if (l2 !== 0) { const k = 1 / Math.sqrt(l2); d = [d[0] * k, d[1] * k, d[2] * k]; }
+    const d = [f32(rec.x - p[0]), f32(rec.y - p[1]), f32(rec.z - p[2])];
+    normalize24(d);                                            // FUN_0043cec0
     this.dirx = -d[0]; this.diry = -d[1]; this.dirz = -d[2];
-    this.h = ROCK.STAND; this.invH = 1 / ROCK.STAND; this.span = ROCK.ROLL; this.trig = ROCK.TRIGGER; this.trig2 = ROCK.TRIGGER * ROCK.TRIGGER;
+    this.h = ROCK.STAND; this.invH = f32(1 / ROCK.STAND); this.span = ROCK.ROLL; this.trig = ROCK.TRIGGER; this.trig2 = f32(ROCK.TRIGGER * ROCK.TRIGGER);
     // the side test reads two locals of the empty function FUN_0043ce7d (0xcccccccc = -1.0737418e8): -a * dz + b * dx with a = b = -1.0737418e8
     const K = -107374176;
-    const side = -K * this.dirz + K * this.dirx;
-    if (side <= 0) { this.yaw = rec.ry - HALF_PI; this.side = 0; this.soundId = sh.rockL === 0 ? SND.LROCK1 : SND.LROCK2; sh.rockL++; }
-    else { this.yaw = rec.ry + HALF_PI; this.side = 1; this.soundId = sh.rockR === 0 ? SND.RROCK1 : SND.RROCK2; sh.rockR++; }
+    const side = f32(f32(-K * this.dirz) + f32(K * this.dirx));
+    if (side <= 0) { this.yaw = f32(rec.ry - HALF_PI); this.side = 0; this.soundId = sh.rockL === 0 ? SND.LROCK1 : SND.LROCK2; sh.rockL++; }
+    else { this.yaw = f32(rec.ry + HALF_PI); this.side = 1; this.soundId = sh.rockR === 0 ? SND.RROCK1 : SND.RROCK2; sh.rockR++; }
     this.botYaw = rec.ry;
     this.state = 0; this.phase = 0; this.roll = 0; this.dist = 0;
     this.bot?.anim?.start(15, 0);
@@ -333,13 +332,13 @@ export class WalkRockNode extends PropNode {
     let clip = 0;
     const h = this.h;
     if (this.state === 0) {
-      const dz = rec.z - pep.z, dx = rec.x - pep.x, r = this.trig;
-      if (dz < r && -r < dz && dx < r && -r < dx && dz * dz + dx * dx < this.trig2) { this.state = 1; clip = 9; }
+      const dz = f32(rec.z - pep.z), dx = f32(rec.x - pep.x), r = this.trig;
+      if (dz < r && -r < dz && dx < r && -r < dx && f32(f32(dz * dz) + f32(dx * dx)) < this.trig2) { this.state = 1; clip = 9; }
     } else if (this.state === 1) {
-      const dist = Math.sin(this.phase) * this.span;
+      const dist = f32(Math.sin(this.phase) * this.span);
       this.dist = f32(dist);
-      this.roll = f32((dist - this.span) * this.invH);
-      this.phase = f32(0.05235959589481354 * dt + this.phase);
+      this.roll = f32((f32(dist - this.span)) * this.invH);
+      this.phase = f32(f32(0.05235959589481354 * dt) + this.phase);
       if (this.phase <= HALF_PI) sh.sounds.play3D(this.soundId, rec.x, rec.y, rec.z);
       else {
         sh.sounds.stop3D(this.soundId);
@@ -348,17 +347,17 @@ export class WalkRockNode extends PropNode {
         else if (this.side === 1) { clip = 16; this.state = 2; }
         else { clip = 15; this.state = 3; this.botYaw = this.yaw; }
       }
-      const x = f32(this.dirx * dist + this.sx), z = f32(this.dirz * dist + this.sz);
-      const ox = this.dirx * 8, oz = this.dirz * 8;
-      const y1 = terrain(w, x + ox, 30.0, z + oz, 4.0);
-      const y2 = terrain(w, x - ox, 30.0, z - oz, 4.0);
-      const cy = (y1 + y2) * 0.5;
-      const tilt = Math.atan2(y2 - y1, 16.0);
-      const tm = buildMatrix(0, rec.ry, tilt, x, cy, z);
+      const x = f32(f32(this.dirx * dist) + this.sx), z = f32(f32(this.dirz * dist) + this.sz);
+      const ox = f32(this.dirx * 8), oz = f32(this.dirz * 8);
+      const y1 = terrain(w, f32(x + ox), 30.0, f32(z + oz), 4.0);
+      const y2 = terrain(w, f32(x - ox), 30.0, f32(z - oz), 4.0);
+      const cy = f32((f32(y1 + y2)) * 0.5);
+      const tilt = Math.atan2(f32(y2 - y1), 16.0);
+      const tm = euler24(0, rec.ry, tilt, x, cy, z);
       const up = [tm[4], tm[5], tm[6]];
-      tm[12] += up[0] * h; tm[13] += up[1] * h; tm[14] += up[2] * h;
-      const rm = buildMatrix(this.roll, 0, 0, 0, 0, 0);
-      rec.m.set(mul(rm, tm));
+      tm[12] += f32(up[0] * h); tm[13] += f32(up[1] * h); tm[14] += f32(up[2] * h);
+      const rm = euler24(this.roll, 0, 0, 0, 0, 0);
+      rec.m.set(mulGame(rm, tm));
     }
     if (bot) {
       if (clip === 0) {
@@ -367,7 +366,7 @@ export class WalkRockNode extends PropNode {
           else if (this.state === 2) { bot.anim.start(15, 0); this.state = 3; this.botYaw = this.yaw; }
         }
       } else bot.anim?.start(clip, 0);
-      bot.m.set(buildMatrix(0, this.botYaw, 0, rec.x, h + rec.y, rec.z));
+      bot.m.set(euler24(0, this.botYaw, 0, rec.x, f32(h + rec.y), rec.z));
       bot.variant = rec.variant;
     }
     return NODE_CONTINUE;

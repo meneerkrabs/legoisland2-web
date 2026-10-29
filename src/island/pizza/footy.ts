@@ -17,11 +17,14 @@ import { RF_NO_COLLIDE } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { MAP_PATH, waypoints } from '../../game/walker.ts';
 import { NO_GROUND } from '../../game/collision.ts';
+import { randTrunc } from '../rng.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
 import { registerCtor } from '../../game/setup.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import { ArgView } from '../args.ts';
 import { PI_F, TWO_PI_F, sfxAt } from './common.ts';
+import { restoreHooks } from '../../restore/flag.ts';
+import { ad, sb, ml, dv, sq, fr } from '../../zones/common/f32.ts';
 
 export const CTOR_FOOTBALL = 0x53955e, CTOR_FLOWER = 0x5399d8, CTOR_BOB = 0x539d44;
 
@@ -30,11 +33,14 @@ export const SND_FOOTY = { BOUNCE: 0x133, KICK: 0x104 } as const;
 
 export const FOOTY = {
   /** the pass: speed 0.8 (0x3f4ccccd), first hop 14 high (0x41600000), phase rate 3.93 / dist (0x407b53d2) or 2 pi / dist astray, the target 0.8 in front of the receiver */
-  SPEED: 0.800000011920929, HOP: 14, RATE: 3.9269142150878906, RATE_ASTRAY: 6.2831854820251465, LEAD: 0.800000011920929,
+  SPEED: 0.800000011920929, HOP: 14, RATE: 3.9269909858703613,   // 0x407b53d2 (finding V5: the port had 3.92691)
+   RATE_ASTRAY: 6.2831854820251465, LEAD: 0.800000011920929,
   /** after the first bounce: hops 4 high, the rate doubles; astray: height x 0.286 (0x8925d0), speed x 0.75 (0x8921f0) for 6 hops, then rolling (x 0.9 down to 0.8) */
   HOP2: 4, ASTRAY_HOP: 0.28600001335144043, ASTRAY_SPEED: 0.75, ASTRAY_HOPS: 6, ROLL_DAMP: 0.8999999761581421, ROLL_MIN: 0.800000011920929,
   /** the roll to the next kicker's feet: 0.72 (0x8925cc) */
   FEET: 0.7200000286102295,
+  /** the "no previous offset" value of a kick (+0x34 / +0x3c: 0x7e967699) */
+  FAR: 9.999999680285692e+37,
   /** the kick clip of the kicker and the frame the ball leaves (> 5) */
   KICK_CLIP: 0x1d, KICK_FRAME: 5,
   /** the astray target (PATH node 0xbc) */
@@ -65,7 +71,7 @@ export class FootballNode implements BehaviourNode {
   /** +0x2c hop phase 0..pi, +0x30 hop height */
   phase = 0; hop = 0;
   /** +0x34..+0x3c the last offset to the target (1e38 at a kick) */
-  last = [1e38, 0, 1e38];
+  last = [9.999999680285692e+37, 0, 9.999999680285692e+37];
   /** +0x40..+0x48 the target, +0x4c..+0x54 the roll velocity, +0x58 phase rate, +0x5c speed, +0x80.. the kick direction (forward of +0x60) */
   target = [0, 0, 0]; roll = [0, 0, 0]; rate = 0; speed = 0; dir = [0, 0, 1];
   /** +0xa0 the "get ready" distance, +0xa4 state, +0xa5 kicks since astray, +0xa6 astray hop count (0 = a normal pass) */
@@ -111,7 +117,7 @@ export class FootballNode implements BehaviourNode {
     if (this.to > 2) this.to = 0;
     this.astray = 0;
     if (this.to === 1) {
-      const r = Math.trunc(Math.random() * FOOTY.CHANCE);
+      const r = randTrunc(FOOTY.CHANCE);
       if (FOOTY.CHANCE - this.sinceAstray < r) { this.astray = 1; this.sinceAstray = 0; }
       else this.sinceAstray++;
     }
@@ -126,20 +132,20 @@ export class FootballNode implements BehaviourNode {
   private kick(w: World, rec: GameRecord, ball: number[]) {
     this.targetPoint(this.target);
     const k = this.kids[this.to];
-    if (k) { this.target[0] += k.m[8] * FOOTY.LEAD; this.target[1] += k.m[9] * FOOTY.LEAD; this.target[2] += k.m[10] * FOOTY.LEAD; }
-    const dx = ball[0] - this.target[0], dy = ball[1] - this.target[1], dz = ball[2] - this.target[2];
-    const d = Math.sqrt(dz * dz + dy * dy + dx * dx);
-    rec.ry = Math.atan2(dx, dz);
+    if (k) { this.target[0] = ad(ml(k.m[8], FOOTY.LEAD), this.target[0]); this.target[1] = ad(ml(k.m[9], FOOTY.LEAD), this.target[1]); this.target[2] = ad(ml(k.m[10], FOOTY.LEAD), this.target[2]); }
+    const dx = sb(ball[0], this.target[0]), dy = sb(ball[1], this.target[1]), dz = sb(ball[2], this.target[2]);
+    const d = sq(ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz)));
+    rec.ry = fr(Math.atan2(dx, dz));
     const m = buildMatrix(0, rec.ry, rec.rz, 0, 0, 0);   // FUN_0043a340(+0x60, 0, ry, rz)
     this.dir = [m[8], m[9], m[10]];
     rec.m.set(buildMatrix(rec.rx, rec.ry, rec.rz, rec.x, rec.y, rec.z));   // FUN_0043a340 on the record (rotation; the translation is set again below)
     this.hop = FOOTY.HOP; this.phase = 0; this.speed = FOOTY.SPEED;
-    const n = d / this.speed;
-    this.rate = (this.astray === 0 ? FOOTY.RATE : FOOTY.RATE_ASTRAY) / n;
-    this.ready = this.speed * w.vars.get(this.kidVar);
+    const n = dv(d, this.speed);
+    this.rate = dv(this.astray === 0 ? FOOTY.RATE : FOOTY.RATE_ASTRAY, n);
+    this.ready = ml(this.speed, fr(w.vars.get(this.kidVar)));
     this.kidOp(w, this.to, FOOTY.M_CLEAR, 2);
     if ((this.kidVar_(w, this.from) & 8) === 0) this.kidOp(w, this.from, FOOTY.M_KICK, 0);
-    this.last = [1e38, 0, 1e38];
+    this.last = [9.999999680285692e+37, 0, 9.999999680285692e+37];
   }
 
   /** FUN_00538c4d: the roll to the feet */
@@ -149,22 +155,23 @@ export class FootballNode implements BehaviourNode {
     this.targetPoint(p);
     const n = this.kids[this.to + 1 > 2 ? 0 : this.to + 1];
     if (n) {
-      const rx = n.m[0] * FOOTY.FEET, ry = n.m[1] * FOOTY.FEET, rz = n.m[2] * FOOTY.FEET;
-      p[0] = (p[0] - n.m[8] * FOOTY.FEET) - rx; p[1] = (p[1] - n.m[9] * FOOTY.FEET) - ry; p[2] = (p[2] - n.m[10] * FOOTY.FEET) - rz;
+      const rx = ml(n.m[0], FOOTY.FEET), ry = ml(n.m[1], FOOTY.FEET), rz = ml(n.m[2], FOOTY.FEET);
+      p[0] = sb(sb(p[0], ml(n.m[8], FOOTY.FEET)), rx); p[1] = sb(sb(p[1], ml(n.m[9], FOOTY.FEET)), ry); p[2] = sb(sb(p[2], ml(n.m[10], FOOTY.FEET)), rz);
     }
-    const k = this.rate / (PI_F - this.phase);
-    this.roll = [(p[0] - this.target[0]) * k, 0, (p[2] - this.target[2]) * k];
+    const k = dv(this.rate, sb(PI_F, this.phase));
+    this.roll = [ml(sb(p[0], this.target[0]), k), ml(k, 0), ml(sb(p[2], this.target[2]), k)];
   }
 
   update(w: World, rec: GameRecord, _c: Controller): number {
     void _c;
     if (!this.inited) this.init(w, rec);
     const pos = [rec.x, rec.y, rec.z];
-    const dt = w.dt;
+    const dt = fr(w.dt);
     if (this.state & BALL.WAIT) {
-      const kid = this.kids[this.from];
+      // (finding V4: the ball waits for the RECEIVER kids[+0x28]: not falling (byte +0x36 of its head node) and Pepper not near (its var & 0x100))
+      const kid = this.kids[this.to];
       const head = kid?.ctrl?.nodes[0] as (BehaviourNode & { falling?: number }) | undefined;
-      if ((head?.falling ?? 0) === 0 && (this.kidVar_(w, this.from) & FOOTY.M_PEPPER) === 0) {
+      if ((head?.falling ?? 0) === 0 && (this.kidVar_(w, this.to) & FOOTY.M_PEPPER) === 0) {
         this.kick(w, rec, pos);
         rec.x = pos[0]; rec.y = pos[1]; rec.z = pos[2];
         this.state = BALL.KICK;
@@ -181,30 +188,30 @@ export class FootballNode implements BehaviourNode {
     }
     if ((this.state & BALL.ROLL) === 0) {
       // the flight: hops towards the target until it is passed (or within one step)
-      const dx = pos[0] - this.target[0], dy = pos[1] - this.target[1], dz = pos[2] - this.target[2];
+      const dx = sb(pos[0], this.target[0]), dy = sb(pos[1], this.target[1]), dz = sb(pos[2], this.target[2]);
       let arrived = false;
       if (Math.abs(this.last[0]) < Math.abs(dx) || Math.abs(this.last[2]) < Math.abs(dz)) arrived = true;
       else if (Math.abs(dx) <= this.speed && Math.abs(dz) <= this.speed) arrived = true;
       else if (Math.abs(dx) <= this.ready && Math.abs(dz) <= this.ready && this.astray === 0) this.kidOp(w, this.to, FOOTY.M_READY, 0);
       this.last = [dx, dy, dz];
       if (!arrived) {
-        this.phase = this.rate * dt + this.phase;
+        this.phase = ad(ml(this.rate, dt), this.phase);
         if (this.phase > PI_F) {
           if (this.astray === 0) {
-            this.hop = FOOTY.HOP2; this.rate = this.rate + this.rate;
+            this.hop = FOOTY.HOP2; this.rate = ad(this.rate, this.rate);
             sfxAt(w, SND_FOOTY.BOUNCE, [rec.x, rec.y, rec.z]);
           } else if (this.astray < FOOTY.ASTRAY_HOPS) {
             this.astray++;
-            this.hop = this.hop * FOOTY.ASTRAY_HOP; this.rate = this.rate + this.rate; this.speed = this.speed * FOOTY.ASTRAY_SPEED;
+            this.hop = ml(this.hop, FOOTY.ASTRAY_HOP); this.rate = ad(this.rate, this.rate); this.speed = ml(this.speed, FOOTY.ASTRAY_SPEED);
             sfxAt(w, SND_FOOTY.BOUNCE, [rec.x, rec.y, rec.z]);
           } else {
             this.hop = 0;
-            if (this.speed > FOOTY.ROLL_MIN) this.speed = this.speed * FOOTY.ROLL_DAMP;
+            if (this.speed > FOOTY.ROLL_MIN) this.speed = ml(this.speed, FOOTY.ROLL_DAMP);
           }
-          this.phase = this.phase - PI_F;
+          this.phase = sb(this.phase, PI_F);
         }
-        const k = this.speed * dt;
-        pos[0] -= k * this.dir[0]; pos[1] -= k * this.dir[1]; pos[2] -= k * this.dir[2];
+        const k = ml(this.speed, dt);
+        pos[0] = sb(pos[0], ml(k, this.dir[0])); pos[1] = sb(pos[1], ml(k, this.dir[1])); pos[2] = sb(pos[2], ml(k, this.dir[2]));
       } else {
         pos[0] = this.target[0]; pos[2] = this.target[2];
         this.state = BALL.ROLL;
@@ -212,25 +219,27 @@ export class FootballNode implements BehaviourNode {
         this.rollTo();
       }
     } else {
-      this.phase = this.rate * dt + this.phase;
+      this.phase = ad(ml(this.rate, dt), this.phase);
       if (this.phase > PI_F) {
         this.next();
         this.state = BALL.WAIT;
         sfxAt(w, SND_FOOTY.BOUNCE, [rec.x, rec.y, rec.z]);
       }
-      pos[0] += this.roll[0]; pos[1] += this.roll[1]; pos[2] += this.roll[2];
+      pos[0] = ad(pos[0], this.roll[0]); pos[1] = ad(pos[1], this.roll[1]); pos[2] = ad(pos[2], this.roll[2]);
     }
     // spin, then onto the ground with the hop (FUN_00427139 flags 0x16: terrain + probe, offset (0, |sin phase| * hop, 0), written back)
-    rec.rx = rec.rx - FOOTY.SPIN;
-    if (rec.rx < -TWO_PI_F) rec.rx += TWO_PI_F;
-    const from = [pos[0], pos[1] + FOOTY.PROBE_UP, pos[2]];
+    rec.rx = sb(rec.rx, FOOTY.SPIN);
+    if (rec.rx < -TWO_PI_F) rec.rx = ad(rec.rx, TWO_PI_F);
+    const from = [pos[0], ad(pos[1], FOOTY.PROBE_UP), pos[2]];
     let dy = -FOOTY.PROBE_DOWN, y: number | null = null;
     const t = w.col.terrainHeight(from[0], from[1], from[2], 4);
-    if (t !== NO_GROUND && t > -1e37 && dy < t - from[1]) { y = t; dy = t - from[1]; }
+    if (t !== NO_GROUND && t > -1e37 && dy < sb(t, from[1])) { y = t; dy = sb(t, from[1]); }
     const h = w.col.probe(rec, from, [0, dy, 0], FOOTY.PROBE_MASK);
     if (h) { pos[0] = h.point[0]; y = h.point[1]; pos[2] = h.point[2]; }
-    if (y !== null) { this.ground = y; pos[1] = y + Math.abs(Math.sin(this.phase)) * this.hop; }
-    rec.setEuler(rec.rx, rec.ry, rec.rz, pos[0], pos[1], pos[2]);
+    if (y !== null) { this.ground = y; pos[1] = ad(y, ml(Math.abs(Math.sin(this.phase)), this.hop)); }
+    // (finding V6: FUN_00427139 writes the position back only when the ray found ground; the rotation (FUN_0043a4a1) is always set)
+    if (y !== null) rec.setEuler(rec.rx, rec.ry, rec.rz, pos[0], pos[1], pos[2]);
+    else rec.setEuler(rec.rx, rec.ry, rec.rz, rec.x, rec.y, rec.z);
     return NODE_STOP;
   }
 }
@@ -255,11 +264,13 @@ export class FlowerNode implements BehaviourNode {
     void _c;
     this.start(rec);
     if (this.stamp !== w.frame) { this.scale = 0.5; this.t = 0; }
-    this.t = 1.0 * w.dt + this.t;
-    if (this.t < 90) { this.scale = 0.011111111380159855 * w.dt + this.scale; this.apply(rec); }
+    const dt = fr(w.dt);
+    this.t = ad(ml(1.0, dt), this.t);
+    if (this.t < 90) { this.scale = ad(ml(0.01111110020428896, dt), this.scale); this.apply(rec); restoreHooks.cue?.('flower-grow', { sfx: (id: number) => sfxAt(w, id, [rec.x, rec.y, rec.z]) }); }   // the original calls its growing sound (id 0) every tick (FUN_005396af); restored content only: the file is Silence.wav
     else if (this.t >= 180) {
       if (this.t < 360) {
-        this.scale = this.scale - 0.011111100018024445 * w.dt;
+        restoreHooks.cue?.('flower-shrink', { sfx: (id: number) => sfxAt(w, id, [rec.x, rec.y, rec.z]) });   // the shrink sound (id 2), every tick
+        this.scale = sb(this.scale, ml(0.011110999621450901, dt));
         if (this.scale < 0.5) { this.scale = 0.5; this.t = 360; }
         this.apply(rec);
       } else {
@@ -281,18 +292,18 @@ export class BobNode implements BehaviourNode {
   base: number | null = null; height: number; state = 0; off = 0; wait = 0;
   constructor(args: ArgView, attach?: Attach) {
     this.var = attach?.var ?? 2; this.mask = attach?.mask ?? 0; this.value = attach?.value ?? 0;
-    this.height = args.f32(0) * 8;
+    this.height = ml(args.f32(0), 8);
   }
   update(w: World, rec: GameRecord, _c: Controller): number {
     void _c;
     if (this.base === null) this.base = rec.y;
     switch (this.state) {
-      case 0: this.off = 0.07999999821186066 * w.dt + this.off; if (this.height < this.off) { this.state = 1; this.wait = 0; } break;
-      case 1: this.wait = 1.0 * w.dt + this.wait; if (this.wait >= 90) this.state = 2; break;
-      case 2: this.off = this.off - 0.07999999821186066 * w.dt; if (this.off < 0) { this.off = 0; this.state = 3; this.wait = 0; } break;
-      case 3: this.wait = 1.0 * w.dt + this.wait; if (this.wait >= 90) this.state = 0; break;
+      case 0: this.off = ad(ml(0.07999999821186066, fr(w.dt)), this.off); if (this.height < this.off) { this.state = 1; this.wait = 0; } break;
+      case 1: this.wait = ad(ml(1.0, fr(w.dt)), this.wait); if (this.wait >= 90) this.state = 2; break;
+      case 2: this.off = sb(this.off, ml(0.07999999821186066, fr(w.dt))); if (this.off < 0) { this.off = 0; this.state = 3; this.wait = 0; } break;
+      case 3: this.wait = ad(ml(1.0, fr(w.dt)), this.wait); if (this.wait >= 90) this.state = 0; break;
     }
-    if (this.state === 0 || this.state === 2) rec.setEuler(rec.rx, rec.ry, rec.rz, rec.x, this.base + this.off, rec.z);
+    if (this.state === 0 || this.state === 2) rec.setEuler(rec.rx, rec.ry, rec.rz, rec.x, ad(this.base, this.off), rec.z);
     return NODE_STOP;
   }
 }

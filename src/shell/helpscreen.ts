@@ -6,14 +6,13 @@
 // carry the NAME OF THE KEY the player bound to that button (FUN_004384c9 -> FUN_0043839f), not an icon texture.
 import type { Ui2D, UiTextureSet } from '../ui/renderer2d.ts';
 import type { MessageTable } from '../ui/strings.ts';
+import { uiOffsets } from './uioffsets.ts';
 
 const WHITE = 0xffffffff;
 /** FUN_00460a3d(0x16, 0x14, 0): panel width in tiles (half width 0x16 / 2 = 11) and the height of the full screen panel (20 rows of 24 px = 480 px) */
 export const PANEL_WIDTH = 0x16;
 export const PANEL_FULL_ROWS = 0x14;
-/** DAT_008a991c / DAT_008a9918 at start-up (the menu engine overwrites them while a pause menu is open: shell/menu.ts itemDy / titleDy): text offset of the row texts, of the title */
-const ITEM_DY = -4;
-const TITLE_DY = 14;
+/** DAT_008a991c / DAT_008a9918: text offset of the row texts, of the title: the executable's globals (uioffsets.ts: 14 / -4 only before the first FUN_004201aa, 0x12 / -2 afterwards) */
 
 /** what the panel functions need from the shell */
 export interface PanelEnv {
@@ -58,7 +57,7 @@ export function drawPanel(ui: Ui2D, env: PanelEnv, rows: number, withTitle: bool
     for (c = -1 - (half + 1); c < half + 2; c += 2) tile2(0x36, c, 1);
     for (c = half + 2; c < hw + 1; c++) { tile(0, c, 1); tile(0, c, 2); }
     tile(0xc, c, 1); tile(0xc, c, 2);
-    ui.text(1, title, 320, y2 + 24 + TITLE_DY, { colour: 1, align: 'centre' });
+    ui.text(1, title, 320, y2 + 24 + uiOffsets.titleDy, { colour: 1, align: 'centre' });
     row = 3;
   }
   for (; row < rows - 1; row++) {
@@ -66,7 +65,7 @@ export function drawPanel(ui: Ui2D, env: PanelEnv, rows: number, withTitle: bool
     for (let c = -1 - hw; c < hw + 1; c++) tile(0, c, row);
     tile(0xc, hw + 1, row);
   }
-  ui.text(0, env.press ?? '', 320, y2 + (row - 1) * 24 + ITEM_DY, { colour: 1, align: 'centre' });
+  ui.text(0, env.press ?? '', 320, y2 + (row - 1) * 24 + uiOffsets.itemDy, { colour: 1, align: 'centre' });
   tile(0x15, -2 - hw, row);
   for (let c = -1 - hw; c < hw + 1; c++) tile(6, c, row);
   tile(0x18, hw + 1, row);
@@ -116,7 +115,7 @@ export function drawHelp(ui: Ui2D, set: UiTextureSet | null, strings: MessageTab
   drawPanel(ui, env, n + 7, true);
   const y0 = Math.trunc((480 - (n + 7) * 0x18) / 2);
   const cap = (col: number, row: number) => { if (env.set) ui.sprite(env.set, 0x3c, [col * 24 + 320, y0 + (row - 1) * 24, (col + 4) * 24 + 320, y0 + row * 24], WHITE); };
-  const textAt = (align: 'left' | 'centre', s: string, col: number, row: number) => ui.text(0, s, col * 24 + 320, y0 + row * 24 + ITEM_DY, { colour: 1, align });
+  const textAt = (align: 'left' | 'centre', s: string, col: number, row: number) => ui.text(0, s, col * 24 + 320, y0 + row * 24 + uiOffsets.itemDy, { colour: 1, align });
   const name = (bit: number) => {
     const id = env.keyName ? env.keyName(bit) : (CONTROL_BUTTONS.find(([, b]) => b === bit)?.[0] ?? '--');
     return env.menuText?.(id) ?? id;

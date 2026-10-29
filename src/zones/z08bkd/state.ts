@@ -3,7 +3,7 @@
 import { C, REC, SCORE } from './consts.ts';
 import type { GameRecord } from '../../game/record.ts';
 
-const fr = Math.fround;
+import { ad, sb, ml, dv } from '../common/f32.ts';
 
 /** the lines FUN_005b903b speaks for the 1st .. 5th delivered brick (CASGBD08 .. 12), FUN_005b92d3 CASGBD07 at half the oxygen */
 export const SPEECH = { HALF_AIR: 'CASGBD07', BRICK: ['CASGBD08', 'CASGBD09', 'CASGBD10', 'CASGBD11', 'CASGBD12'], HIT: 'CASGBD05' } as const;
@@ -35,7 +35,8 @@ export class BkdState {
 
   /** FUN_005b9014: the percentage of the time left (100 - elapsed / 500 * 100); negative after the time is up */
   percentLeft(): number {
-    return fr(C.HUNDRED - fr(fr(this.elapsed / C.TIME_LIMIT) * C.HUNDRED));
+    // every operation rounds to float32 (24-bit precision): 100 - (elapsed / 500) * 100
+    return sb(C.HUNDRED, ml(dv(this.elapsed, C.TIME_LIMIT), C.HUNDRED));
   }
   /** FUN_005b8ffa: all five bricks delivered */
   success(): boolean { return this.bricks === 5; }
@@ -47,17 +48,17 @@ export class BkdState {
 
   /** FUN_005b92d3 (every frame of mode 2, after the update pass): the clock, the gauge, the half-air line, the HUD tints */
   tickHud(dt: number) {
-    this.elapsed = fr(dt + this.elapsed);
-    let pct = this.percentLeft();
+    this.elapsed = ad(dt, this.elapsed);
+    let pct = sb(C.HUNDRED, ml(dv(this.elapsed, C.TIME_LIMIT), C.HUNDRED));
     if (pct < C.ZERO) pct = 0;
-    this.gauge = fr(pct * C.GAUGE_SCALE);
+    this.gauge = ml(pct, C.GAUGE_SCALE);
     if (pct <= C.FIFTY && !this.halfSpoken) { this.speak(SPEECH.HALF_AIR); this.halfSpoken = true; }
     if (this.bricks > 0) this.brickTint[this.bricks - 1] = 0xffffffff;
     if (this.page) this.pageTint = 0xffffffff;
     if (this.pageFlash > C.ZERO) {
       // the original tests `ftol(flash) & 0x10` here: 0..4 never has that bit, the tint stays white
       this.pageTint = 0xffffffff;
-      this.pageFlash = fr(this.pageFlash - dt);
+      this.pageFlash = sb(this.pageFlash, dt);
     }
   }
 

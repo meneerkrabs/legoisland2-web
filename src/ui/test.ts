@@ -80,6 +80,12 @@ function scene(name: string) {
     for (let i = 0; i < 12; i++) ui.letterbox(1, 1);
     ui.fade(+(params.get('a') ?? 0.5));
     ui.text(0, 'tekst blijft boven de fade', 320, 300, { align: 'centre', colour: WHITE });
+  } else if (name === 'card') {
+    // the loading card of the fade overlay (FUN_0040d1be, loadingcard.ts): `?scene=card&a=<fade>&az=<angle about z>&ax=<angle about x>`; the first call of a Ui2D is the init branch (fade 0), so draw once to get past it
+    ui.sprite(mo, 2, [100, 100, 228, 228]);
+    ui.text(1, 'scene under the fade', 320, 200, { align: 'centre', colour: YELLOW });
+    ui.cardState.angleZ = +(params.get('az') ?? 0.7); ui.cardState.angleX = +(params.get('ax') ?? 0.4);
+    ui.fade(+(params.get('a') ?? 0));
   } else if (name === 'loading') {
     ui.spriteTex(back.get(0)!, [0, 0, 640, 480]);
     ui.sprite(hud, 0, [20, 20, 80, 80]);
@@ -128,6 +134,9 @@ async function main() {
   const back = ui.loadImage(generic, 'Backdrop/loadingscreen.tga');
   const frontend = loadMessages(messages, FRONTEND_FILES), ifc = loadMessages(messages, IFC_FILES);
   ctx = { r, ui, mo, hud, loading, back, frontend, ifc, menu: loadMenuStrings(messages) };
+  // the loading card (the same assets as Shell.create)
+  ui.card = { pizza: ui.loadImage(generic, 'Backdrop/Pizza.tga').get(0)!, cd: ui.loadImage(generic, 'Backdrop/CD.tga').get(0)!, text: frontend.text('LOADING') };
+  ui.cardState.frame(640, 480, 0);   // the init branch (first call) is used up
   (window as unknown as { __ui: unknown }).__ui = { ...ctx, scene, checkState, ready: true };
   scene(params.get('scene') ?? 'text');
 }

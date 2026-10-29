@@ -2,7 +2,9 @@
 // medal vars, back to the island) and then a LOSS (free fall into the ground: banner, failed menu, Abort rewinds the story). Screenshots go to --out.
 //   node tools/browse.mjs "http://localhost:5499/?zone=z38PAR&mute=1" tools/steps/m3-z38PAR.mjs --size 640x480 --out /tmp/m3/z38PAR
 // The scripted pilot is tools/lib/par-bot.mjs (the same decisions as the node test); every 60 ms it reads the snapshot of `__zone.game.debug()` and presses / releases keys.
-import { parBotStep } from '../lib/par-bot.mjs';
+import { parBotStep, steerBits, pitchBits } from '../lib/par-bot.mjs';
+import { B } from '../../src/game/input.ts';
+import { installPageBot, pilotDecideSource } from './lib-pagebot.mjs';
 
 const KEYS = [[4, 'ArrowUp'], [8, 'ArrowDown'], [1, 'ArrowLeft'], [2, 'ArrowRight'], [0x40, 'ShiftLeft']];
 export default async ({ page, shot, wait, log, key }) => {
@@ -19,17 +21,20 @@ export default async ({ page, shot, wait, log, key }) => {
       if (!want && held.has(code)) { await page.keyboard.up(code); held.delete(code); }
     }
   };
-  /** play until the game is over: the bot decides from the snapshot; `shots` = [name, predicate] taken once */
+  /** play until the game is over: the page-side bot (lib-pagebot.mjs) decides every 4 ms inside the page from the zone's own snapshot and presses the keys as KeyboardEvents;
+   *  this process only takes the screenshots (a screenshot stalls the page for a while, which no longer costs the bot a decision: it stops with the page) */
   const fly = async (plan, shots = []) => {
+    const bot = await installPageBot(page, 'par', pilotDecideSource('parBotStep', B, steerBits, pitchBits, parBotStep, plan));
+    await bot.start();
     const taken = new Set();
     for (let i = 0; i < 6000; i++) {
       const s = await dbg();
       if (!s || s.mode !== 2 || s.over) break;
       for (const [name, pred] of shots) if (!taken.has(name) && pred(s)) { taken.add(name); await shot(name); }
-      await setKeys(parBotStep(s, plan));
-      await wait(40);
+      await wait(60);
     }
-    await setKeys(0);
+    const info = await bot.info(); log('page bot', JSON.stringify(info));
+    await bot.stop();
   };
 
   // ------------------------------------------------------------------------------------------------ WIN
@@ -55,7 +60,7 @@ export default async ({ page, shot, wait, log, key }) => {
   log('flight over', JSON.stringify({ score: s.score, ring: s.ring, state: s.state, result: s.result, hiscore: s.hiscore, trophy: s.trophy, spoken: s.spoken }));
   expect('at least two of the three rings passed (the browser bot reacts with a few ticks of latency)', s.ring.filter((r) => r === 1).length >= 2, s.ring.join());
   expect('success: score >= 2000', s.score >= 2000 && s.result === 1, `score ${s.score}`);
-  await wait(900);
+  await page.waitForFunction(() => window.__zone.machine.mode === 4, null, { timeout: 60000 }).catch(() => {});
   expect('end banner (mode 4)', (await dbg()).mode === 4);
   await shot('par-8-banner');
   expect('hiscore and trophy written (vars 0xaa / 0xd1)', s.hiscore === Math.trunc(s.score) && s.trophy === (s.score >= 5000 ? 3 : s.score >= 3000 ? 2 : 1), `hiscore ${s.hiscore} trophy ${s.trophy}`);
@@ -74,12 +79,13 @@ export default async ({ page, shot, wait, log, key }) => {
   await ready('z38PAR');
   await key('Enter'); await wait(400); await key('Enter'); await wait(800);
   await page.keyboard.down('ArrowDown'); held.add('ArrowDown');        // head down: 0.8 per tick, no parachute
-  for (let i = 0; i < 4000; i++) { const d = await dbg(); if (!d || d.over || d.mode !== 2) break; await wait(60); }
-  await page.keyboard.up('ArrowDown'); held.delete('ArrowDown');
+  // (M5: the end banner of this loop is left as soon as ANY button is HELD, so the key is released shortly before the ground to see the banner)
+  for (let i = 0; i < 4000; i++) { const d = await dbg(); if (!d || d.over || d.mode !== 2) break; if (held.has('ArrowDown') && d.pepper.y < 120) { await page.keyboard.up('ArrowDown'); held.delete('ArrowDown'); } await wait(60); }
+  if (held.has('ArrowDown')) { await page.keyboard.up('ArrowDown'); held.delete('ArrowDown'); }
   s = await dbg();
   log('crash', JSON.stringify({ score: s.score, state: s.state, result: s.result, hiscore: s.hiscore, trophy: s.trophy }));
   expect('crash without the parachute: score 0, failed', s.score === 0 && s.result === 2 && s.trophy === 0);
-  await wait(900);
+  await page.waitForFunction(() => window.__zone.machine.mode === 4, null, { timeout: 60000 }).catch(() => {});
   expect('failure banner (mode 4)', (await dbg()).mode === 4);
   await shot('par-11-failed-banner');
   await key('Enter'); await wait(600);

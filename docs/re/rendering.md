@@ -31,9 +31,8 @@ Contents: 1 display set-up, 2 frame structure, 3 camera, range and fog, 4 materi
 * **Z-buffer**: the device's depth formats are tried in the order **32 bit, 24 bit, 16 bit** (`FUN_0040a43f` loops, creates a `DDSCAPS_ZBUFFER | VIDEOMEMORY` surface, attaches it, then `CreateDevice`); the first that works is used.
   If the card reports `D3DPRASTERCAPS_WBUFFER` (0x40000, `DAT_00983aa4`) the game switches depth testing to a **W-buffer**: `ZENABLE = 2` (`FUN_0040cc4d`, `FUN_0040788f`), otherwise a Z buffer (`ZENABLE = 1`).
   `ZFUNC = LESSEQUAL`. The frame is cleared with `Clear(TARGET | ZBUFFER, colour, z = 1.0)`.
-* **Viewport**: `SetViewport` with (0, 0, width, height) and **MinZ = MaxZ = 0.0** (`FUN_0040bdd1`, `FUN_0040a43f`, `FUN_0040acb0`); the return value is not checked.
-  A degenerate depth range would break the depth buffer, so the call presumably fails and keeps the default viewport (0..1) that `CreateDevice` installs. **UNCERTAIN** (cannot be run here).
-* **Gamma**: none. No `IDirectDrawGammaControl`, no gamma ramp, no "gamma" string anywhere. **Dithering** is off (`DITHERENABLE = 0`), **anti-aliasing** off.
+* **Viewport**: `SetViewport` with (0, 0, width, height) and **MinZ = MaxZ = 0.0** (`FUN_0040bdd1`, `FUN_0040a43f`, `FUN_0040acb0`; the return value is not checked). **Settled**: Direct3D 7 turns a degenerate range into `[MinZ, max(MaxZ, MinZ + 0.001)]`
+  (measured by Wine against native Windows, `ddraw7.c` "Test degenerate viewport z ranges"), so the depth values of the game's triangles span `[0, 0.001]` (ordering intact, a thousandth of the 0..1 resolution; `Clear` uses z = 1.0). The port: `gl.depthRange(0, 0.001)` (`states.ts` `GAME_Z_RANGE`).
 * **Fog option**: `video fog` is stored in `DAT_00983e14` (`FUN_0040661f`); when it is non-zero fog is disabled everywhere (`FUN_0040920e`, `FUN_0040943f`, `FUN_00409563` force `FOGENABLE = 0`).
   The shipped file has `f`, so fog is on. (The flag's dialog label is unknown; the code only ever uses it to switch fog off.)
 * **Time base**: game logic, animation and particles run in **ticks of 1/30 s**. `FUN_00443e40` measures the real frame time and keeps `DAT_008b1718 = frameTime / (1/30 s)` (the constant `0x892260` = 1/30; 1.0 for the first
@@ -131,8 +130,13 @@ Zone table (default slider 50; near is the near plane; sea y = value stored into
 | z50LTC | 4 | 800 / 450 / 100 | 169 / 450 | #00ffff | on | -800 | 0.14,0.16,0.2 | 0,0.75,0.66 | 1,0.67,0.52 | 0 |
 | z60FRE | 4 | 1500 / 1500 / 1500 | 900 / 1500 | #ffffff | off | - | 0.6,0.6,0.6 | 0,0.64,0.77 | 1,1,1 | 0 |
 
-Only the **first** `SetupFog` call of each set-up function is the zone default; several zones call it again for sub-areas (z03PPH 3 calls, z10RGB 4, z27TRX 8 ...), those values are returned by `extractRenderParams().fog[]` too.
-Zones without a sea record but with `sea y -` and records `SSEA` (z09JST, z13CAI, z22BIP, z38PAR) keep the global at 0 (UNCERTAIN: another store through a register could exist).
+**Which `SetupFog` call is in effect (R8, settled in `src/game/fogphases.ts`, checked in `tools/tests/render.mjs`)**: `FUN_00442d90` stores the zone's fog and applies it at once, so the call that ran last wins. The zone loops (about 30 near-identical copies, read one by one) follow one template:
+the zone's set-up helpers run before the loop; the fade-in (mode 7) shows their last fog; **when the fade-in completes the loop calls SetupFog with the play values** (`case 7` of `FUN_005cd33d`, `FUN_005f418b`, `FUN_00706bee` ...), which stay until the zone is left; a restart (exit state 3) calls SetupFog with a black fog after the
+fade-out, re-runs the helpers and shows that during the next fade-in. The play call is the first call by address that `extractRenderParams` lists in every zone with several calls (z08BKD 3, z09JST 3, z10RGB 4, z13CAI 2, z15SSH 2, z17WAS 3, z20DSP 3, z21FSH 3, z22BIP 3, z28HAT 3, z42BRP 2; the calls of z13CAI / z15SSH are identical, z42BRP's
+`FUN_008212a3` calls its 400 / 400 black fog first and then `FUN_00820f4e(1)`, whose 1500 / 1500 / 600 black fog (fog off) is the last: the first by address) **except z40OGL**: its hub set-up function `FUN_007e3bd1` calls `SetupFog(4, 100, 300, 200, black, on)` when `DAT_00987660 == 0` (32-bit display) and `(4, 80, 200, 100, ...)` for the 16-bit low-end profile, whose call
+comes FIRST in the code. The start / restart fogs differ from the play fog only for z08BKD (start: black, fog on; play: cyan), z09JST (restart black), z10RGB (start / restart: the 800 / 800 fog of `FUN_005f6340`, play 100 / 600 / 300) and the black restart calls; they only show during the 16 fade-in ticks.
+`GameRenderer.currentFog` selects by the loop mode the shell reports (`loopMode`, `restarted`). Zones with several calls that other ports wired by hand (z03PPH, z18MMP, z27TRX: `useFogCall`) keep that.
+Zones without a sea record but with `sea y -` and records `SSEA` keep the global at 0: **settled**: `DAT_009da858` starts at 0 and is reset to 0 by the destroy slot of the sea node (`FUN_00426759`), so a zone that never stores it has 0 (the previous zone's value can only survive when its sea node was not destroyed).
 
 ---------------------------------------------------------------------------------------------------------------------------
 
@@ -194,25 +198,33 @@ The engine does not change individual render states per draw. At start-up (`FUN_
 * **Opaque, cut-out and translucent surfaces all use the same state (preset 3)**: blending is always on, `ALPHAOP = SELECTARG1` takes the alpha from the texture, the alpha test (>= 1/255) removes fully transparent texels,
   and **Z writes stay on** also for translucent pixels. Translucent surfaces therefore only look right if the content creator put them in a later pass (flags 1 / 2) or a later record; the engine does no sorting.
   Textures without an alpha channel get alpha 255 (24-bit TGA), so they are opaque.
-* **Mesh `mode`** (third argument of `FUN_0087d9a7`, stored per model part, set by game code with `FUN_00444550(record, mask, mode)`; default 0) selects the block:
+* **Mesh `mode`** (third argument of `FUN_0087d9a7` = the `+0x10` field of a model PART record; every builder creates its parts with mode 0, `FUN_00444550(record, partMask, mode)` changes it: bit i of `partMask` = LOD part i of the record's model;
+  also called at run time) selects the block:
 
 | mode | block | lighting computed first | meaning |
 |---|---|---|---|
-| 0 | 3 | once, at the first draw of the mesh (`mesh+0x60` flag) | normal lit object |
-| 1 | 3 | at every draw (`FUN_0088abcc`) | lit object that moves / turns (characters, vehicles, the island's dynamic set) |
-| 2 | 1 | no | unlit, alpha-blended, depth on (sky, shore foam) |
+| 0 | 3 | once, at the first draw of the MESH (`mesh+0x60` flag, never cleared) | normal lit object |
+| 1 | 3 | at every draw (`FUN_0088abcc`) | lit object that moves / turns (characters, vehicles, the island's dynamic set, `FUN_0051c823`'s roster of vehicle records) |
+| 2 | 1 | no | unlit, alpha-blended, depth on (sky, shore foam, holograms, portals) |
 | 3 | 0x10 | no | unlit, no depth (seabed, sea) |
 | 4 | 0x12 | once | lit, no depth test (overlay-like objects) |
 | 5 | 0xd | no | tex colour, alpha = tex * vertex alpha |
 | 6 | 0 | no | unlit opaque |
 | 7 | 0x1a | no | modulate / modulate, no depth |
 
+  The record-level draw `FUN_00444480` picks the LOD part and calls `FUN_0088aca2` with ITS mode; a record that has a skeleton (`record + 8`, the animated draw `FUN_004440f0`) draws its base mesh with `FUN_0088b87b`, which ignores the part's mode
+  (always block 3, skinned and lit at every draw with `FUN_0088589e`, or `FUN_00885e33` / block 5 for a shiny mesh; a mesh without skin data (no `SVWL` chunk, `*mesh != 0`) is drawn with the colours its vertex buffer has: not lit) and its
+  attached models with `FUN_0088b4c0` in mode 1 (lit at every draw; the same LOD index as the base mesh, clamped to the child's part count), followed by the blob shadow `FUN_00444940` (section 9).
+  The meshes are shared: one mesh object per mesh file slot, so all records that use a mesh share its vertex colours (the first record to light it in mode 0 decides for all; a mode 1 record re-lights the shared buffer at every draw).
   A mesh can also carry its own state callback (`mesh+0x8c`, set by `FUN_00444790`) which overrides the switch: the sea plane uses it (callback returns 0x61, `FUN_00883fad` maps 0x61 -> block 0x10,
-  0x62 / 0x63 -> block 6, anything else -> block 3). Modes seen in the island's set-up code (`FUN_004b4907`, `FUN_004b6475`): 2 for the shore-foam record and a few effect records, 1 for a set of moving records (skateboard, vehicles ...), 5 for one special record.
-  The viewer only knows the fixed assignments (`SSKY` 2, `SEAB`/`SSEA` 3, `SEAE` 2); every other record is mode 0. **[viewer]**
-* Skinned meshes (`FUN_0088b87b`, `FUN_0088bd34`, `FUN_0088c367`): the joints are skinned on the CPU every frame, the lighting is recomputed per frame (`FUN_0088589e`, same formula, directional lights + ambient only) and all groups are drawn with block 3 (mode 2 = no state change).
-* **Specular** ("shiny") meshes: a model can be switched to vertex format 0x2c2 (`FUN_00883013(model, 1)`, called by `FUN_004446c0(record, 1)` for a handful of records such as the skateboard and some vehicles); lighting then also writes a specular
-  colour `pow(H.N, 16) * colour * 128/255` for `H.N > 0.9` (`FUN_0088612c`; skinned meshes `FUN_00885e33`: power 8, threshold 0.92, factor 220/255) and block 5 (SPECULARENABLE) is used. Meshes are loaded as FVF 0x242 (`XYZ | DIFFUSE | TEX2`, 32 bytes); 0x2c2 adds `SPECULAR` (36 bytes).
+  0x62 / 0x63 -> block 6, anything else -> block 3). **[port]** `GameRenderer.setPartMode(record, mask, mode)` = `FUN_00444550`; the extraction (`ZoneSetup.modes`, emulated set-ups too, now including the vehicle roster's mode 1) is applied per part.
+  Modes seen in the zone set-ups: 1 for the vehicle records of the island and the hubs (`FUN_0051c823` list at `0x8e9c30`, SBRD, LOON, BRID x6, Pepper and the toppings of the house, z20DSP's BBT, z60FRE ...), 2 for the shore foam, holograms, portals, 5 for the island's wake and the castle's walkways, 3 for z40aPO's targets.
+* Skinned meshes (`FUN_0088b87b`, `FUN_0088bd34`, `FUN_0088c367`): the joints are skinned on the CPU every frame, the lighting is recomputed per frame (`FUN_0088589e`, directional lights + ambient only, the skinned normals are NOT renormalised) and all groups are drawn with block 3 (block 5 for a shiny mesh).
+* **Specular** ("shiny") meshes: a model can be switched to vertex format 0x2c2 (`FUN_00883013(mesh, 1)`, called for every part and attachment by `FUN_004446c0(record, 1)`; 28 calls in the island's set-ups (AMBU, SPD0-2, PCAR, LOON, SBRD, BRID x6), 24 for the house's trophies and Pepper (z03PPH), 17 PONT of z04IFC,
+  Pepper / mummies / spiders / coffins of z18MMP, Pepper in z17WAS and z60FRE ...); lighting then also writes a specular colour `pow(H.N, 16) * colour * 128/255` for `H.N > 0.9` (`FUN_0088612c`; skinned meshes `FUN_00885e33`: power 8, threshold 0.92, factor 220/255) next to the diffuse colour.
+  **SPECULARENABLE is on for every draw**: `FUN_004090a7` sets it (1 for blocks 4, 5, 0x13, 0x14, else 0) BEFORE it applies the state block, and the 30 blocks were created with `D3DSBT_ALL` after the base state (`FUN_0040788f`) had set `SPECULARENABLE = 1`,
+  so applying any block restores 1. A 0x242 mesh has no specular colour (nothing is added); a 0x2c2 mesh always shows its highlights, also when its lighting function selected block 5 and the caller then selected block 3 (modes 0 / 1). The brick batches (section 10) use block 5.
+  Meshes are loaded as FVF 0x242 (`XYZ | DIFFUSE | TEX2`, 32 bytes); 0x2c2 adds `SPECULAR` (36 bytes). **[port]** `Renderer.setShiny`, `GameRenderer.setShiny`, `ZoneSetup.shiny` (the extraction / emulation records the `FUN_004446c0` calls).
 * **Environment (sphere) mapping** exists in code (`FUN_00884002` / `FUN_00884128`: texture transform `[.5 0 0 0; 0 .5 0 0; 0 0 1 0; .5 .5 0 1]`, `TEXCOORDINDEX = CAMERASPACENORMAL`, `TEXTURETRANSFORMFLAGS = COUNT2`, vertex format 0x212 `XYZ | NORMAL | TEX2`, `WRAP0 = 7`)
   but the flag that enables it (`mesh+0x64`, set only by `FUN_0088350d(-999)`) is never set by any call site in the executable: **dead code** (checked by scanning the 27 callers; **UNCERTAIN** only if a call goes through a path I did not trace).
 * Culling of whole meshes: each mesh keeps 8 box corners; `FUN_00416454` computes outcodes against the six frustum planes (`DAT_00987db8`) and a mesh is skipped when the AND of the 8 outcodes is non-zero (`FUN_0088aca2`).
@@ -230,14 +242,20 @@ The engine does not change individual render states per draw. At start-up (`FUN_
 
 D3D lighting is **off**. The engine lights vertices itself on the CPU (Lights.cpp) and uploads them as diffuse (and specular) vertex colours, so the result is Gouraud-interpolated per-vertex lighting.
 
-* **Light file** `lights/lights.lgt` (format: `src/formats/lights.ts`, formats.md 8.3.6), loaded per zone by `FUN_008864b6` (-> `FUN_008849c6`) into a runtime light set (`DAT_05d5fafc[n]`, 100 bytes per light);
-  **all meshes use set 0** (`FUN_0088abcc` reads `*DAT_05d5fafc`). The conversion:
-  * file type 2 (directional) -> runtime directional light; **if its direction's Y is negative, Y is negated** (`FUN_008849c6`); the vector is thus the direction **towards** the light with `y >= 0`
-    (e.g. z02LGI: file `(0.71, -0.60, 0.37)` -> `(0.71, 0.60, 0.37)`, a sun at 37 deg elevation in the +x/+z quadrant);
-  * file type 0 (point) -> runtime point light; its range is **not** taken from the file (runtime range 1.0 for meshes, 60.0 elsewhere), so point lights practically never touch a mesh;
-  * file type 1 (spot) is converted but never occurs;
-  * **ambient** = the component-wise maximum of the `ambient` colour of **all** records of the file (appended as a last light of type 0). The `specular` colour of the file is unused.
-* **Per vertex** (`FUN_00885a9a` static meshes, `FUN_0088589e` skinned), for each channel, with `N` the vertex normal (from the mesh's separate normal array, rotated into the light's space with the object's world rotation) and the lights in list order:
+* **Light file** `lights/lights.lgt` (format: `src/formats/lights.ts`, formats.md 8.3.6), loaded per zone by `FUN_008864b6` (-> `FUN_008849c6`) into a runtime light set (`DAT_05d5fafc[n]`, 100 bytes per light: type +0, position +4 / +0x28,
+  direction +0x10, diffuse +0x4c, range +0x5c, 60.0 at +0x60); **all meshes use set 0** (`FUN_0088abcc` reads `*DAT_05d5fafc`). The conversion:
+  * file type 2 (directional) -> runtime kind 1; **if its direction's Y is negative, Y is negated**; the vector is thus the direction **towards** the light with `y >= 0` (z02LGI: file `(0.71, -0.60, 0.37)` -> `(0.71, 0.60, 0.37)`); not normalised
+    by the loader (the shipped vectors are unit length);
+  * file types 0 (point) and 1 (spot, never seen) -> runtime kind 2 (point) whose range field is **1.0** (`+0x5c`); the only function that would use 60.0 (`+0x60`, `FUN_00884f68`) and the D3D light setters (`FUN_00884370` ... `FUN_00884598`)
+    have no callers. **Settled (R17):** a point light reaches a mesh vertex only within 1.0 unit (`FUN_00885a9a`: intensity `(1 - d / 1.0) * max(0, N . unit(light - vertex))`, static 0x242 meshes only: the skinned and the 0x2c2 functions ignore point lights);
+    z14OSD / z18MMP / z22BIP / z23DIP / z27TRX / z28HAT / z40OGL / z40aPO / z42BRP have 3 to 13 such lights;
+  * **ambient** = the component-wise maximum of the `ambient` colour of **all** records of the file (appended as the last entry, kind 0); the last record is dropped when its type is not 0..2; the loader reads `declaredCount` records and a file holds fewer
+    (the rest read as zero = black point lights). The `specular` colour of the file is unused.
+  * No `lights.lgt` (never in the shipped data): `FUN_0088465a` builds a default set but leaves the light count at 0 (`FUN_00884230` constructor): **settled**, everything lit by that set is black.
+* **Per draw** (`FUN_00885664(lightSet, worldMatrix)`, the D3D world matrix of that moment: the record's matrix, for an attached model the bone-composed one; a group's own MATL matrix does not count): for each directional light the object-space
+  vector `L = normalize(dir . rows(M))` (`FUN_0043b0c5`: the direction times the matrix's rows, i.e. `M` applied to `dir`, then normalised; for a scaled matrix that is NOT the inverse), the half vector `H = normalize(normalize(eye - M.translation) + dir)` in world space
+  taken into object space the same way (not normalised again), and point lights as `lightPos - M.translation` rotated the same way.
+* **Per vertex** (`FUN_00885a9a` static meshes, `FUN_0088589e` skinned, `FUN_0088612c` / `FUN_00885e33` shiny), for each channel, with `N` the vertex normal (from the mesh's separate normal array, object space, NOT renormalised, for skinned meshes the skinned sum):
 
   ```
   acc = 0
@@ -245,13 +263,12 @@ D3D lighting is **off**. The engine lights vertices itself on the CPU (Lights.cp
   colour = max(acc, ambient)
   ```
 
-  then `ROUND(colour * 255)` per channel into the vertex diffuse. The texture stage multiplies (`MODULATE`, no 2x / 4x), so the final pixel is `texture * max(ambient, N.L * sun)`.
-  For z02LGI: grass facing up is lit with 0.60, faces turned away from the sun fall back to the ambient 0.18 / 0.18 / 0.24 (bluish shade). This reproduces the look of the PC screenshots (grass ~0.7 of its texture colour, cliff walls in
-  shade ~0.25).
-* The light set also exists as D3D lights (`FUN_0088465a` creates a default D3DLIGHT7 and calls `SetLight`; `FUN_00884370` ... `FUN_00884598` change colour / direction / range) but D3D lighting is never enabled, so they have no effect. The default
-  set (no `lights.lgt`) has count 0 (black meshes): **UNCERTAIN**, never used by the shipped zones.
-* Light on **moving** objects uses the same list; the vertex colours are recomputed when the mesh is drawn in mode 1 (and skinned meshes every frame); static (mode 0) meshes keep the colours of their first draw.
-* The viewer evaluates the same formula in its vertex shader (`src/render/lighting.ts` documents it, `lightVertex` is the CPU reference). **[viewer]**
+  then `(int)ROUND(colour * 255)` (`fistp`: nearest, ties to even) per channel into the vertex diffuse dword (`G * 0x100 + R * 0x10000 + B`, the 0x242 variants keep the alpha byte, the 0x2c2 variants write `... - 0x1000000`, alpha 0xff). The texture stage multiplies
+  (`MODULATE`, no 2x / 4x), so the final pixel is `texture * max(ambient, N.L * sun)` (+ specular for shiny meshes). For z02LGI: grass facing up is lit with 0.60, faces turned away from the sun fall back to the ambient 0.18 / 0.18 / 0.24 (bluish shade).
+* **When**: mode 0 / 4 meshes at their first draw only (`mesh + 0x60`; the first record that draws the mesh decides the colours of all records that use it), mode 1 meshes, attached models and skinned meshes at every draw (section 4.2).
+* **[port] verified against the original**: `src/render/meshlight.ts` ports `FUN_00885664`, `FUN_00885a9a`, `FUN_0088589e`, `FUN_0088612c` and `FUN_00885e33`; `tools/tests/render-light.mjs` runs the original functions on the x86 emulator for random light sets (directional / point / ambient), rotated, scaled and
+  non-uniformly scaled matrices and random normals / positions: all 69,120 diffuse and specular bytes agree exactly (including the specular vertices). `Renderer.drawMesh` lights on the CPU into per-mesh vertex-colour buffers with the rules above (`lit: 'once' | 'always' | 'never'`
+  from the mode, `skinned`, shared by all records of a mesh, reset per zone by `resetLighting`); the old per-vertex shader lighting is gone. Light colours are evaluated once per draw and mesh, not per pixel: Gouraud interpolation of the 8-bit vertex colours as in D3D.
 
 ---------------------------------------------------------------------------------------------------------------------------
 
@@ -341,29 +358,53 @@ Record `flags` (ushort at +0x60): bit 0 visible (set by the sphere test), bit 1 
 * **Material** (`iMaterial` of the `.app`): 0 -> **block 6** (modulate, alpha blend), 1 -> **block 7** (vertex colour only, texture alpha as shape, **additive** SRCALPHA/ONE), 2 -> **block 3** (texture alpha only). All with Z test and write on and alpha test >= 1. Counts in the shipped files: material 0 x 31, 1 x 22, 2 x 16.
 * **Colour / size over life** (`FUN_00452300`, `FUN_00453410`): start / end RGBA with random variation, linear interpolation per tick in 8.8 fixed point (alpha separately); size start / end with variation; life = `(rand * dLifespan + lifespan) * 30` ticks.
   Emission accumulates `(rand * dDensity + density) * dt` per tick (density is per **tick**, not per second; UNCERTAIN against the table in formats.md 8.8 which says per second), motion `v = (v + dt * gravity) * airResistance`, ground bounce through the collision list.
-* **[viewer]** does not draw particles.
+* **[viewer]** does not draw particles. **[port]** `src/fx/particles/draw.ts` + `sprites.ts` (WP-PART): the pass above, exact on the CPU side (verified against `FUN_0044f4c0` / `FUN_008885e0` / `FUN_00887ae5` in the emulator), D3D's visibility / ProcessVertices re-implemented; see docs/re/particles.md.
 
 ---------------------------------------------------------------------------------------------------------------------------
 
-## 9. Shadows (`Shadow.bob`, `FUN_00444850`, `FUN_00444940`)
+## 9. Shadows (`Shadow.bob`, `FUN_00444850`, `FUN_00444ed0`, `FUN_00444940`, `FUN_00444ef0`)
 
-* Blob shadows, drawn for each object right after the object itself. `Shadow.msh` is a 5-vertex, 4-triangle fan (4 corners + centre) with one group (flags 2); `Shadow/text.txl` lists 9 textures (all RGB 0 with alpha, `text001` is a 4-frame `.wib`):
+* Blob shadows. `Shadow.msh` is a 5-vertex, 4-triangle fan (4 corners + centre) with one group (flags 2); `Shadow/text.txl` lists 9 textures (all RGB 0 with alpha, `text001` is a 4-frame `.wib`):
   0 glider, 1 animated, 2 plane, 3 soft square, **4 round blob (default)**, 5 bird, 6 ship, 7 sparkles (the Pepper marker), 8 soft square.
-* Which objects: Pepper (`PEPP`) uses the type from game variable 0xc5 (-1 = none); other objects only when `behaviour flags & (0x10 | 0x40)`, within 80 units of the camera (distance^2 <= 6400), type 4.
-* **Geometry**: the four corners lie at `radius[type] * 8` from the object at angles heading +- 45 deg / 135 deg (`heading = atan2(forward.x, forward.z)`), the centre at the object; every vertex is **ray-cast straight down** against the registered collision meshes
-  (`FUN_00441b10`, ray start `rayStart[type] * 8` above, length 2400): the centre takes the highest hit (starting at the sea level), the corners are clamped to +-16 around the centre height, and everything is lifted by `lift[type] * 8`.
+* **Which zones**: only zones whose loop function calls `FUN_00444850` (loads `\data\shadow\shadow.Msh` and the textures, sets game var 0xc6 = 0 (marker off) and **var 0xc5 = 4** (Pepper's type), enables `DAT_009e5864`; `FUN_00444e90` at the zone's end disables it again) AND registers the terrain records
+  the shadows are ray-cast against with `FUN_00444ed0(record)` (at most 0x40; with none registered `FUN_00444940` computes and draws nothing). Read from the code (`extractShadowSetup`, `tools/tests/render-shadow.mjs`): shadows exist in z01BPK (records 22, 32, 34), z02LGI (4, 5, 6, 0x186, 0x187),
+  z03PPH (6), z07CSI (3, 4), z10RGB (4, 0x26), z13CAI (4, 5, 7, 8), z14OSD (3), z16PYA (1), z18MMP (0, 0x5c, 0x5d), z21FSH (4), z23DIP (2), z27TRX (0, 1), z28HAT (1, 4, 5), z40OGL (1), z41MAP (0), z42BRP (56 records 14..79 through a switch), z50LTC (1);
+  **no shadows**: z04IFC, z36CNT and z60FRE (initialised, nothing registered), z05WAB, z08BKD, z09JST, z15SSH, z17WAS, z20DSP, z22BIP, z38PAR, z39ASB, z40aPO (never initialised). So the zones that switched Pepper's shadow off in the port (z15SSH, z22BIP, z38PAR, z40aPO, z36CNT)
+  agree with the original; it needs no switch.
+* **Which objects**: the shadow is drawn at the end of the animated record draw `FUN_004440f0` (records with a skeleton, right after the model and its attachments), and by node draw hooks of records the generic draw does not reach (`FUN_004bd41a`, the island's glider node vtable slot).
+  Pepper (`PEPP`) uses the type from game variable 0xc5 (-1 = none) and, while var 0xc6 is set, the marker; every other record needs a controller whose flags have bit 0x10 or 0x40 and a squared distance of at most 6400 to the camera (`DAT_009da5e8..f0`), type 4.
+  The shadow sits under the translation of bone 0 (hips) times the record matrix of a posed record unless var 0xa9 (PEPP_IN_VEHICLE) is set, else under the record's translation.
+* **Geometry** (`FUN_00444940`, ported in `src/game/shadow.ts` and compared with the original code on the emulator: 60 random shadows + 17 markers, worst difference 3.8e-6): corner radius `R = radius[type] * 8` at the angles `a +- 0.785` and `a +- 2.356` (single precision constants, not pi / 4) around the heading
+  `a = atan2(forward.x, forward.z)`; the centre is ray-cast down from `(x, y + rayStart[type] * 8, z)` (length 2400, radius 0.01, mask 3: `FUN_00441b10`) against each registered record in turn: the centre height is the highest hit, starting at the sea level
+  (`DAT_009da858`); each corner is cast from `centre height + rayStart * 8` and moves onto a hit that is higher than the centre height (the last such record wins), a corner more than 16 above or below the centre height is clamped to it, and everything is lifted by `lift[type] * 8`.
   Tables (type 0..8, before the x8): radius `.25 1 .25 .6 .25 1 1 0 1`, rayStart `.25 1 .25 .5 .25 1 1 0 1`, lift `.01 .2 .01 .01 .01 .2 .2 0 .5`.
-* **State**: block 3 with the black alpha texture: a black blob with alpha = texture alpha (round blob peaks at 205 / 255), depth test and write on. There is no fade with height. (The strong tree shadows in the PC screenshots come from larger shadow types and baked terrain texture detail.)
-* Pepper's flashing marker (`FUN_00444ef0`): a camera-facing quad with texture 7 at bone 10, visible for 8 of every 16 ticks. **[viewer]** does not draw shadows.
+* **State**: `FUN_0043f1a0(shadow mesh, identity, texture, mode 0)`: block 3, lit once like any mode 0 mesh (the texture is black, so the colour is black whatever the light), black blob with alpha = texture alpha (round blob peaks at 205 / 255), depth test and write on. There is no fade with height.
+* Pepper's flashing marker (`FUN_00444ef0`): texture 7 (mode 2), five points from the matrix of bone 10 times the record matrix: the centre `(-0.5, 2.27, -0.12)` in bone space, corners `(+-1, +-1, 0)` along the NOT normalised vectors right = `(-d.z, 0, d.x)` and up = `(d.x d.y, -(d.x^2 + d.z^2), d.y d.z)` of the unit view direction `d`
+  (so it shrinks seen from above); visible while bit 3 of `_DAT_009e5868` is set, which grows by `DAT_008b1718` (the frame length in 1/30 s ticks) per call: 8 of every 16 ticks (**dt-scaled**).
+* **[port]** `GameRenderer.drawBlobShadow(record, matrix, world, bones, eye, dt)` (called from the render loop for records with `rec.anim`, public for node draw hooks), `loaded.setup.shadow` (`ShadowSetup`: init call sites and registered records), vars 0xc5 / 0xc6 initialised like `FUN_00444850`,
+  the rays through `CollisionWorld.rayRecord` (the hit cache of the original included; the "last polygon hit" the footstep sounds read is restored). Not drawn by the generic path: z38PAR's SHAD patch (flat quad by `vertexOverride`, not deformed), z10RGB's ball shadows (`FUN_005f8a7b` / `FUN_005f90f7`, model CSHD: zone code).
 
 ---------------------------------------------------------------------------------------------------------------------------
 
 ## 10. Other effects
 
-* **Brick batches** (`Effects.c`, `FUN_00886900`, `FUN_00886be0`, `FUN_00886b34`): the BrickMorph / brick-building effects transform brick meshes on the CPU into two ping-pong vertex buffers of 4096 vertices (FVF 0x2c2), LOD by distance^2 (1280 / 7200), palette UVs from a 32-colour table
-  (u = 0.0625 + c * 0.125, v = 0.9375 - r * 0.125), lit with the specular lighting variant; flushed once per frame (`FUN_00447de0`) with block 5.
-* **Underwater view plane** (`FUN_0087f01e`, wrapper `FUN_00444500`; zones with swimming: callers in z10RGB and z21FSH): with far temporarily 2000 and depth off, a horizontal plane at a given y is clipped to the view frustum and drawn twice: textured (FVF 0x242, block 0x10) with
-  **scrolling UVs** `u = x / 100 + 0.2 * sin(t1)`, `v = z / 100 + 0.15 * cos(t2)` (`t1`, `t2` += 0.01 per call, i.e. per frame, frame-rate dependent), and a vertex-coloured gradient polygon (block 0x1d, cyan 0xff00ffff fading to blue with the distance). UNCERTAIN: exact use (surface seen from below / underwater fog).
+* **Brick batches** (`Effects.c`, `FUN_0044d420`, `FUN_00886be0`, `FUN_00886b34`, flush `FUN_00447de0`): every visible brick's LOD mesh (distance^2 to the camera `< 1280` -> LOD 0, `< 7200` -> 1, else 2; the debug override `DAT_05d37024` is never set) is transformed on the CPU (positions `FUN_0043ab72`, normals `FUN_0043abe6`
+  rotation rows, not renormalised) into one of two vertex buffers of 4096 vertices / 4096 16-bit indices (FVF 0x2c2, 36 bytes), palette UVs from the 32-entry table at 0x981980 (`u = 0.0625 + c * 0.125`, `v = 0.9375 - r * 0.125`: the first `split` vertices the first colour, the rest the second;
+  a missing second colour (-1) reads the 8 bytes before the table (the string bytes `"c\\Li"` / `".cpp"`: `u = 2.9758521e29`, `v = 0`); the rasteriser then applies the texture's address mode from `text.txl`: WRAP keeps the fraction (a float above 2^24 has none: u = 0), CLAMP takes the edge (u = 1), v = 0 either way; `missingColourUv` in `draw.ts` resolves exactly that, `render-bricks.mjs` checks the vertex UVs of such bricks against the emulator), lit with `FUN_0088612c` against light set 0 and the identity matrix `DAT_05d5fb00` (the half vector therefore uses the direction from the world origin to the camera),
+  flushed when the next brick would not fit (`0x1000 - n <= used`, vertices or indices; the buffers alternate) and once at the end of the frame after the records (before the particles) with block 5 (specular on), texture 0 of the brick archive. **[port]** `src/fx/bricks/draw.ts`
+  (`BrickBatchCpu` + `Renderer.drawBatch`); `tools/tests/render-bricks.mjs` runs `FUN_0044d420` + `FUN_00886be0` on the emulator and compares positions (exact), palette UVs (exact, colour -1 included), indices, counters and all diffuse / specular bytes (exact, with the 24-bit x87 mode below).
+* **View plane** (`FUN_0087f01e`, wrapper `FUN_00444500(y)`; **R6, settled**): the function has two passes with two planes: `local_c4` = (0, 1, 0, `y`) (the argument: 0 for z10RGB, -106 for z22BIP) and `local_44` = (0, -1, 0, 200) (y = -200).
+  The TEXTURED pass runs only when `DAT_05d5faac != 0`, which only `FUN_0087f854(n1, n2, speed)` writes (and `DAT_05d5fac0` = `n1`: the texture of both stages; `DAT_05d5fab0[0..n1)` = 0.., `DAT_05d5fac0[0..n2)` = n1..: two frame lists of 4 entries, followed by the speed word and the phases `t1` / `t2`); nothing calls or references
+  `FUN_0087f854`, so the original never draws it and `t1` / `t2` never advance. What it WOULD draw (**debug option of the port, default off**, below): the quad 8 units ahead (+-6 along the view's right and up vectors) clipped to the part BELOW the eye (`y < eye.y - 0.0001`), every vertex projected from the eye onto the plane `y = argument`
+  (an infinite floor at the zone's level seen under the horizon), diffuse `0xCFFFFFFF`, texture set 0 `(x / 100 + 0.2 sin t1, z / 100 + 0.15 cos t2)` (set 1 `(x / 100, z / 100)` is unused: state block 0x10 has stage 1 off), `t1` / `t2` += 0.01 per drawn frame, block 0x10 (texture only, alpha = texture x vertex alpha, blended, no depth), far plane 2000, drawn BEFORE the coloured pass.
+  The COLOURED pass always runs: the quad clipped to the part above the eye height + 0.01, projected onto the plane y = -200 (the argument is not used), cyan at the horizon vertices and `(0, ftol(255 d^2), 255)` elsewhere, block 0x1d, depth off, far plane 2000. For a camera above y = -200 (all of its callers' cameras) every vertex lies behind the camera: **nothing is visible**; below it is a cyan-blue surface seen from below.
+  Callers: z10RGB's LAND node (`FUN_005f7709`, before the record) and z22BIP's SEAB node (`FUN_0070fc64`, after it; `y = -106`). `src/render/viewplane.ts` + `GameRenderer.setViewPlane` reproduce both passes (`tools/tests/render-viewplane.mjs` runs `FUN_0087f01e` on the emulator, the textured one after running `FUN_0087f854` itself:
+  positions, colours, both texture coordinate sets, indices and the 0.01 phase step are bit for bit equal); a wider canvas gets a proportionally wider quad.
+  **Debug switch for the textured pass**: only with the debug option (start page "Debugmenu", or `?debug=1`): **F8** toggles it in the zones whose draw hook draws a view plane (z10RGB, z22BIP), `?debug=1&viewplane` starts with it on and `?debug=1&viewplane=<n>` also names the texture (`GameRenderer.viewPlaneTextured` / `viewPlaneTexture`).
+  From the code: texture = first argument of `FUN_0087f854` (a value `1..4`: the frame lists hold 4 entries), floor level = the plane's `y` argument, phases per drawn frame. NOT from the code (nobody calls it): which texture and which zone would have called it; the port's default texture per zone (`VIEWPLANE_TEXTURE_DEFAULT`: z10RGB 62, z22BIP 3) is a guess, name your own with `viewplane=<n>`.
+  The phases advance by 0.01 per 1/30 s of real time (the port scales by the frame length: at 60 Hz 0.005 per drawn frame), like the original at its 30 frames per second.
+* **Flowing water** (`FUN_00426f55` node, vtable `0x8ade18`, draw hook `FUN_00426e9a`; z13CAI's LAVA 0.0025 and FALL 0.01, argument words `(dv, du, ...)`): every frame the hook adds `(du, dv)` to the texture coordinates of part 0's mesh and draws it in mode 0 at the record's matrix without the visibility flags and the LOD test:
+  **per drawn frame in the original (30 frames per second), not scaled by `dt`**: the port scales `(du, dv)` by the frame length in 1/30 s so the speed is the original's at any display rate. `GameRenderer` does this for every attach with that constructor (`flow`).
 * No lens flares, lightning, trails or glows were found; splashes, wakes, fire, smoke are particle effects or ordinary meshes. The sphere-map code is dead (4.2).
 
 ---------------------------------------------------------------------------------------------------------------------------
@@ -413,20 +454,30 @@ Record `flags` (ushort at +0x60): bit 0 visible (set by the sphere test), bit 1 
 | culling | clockwise front faces, back faces culled (also for sky / sea) |
 | fog per zone | linear, from `SetupFog` of the zone and the draw-distance slider (HUD `draw distance`, default 50), clear colour = fog colour |
 | projection | vertical FOV 1.0 rad, zone near / far (`game look` checkbox off = free camera 60 deg, 0.5 .. 12000) |
-| lighting | directional + ambient per vertex from `lights.lgt` exactly as in section 5 (`game look` off = full bright) |
+| lighting | the game's CPU lighting (section 5): object-space light vectors per draw, 8-bit vertex colours, lit once (modes 0 / 4, shared by all records of a mesh) or at every draw (mode 1, attachments, skinned), specular for shiny meshes, point lights within 1 unit; verified byte for byte against the original code (`render-light`) (`game look` off = full bright) |
+| per-record modes | `GameRenderer.setPartMode(record, partMask, mode)` per LOD part; skinned records ignore the part mode; extraction + emulation of the set-up code incl. the vehicle roster's mode 1 |
+| shadows | blob shadows and Pepper's marker as `FUN_00444940` / `FUN_00444ef0` (section 9), per zone only where the original has them |
+| bricks | batched like `FUN_00886be0`, specular lit, block 5 (section 10) |
+| view plane, flowing water | section 10 |
 | sky / sea / seabed | placement and states of sections 7.1 - 7.3 incl. the orbit of the sea plane and the sky rotation (island) |
 | animated textures | `.wib` at 30 entries / s (expression sheets frozen) |
 | LOD | `selectLod` from the record position, forced-LOD checkbox kept |
 | mip maps | off by default (checkbox) |
-| not done | particles, shadows, specular records, per-record modes other than the fixed ones, env map (dead), underwater plane, 2D layer |
+| not done | env map (dead), the carve parts (`FUN_0088b1e5`), the probe pass of the node framework (R14) |
 
 Reference check: PC screenshots of the island (RAWG / MobyGames) show the same cyan horizon haze, lime grass at 0.7 of its texture colour on flat ground and ~0.25 on shaded cliff walls, blue-green sea with white shore foam.
 
 ## 13. Open questions
 
-* Whether `SetViewport` with MinZ = MaxZ = 0 takes effect (1); exact meaning of the `video fog` dialog label.
-* Per-record `mode` / `specular` assignments in the zone set-up functions beyond the sky / sea / seabed (they are straight-line calls like the tables of formats.md 6 and could be extracted with the same interpreter).
-* Fallback light set of `FUN_0088465a`; whether the point-light range of 1.0 in mesh lighting is intended (range 60.0 in `FUN_00884f68`, whose callers I could not find).
-* `FUN_0087f01e` usage (underwater view), the zones that use the flowing-water behaviour `FUN_00426f55` (z13CAI lava / falls), and sea level of the zones that never store `DAT_009da858`.
-* Particle details: exact random factors of the colour variation, sprite range inclusivity, whether the mirrored digit sprites are intended, the `W / fov` size fudge.
-* 2D: the exact raster of the last pixel row / column of the fade quad; `FUN_00460214` (gauge) geometry.
+Closed by WP-RENDER (2026-10-29, details in the sections named):
+* **`SetViewport` MinZ = MaxZ = 0** (3.1): the three calls (`FUN_0040a43f`, `FUN_0040acb0`, `FUN_0040bdd1`, vtable +0x34) pass `{0, 0, width, height, 0.0, 0.0}`; Direct3D 7 replaces a degenerate range by `[MinZ, max(MaxZ, MinZ + 0.001)]` (what Wine measured against native Windows: `dlls/ddraw/tests/ddraw7.c` "Test degenerate viewport z ranges", `wined3d_viewport_get_z_range`), so the game's depth values span `[0, 0.001]`: ordering unchanged, the buffer's resolution a thousandth of a 0..1 range (the frame's Clear uses z = 1.0). `Renderer.begin` sets `gl.depthRange(0, 0.001)` (`states.ts` `GAME_Z_RANGE`, `d3dZRange`).
+* **FPU precision** (5): no `SetCooperativeLevel` call passes `DDSCL_FPUPRESERVE` (flags 8 and 0x13), and nothing in the executable resets the control word after `CreateDevice` (the CRT's `__setdefaultprecision` runs once at start-up), so Direct3D 7 leaves the x87 in 24-bit precision for the whole game: every x87 operation rounds to a float mantissa. The emulator models it (`cpu.cw = 0x7f`: `p24` in `x86emu.ts`), the lighting / view plane / brick / probe / shadow tests set it, and all of them are bit-exact with it.
+* **Per-record `mode` / `specular`** (4.2): extracted from the set-up code and the emulation (`ZoneSetup.modes` / `.shiny`).
+* **Fallback light set** (5): count 0, black. **Point-light range** (5): 1.0 for meshes; 60.0 only in dead code. **`video fog` label**: the settings dialog (resource of `FUN_004037c2`, dialog `0x585c00`) calls the checkbox **"No Fog"**: `video fog t` = fog off.
+* **`FUN_0087f01e`** (10): the textured pass is dead, the coloured pass only shows below y = -200. **Flowing water** (10): per drawn frame UV scroll. **Sea level** of zones that never store `DAT_009da858` (3.2): 0.
+* **Which SetupFog call** (3.2). **Adaptive detail** (`FUN_00443d10`): `DAT_009e56b8` is never written anywhere (two reads, no store, no pointer into its struct), so the adaptive mode is permanently off and `DAT_009e56bc` stays 0: the port's "always best detail" is the original's behaviour.
+* **2D**: the fade quad `(0, 0)-(W - 1, H - 1)` leaves the last pixel column and row unfaded (one game pixel; `Ui2D.fade`), the gauge geometry `FUN_00460214` (`HudGauge`: the marker's centre is truncated first and it takes the gauge tint; the rest matched), colour 10 (`0x3f000000`): block 0x12 has `ALPHAOP = SELECTARG1` (texture alpha), so the vertex alpha is ignored: opaque black like colour 8 is exact.
+
+Still open:
+* Particle details: exact random factors of the colour variation, sprite range inclusivity, whether the mirrored digit sprites are intended, the `W / fov` size fudge (R1).
+* The vertex-buffer contents of a mesh before its first lighting: the files hold white `0xffffffff`; a 0x2c2 mesh's specular dwords are assumed 0 until lit.

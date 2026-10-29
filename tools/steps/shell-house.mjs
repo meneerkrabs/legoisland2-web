@@ -1,5 +1,5 @@
 // Island -> Pepper's house through the pause menu ("Huis van Pepper", var 5 = 3) and back with the stub aid (F9): arrives at the house door.
-//   node tools/browse.mjs "http://localhost:5499/?zone=z02LGI&node=5&mute=1" tools/steps/shell-house.mjs --size 1280x800
+//   node tools/browse.mjs "http://localhost:5499/?zone=z02LGI&node=5&mute=1&debug=1" tools/steps/shell-house.mjs --size 1280x800
 export default async ({ page, shot, wait, log, key }) => {
   const fail = [];
   const expect = (name, cond, extra = '') => { log(cond ? 'ok  ' : 'FAIL', name, extra); if (!cond) fail.push(name); };

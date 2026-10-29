@@ -17,6 +17,7 @@ async function start() {
   const files = await lib.open();
   await audio.unlock();
   ga = await GameAudio.create(audio.ctx, audio.master, files);
+  ga.speech.startAutoTick();   // this page has no game loop: FUN_00435a5e's 30 Hz tick comes from a timer
   $('status').textContent = `ready: ${ga.tables.sounds.length} sounds, ${ga.tables.speech.length} speech lines, ${ga.tables.music.length} music keys (source ${files.source})`;
   buildUi(ga);
   (window as unknown as { __audio: unknown }).__audio = { ga, audio, files, slots };

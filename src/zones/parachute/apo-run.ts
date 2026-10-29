@@ -5,6 +5,7 @@ import type { World } from '../../game/world.ts';
 import { SoundBank } from './sound.ts';
 import type { SoundBackend, SoundDef } from './sound.ts';
 import type { Vec3 } from './util.ts';
+import type { ApoFx } from './apo-fx.ts';
 
 /** the sound slots of FUN_007d0cb0 (id = sound table index; 2D = FUN_00443580, 3D = FUN_004433b0) */
 export const APO_SOUNDS = {
@@ -63,6 +64,8 @@ export function findApoRecords(w: World): ApoRecords {
 }
 
 export class ApoRun {
+  /** the zone's particle emitters (null in node tests without a particle engine) */
+  fx: ApoFx | null = null;
   readonly world: World;
   readonly recs: ApoRecords;
   sound: SoundBank<ApoSound>;
@@ -91,6 +94,8 @@ export class ApoRun {
   landScore = 0; landBonus = 0;
   /** ground probe (FUN_00442a70 on the OGEL record): the ground height + 3.2, the hit point, the shadow switch (DAT_05d5f208) */
   groundY = 0; groundHit: Vec3 = [0, 0, 0]; shadowOn = false;
+  /** DAT_05d5f290: the five points of the shadow patch (FUN_00442a70), the vertices of the SHAD mesh */
+  shadow = new Float32Array(15);
   tick = 0;
 
   constructor(world: World, backend: SoundBackend | null = null) {

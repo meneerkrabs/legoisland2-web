@@ -9,7 +9,8 @@ import { parseCutscene } from '../formats/cutscene.ts';
 import type { Cutscene } from '../formats/cutscene.ts';
 import { parseMan } from '../formats/anim.ts';
 import type { Man } from '../formats/anim.ts';
-import { loadMessages } from '../ui/strings.ts';
+import { loadMessages, MessageTable as EmptyTable } from '../ui/strings.ts';
+import { restoreHooks } from '../restore/flag.ts';
 import type { MessageTable } from '../ui/strings.ts';
 import type { Ui2D } from '../ui/renderer2d.ts';
 import { B } from '../game/input.ts';
@@ -115,9 +116,12 @@ export class CutsceneHost {
       const arc = await this.sh.data.archive(s.zone);
       const e = arc.find(`cutscene/${s.script}.cut`);
       if (!e) throw new Error(`${s.zone}: no cutscene/${s.script}.cut`);
-      const cut = parseCutscene(arc.read(e));
+      const cut = parseCutscene(restoreHooks.script?.(arc, s.zone, s.script) ?? arc.read(e));   // restored content (option off: unset)
       this.runner.define(s.slot, s.script, cut);
-      this.tables.set(s.slot, loadMessages(messages, [`${s.area.toUpperCase()}/Data/${s.strings}.str`]));
+      // a missing string file does not stop the script: FUN_0045d64f defines the script (FUN_0045d68a) and takes whatever FUN_00439126 returns for the text (z40OGL OGL03 / OGL04 have no .str in the data)
+      let table: MessageTable;
+      try { const sp = `${s.area.toUpperCase()}/Data/${s.strings}.str`; table = loadMessages(messages, [sp]); if (restoreHooks.messages) table = restoreHooks.messages(sp, table); } catch { table = new EmptyTable([]); console.warn(`cutscene ${s.script}: no ${s.area}/Data/${s.strings}.str, no texts`); }
+      this.tables.set(s.slot, table);
       await this.loadSplines(cut);
     }
   }

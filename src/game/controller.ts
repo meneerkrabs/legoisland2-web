@@ -5,6 +5,7 @@
 //   3. draw (FUN_0042271b)       the draw hook of the nodes that ran (1 = handled and stop, other non-zero = handled); the default mesh draw otherwise
 import type { GameRecord } from './record.ts';
 import type { World } from './world.ts';
+import type { ProbeCtrl } from './probe.ts';
 
 /** update return codes */
 export const NODE_NONE = 0;      // did not run
@@ -22,6 +23,10 @@ export interface BehaviourNode {
   update(w: World, rec: GameRecord, ctrl: Controller): number;
   prerender?(w: World, rec: GameRecord, ctrl: Controller): void;
   draw?(w: World, rec: GameRecord, ctrl: Controller): number;
+  /** the node's draw hook is FUN_00444940 (the blob shadow of the record, e.g. the island's Brikimal FUN_004bd41a): the renderer draws the record's shadow even when the record's mesh is hidden */
+  readonly blobShadow?: boolean;
+  /** a draw hook that draws other records at its own turn (the boat's FUN_00430c59): the records to draw before and after the record itself (forced: their own flags may be cleared); null = none this frame */
+  drawSeq?(w: World, rec: GameRecord): { before: GameRecord[]; after: GameRecord[] } | null;
   destroy?(w: World, rec: GameRecord, ctrl: Controller): void;
 }
 
@@ -39,6 +44,8 @@ export class Controller {
   distSq = 0;
   /** +0x10: waypoint walker handle */
   walker = 0;
+  /** the probe block of the controller (+0x20..+0x64, FUN_00427014 arms it, the probe pass FUN_00427233 reads it; src/game/probe.ts, probehost.ts); null until a node arms it */
+  probe: ProbeCtrl | null = null;
 
   /** FUN_00423532: pos 0 resets the list and makes the node the head, n inserts at index n (appends if the list is shorter) */
   attach(node: BehaviourNode, pos: number) {
@@ -80,24 +87,30 @@ export function updatePass(w: World) {
   for (const rec of w.records) {
     const c = rec.ctrl;
     if (!c || !c.enabled) continue;
-    if (focus) { const dx = rec.x - focus.x, dz = rec.z - focus.z; c.distSq = dx * dx + dz * dz; }
+    if (focus) { const dx = Math.fround(rec.x - focus.x), dz = Math.fround(rec.z - focus.z); c.distSq = Math.fround(Math.fround(dx * dx) + Math.fround(dz * dz)); }   // FUN_0042216f: float32 per operation (24-bit x87)
     c.ran.length = 0;
-    let rerun = false;
+    // FUN_0042226e: the exclusive node (controller +4) runs first when its gate holds; a result of 1 ends the record's pass, anything else goes on with the chain, where the exclusive node
+    // itself only gets its `ran` bit. A node returning 3 gets the exclusive node's update run again right away (when one is set and its gate holds; a result of 1 ends the chain, a
+    // non-zero result marks it ran), and the chain CONTINUES with the next node: with no exclusive node a 3 is "ran, go on" like a 2 (z03PPH's ClimLadr, FUN_00542090).
+    let first: BehaviourNode | null = null;
     if (c.exclusive && w.vars.gate(c.exclusive.var, c.exclusive.mask, c.exclusive.value)) {
       const r = c.exclusive.update(w, rec, c);
-      if (r !== NODE_NONE) c.ran[c.nodes.indexOf(c.exclusive)] = true;
-      if (r !== NODE_NONE) continue;
+      first = c.exclusive;
+      if (r === NODE_STOP) continue;   // no ran bit: the draw pass then only calls the exclusive node's hook (runDrawHooks)
     }
     for (let i = 0; i < c.nodes.length; i++) {
       const n = c.nodes[i];
+      if (n === first) { c.ran[i] = true; continue; }
       if (!w.vars.gate(n.var, n.mask, n.value)) continue;
       const r = n.update(w, rec, c);
       if (r === NODE_NONE) continue;
       c.ran[i] = true;
       if (r === NODE_STOP) break;
-      if (r === NODE_RERUN) { rerun = true; break; }
+      if (r === NODE_RERUN && c.exclusive && w.vars.gate(c.exclusive.var, c.exclusive.mask, c.exclusive.value)) {
+        const r2 = c.exclusive.update(w, rec, c);
+        if (r2 !== NODE_NONE) { c.ran[c.nodes.indexOf(c.exclusive)] = true; if (r2 === NODE_STOP) break; }
+      }
     }
-    if (rerun && c.exclusive) { const r = c.exclusive.update(w, rec, c); if (r === NODE_NONE) c.ran[c.nodes.indexOf(c.exclusive)] = false; }
   }
 }
 
@@ -116,19 +129,37 @@ export function prerenderPass(w: World) {
   w.frame++;
 }
 
+/**
+ * The per-record part of pass 3 (FUN_0042271b), the draw hooks. `hook(node)` calls a node's draw hook (default: `node.draw`) and returns its result, or `undefined` for a node without
+ * one. Returns true when the record's default draw (FUN_00444480) must be skipped:
+ *   * no controller / a disabled one (flags bit 2 clear): default draw;
+ *   * no node ran this frame (the ran mask is 0): only an exclusive node (`ctrl.exclusive`, controller +4) with a draw hook is called, its result ignored and the default draw skipped;
+ *     without one the default draw runs;
+ *   * otherwise the hooks of the nodes that ran, in list order: result 1 = handled, stop; any other non-zero result = handled, go on; 0 = not handled, go on.
+ * (DAT_009da5c8, the "frozen" switch of FUN_00422070, is never set by any code in the executable: the draw pass always runs.)
+ */
+export function runDrawHooks(w: World, rec: GameRecord, hook?: (n: BehaviourNode) => number | undefined): boolean {
+  const c = rec.ctrl;
+  if (!c || !c.enabled) return false;
+  const call = hook ?? ((n: BehaviourNode) => n.draw?.(w, rec, c));
+  let any = false;
+  for (let i = 0; i < c.nodes.length; i++) if (c.ran[i]) { any = true; break; }
+  if (!any) return c.exclusive ? call(c.exclusive) !== undefined : false;
+  let handled = false;
+  for (let i = 0; i < c.nodes.length; i++) {
+    if (!c.ran[i]) continue;
+    const r = call(c.nodes[i]);
+    if (r === undefined) continue;
+    if (r === 1) return true;
+    if (r !== 0) handled = true;
+  }
+  return handled;
+}
+
 /** pass 3: FUN_0042271b. Calls `fallback(rec)` for records no node drew (the default mesh draw). */
-export function drawPass(w: World, fallback: (rec: GameRecord) => void) {
+export function drawPass(w: World, fallback: (rec: GameRecord) => void, hook?: (rec: GameRecord, n: BehaviourNode) => number | undefined) {
   for (const rec of w.records) {
-    const c = rec.ctrl;
-    let handled = false;
-    if (c && c.enabled) {     // FUN_0042271b: a disabled controller takes the default draw
-      for (let i = 0; i < c.nodes.length; i++) {
-        if (!c.ran[i]) continue;
-        const r = c.nodes[i].draw?.(w, rec, c) ?? 0;
-        if (r !== 0) { handled = true; if (r === 1) break; }
-      }
-    }
-    if (!handled) fallback(rec);
+    if (!runDrawHooks(w, rec, hook ? (n) => hook(rec, n) : undefined)) fallback(rec);
   }
 }
 

@@ -300,7 +300,7 @@ export default {
       const calls = [];
       const hud = { left: null, right: null, leftText: '', rightText: '', centreText: '', visible: true };
       const sctx = {
-        sh: { audio: { play() {}, stop(id) { stops.push(id); }, leaveZone() { calls.push('leave'); }, enterZone() { calls.push('enter'); } } },
+        sh: { audio: { play() {}, stop(id) { stops.push(id); }, leaveZone() { calls.push('leave'); }, enterZone() { calls.push('enter'); }, playMusic() {} } },
         world, hud, vars, scene: S0.L.scene, archive: S0.L.archive, gr: { renderer: { setTextureFrame(a, id, mode, frame) { calls.push(['tex', id, mode, frame]); return true; } }, groupCount: () => 29, scrollGroup(rec, g, du, dv) { calls.push(['scroll', rec.name, g, du, dv]); } },
         say: (a, b) => { said.push([a, b ?? null]); return true; }, stopSpeech() {}, sfx() {}, text() {}, strings: tbl, banner(ui, spec) { calls.push(['banner', spec]); }, std: { text: (x) => x },
       };
@@ -312,7 +312,7 @@ export default {
       const sctx2 = { ...sctx, world: L2.world, scene: L2.scene, archive: L2.archive };
       const game = createWabGame(sctx2);
       ok(game.introId === 'LESGWB11' && game.helpControls === 4, 'intro LESGWB11, 4 controls');
-      ok(calls.includes('leave'), 'the music the runner started is dropped (it starts with play)');
+      ok(!calls.includes('leave') && !calls.includes('enter'), 'the zone game does not touch the music at set-up / start (the runner starts it with play: AudioHost.modeChange)');
       const gd = game.debug();
       ok(gd.timeLeft === 2700 && gd.over === 0, 'debug state');
       game.onStart();
@@ -322,7 +322,7 @@ export default {
       const tx = calls.filter((c) => c[0] === 'tex');
       ok(tx.length > 0 && tx.every((c) => c[2] === 2), 'texture frames are set frozen (mode 2)');
       ok(tx.some((c) => c[1] === 11) || tx.some((c) => c[1] === 26) || tx.some((c) => c[1] === 38), 'frames of the TV (text011) / radar (text026) / flash (text038) textures');
-      ok(calls.includes('enter') && sctx2.hud.visible === true, 'play start: music and HUD');
+      ok(sctx2.hud.visible === true, 'play start: HUD (the music is the runner\'s)');
       // run a game with a gold score by driving the nodes directly (the whack-everything bot of section 4 through the stub input)
       const bot = L2.world.records[1].ctrl.nodes.find((n) => n.kind === 'botwab'), pep = L2.world.records[0].ctrl.nodes.find((n) => n.kind === 'pepwab');
       let result = 0;
@@ -337,7 +337,7 @@ export default {
       ok(result === 1, `update() returns 1 (success) for 100 %: ${result}`);
       ok(sctx2.hud.leftText === bot.hitsText && sctx2.hud.rightText === bot.missText && sctx2.hud.centreText === bot.timeText && /^\d+$/.test(sctx2.hud.leftText), 'HUD texts: hits left, misses right, clock middle');
       said.length = 0;
-      game.onBanner(result);
+      game.onBanner(result); game.bannerTick();   // the vars are written in the first banner frame (one tick later)
       ok(vars.get(VAR.HISCORE) === 10000 && vars.get(VAR.TROPHY) === 3, `gold: HISCORE ${vars.get(VAR.HISCORE)}, TROPHY ${vars.get(VAR.TROPHY)}`);
       ok(said.length === 1 && said[0][0] === LINE.GOLD && said[0][1] === null, 'gold line spoken');
       game.drawBanner({}, result);
@@ -346,7 +346,7 @@ export default {
       // trophies / hiscore are only ever raised
       const g3 = (() => { const L3 = loadZone(ctx, 'z05WAB'); const g = createWabGame({ ...sctx, world: L3.world, scene: L3.scene, archive: L3.archive }); const b = L3.world.records[1].ctrl.nodes.find((n) => n.kind === 'botwab'); b.sh.over = 1; b.sh.pct = 62.5; return { g, b }; })();
       said.length = 0;
-      g3.g.onBanner(2);
+      g3.g.onBanner(2); g3.g.bannerTick();   // the vars are written in the first banner frame (one tick later)
       ok(vars.get(VAR.HISCORE) === 10000 && vars.get(VAR.TROPHY) === 3, 'a worse run does not lower HISCORE / TROPHY');
       ok(said.length === 1 && said[0][0] === LINE.BRONZE, 'bronze line spoken');
       for (const [pct, update, med, lines] of [[89.9, 1, 2, [LINE.SILVER]], [49.9, 2, 0, [LINE.NEAR1, LINE.NEAR2]], [50, 1, 1, [LINE.BRONZE]], [90, 1, 3, [LINE.GOLD]]]) {
@@ -355,7 +355,7 @@ export default {
         const g = createWabGame(sx); const b = L4.world.records[1].ctrl.nodes.find((n) => n.kind === 'botwab'); b.sh.over = 1; b.sh.pct = pct;
         said.length = 0; calls.length = 0;
         ok(g.update() === update, `pct ${pct}: update() = ${update}`);
-        g.onBanner(update);
+        g.onBanner(update); g.bannerTick();   // the vars are written in the first banner frame (one tick later)
         ok(v2.get(VAR.TROPHY) === med && v2.get(VAR.HISCORE) === scoreOf(pct) * (scoreOf(pct) > 0 ? 1 : 1), `pct ${pct}: trophy ${med}`);
         ok(JSON.stringify(said[0]) === JSON.stringify([lines[0], lines[1] ?? null]), `pct ${pct}: speech ${lines}`);
         g.drawBanner({}, update);

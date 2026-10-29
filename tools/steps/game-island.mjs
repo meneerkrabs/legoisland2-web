@@ -14,7 +14,7 @@ export default async ({ page, shot, wait, evaluate }) => {
   await st('start'); await shot('game-island-start');
   await hold(['ArrowUp'], 1500); await st('run'); await shot('game-island-run');
   await wait(500);
-  await page.keyboard.press('Alt'); await wait(250); await st('jump start'); await wait(350); await st('in the air'); await shot('game-island-jump'); await wait(700);
+  await page.keyboard.press('Alt', { delay: 70 }); await wait(250); await st('jump start'); await wait(350); await st('in the air'); await shot('game-island-jump'); await wait(700);
   await hold(['ArrowLeft'], 1200); await st('turned left');
   // a hill: climb, let go, slide
   await put(138, -105, Math.PI); await wait(400);

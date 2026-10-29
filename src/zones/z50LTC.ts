@@ -7,8 +7,13 @@ import type { World } from '../game/world.ts';
 import type { Pe } from '../formats/exe.ts';
 import { Controller, CF_ENABLED } from '../game/controller.ts';
 import { RF_NPC } from '../game/record.ts';
+import { B } from '../game/input.ts';
+import type { GameRecord } from '../game/record.ts';
 import { AnimInstance } from '../game/anim.ts';
 import { registerZoneGame } from '../shell/zonegame.ts';
+import { restoreHooks } from '../restore/flag.ts';
+import { ZoneParticles } from '../fx/particles/zone.ts';
+import { LtcFx } from './z50LTC/fx.ts';
 import type { ZoneGame, ZoneGameCtx } from '../shell/zonegame.ts';
 import type { Ui2D } from '../ui/renderer2d.ts';
 import { LtcGlobals, LtcPepSwitch, PeopleNode, persisted, readPeopleTable, readPersonSounds } from './z50LTC/people.ts';
@@ -90,26 +95,48 @@ export function buildLtc(world: World, loaded: Loaded, pe: Pe): LtcRoom {
   const pc = pepper.ctrl;
   if (pc) pc.nodes = pc.nodes.filter((n) => n.kind !== 'StubGuard');
   const pep = pc?.find<LtcPepSwitch>('pepswitc') ?? null;
+  // FUN_0083ab7b (the attach at 0x839abe) stores the record's position when the node is created, before anything moves Pepper
+  if (pep) { pep.home = [pepper.x, pepper.y, pepper.z]; pep.homeSet = true; }
   return { g, people, portal, pep };
 }
 
-export function createLtcGame(ctx: ZoneGameCtx): ZoneGame {
+export async function createLtcGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   const { world, loaded, sh } = ctx;
   const { g, people, portal, pep } = buildLtc(world, loaded, sh.pe);
-  g.playSound = (id) => ctx.sfx(id);
+  // the emitters of the People constructors (FUN_0083a7d2, in the order of the people table) on the GENERICBITS engine of FUN_00442900 (0x839c11)
+  const fxz = await ZoneParticles.create(ctx);
+  if (fxz) {
+    const lf = new LtcFx(fxz);
+    for (const p of people) { const rec = world.records[p.entry.record]; if (rec) lf.ctor(rec, world.records[1]); }
+    lf.bind(g);
+    fxz.finish();
+  }
   const records = world.records;
   const pepper = loaded.pepper;
+  // the person's sound (FUN_00839560 loads the 27 as 3D sounds): FUN_004433f0 at Pepper's position when the talk starts
+  g.playSound = (id) => sh.audio.playAt(id, [pepper.x, pepper.y, pepper.z]);
   const pc = pepper.ctrl;
-
-  const sounds = new Set(g.sounds.filter((id) => id !== undefined && id !== 300));
-  let primed = false;
-  const prime = () => { if (primed) return; primed = true; for (const id of sounds) ctx.sfx(id); };   // the audio host drops the first play of an id (it loads it)
+  // FUN_00429e00 of the talk start (0x83a44a) is the walk node's slope alignment
+  const walker = pc?.nodes.find((n) => typeof (n as unknown as { alignToGround?: unknown }).alignToGround === 'function') as unknown as { alignToGround(w: World, rec: GameRecord): void } | undefined;
+  if (walker) g.alignPepper = (w, rec) => walker.alignToGround(w, rec);
+  restoreHooks.cue?.('ltc-arrive', { sfx: (id: number) => ctx.sfx(id) });   // restored content (option off: unset)
 
   return {
-    onStart() { prime(); },
+    // the loop FUN_00838e41 has mode 1: it waits for ANY button (DAT_00983840 != 0, no panel, no brief) before play starts (gaps.md U8)
+    config: { intro: true, help: false },
+    introPanel: false,
+    /**
+     * Esc before the update pass (FUN_00838dd5 at the loop top switches to the pause mode first): that iteration runs neither the update nor the pre-render pass (both are mode 2
+     * only in this loop). The runner ticks the world first, so the update pass is frozen and the pre-render lists (the nodes that ran) are emptied for that tick.
+     */
+    beforeTick() {
+      const esc = (sh.input.pressed & B.ESC) !== 0;
+      world.frozen = esc;
+      if (esc) for (const r of records) r.ctrl?.ran.fill(false);
+    },
     update() {
-      // the draw hook of the pepswitc node (the original runs it in the draw pass, after every pre-render hook)
-      if (pep && pc) pep.draw(world, pepper, pc);
+      world.frozen = false;
+      // (the draw hook of the pepswitc node, FUN_0083aa8d, runs in the draw pass: GameRenderer.render -> controller.ts runDrawHooks, once per drawn frame, only when the node ran)
       ctx.hud.letterbox = g.letterbox;
       return 0;
     },

@@ -1,13 +1,13 @@
 // z01BPK in node (tests and bots): the zone world built from the archive + the executable, the node chain / start state of src/zones/z01bpk/setup.ts, a recording sound sink
 // and a `step(held)` that runs one tick with the given button mask.
-import { loadZone } from './engine-load.mjs';
+import { loadZone, loadExe } from './engine-load.mjs';
 import { parseBlk } from '../../src/formats/anim.ts';
 import '../../src/zones/z01BPK.ts';
 import { prepareBpk } from '../../src/zones/z01bpk/setup.ts';
 import { finishGame } from '../../src/zones/z01bpk/run.ts';
 
 export function loadBpk(ctx, { vars = {} } = {}) {
-  const L = loadZone(ctx, 'z01BPK');
+  const L = loadZone(ctx, 'z01BPK', { pe: loadExe(ctx.dataRoot) });   // the real runner passes the executable: setupZone strips the header-only collision objects (FUN_0043f700 slots)
   const archive = L.archive;
   const rig = (n) => { const e = archive.find(`anim/${n}.blk`); return e ? parseBlk(archive.read(e)) : null; };
   const g = prepareBpk(L.world, L.pepper, { MFIG: rig('MFIG'), SKBD: rig('SKBD') }, L.pe);

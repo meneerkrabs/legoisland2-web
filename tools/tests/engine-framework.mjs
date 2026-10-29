@@ -1,5 +1,5 @@
 import { GameVars, V, PC } from '../../src/game/vars.ts';
-import { Controller, updatePass, prerenderPass, drawPass, registerNode, createNode, registeredNodes, NODE_NONE, NODE_STOP, NODE_CONTINUE, NODE_RERUN } from '../../src/game/controller.ts';
+import { Controller, updatePass, prerenderPass, drawPass, runDrawHooks, registerNode, createNode, registeredNodes, NODE_NONE, NODE_STOP, NODE_CONTINUE, NODE_RERUN } from '../../src/game/controller.ts';
 import { World } from '../../src/game/world.ts';
 import { GameRecord, RF_ENABLED } from '../../src/game/record.ts';
 import { loadExe } from '../lib/engine-load.mjs';
@@ -53,6 +53,24 @@ export default {
     drawPass(w, (r) => fallback.push(r.name));
     ok(log.join() === 'd:a1,d:a2,d:stop', `draw hooks of the nodes that ran: ${log.join()}`);
     ok(fallback.join() === 'CCCC', `default draw only for the record without a handled draw: ${fallback.join()}`);
+    // FUN_0042271b per record: results 0 = not handled, 1 = handled and stop, other = handled and go on; no controller / disabled controller = default draw; nothing ran = only the exclusive node's hook
+    {
+      const log2 = [];
+      const hk = (name, r) => ({ kind: name, var: 2, mask: 0, value: 0, stamp: 0, update() { return NODE_CONTINUE; }, draw() { log2.push(name); return r; } });
+      const noHook = (name) => ({ kind: name, var: 2, mask: 0, value: 0, stamp: 0, update() { return NODE_CONTINUE; } });
+      const mkRec = (nodes, ran) => { const r = new GameRecord('TEST'); r.ctrl = new Controller(); nodes.forEach((n, i) => r.ctrl.attach(n, i)); ran.forEach((v, i) => { r.ctrl.ran[i] = v; }); return r; };
+      const run = (r) => { log2.length = 0; return runDrawHooks(w, r); };
+      ok(run(mkRec([hk('a', 0), hk('b', 0)], [true, true])) === false && log2.join() === 'a,b', 'hooks returning 0: not handled, the default draw runs');
+      ok(run(mkRec([hk('a', 0), hk('b', 7), hk('c', 0)], [true, true, true])) === true && log2.join() === 'a,b,c', 'a non-zero result other than 1: handled, the later hooks still run');
+      ok(run(mkRec([hk('a', 1), hk('b', 0)], [true, true])) === true && log2.join() === 'a', 'result 1: handled and the later hooks are skipped');
+      ok(run(mkRec([hk('a', 1), hk('b', 1)], [false, true])) === true && log2.join() === 'b', 'only the nodes that ran have their hooks called');
+      ok(run(mkRec([noHook('a'), hk('b', 0)], [true, true])) === false && log2.join() === 'b', 'a node without a hook is skipped (and does not count as handled)');
+      ok(run(mkRec([hk('a', 0)], [false])) === false && log2.length === 0, 'nothing ran, no exclusive node: default draw, no hook');
+      { const r = mkRec([hk('a', 0), hk('e', 0)], [false, false]); r.ctrl.exclusive = r.ctrl.nodes[1]; ok(run(r) === true && log2.join() === 'e', 'nothing ran but an exclusive node with a hook: only that hook runs, the default draw is skipped whatever it returns'); }
+      { const r = mkRec([noHook('e')], [false]); r.ctrl.exclusive = r.ctrl.nodes[0]; ok(run(r) === false, 'an exclusive node without a hook: default draw'); }
+      { const r = mkRec([hk('a', 1)], [true]); r.ctrl.flags &= ~2; ok(run(r) === false && log2.length === 0, 'a disabled controller: default draw'); }
+      ok(runDrawHooks(w, new GameRecord('NONE')) === false, 'no controller: default draw');
+    }
     // gating changes with the variable
     log.length = 0; w.vars.set(0x5e, 1); updatePass(w);
     ok(log.includes('u:b2') && log.includes('u:stop'), `gated node runs once the var matches: ${log.join()}`);
@@ -60,14 +78,26 @@ export default {
     log.length = 0; w.frozen = true; updatePass(w); ok(log.length === 0, 'frozen update pass'); w.frozen = false;
     // disabled controller (flag 2 clear)
     a.ctrl.flags &= ~2; log.length = 0; updatePass(w); ok(!log.includes('u:a1'), 'controller flag 2 off: the record is skipped');
-    // return code 3 runs the exclusive node's update again after the chain (the exclusive node is set by node code; the original never sets it in the traced code)
+    // FUN_0042226e: the exclusive node runs first (its result 2 lets the chain go on, it only gets its ran bit there); a node returning 3 runs the exclusive node's update again and the chain
+    // CONTINUES (no break); result 1 of the exclusive node ends the record's pass; with no exclusive node a 3 is "ran, go on" like a 2
     {
       const r2 = rec('DDDD'); let runs = 0;
       const ex = mk('ex', () => { runs++; return NODE_CONTINUE; }, [2, 1, 1]);
       r2.ctrl.attach(mk('d1', NODE_RERUN), 0); r2.ctrl.attach(ex, 1);
       r2.ctrl.exclusive = ex;
       log.length = 0; runs = 0; updatePass(w);
-      ok(log.filter((l) => l === 'u:ex').length === 1 && runs === 1, `exclusive node runs once as the current exclusive node (${log.join()})`);
+      ok(runs === 2 && r2.ctrl.ran[0] && r2.ctrl.ran[1], `exclusive node: first pass + the rerun after the 3 (${log.join()} runs ${runs})`);
+      const r3 = rec('EEEE'); let after = 0;
+      r3.ctrl.attach(mk('d1', NODE_RERUN), 0); r3.ctrl.attach(mk('n2', () => { after++; return NODE_CONTINUE; }, [2, 1, 1]), 1);
+      updatePass(w);
+      ok(after === 1, 'no exclusive node: a 3 continues with the next node');
+      const r4 = rec('FFFF'); let after4 = 0, exRuns = 0;
+      const ex4 = mk('ex4', () => { exRuns++; return NODE_STOP; }, [2, 1, 1]);
+      r4.ctrl.attach(ex4, 0); r4.ctrl.attach(mk('n4', () => { after4++; return NODE_CONTINUE; }, [2, 1, 1]), 1);
+      r4.ctrl.exclusive = ex4;
+      updatePass(w);
+      ok(exRuns === 1 && after4 === 0 && !r4.ctrl.ran[0] && !r4.ctrl.ran[1], 'an exclusive node returning 1 ends the pass without ran bits');
+      r2.ctrl.exclusive = null; r4.ctrl.exclusive = null; r2.ctrl.flags &= ~2; r3.ctrl.flags &= ~2; r4.ctrl.flags &= ~2;
     }
     // attach positions: 0 resets, n inserts, long positions append
     const ctl = new Controller(); const n1 = mk('n1', 0), n2 = mk('n2', 0), n3 = mk('n3', 0), n4 = mk('n4', 0);

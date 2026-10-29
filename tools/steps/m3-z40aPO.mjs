@@ -2,6 +2,9 @@
 // banner, result menu, medal vars, back to the island) and a LOSS (falling without the wing: failed banner, Abort rewinds the story). Screenshots go to --out.
 //   node tools/browse.mjs "http://localhost:5499/?zone=z40aPO&mute=1" tools/steps/m3-z40aPO.mjs --size 1280x800 --out /tmp/m3/z40aPO
 import { apoBotStep } from '../lib/apo-bot.mjs';
+import { steerBits, pitchBits } from '../lib/par-bot.mjs';
+import { B } from '../../src/game/input.ts';
+import { installPageBot, pilotDecideSource } from './lib-pagebot.mjs';
 
 const KEYS = [[4, 'ArrowUp'], [8, 'ArrowDown'], [1, 'ArrowLeft'], [2, 'ArrowRight'], [0x40, 'ShiftLeft']];
 export default async ({ page, shot, wait, log, key }) => {
@@ -19,16 +22,19 @@ export default async ({ page, shot, wait, log, key }) => {
       if (!want && held.has(code)) { await page.keyboard.up(code); held.delete(code); }
     }
   };
+  /** the page-side bot (lib-pagebot.mjs) decides every 4 ms inside the page from the zone's snapshot; this process only takes the screenshots */
   const fly = async (plan, shots = []) => {
+    const bot = await installPageBot(page, 'apo', pilotDecideSource('apoBotStep', B, steerBits, pitchBits, apoBotStep, plan));
+    await bot.start();
     const taken = new Set();
     for (let i = 0; i < 9000; i++) {
       const s = await dbg();
       if (!s || s.mode !== 2 || s.over) break;
       for (const [name, pred] of shots) if (!taken.has(name) && pred(s)) { taken.add(name); await shot(name); }
-      await setKeys(apoBotStep(s, plan));
-      await wait(30);
+      await wait(60);
     }
-    await setKeys(0);
+    log('page bot', JSON.stringify(await bot.info()));
+    await bot.stop();
   };
   const intro = async (tag, look) => {
     await ready('z40aPO');
@@ -61,7 +67,7 @@ export default async ({ page, shot, wait, log, key }) => {
   log('flight over', JSON.stringify({ score: s.score, ring: s.ring.join(''), state: s.state, result: s.result, hiscore: s.hiscore, trophy: s.trophy, spoken: s.spoken }));
   expect('at least 6 rings passed (browser bot latency)', s.ring.filter((r) => r === 1).length >= 6, s.ring.join(''));
   expect('success: score >= 2000', s.score >= 2000 && s.result === 1, `score ${s.score}`);
-  await wait(900);
+  await page.waitForFunction(() => window.__zone.machine.mode === 4, null, { timeout: 60000 }).catch(() => {});
   expect('end banner (mode 4)', (await dbg()).mode === 4);
   await shot('apo-10-banner');
   expect('hiscore and trophy written (vars 0x2c / 0x43)', s.hiscore === Math.trunc(s.score) && s.trophy === (s.score >= 8000 ? 3 : s.score >= 5000 ? 2 : 1), `hiscore ${s.hiscore} trophy ${s.trophy}`);
@@ -78,12 +84,17 @@ export default async ({ page, shot, wait, log, key }) => {
   await page.goto(page.url());
   await intro('loss', false);
   await page.keyboard.down('ArrowDown'); held.add('ArrowDown');
-  for (let i = 0; i < 6000; i++) { const d = await dbg(); if (!d || d.over || d.mode !== 2) break; await wait(60); }
-  await page.keyboard.up('ArrowDown'); held.delete('ArrowDown');
+  // (the end banner of this loop is left as soon as ANY button is HELD: FUN_007cf929 case 4, ported with `skipBanner`, M5 audit: so the key is released shortly before the planet to see the banner)
+  for (let i = 0; i < 6000; i++) {
+    const d = await dbg(); if (!d || d.over || d.mode !== 2) break;
+    if (held.has('ArrowDown') && d.height < 150) { await page.keyboard.up('ArrowDown'); held.delete('ArrowDown'); }
+    await wait(30);
+  }
+  if (held.has('ArrowDown')) { await page.keyboard.up('ArrowDown'); held.delete('ArrowDown'); }
   s = await dbg();
   log('crash', JSON.stringify({ score: s.score, state: s.state, result: s.result, hiscore: s.hiscore, trophy: s.trophy }));
   expect('no wing: score 0, failed', s.score === 0 && s.result === 2 && s.trophy === 0);
-  await wait(900);
+  await page.waitForFunction(() => window.__zone.machine.mode === 4, null, { timeout: 60000 }).catch(() => {});
   expect('failure banner (mode 4)', (await dbg()).mode === 4);
   await shot('apo-13-failed-banner');
   await key('Enter'); await wait(600);

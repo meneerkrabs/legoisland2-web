@@ -6,6 +6,7 @@
 import { sampleBlk } from '../formats/anim.ts';
 import type { Blk, BlkClip } from '../formats/anim.ts';
 
+const fr = Math.fround;
 /** clip flag 0x10: loops */
 export const CLIP_LOOP = 0x10;
 /** interpolation snap (0x8920cc = 0.1f) */
@@ -49,26 +50,48 @@ export class AnimInstance {
     return true;
   }
 
-  /** FUN_0043b76a: advance by rate * dt (dt = 1.0 at the fixed 30 Hz step). 0 = running, 1 = looped, 2 = one-shot finished */
+  /**
+   * FUN_0043b76a: advance by rate * dt (dt = 1.0 at the fixed 30 Hz step). 0 = running, 1 = looped, 2 = one-shot finished. The frame is a float32 in the original:
+   * frame = float32(float32(rate * dt) + frame) (every x87 operation rounds to a float32), every wrap step is a float32 store (rate and dt are float32 arguments / globals).
+   */
   advance(rate: number, dt = 1): number {
     const c = this.clipData;
     if (!c) return 0;
     this.prevFrame = this.frame; this.prevClip = this.clip;
-    this.frame += rate * dt;
+    this.frame = fr(fr(fr(rate) * fr(dt)) + this.frame);
     let n = c.frameCount;
     if (n < 1) n = 1;
     let res = 0;
     if ((c.flags & CLIP_LOOP) === 0) {
       if (n - 1 < this.frame) {
         if (n <= 1) this.frame = 0;
-        else while (n - 1 < this.frame) this.frame -= n - 1;
+        else while (n - 1 < this.frame) this.frame = fr(this.frame - (n - 1));
         res = 2;
       }
     } else if (n <= this.frame) {
-      while (n <= this.frame) this.frame -= n;
+      while (n <= this.frame) this.frame = fr(this.frame - n);
       res = 1;
     }
     return res;
+  }
+
+  /**
+   * FUN_0043b874(anim, rate, mode): advance by rate * dt like `advance`, but a one-shot (mode & 0x10 == 0) stops AT the clip's frame count (not the last frame) and returns 2 there, a looping one
+   * (mode & 0x10) wraps by the frame count and returns 1. 0 = running (and for an instance without clip data).
+   */
+  advanceTo(rate: number, dt = 1, mode = 0): number {
+    const c = this.clipData;
+    if (!c) return 0;
+    this.prevFrame = this.frame; this.prevClip = this.clip;
+    this.frame = fr(fr(fr(rate) * fr(dt)) + this.frame);
+    const n = fr(c.frameCount);
+    if ((mode & CLIP_LOOP) === 0) {
+      if (n < this.frame) { this.frame = n; return 2; }
+    } else if (n <= this.frame) {
+      do this.frame = fr(this.frame - n); while (n <= this.frame);
+      return 1;
+    }
+    return 0;
   }
 
   /** remember the state at the start of a tick (call before the simulation changes it) */

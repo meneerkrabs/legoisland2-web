@@ -13,7 +13,7 @@ export default async ({ page, shot, wait, log, key }) => {
   const menu = () => page.evaluate(() => { const e = __shell.menu.engine; return { page: e.page, item: e.item, open: e.open }; });
   const vars = () => page.evaluate(() => ({ hi: __zone.sh.vars.get(0x4b), trophy: __zone.sh.vars.get(0x93), node: __zone.sh.vars.get(0x58), sub: __zone.sh.vars.get(0x59) }));
   const ready = (arch, m) => page.waitForFunction(([a, m]) => window.__zone && window.__zone.info.archive === a && window.__zone.machine.mode === m, [arch, m], { timeout: 300000 });
-  const press = (k) => page.keyboard.press(k, { delay: 25 });
+  const press = (k) => page.keyboard.press(k, { delay: 70 });
 
   /** the bot: when a snake is within `range` of the buggy (or leaping), fire; steer the turret towards the nearest snake with real arrow key presses */
   let held = new Set();

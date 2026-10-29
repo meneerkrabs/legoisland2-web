@@ -13,6 +13,8 @@ import { prepareDsp } from './z20dsp/prepare.ts';
 import { SpeedsterNode, CTOR_SPEEDSTR } from './z20dsp/speedster.ts';
 import { FallingNode, TurboNode, BerthaNode, SpinNode, SaucerNode, ScrConeNode, WhirlwindNode, PropNode, CTOR } from './z20dsp/props.ts';
 import { medalFromVar, resultLines } from './z20dsp/rules.ts';
+import { startDspEmitters } from './z20dsp/emitters.ts';
+import { ZoneParticles } from '../fx/particles/zone.ts';
 
 /** the state of one run (the original's globals): a new one is made by the Speedster's constructor, i.e. every time the zone starts */
 let shared = new DspShared();
@@ -32,6 +34,18 @@ registerZoneGame('z20DSP', async (ctx) => {
   const { speed, camera } = prepareDsp(shared, world, loaded, archive, scene, sh.pe);
   gr.poseRange = 1e9;                                 // the skinned props are visible from far away: always use their own rig
   shared.say = (id) => ctx.say(id);
+
+  // ---- the particle emitters (FUN_00442900("Z20DSP") + FUN_006bf633, then FUN_0044e8d0): the Speedster moves their matrices (speedster.ts)
+  const fxp = await ZoneParticles.create(ctx);
+  if (fxp) {
+    shared.fx = {
+      start: (name, m, pos, rot, gate) => fxp.start(name, m, pos, rot, gate),
+      setMatrix: (h, m) => fxp.setMatrix(h, m),
+      stop: (h) => fxp.stop(h),
+    };
+    startDspEmitters(shared, world);
+    fxp.finish();
+  }
 
   // ---- sounds: 2D ones through the world's sink, the positional ones through GameAudio's 3D slots (the listener = the camera)
   const ga = sh.audio.ga;

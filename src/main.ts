@@ -4,6 +4,7 @@ import { playMovie } from './engine/movie.ts';
 import { addIso, ARCHIVE_PAGE, availableSource, cdFolder, GAME_TITLE, removeArchiveCache, removeIso } from './library.ts';
 import { MOVIES, type GameFiles, type Progress } from './files.ts';
 import { currentPrefs, storePrefs, storedPrefs } from './display.ts';
+import { loadRestore, RESTORE_FEATURES } from './restore/flag.ts';
 import { collectDropped, createModsSection, saveEffects } from './mods/ui.ts';
 import { openModStore } from './mods/store.ts';
 import { loadActiveMods } from './mods/manage.ts';
@@ -51,7 +52,7 @@ async function startScreen() {
   };
 
   let busy = false;
-  const start = async () => {
+  const start = async (devCorner = false) => {
     if (busy) return;
     busy = true;
     await audio.unlock();
@@ -60,7 +61,8 @@ async function startScreen() {
       const files = await lib.open(progress);
       track.style.display = 'none';
       status.textContent = '';
-      await play(files);
+      if (devCorner) { const p = new URLSearchParams(location.search); p.set('intro', '0'); p.set('devcorner', '1'); await play(files, p); }   // debug mode: the front end starts with the Ontwikkelaarshoek open
+      else await play(files);
     } catch (e) {
       busy = false;
       track.style.display = 'none';
@@ -112,7 +114,10 @@ async function startScreen() {
   const options = el('div', { className: 'note bdb-opts' },
     el('label', { title: 'Breedbeeld toont aan de zijkanten meer van de 3D-wereld; menu\'s, films en schermen blijven 4:3' }, 'Beeld: ', modeSelect),
     checkbox('le2-skipintro', 'Introfilms overslaan', 'De openingsfilms van het spel niet afspelen', prefs.skipIntro, (v) => storePrefs({ skipIntro: v })),
-    checkbox('le2-debug', 'Debugmenu', 'Zet het verhaalpuntenmenu van de ontwikkelaars in het hoofdmenu in de plaats van "Credits" (docs/re/mods.md)', prefs.debugMenu, (v) => storePrefs({ debugMenu: v })));
+    checkbox('le2-debug', 'Debugmenu', 'Zet het verhaalpuntenmenu van de ontwikkelaars in het hoofdmenu in de plaats van "Credits" (docs/re/mods.md); toont ook de Ontwikkelaarshoek (toets `, docs/re/devcorner.md)', prefs.debugMenu, (v) => { storePrefs({ debugMenu: v }); const b = document.getElementById('le2-devcorner'); if (b) b.hidden = !v; }),
+    checkbox('le2-restored', 'Herstelde inhoud', 'Optioneel (standaard uit): zet inhoud terug die de makers hadden gemaakt maar niet lieten zien: een filmscene, een zijmissie, tips van Darren, geschrapte regels ... Uit = precies het originele spel (docs/re/restore.md)', prefs.restored, (v) => { storePrefs({ restored: v }); const d = document.getElementById('le2-restored-list'); if (d) d.hidden = !v; }),
+    el('details', { id: 'le2-restored-list', hidden: !prefs.restored, title: 'Elk onderdeel van de herstelde inhoud los aan of uit' }, el('summary', { textContent: 'Onderdelen van de herstelde inhoud' }),
+      ...RESTORE_FEATURES.filter((f) => !('unfinished' in f)).map((f) => checkbox(`le2-rf-${f.id}`, f.label, f.id, !prefs.restoredOff.includes(f.id), (v) => { const off = new Set(storedPrefs().restoredOff); if (v) off.delete(f.id); else off.add(f.id); storePrefs({ restoredOff: [...off] }); }))));
 
   // mods: the executable is only read here when that costs nothing (own ISO, dev copy, a download that is already stored)
   const mods = await createModsSection({
@@ -125,7 +130,8 @@ async function startScreen() {
 
   const screen = el('div', { className: 'bdb-start' },
     el('h1', { textContent: GAME_TITLE }),
-    el('div', { className: 'books' }, el('button', { textContent: 'Spelen', title: SOURCE_NAMES[lib.source], onclick: start })),
+    el('div', { className: 'books' }, el('button', { textContent: 'Spelen', title: SOURCE_NAMES[lib.source], onclick: () => start() }),
+      el('button', { id: 'le2-devcorner', textContent: 'Ontwikkelaarshoek', title: 'Debugmodus: het spel starten met de Ontwikkelaarshoek open (daarna opent de toets ` hem overal)', hidden: !prefs.debugMenu, onclick: () => start(true) })),
     track,
     status,
     options,
@@ -194,6 +200,7 @@ async function play(files: GameFiles, params = new URLSearchParams(location.sear
   if (only) { await runMovie(files, only); showFiles(files); return; }
   const [{ Shell, registerZoneRunner }, { runFrontEnd }, { runPlayZone }] = await Promise.all([import('./shell/shell.ts'), import('./shell/frontend.ts'), import('./shell/playzone.ts')]);
   await import('./zones/index.ts');
+  await loadRestore();   // the optional mode "Herstelde inhoud": only with the option on (a separate chunk, the hooks stay unset otherwise)
   registerZoneRunner('frontend', runFrontEnd);
   registerZoneRunner('default', runPlayZone);
   const direct = params.has('zone') || params.has('save') || params.get('start') === 'frontend';
@@ -206,6 +213,7 @@ async function play(files: GameFiles, params = new URLSearchParams(location.sear
     start: params.get('start') ?? undefined,
   }, (m) => { document.title = m; });
   (window as unknown as { __shell?: unknown }).__shell = sh;
+  if (params.get('devcorner') === '1' && prefs.debugMenu) (await import('./devcorner/index.ts')).openOnStart(sh);   // debug mode only: the corner opens when the front end starts
   recordModReport(files);
   document.title = GAME_TITLE; // the loading status lines went to the tab title
   if (sh.params.intro) await sh.runIntro();

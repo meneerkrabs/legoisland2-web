@@ -80,15 +80,15 @@ export const MEDAL_TEXT: Record<number, string> = { 1: 'SGBRONZE', 2: 'SGSILVER'
 /** the side run (pepbrp, ctor 0x823f08, update 0x822ba8) */
 export const RUN = {
   /** ctor: R = BRP's collision radius * 0.465 (0x8929e4) */
-  RADIUS_FACTOR: 0.465,
+  RADIUS_FACTOR: 0.4650000035762787,
   /** FUN_00823c84: angular speed per tick, 0x8929dc / 0x8929e0 (1.1 degrees) */
-  TURN_RATE: 0.0191985,
+  TURN_RATE: 0.019198518246412277,
   /** the hold at the start: 15 ticks (ctor immediate 0x41700000) */
   START_HOLD: 15,
   /** the jump: initial velocity 23 (0x41b80000, FUN_00823c84), time step 0.1 per tick (0x8920cc), gravity -10 (ctor 0xc1200000) */
-  JUMP_V0: 23, JUMP_DT: 0.1, GRAVITY: -10,
+  JUMP_V0: 23, JUMP_DT: 0.10000000149011612, GRAVITY: -10,
   /** ground probe: from y + 2.4 (0x8920a8) down 80 (0xc2a00000), sweep radius 0.16 (0x3e23d70a) skin 0.4 (0x3ecccccd); the wall sweep radius 0.08 (0x3da3d70a) skin 0.4 */
-  PROBE_UP: 2.4, PROBE_DOWN: -80, SWEEP_RADIUS: 0.16, SWEEP_SKIN: 0.4, WALL_RADIUS: 0.08,
+  PROBE_UP: 2.4000000953674316, PROBE_DOWN: -80, SWEEP_RADIUS: 0.15999999642372131, SWEEP_SKIN: 0.4000000059604645, WALL_RADIUS: 0.0799999982118607,
   /** a fall of more than 3.125 (0x8929d8) between two ticks starts the fall; below y 0.625 (0x8929d0) the run restarts */
   DROP_START: 3.125, RESTART_Y: 0.625,
   /** the slope rule: cos(pi / 4) (the double 0x3fe921fb60000000 passed to cos), climbing steeper than that is slowed by 10 (0x892060) */
@@ -106,9 +106,9 @@ export const ROOF = {
   /** the knock-back by a bot: 20 ticks (0x41a00000) at 0.3125 per tick (0x892880) */
   KNOCK_TICKS: 20, KNOCK_STEP: 0.3125,
   /** the pizza: starts 1.6 above and 1.6 ahead (z) of Pepper (0x892580), flies 1.875 per tick (0x8929cc) for at most 60 ticks (0x892388), spins 0.314159 (0x8929c8) per tick; sweep radius 0.08 skin 0.4 */
-  THROW_OFFSET: 1.6, PIZZA_SPEED: 1.875, PIZZA_LIFE: 60, PIZZA_SPIN: 0.314159, PIZZA_RADIUS: 0.08,
+  THROW_OFFSET: 1.600000023841858, PIZZA_SPEED: 1.875, PIZZA_LIFE: 60, PIZZA_SPIN: 0.3141592741012573, PIZZA_RADIUS: 0.08,
   /** the wall sweep (radius 0.16, skin 0.4), the floor probe from y + 2.4 down 40 (0xc2200000); falling: 4 per tick (0x892080), 20 ticks (0x14) then the respawn */
-  FLOOR_PROBE_UP: 2.4, FLOOR_PROBE_DOWN: -40, FALL_STEP: 4, FALL_TICKS: 20,
+  FLOOR_PROBE_UP: 2.4000000953674316, FLOOR_PROBE_DOWN: -40, FALL_STEP: 4, FALL_TICKS: 20,
   /** hits on Brickster needed (the third one ends the game) */
   HITS_TO_WIN: 3,
 } as const;
@@ -116,9 +116,9 @@ export const ROOF = {
 /** the bots (bottop, ctor 0x824a02, update 0x8243e5) */
 export const BOT = {
   /** speed 0.48 per tick (0x8929e8); respawn delay 90 ticks (0x42b40000); the first delay is rand % 0x5a; the start place is the k / 20 of the row, k = rand % 20 (0x14), spacing 0.05 */
-  SPEED: 0.48, RESPAWN: 90, FIRST_DELAY_MOD: 0x5a, START_MOD: 0x14, START_STEP: 0.05,
+  SPEED: 0.47999998927116394, RESPAWN: 90, FIRST_DELAY_MOD: 0x5a, START_MOD: 0x14, START_STEP: 0.05,
   /** the ray at Pepper starts 1.6 above the bot (0x892580); the floor probe from y + 2.4 down 40; a floor more than 5 below the roof ends the walk */
-  RAY_UP: 1.6, PROBE_UP: 2.4, PROBE_DOWN: -40, FALL_LIMIT: 5, RAY_RADIUS: 0.4, RAY_SKIN: 0.16,
+  RAY_UP: 1.600000023841858, PROBE_UP: 2.4000000953674316, PROBE_DOWN: -40, FALL_LIMIT: 5, RAY_RADIUS: 0.4000000059604645, RAY_SKIN: 0.15999999642372131,
 } as const;
 
 /** the roof floor (zonetop, ctor 0x825378, update 0x824c80) */
@@ -146,9 +146,9 @@ export const PARTS = {
   /** BRI7 crumbles: falls 0.3125 (0x3ea00000) per tick, growing by a tenth per tick */
   BRI7_START: 0.3125, BRI7_GROW: 10,
   /** BRI5 moves on an arc: 0.00767941 rad (0x8929fc) and 0.0936 up (0x8929f8) per tick, 15 degrees (0.261798, 0x892a0c) wide */
-  ARC_STEP: 0.00767941, ARC_RISE: 0.0936, ARC_WIDTH: 0.261798,
+  ARC_STEP: 0.007679407484829426, ARC_RISE: 0.09359999746084213, ARC_WIDTH: 0.2617979943752289,
   /** the flame bobbers (4 x, period 240 = 0xf0, amplitude 7.8125 = 0x8929ec, 0.0261799 = 0x8929f0 per tick) */
-  BOB_PERIOD: 240, BOB_AMPLITUDE: 7.8125, BOB_STEP: 0.0261799,
+  BOB_PERIOD: 240, BOB_AMPLITUDE: 7.8125, BOB_STEP: 0.02617993950843811,
 } as const;
 
 /** the constants above as the executable stores them (tests): [name, address, value] of the float constants */

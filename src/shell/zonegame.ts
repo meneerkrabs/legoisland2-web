@@ -41,7 +41,7 @@ export interface ZoneGameCtx {
   /** FUN_00439bf8 + FUN_00435a11: speak the zone-table lines `a` (and `b`) by message id (speech index = the id's voice field); the lines are shown as subtitles when the option is on. False while speech is busy. */
   say(a: string | null, b?: string | null): boolean;
   /** `say` with the lines of another message table (the island's story tables `lifsmN.str`: IslandCtx.say) */
-  sayFrom(table: MessageTable | null, a: string | null, b?: string | null): boolean;
+  sayFrom(table: MessageTable | null, a: string | null, b?: string | null, voice?: boolean): boolean;   // voice false: the subtitle only (the hologram with the speech option off)
   /** FUN_00435ad3: true when no speech is playing (always true without audio, after the subtitle time) */
   speechIdle(): boolean;
   /** FUN_00435b07: stop the speech */

@@ -10,6 +10,7 @@ import type { World } from '../game/world.ts';
 import type { GameRecord } from '../game/record.ts';
 import type { ZoneScene } from '../formats/exe.ts';
 import type { MessageTable } from '../ui/strings.ts';
+import type { ZoneParticles } from '../fx/particles/zone.ts';
 
 export interface IslandCtx {
   readonly world: World;
@@ -34,7 +35,8 @@ export interface IslandCtx {
   readonly text: { npc: MessageTable | null; hol: MessageTable | null };
   /** FUN_00439bf8 + FUN_00435a11: speak line `id` of `table` (voice = the id's voice field) and show its subtitle when the option is on; false while another line is busy */
   /** `id2` (WP3, FUN_00435a11's second voice): a second line spoken right after the first (the subtitle is both texts, FUN_0085b580); the talking NPCs pass `<NAME>B` / `<NAME>D` */
-  say(table: MessageTable, id: string, id2?: string): boolean;
+  /** `voice` false = the subtitle only, no FUN_00435a11 voice call (the hologram with the speech option off, var 9 == 0) */
+  say(table: MessageTable, id: string, id2?: string, voice?: boolean): boolean;
   /** FUN_00435ad3: no speech is playing */
   speechIdle(): boolean;
   /** FUN_00435b07 */
@@ -48,10 +50,21 @@ export interface IslandCtx {
    *  throttle (src/island/vehicles). The vehicles call `sfx(id)` every tick while the engine runs (FUN_004435a0 restarts nothing when it plays). Optional. */
   sfxFreq?(id: number, hz: number): void;
 
-  // ---- particle emitters (FX_Particles: FUN_0044e920 / FUN_0044ebb0 create a `.par` emitter, FUN_0044ea00 moves it, FUN_0044ea60(h, mode, ...) switches it)
-  /** WP5 (Pizza.c): the emitter `name` ('throwpizza.par', 'pizzasplat.par') of record `owner` (each node owns its own emitters) at `pos`; mode 2 = emit,
-   *  1 = stop emitting (live particles fade out), 0 = move it (FUN_0044ea00). Optional. */
-  particles?(name: string, mode: number, pos: readonly [number, number, number], owner: number): void;
+  // ---- particle emitters (FX_Particles, src/fx/particles; the helpers of src/island/emitters.ts start / gate them like the original's FUN_00442960 / FUN_00442a20 calls)
+  /** the zone's particle engine (null without particle data / in tests without a fake: nodes skip their emitters) */
+  readonly fx?: ZoneParticles | null;
+  /** the renderer's side of the decor / outfit swap (src/island/decor.ts): the record's model pointer, FUN_0043e930 / e970 attachments, FUN_0043e910 attachment matrices, FUN_00444600 shiny. Optional. */
+  decorRender?: {
+    setModel(rec: GameRecord, model: import('../formats/exe.ts').Model | null): void;
+    setAttach(rec: GameRecord, slot: number, bone: number, child: import('../formats/exe.ts').Model | null): void;
+    attachLocal(rec: GameRecord, slot: number, m: Float32Array | null): void;
+    shiny(model: import('../formats/exe.ts').Model): void;
+  };
+  /** DAT_009da5b4: the BAATAT cheat was typed (src/shell/cheats.ts `cheatState.baatat`): the decor sets' era table (FUN_00420674) picks era 4 for story nodes >= 0x40. Optional. */
+  baatat?(): boolean;
+  /** WP-RENDER: FUN_00444550(rec, partMask, mode) = `GameRenderer.setPartMode`: the render mode of the parts of an argument-block record (the boat's
+   *  rip and wake records), which the set-up scan cannot resolve. Optional. */
+  partMode?(rec: GameRecord, partMask: number, mode: number): void;
   /** WP5 (speeder.c): FUN_00447e90(rec, kind) = FUN_0044a3b0: start burst `kind` (0xd: a car hit by / hitting Pepper falls apart; 6, 0xb, 0xc others) on the
    *  brick object bound to `rec` (FX_Bricks, WP9). The car also sets record flag 0x8000 (its mesh is not drawn while the bricks fly). Optional. */
   brickBurst?(rec: GameRecord, kind: number): void;
@@ -94,6 +107,10 @@ export interface IslandCtx {
    *  between the shapes of `files` when game variable `v` changes, drawn at `matrix` (the Brikimal node rewrites it every tick); `state()` = FUN_00447e60
    *  (2 = idle / ready to morph). WP9. Without it the Brikimal node shows the record's plain model. */
   brickMorph?(rec: GameRecord, v: number, files: readonly string[], matrix: Float32Array): { state(): number } | null;
+
+  /** M5 (hubs): the rig (`MFIG`, `SKBD` ... = `anim/<rig>.blk`) of the animation instance the zone's loader gave record `record` (from the emulated loader, `IslandSetup.loaderRigs`);
+   *  `ensureAnim` asks it before the island's own table (`islandRigs`). Optional: the island context does not implement it. */
+  rigOf?(record: number): string | undefined;
 
   /** an open bag for state the original keeps in globals (DAT_009daa80 current interactive record, the objective arrow, ...): each node family documents its keys */
   readonly shared: Record<string, unknown>;

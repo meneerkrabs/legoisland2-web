@@ -11,10 +11,11 @@ import { BkdNode } from './env.ts';
 import type { Env } from './env.ts';
 import { angleDelta, rotateShape, wrapAngle } from './math.ts';
 import { castQuad, hitSpin } from './physics.ts';
+import { rotateVector, setEuler } from './matrix.ts';
 import { AnchorNode, BallNode, BrickNode, CannonNode, ClamNode, OctopusNode, PageNode, PirateNode } from './bodies.ts';
 import { SPEECH } from './state.ts';
 
-const fr = Math.fround;
+import { fr, ad, sb, ml, dv } from '../common/f32.ts';
 
 /** FUN_005c1944: what a record the diver ran into is (the class the response switch of FUN_005c0888 uses) */
 export const HIT_CLASS = { SOLID: 0, BRICK: 1, PAGE: 2, ANCHOR: 3, CLAM_TOP: 4, CLAM_BOT: 5, BALL: 6, TENTACLE: 7 } as const;
@@ -51,6 +52,7 @@ export class DiverNode extends BkdNode {
     const cls = (ids: readonly number[], c: number) => ids.forEach((i) => this.classOf.set(R[i], c));
     cls([REC.LAND, REC.CANNON, REC.OCTH], HIT_CLASS.SOLID); cls([REC.OCTC], HIT_CLASS.TENTACLE); cls(REC.BRICKS, HIT_CLASS.BRICK); cls([REC.PAGE], HIT_CLASS.PAGE);
     cls([REC.ANCHOR], HIT_CLASS.ANCHOR); cls([REC.CLAM_TOP], HIT_CLASS.CLAM_TOP); cls([REC.CLAM_BOT], HIT_CLASS.CLAM_BOT); cls(REC.BALLS, HIT_CLASS.BALL);
+    R[REC.PCOL].flags |= 0x20;           // FUN_005c23f9 (0x5c24ac): *(ushort*)(record 93 + 0x60) |= 0x20, next to the bubble emitter's collision registrations (FUN_00442a50)
     this.setView(0);
     this.setModel(0);
     R[REC.SKEL].anim?.start(CLIP.PEPD_ELECTRIFIED, 0);
@@ -90,7 +92,8 @@ export class DiverNode extends BkdNode {
     if (!this.held) return;
     const env = this.env;
     env.sound.play('BRICK_DROP');
-    const p = rec.toWorld([-1, 4, 0]);
+    const r = rotateVector(rec.m, [-1, 4, 0]);       // FUN_0043abe6, then the place added (float32 stores)
+    const p = [ad(r[0], rec.x), ad(r[1], rec.y), ad(r[2], rec.z)];
     env.nodeOf<BrickNode>(this.held).drop(this.held, p);
     this.held = null;
     this.setModel(0);
@@ -147,40 +150,42 @@ export class DiverNode extends BkdNode {
       if (held & BTN.DOWN) thrust = fr(thrust - W.thrust);
     }
     const old: [number, number, number] = [rec.x, rec.y, rec.z];
-    const angDrag = fr(W.angVel * W.turnDrag);
-    W.angVel = fr(fr(turn + angDrag) * dt + W.angVel);
-    const heading = wrapAngle(fr(W.angVel * dt + W.heading));
-    const c = fr(Math.cos(fr(heading + C.HALF_PI))), s = fr(Math.sin(fr(heading + C.HALF_PI)));
-    const dragX = fr(W.vx * W.drag), dragY = fr(W.vy * W.drag);
-    W.vx = fr(fr(fr(c * thrust) + dragX) * dt + W.vx);
-    W.vy = fr(fr(fr(s * thrust) + dragY) * dt + W.vy);
-    const nx = fr(W.vx * dt + old[0]);
-    let ny = fr(W.vy * dt + old[1]);
+    const angDrag = ml(W.angVel, W.turnDrag);
+    W.angVel = ad(ml(ad(turn, angDrag), dt), W.angVel);
+    const heading = wrapAngle(ad(ml(W.angVel, dt), W.heading));
+    const hp = ad(heading, C.HALF_PI);                                  // 24-bit precision: the sum is one float32 result before cos / sin
+    const c = fr(Math.cos(hp)), s = fr(Math.sin(hp));
+    const dragX = ml(W.vx, W.drag), dragY = ml(W.vy, W.drag);
+    W.vx = ad(ml(ad(ml(c, thrust), dragX), dt), W.vx);
+    W.vy = ad(ml(ad(ml(s, thrust), dragY), dt), W.vy);
+    const nx = ad(ml(W.vx, dt), old[0]);
+    let ny = ad(ml(W.vy, dt), old[1]);
     const nz = DIVER.PLANE_Z;
 
     // the water layers (the sounds of the depth) and the surface
     if (ny <= C.SURFACE_Y) {
       if (this.breathCount === 0) sound.play('BREATHE');
-      else { this.breathCount++; if (fr(C.ONE_EIGHTY * 1) < this.breathCount) this.breathCount = 0; }
+      else { this.breathCount++; if (fr(C.ONE_EIGHTY * wd.dt) < this.breathCount) this.breathCount = 0; }
       sound.stop('WATER_SURFACE');
       if (this.surfaceFlag) { sound.play('SUBMERGE'); this.surfaceFlag = false; }
       if (C.SURFACE_Y <= ny || ny <= C.ZERO) {
         if (C.ZERO <= ny || ny <= C.MINUS_HUNDRED) {
-          if (ny < C.MINUS_HUNDRED) { sound.play('WATER_SHALLOW'); sound.stop('WATER_MID'); }
+          // (WP-VERIFY: the handles of the three bands are DAT_05d5acb8 = 0x42 deep (below -100), DAT_05d5acfc = 0x41 mid, DAT_05d5acb0 = 0x40 shallow (0 .. 86.5): asm 0x5c0d2d .. 0x5c0dcc)
+          if (ny < C.MINUS_HUNDRED) { sound.play('WATER_DEEP'); sound.stop('WATER_MID'); }
         } else { sound.play('WATER_MID'); sound.stop('WATER_SHALLOW'); sound.stop('WATER_DEEP'); }
-      } else { sound.play('WATER_DEEP'); sound.stop('WATER_MID'); }
+      } else { sound.play('WATER_SHALLOW'); sound.stop('WATER_MID'); }
     } else {
       this.deliver();
       ny = C.SURFACE_Y;
       sound.play('WATER_SURFACE'); sound.stop('WATER_SHALLOW');
-      const k = env.rng.int(fr(C.WAVE_RANGE * 1));   // FUN_004388ae(_DAT_00892388 * DAT_008b1718), truncated: 0 .. 60
-      if (k > C.FIFTY * 1) sound.play('WAVE1'); else if (k < C.TEN * 1) sound.play('WAVE2');
+      const k = env.rng.int(fr(C.WAVE_RANGE * wd.dt));   // FUN_004388ae(_DAT_00892388 * DAT_008b1718), truncated: 0 .. 60 (30 at the 60 Hz step)
+      if (k > fr(C.FIFTY * wd.dt)) sound.play('WAVE1'); else if (k < fr(C.TEN * wd.dt)) sound.play('WAVE2');
       this.surfaceFlag = true;
     }
 
     // the quad he occupies at the new place
-    const pts = rotateShape(DIVER.SHAPES[this.shape], 4, fr(heading + C.HALF_PI));
-    for (const p of pts) { p[0] = fr(p[0] + nx); p[1] = fr(p[1] + ny); }
+    const pts = rotateShape(DIVER.SHAPES[this.shape], 4, hp);
+    for (const p of pts) { p[0] = ad(p[0], nx); p[1] = ad(p[1], ny); }
     const hurt = env.hurt.test(pts, 4);
     if (hurt) {
       switch (hurt.category) {
@@ -264,8 +269,8 @@ export class DiverNode extends BkdNode {
       if (this.shape !== this.wantShape) {
         if (this.wantShape === 0) this.shape = 0;
         else {
-          const big = rotateShape(DIVER.SHAPES[1], DIVER.SHAPES[1].length, fr(heading + C.HALF_PI));
-          for (const p of big) { p[0] = fr(p[0] + nx); p[1] = fr(p[1] + ny); }
+          const big = rotateShape(DIVER.SHAPES[1], DIVER.SHAPES[1].length, hp);
+          for (const p of big) { p[0] = ad(p[0], nx); p[1] = ad(p[1], ny); }
           if (castQuad(wd, big, 4, rec, this.obstacles).hits.length === 0) this.shape = 1;
         }
       }
@@ -275,27 +280,28 @@ export class DiverNode extends BkdNode {
       W.heading = heading;
       rec.rz = heading; rec.ry = -heading;
       this.quad = pts;
-      if (this.view === 0) rec.setEuler(rec.rx, rec.ry, rec.rz, rec.x, rec.y, rec.z);
-      else R[REC.SKEL].setEuler(rec.rx, 0, rec.rz, rec.x, rec.y, rec.z);
+      if (this.view === 0) setEuler(rec, rec.rx, rec.ry, rec.rz, rec.x, rec.y, rec.z);
+      else setEuler(R[REC.SKEL], rec.rx, 0, rec.rz, rec.x, rec.y, rec.z);
     } else {
       // blocked: turn and shove away along the surface's normal
       const ang = fr(Math.atan2(q.normal[0], q.normal[2]));
       sound.play('HIT_SAND');
       const a = angleDelta(ang, heading);
-      const k = fr(fr(C.ONE - a.frac) + fr(C.ONE - a.frac));
-      if (a.dir === 1) W.angVel = fr(W.angVel - k);
-      if (a.dir === -1) W.angVel = fr(k + W.angVel);
-      W.vx = fr(fr(fr(C.ONE - a.frac) * C.TWO_EIGHT) * q.normal[0]);
-      W.vy = fr(fr(fr(C.ONE - a.frac) * C.TWO_EIGHT) * q.normal[1]);
+      const k = ad(sb(C.ONE, a.frac), sb(C.ONE, a.frac));
+      if (a.dir === 1) W.angVel = sb(W.angVel, k);
+      if (a.dir === -1) W.angVel = ad(k, W.angVel);
+      W.vx = ml(ml(sb(C.ONE, a.frac), C.TWO_EIGHT), q.normal[0]);
+      W.vy = ml(ml(sb(C.ONE, a.frac), C.TWO_EIGHT), q.normal[1]);
     }
     this.flickerStep(rec);
     this.timers();
     this.reachBrick(rec);
-    if (this.stun === C.ZERO) rec.anim?.advance(1.0);
-    R[REC.SKEL].anim?.advance(1.0);
+    if (this.stun === C.ZERO) rec.anim?.advance(1.0, wd.dt);
+    R[REC.SKEL].anim?.advance(1.0, wd.dt);
     if (this.flipperFlag) {
       const f = rec.anim?.frame ?? 0;
-      if (f < C.SIXTEEN) { sound.stop('FLIPPER_LEFT'); sound.play('FLIPPER_RIGHT'); } else { sound.stop('FLIPPER_RIGHT'); sound.play('FLIPPER_LEFT'); }
+      // (asm 0x5c17fd: `fcomp [16]; test ah, 1; jne 0x5c182a`: below frame 16 DAT_05d5ac9c (0x31 right) stops and DAT_05d5acd8 (0x30 left) starts, from 16 on the reverse)
+      if (f < C.SIXTEEN) { sound.stop('FLIPPER_RIGHT'); sound.play('FLIPPER_LEFT'); } else { sound.stop('FLIPPER_LEFT'); sound.play('FLIPPER_RIGHT'); }
     }
     return NODE_CONTINUE;
   }
@@ -307,15 +313,15 @@ export class DiverNode extends BkdNode {
     if (this.view !== 1) { this.setView(1); this.flickerPhase = 0; this.setModel(4); }
     if (this.flickerPhase === 0) this.setModel(4); else this.setModel(3);
     this.flickerPhase ^= 1;
-    this.flicker = fr(this.flicker - this.env.clock.dt);
+    this.flicker = sb(this.flicker, this.env.clock.dt);
     if (this.flicker < C.ZERO) { this.flicker = 0; this.setView(0); this.flipperFlag = true; }
   }
 
   /** FUN_005c2126 */
   private timers() {
     const dt = this.env.clock.dt;
-    if (this.spare !== C.ZERO) { this.spare = fr(this.spare - dt); if (this.spare < C.ZERO) this.spare = 0; }
-    if (this.stun !== C.ZERO) { this.stun = fr(this.stun - dt); if (this.stun < C.ZERO) this.stun = 0; }
+    if (this.spare !== C.ZERO) { this.spare = sb(this.spare, dt); if (this.spare < C.ZERO) this.spare = 0; }
+    if (this.stun !== C.ZERO) { this.stun = sb(this.stun, dt); if (this.stun < C.ZERO) this.stun = 0; }
   }
 
   /** FUN_005c21ea: within 10 units of a brick (and not carrying one) the reach clip plays */
@@ -325,8 +331,8 @@ export class DiverNode extends BkdNode {
     let i = 0;
     for (; i < 5; i++) {
       const b = R[REC.BRICKS[i]];
-      const dx = fr(b.x - rec.x), dy = fr(b.y - rec.y), dz = fr(b.z - rec.z);
-      if (fr(dz * dz + dy * dy + dx * dx) < C.HUNDRED) {
+      const dx = sb(b.x, rec.x), dy = sb(b.y, rec.y), dz = sb(b.z, rec.z);
+      if (ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz)) < C.HUNDRED) {
         if (this.nearBrick !== 1 || this.view === 1) { this.reachClip(1); this.nearBrick = 1; }
         break;
       }
@@ -348,18 +354,21 @@ export function cameraFor(pos: ArrayLike<number>, c: ArrayLike<number> & { [i: n
   let eyeY: number, eyeZ: number, tgtY: number, f = 0;
   if (i === 0 || i === table.length) { eyeY = y; eyeZ = CAMERA_FAR_Z; tgtY = y; }
   else {
-    f = fr((y - table[i][0]) / (table[i - 1][0] - table[i][0]));
-    eyeY = fr(fr((table[i - 1][1] - table[i][1]) * f) + table[i][1] + y);
-    tgtY = fr(fr((table[i - 1][2] - table[i][2]) * f) + table[i][2] + y);
-    eyeZ = fr(fr((table[i - 1][3] - table[i][3]) * f) + table[i][3] + 0);
+    // asm 0x5c03f0: the blends are summed in a register ((a - b) * f + b + y) and stored once as float32
+    f = dv(sb(y, table[i][0]), sb(table[i - 1][0], table[i][0]));
+    eyeY = ad(ad(ml(sb(table[i - 1][1], table[i][1]), f), table[i][1]), y);
+    tgtY = ad(ad(ml(sb(table[i - 1][2], table[i][2]), f), table[i][2]), y);
+    eyeZ = ad(ad(ml(sb(table[i - 1][3], table[i][3]), f), table[i][3]), 0);
   }
-  let side = fr(fr(CAMERA_PARALLAX.SCALE * fr(pos[0] / CAMERA_PARALLAX.DIVISOR)) * CAMERA_PARALLAX.TARGET);
-  if (i === 1) side = fr(fr(C.ONE - f) * side);
-  const tx = fr(side + pos[0]);
-  let eyeSide = fr(CAMERA_PARALLAX.SCALE * fr(pos[0] / CAMERA_PARALLAX.DIVISOR));
-  if (i === 1) eyeSide = fr(fr(C.ONE - f) * eyeSide);
+  // asm 0x5c056c: q = float32(x / 40) is stored; the target's shift is float32(15 q * 0.3) (the product 15 q goes on in the register), the eye's float32(15 q)
+  const q = dv(pos[0], CAMERA_PARALLAX.DIVISOR);
+  let side = ml(ml(CAMERA_PARALLAX.SCALE, q), C.POINT_THREE);     // _DAT_0089245c is the float32 0.3
+  if (i === 1) side = ml(sb(C.ONE, f), side);
+  const tx = ad(side, pos[0]);
+  let eyeSide = ml(CAMERA_PARALLAX.SCALE, q);
+  if (i === 1) eyeSide = ml(sb(C.ONE, f), eyeSide);
   const out = c as unknown as number[];
-  out[0] = fr(pos[0] - eyeSide); out[1] = eyeY; out[2] = eyeZ;
+  out[0] = sb(pos[0], eyeSide); out[1] = eyeY; out[2] = eyeZ;
   out[3] = tx; out[4] = tgtY; out[5] = pos[2];
 }
 

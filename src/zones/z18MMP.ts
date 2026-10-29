@@ -2,6 +2,7 @@
 // walk through the opened gate to the page of the Constructopedia and run from the rolling boulder. Loop FUN_006a26a8, init FUN_006a489a / FUN_006a3861 / FUN_006a30c0, the
 // nodes FUN_006a4fd0 .. FUN_006aca97 (docs/re/m6/z18MMP.md). The behaviour is in src/zones/z18mmp/ (pure, node-testable); this file registers the constructors and the zone game
 // (HUD, intro / banner texts, speech, sound and music through the session's audio, the result variables).
+import { ZoneParticles } from '../fx/particles/zone.ts';
 import { registerCtor } from '../game/setup.ts';
 import { registerZoneGame } from '../shell/zonegame.ts';
 import type { ZoneGame, ZoneGameCtx } from '../shell/zonegame.ts';
@@ -10,12 +11,12 @@ import type { Blk } from '../formats/anim.ts';
 import type { SoundSlot } from '../audio/sfx.ts';
 import type { MusicHandle } from '../audio/music.ts';
 import type { Ui2D } from '../ui/renderer2d.ts';
-import { CTOR, REC, SND, SOUNDS_2D, MUSIC, K } from './z18mmp/consts.ts';
+import { CTOR, REC, MUSIC, K } from './z18mmp/consts.ts';
 import { MmpShared } from './z18mmp/shared.ts';
 import type { MmpSounds, P3 } from './z18mmp/shared.ts';
 import { PepperNode } from './z18mmp/pepper.ts';
 import { CameraNode, MummyNode, KeyNode, PageNode, RockNode, PillarNode, DebrisNode, TorchNode, SpiderNode, RatNode } from './z18mmp/props.ts';
-import { prepareMmp } from './z18mmp/setup.ts';
+import { prepareMmp, startMmpEmitters } from './z18mmp/setup.ts';
 import { MmpRun, clockText, applyResult, resultLines, scoreOf } from './z18mmp/run.ts';
 
 /** the state the nodes share in one run (the original's globals); a new one is made by every Pepper constructor, i.e. every time the zone starts */
@@ -66,12 +67,14 @@ registerZoneGame('z18MMP', async (ctx) => {
   const rig = (n: string): Blk | null => { const e = archive.find(`anim/${n}.blk`); return e ? parseBlk(archive.read(e)) : null; };
   const nodes = prepareMmp(world, sharedNow, { MFIG: loaded.rigs.get('MFIG') ?? rig('MFIG'), SPID: rig('SPID'), RATT: rig('RATT') });
   const run = new MmpRun(sharedNow);
+  // FUN_006a489a: FUN_00442900("Z18MMP"); the emitters start in the order of FUN_006a3861's attach calls: the 12 coffins (symtwin, 2 x mummy02), the key (symtwin), the page (twinkle01), the 12 torches (mmpfire)
+  const fx = await ZoneParticles.create(ctx);
+  sharedNow.fx = fx;
+  if (fx) startMmpEmitters(fx, world, sharedNow, nodes);
   gr.refreshViews();                    // the symbols changed places: the renderer's per-record parts follow the new models
   gr.useFogCall(2);                     // the last SetupFog call that runs wins: FUN_006a489a's (5.0, 150, 150, 50)
 
-  // the music starts when play starts (Hotep at mode 9 -> 2), not with the zone: drop what the runner started (this also forgets the sounds it loaded)
-  sh.audio.leaveZone();
-  sh.audio.preload(SOUNDS_2D);
+  // the zone's sounds (FUN_006a4a60) are loaded by the audio host; the music is the puzzle's own (Hotep at mode 9 -> 2, then by events)
   const ga = sh.audio.ga;
   sharedNow.sounds = makeSounds(ctx);
 
@@ -99,7 +102,6 @@ registerZoneGame('z18MMP', async (ctx) => {
     update() {
       syncHud();
       listen();
-      if (sharedNow.torchAt) { sharedNow.sounds.play3D('torch', SND.TORCH, sharedNow.torchAt); sharedNow.torchAt = null; }
       if (result === 0 && run.afterTick(vars)) result = run.result;
       return result;
     },

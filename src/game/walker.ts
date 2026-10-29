@@ -20,6 +20,7 @@
 // Not ported: the save-game (de)serialisation of the table (0x462d8b / 0x462e75), the debug overlay (0x461155..0x461347) and trivial accessors
 // that only read a field (they are plain properties of `Walker` here).
 import { buildMatrix } from '../formats/matrix.ts';
+import { ad, ml, sq } from '../zones/common/f32.ts';
 import { nextHop, parseCompiledWaypoints } from '../formats/waypoints.ts';
 import type { CompiledWaypoints, WaypointNode } from '../formats/waypoints.ts';
 import type { Archive } from '../formats/archive.ts';
@@ -37,29 +38,35 @@ export const MAX_WALKERS = 60;               // 0x3c, FUN_004614d5 / FUN_004613d
 
 /** world units -> walker units (_DAT_0089208c = 0.125) and back (_DAT_00892090 = 8.0) */
 export const TO_WALK = 0.125, FROM_WALK = 8;
-const PI = 3.1415927, TWO_PI = 6.2831855;    // _DAT_0089207c, _DAT_00892094 (-PI: _DAT_00892098)
+// The original is an MSVC debug build: every C float variable / field is a float32 in memory and each operation rounds (the x87 runs in 24-bit precision, see docs/re/engine-m1.md "Differential test"), so this module
+// stores with `fr` (Math.fround) exactly where the original stores; the constants are the float32 values of the executable's data (tools/tests/m7-walker-emu.mjs compares bit for bit).
+const fr = Math.fround;
+const U32 = new Uint32Array(1), F32V = new Float32Array(U32.buffer);
+/** the float32 with these bits (the immediates of the original's code) */
+const bitsToF32 = (b: number) => { U32[0] = b; return F32V[0]; };
+const PI = fr(3.1415927), TWO_PI = fr(6.2831855);    // _DAT_0089207c, _DAT_00892094 (-PI: _DAT_00892098)
 
 // defaults written by FUN_004614d5 (immediates in the function)
-export const DEFAULT_TURN_RATE = 0.087265998;   // 0x3db2b884 (5 degrees per tick), +0x40
+export const DEFAULT_TURN_RATE = bitsToF32(0x3db2b884);   // 0x3db2b884 (5 degrees per tick), +0x40
 export const DEFAULT_RADIUS_MAX = 200;          // 0x43480000, +0x50
 export const DEFAULT_RADIUS_MIN = 20;           // 0x41a00000, +0x4c
 export const DEFAULT_RADIUS_LIMIT = 20;         // 0x41a00000, +0x74
 export const DEFAULT_STOP_DIST2_ROAD = 3.75;    // 0x40700000, +0x78 on map 0 (squared distance)
-export const DEFAULT_STOP_DIST2 = 0.36;         // 0x3eb851ec, +0x78 on the other maps
+export const DEFAULT_STOP_DIST2 = bitsToF32(0x3eb851ec);         // 0x3eb851ec, +0x78 on the other maps
 // settings of the generic talking NPC (FUN_00426151, immediates before its calls to FUN_00462206 / 0x462324 / 0x4623aa / 0x4623cd / 0x462436)
-export const NPC_SPEED = 0.016666666;           // 0x3c888888
-export const NPC_TURN_RATE = 0.523596;          // 0x3f060a63 (30 degrees)
-export const NPC_RADIUS_MIN = 0.2;              // 0x3e4ccccd
+export const NPC_SPEED = bitsToF32(0x3c888888);           // 0x3c888888
+export const NPC_TURN_RATE = bitsToF32(0x3f060a63);          // 0x3f060a63 (30 degrees)
+export const NPC_RADIUS_MIN = bitsToF32(0x3e4ccccd);              // 0x3e4ccccd
 export const NPC_RADIUS_MAX = 0.75;             // 0x3f400000
 export const NPC_RADIUS_LIMIT = 0.25;           // 0x3e800000
 
 // .rdata thresholds
-const SPEED_RESCALE_MIN = 0.01;      // _DAT_00892030 (FUN_00462206)
-const LANE_MIN = 0.01;               // _DAT_00892030 (FUN_004643fe: lane offset large enough for a circular lane)
-const LANE_EPS = 0.001;              // _DAT_008923c4 (FUN_00464517 / FUN_00461fe4)
-const CLONE_EPS = 0.05;              // _DAT_00892034 (FUN_0046248a)
-const BEND_MIN = 0.17453199;         // _DAT_0089211c (10 degrees: smaller bends need no curve)
-const BEND_MAX = 2.967043;           // _DAT_008923c8 (170 degrees: sharper turns are not curved)
+const SPEED_RESCALE_MIN = fr(0.01);      // _DAT_00892030 (FUN_00462206)
+const LANE_MIN = fr(0.01);               // _DAT_00892030 (FUN_004643fe: lane offset large enough for a circular lane)
+const LANE_EPS = fr(0.001);              // _DAT_008923c4 (FUN_00464517 / FUN_00461fe4)
+const CLONE_EPS = fr(0.05);              // _DAT_00892034 (FUN_0046248a)
+const BEND_MIN = fr(0.17453199);         // _DAT_0089211c (10 degrees: smaller bends need no curve)
+const BEND_MAX = fr(2.967043876647949);           // _DAT_008923c8 (170 degrees: sharper turns are not curved)
 const HALF = 0.5, QUARTER = 0.25;    // _DAT_0089204c, _DAT_00892134
 const EIGHTH = 0.125;                // _DAT_0089208c
 
@@ -147,7 +154,10 @@ class WalkerMap {
 /** the working copy of FUN_004659b6's stack frame: yaw, position / 8, angle difference, distance moved */
 interface StepState { yaw: number; x: number; z: number; diff: number; dist: number }
 
-const normAngle = (a: number) => (a < -PI ? a + TWO_PI : a > PI ? a - TWO_PI : a);
+/** the angle wrap of the original (inline in every function that stores an angle difference): the argument is a float32 value, the result is stored as one */
+const normAngle = (a: number) => (a < -PI ? fr(a + TWO_PI) : a > PI ? fr(a - TWO_PI) : a);
+/** FUN_00465bf6: |(dx, dz)|^2 of two float locals (each square is stored as a float, the sum is returned in the FPU: the callers store or cast it) */
+const len2 = (dx: number, dz: number) => fr(fr(dx * dx) + fr(dz * dz));
 const modeOf = (w: Walker) => (w.flags & 0xf0000000) >>> 0;
 const setMode = (w: Walker, m: number) => { w.flags = (w.flags & 0x0fffffff) | m; };
 const recEnabled = (r: WalkerRecord) => r.flags === undefined || (r.flags & WF_RECORD_ENABLED) !== 0;
@@ -159,6 +169,8 @@ export class WaypointSystem {
   maps: (WalkerMap | null)[] = [null, null, null, null];
   /** the walker table */
   walkers: (Walker | null)[] = new Array(MAX_WALKERS).fill(null);
+  /** the original's static table (DAT_05d4e1b0, 60 x 0x84 bytes): a freed walker stays in memory, and a node list that still points at it keeps doing so (teleport / free leave such stale entries); a new walker reuses the slot */
+  readonly slots: Walker[] = Array.from({ length: MAX_WALKERS }, () => new Walker());
   /** DAT_008b1718: time step of a tick (1.0) */
   dt = 1;
   /** _DAT_05d57cdc: y of the last stepped position (written by the original, read by nobody in this module) */
@@ -181,7 +193,7 @@ export class WaypointSystem {
   }
   /** FUN_00463701: free the maps, FUN_004613d0: clear the walker table */
   unload() { this.maps = [null, null, null, null]; this.reset(); }
-  reset() { this.walkers.fill(null); }
+  reset() { this.walkers.fill(null); for (const s of this.slots) s.flags = 0; this.ghost = new Walker(); }
   /** FUN_00462c34 */
   mapCount(map: number) { return this.maps[map]?.count ?? 0; }
   /** FUN_00463880: valid node index of the map (the original accepts 0..count inclusive) */
@@ -205,10 +217,10 @@ export class WaypointSystem {
   nearestNode(map: number, x: number, y: number, z: number): number {
     const m = this.maps[map];
     if (!m) return -1;
-    let best = 1e38, bi = -1;
+    let best = fr(1e38), bi = -1;
     for (let i = 0; i < m.nodes.length; i++) {
       const n = m.nodes[i];
-      const dx = x - n.x, dy = y - n.y, dz = z - n.z, d = dx * dx + dy * dy + dz * dz;
+      const dx = fr(x - n.x), dy = fr(y - n.y), dz = fr(z - n.z), d = fr(fr(fr(dx * dx) + fr(dy * dy)) + fr(dz * dz));
       if (d < best) { best = d; bi = i; }
     }
     return bi;
@@ -247,7 +259,12 @@ export class WaypointSystem {
   // ------------------------------------------------------------------- the table
 
   /** walker of a handle (handle = index + 1) or null */
-  get(handle: number): Walker | null { return this.walkers[handle - 1] ?? null; }
+  get(handle: number): Walker | null { return handle === 0 ? this.ghost : (this.walkers[handle - 1] ?? null); }
+  /**
+   * handle 0 (a node on a record whose controller never got a walker: SPD0's Human1 nodes): the original's calls compute `DAT_05d4e1b0 + (0 - 1) * 0x84`, the 0x84 bytes in front of the walker table,
+   * zero at set-up: the functions read and write it like a walker (flags, route state, list links ...), so handle 0 is a walker of its own that is never created.
+   */
+  ghost = new Walker();
 
   /**
    * FUN_004614d5(map, rec, startNode) -> handle (0 = failed). startNode -1 = the nearest node (needs a record), -3 = no node,
@@ -259,7 +276,8 @@ export class WaypointSystem {
     let slot = 0;
     while (slot < MAX_WALKERS && this.walkers[slot]) slot++;
     if (slot === MAX_WALKERS) return 0;
-    const w = new Walker();
+    const w = this.slots[slot];
+    Object.assign(w, new Walker());      // (the original's memset of the 0x84 bytes: the links go, the nodes' lists keep their pointers to the slot)
     this.walkers[slot] = w;
     w.map = map;
     w.turnRate = DEFAULT_TURN_RATE;
@@ -292,7 +310,7 @@ export class WaypointSystem {
     if (!w) return;
     if (w.flags !== 0 && this.mapCount(w.map) > 0) this.unregister(w);
     w.flags = 0;
-    this.walkers[handle - 1] = null;
+    if (handle > 0) this.walkers[handle - 1] = null;
   }
 
   /** FUN_0046140f(handle, node, rec): the walker stands on `node` (from), the record is moved there; the route has to be restarted */
@@ -401,29 +419,30 @@ export class WaypointSystem {
   setSpeed(handle: number, s: number) {
     const w = this.get(handle);
     if (!w) return;
+    s = fr(s);
     if (w.speed !== s) {
       if (Math.abs(w.speed) > SPEED_RESCALE_MIN && (w.flags & 0x1000) !== 0) {
-        const red = (w.speedReduced * s) / w.speed;
+        const red = fr(fr(w.speedReduced * s) / w.speed);
         const old = w.speedReduced;
         w.speedReduced = red;
-        // (the original divides by the old value unguarded: 0 / 0 gives NaN there; keep the turn rate instead)
-        if (old !== 0) w.curTurn = (w.curTurn * red) / old;
+        // (the original divides by the old value unguarded: 0 / 0 gives NaN there, and so it does here)
+        w.curTurn = fr(fr(w.curTurn * red) / old);
       }
     }
     w.speed = s;
   }
   /** FUN_00462324: turn rate (absolute value) */
-  setTurnRate(handle: number, r: number) { const w = this.get(handle); if (w) w.turnRate = Math.abs(r); }
+  setTurnRate(handle: number, r: number) { const w = this.get(handle); if (w) w.turnRate = Math.abs(fr(r)); }
   /** FUN_00461ad6 / FUN_00461af9 / FUN_00461b2a */
-  setLane(handle: number, v: number) { const w = this.get(handle); if (w) w.lane = v; }
+  setLane(handle: number, v: number) { const w = this.get(handle); if (w) w.lane = fr(v); }
   flipLane(handle: number) { const w = this.get(handle); if (w) w.lane = -w.lane; }
   flipLanes(map: number) { for (const w of this.walkers) if (w && w.map === map) w.lane = -w.lane; }
   /** FUN_004623aa / FUN_004623cd / FUN_00462436 / FUN_004623f0 (squares the distance) / FUN_004621c7 */
-  setRadiusMin(handle: number, v: number) { const w = this.get(handle); if (w) w.radiusMin = v; }
-  setRadiusMax(handle: number, v: number) { const w = this.get(handle); if (w) w.radiusMax = v; }
-  setRadiusLimit(handle: number, v: number) { const w = this.get(handle); if (w) w.radiusLimit = v; }
-  setStopDistance(handle: number, d: number) { const w = this.get(handle); if (w) w.stopDist2 = d * d; }
-  setSpeedScale(handle: number, v: number) { const w = this.get(handle); if (w) w.speedScale = v; }
+  setRadiusMin(handle: number, v: number) { const w = this.get(handle); if (w) w.radiusMin = fr(v); }
+  setRadiusMax(handle: number, v: number) { const w = this.get(handle); if (w) w.radiusMax = fr(v); }
+  setRadiusLimit(handle: number, v: number) { const w = this.get(handle); if (w) w.radiusLimit = fr(v); }
+  setStopDistance(handle: number, d: number) { const w = this.get(handle); if (w) w.stopDist2 = fr(d * d); }
+  setSpeedScale(handle: number, v: number) { const w = this.get(handle); if (w) w.speedScale = fr(v); }
   /** FUN_0046190f(handle, noYield, noCross): 1 sets, 0 clears, other values leave the flag */
   setIgnore(handle: number, noYield: number, noCross: number) {
     const w = this.get(handle);
@@ -431,10 +450,10 @@ export class WaypointSystem {
     if (noYield === 1) w.flags |= WF_NOYIELD; else if (noYield === 0) w.flags &= ~WF_NOYIELD;
     if (noCross === 1) w.flags |= WF_NOCROSS; else if (noCross === 0) w.flags &= ~WF_NOCROSS;
   }
-  /** FUN_004618a5 (the original's `flags | bit` test is always true; this reads the flags) */
+  /** FUN_004618a5: the original tests `flags | bit` against 0, which is never true: both answers are always 1 (checked by tools/lib/m7-walker-api.mjs) */
   getIgnore(handle: number): { noYield: boolean; noCross: boolean } {
-    const w = this.get(handle);
-    return { noYield: !!w && (w.flags & WF_NOYIELD) !== 0, noCross: !!w && (w.flags & WF_NOCROSS) !== 0 };
+    void handle;
+    return { noYield: true, noCross: true };
   }
   /** FUN_00461b92 */
   status(handle: number): number {
@@ -469,7 +488,7 @@ export class WaypointSystem {
     d.link = [null, null, null];
     d.point = [s.point[0], s.point[1], s.point[2]];
     d.rec = rec; d.recName = name;
-    if (Math.abs(delta) > CLONE_EPS) { const r = Math.sqrt(d.dist2) + delta; d.dist2 = r * r; }
+    if (Math.abs(delta) > CLONE_EPS) { const r = ad(sq(d.dist2), delta); d.dist2 = ml(r, r); }   // (x87 at 24 bit: sqrt, the sum, the product, each rounded)
   }
 
   // ------------------------------------------------------------------- node lists (FUN_00463e11 / FUN_00463d50 / FUN_00463f9d / FUN_00463ec8)
@@ -499,31 +518,36 @@ export class WaypointSystem {
     const n = this.maps[MAP_PATH]?.nodes[node];
     return n && n.kind === 4 ? n.link : -1;
   }
+  /** the guard of FUN_00463ec8 / FUN_00463f9d's list 2: a path walker whose `from` is a kind-4 node with a link */
+  private crossingFrom(w: Walker): boolean {
+    if (w.map !== MAP_PATH || w.from < 0) return false;
+    const n = this.maps[MAP_PATH]?.nodes[w.from];
+    return !!n && n.kind === 4 && n.link >= 0;
+  }
+  /**
+   * FUN_00463f9d: unregister, then enter list 1 at `to`, list 0 at `next` and (path walker on a crossing) list 2 at the ROAD node numbered `to` (the original uses the walker's own `to`
+   * index in the road map where FUN_0046410c uses the crossing's link: the lists of a walker entered here and one entered by FUN_0046410c differ, and FUN_00463ec8 removes the same wrong entry)
+   */
   private register(w: Walker) {
+    this.removeAll(w);
     if (w.to >= 0) this.listAdd(w, w.map, w.to, 1);
     if (w.next >= 0) this.listAdd(w, w.map, w.next, 0);
-    // (the original adds list 2 at node `to` instead of the link: see removeAll)
-    let l = this.crossingLink(w, w.from);
-    if (l < 0) l = this.crossingLink(w, w.to);
-    if (l >= 0) this.listAdd(w, MAP_ROAD, l, 2);
+    if (this.crossingFrom(w)) this.listAdd(w, MAP_ROAD, w.to, 2);
   }
-  /** FUN_00463ec8 (the original removes list 2 at node `to`, where FUN_0046410c added it at the link of `to`: this removes the link's entry) */
+  /** FUN_00463ec8 */
   private removeAll(w: Walker) {
     if (w.to >= 0) this.listRemove(w, w.map, w.to, 1);
     if (w.next >= 0) this.listRemove(w, w.map, w.next, 0);
-    const l = this.crossingLink(w, w.from);
-    if (l >= 0) this.listRemove(w, MAP_ROAD, l, 2);
-    const l2 = this.crossingLink(w, w.to);
-    if (l2 >= 0) this.listRemove(w, MAP_ROAD, l2, 2);
+    if (this.crossingFrom(w)) this.listRemove(w, MAP_ROAD, w.to, 2);
   }
 
   // ------------------------------------------------------------------- route state (FUN_0046410c / FUN_004642b0 / FUN_0046407e / FUN_004643fe)
 
   private pos2(w: Walker, a: number, b: number) {
-    // vector from node b to node a in walker units (x, z)
+    // vector from node b to node a in walker units (x, z), each stored as a float
     const m = this.maps[w.map]!;
     const na = m.nodes[a], nb = m.nodes[b >= 0 ? b : a];
-    return { dx: (na.x - nb.x) * TO_WALK, dz: (na.z - nb.z) * TO_WALK };
+    return { dx: fr((na.x - nb.x) * TO_WALK), dz: fr((na.z - nb.z) * TO_WALK) };
   }
   /** FUN_0046410c: `to` = n; heading and length of the segment from -> to */
   private setTo(w: Walker, n: number) {
@@ -535,8 +559,8 @@ export class WaypointSystem {
       const l = this.crossingLink(w, w.to);
       if (l >= 0) this.listAdd(w, MAP_ROAD, l, 2);
       const { dx, dz } = this.pos2(w, w.to, w.from);
-      w.headingCur = Math.atan2(dx, dz);
-      w.segLen2 = dx * dx + dz * dz;
+      w.headingCur = fr(Math.atan2(dx, dz));
+      w.segLen2 = len2(dx, dz);
     }
   }
   /** FUN_004642b0: `next` = n; heading of the segment to -> next and its squared length */
@@ -547,8 +571,8 @@ export class WaypointSystem {
     else {
       this.listRemove(w, w.map, n, 0);
       const { dx, dz } = this.pos2(w, w.next, w.to);
-      w.headingNext = Math.atan2(dx, dz);
-      w.segLen2 = dx * dx + dz * dz;
+      w.headingNext = fr(Math.atan2(dx, dz));
+      w.segLen2 = len2(dx, dz);
       this.listAdd(w, w.map, w.next, 0);
     }
   }
@@ -564,10 +588,11 @@ export class WaypointSystem {
     w.curve = 0;
     w.reach = 1;
     const al = Math.abs(w.lane);
-    if (al >= LANE_MIN) {
-      w.curTurn = w.speed / al;
-      w.speedReduced = Math.cos(w.curTurn * EIGHTH) * (Math.cos(w.curTurn * QUARTER) * w.speed);
-      w.curTurn = w.speedReduced / al;
+    if (LANE_MIN <= al) {
+      w.curTurn = fr(w.speed / al);
+      const a = fr(w.curTurn * QUARTER), b = fr(w.curTurn * EIGHTH);
+      w.speedReduced = fr(Math.cos(b) * fr(Math.cos(a) * w.speed));
+      w.curTurn = fr(w.speedReduced / al);
     } else {
       w.curTurn = w.turnRate;
       w.speedReduced = 0;
@@ -594,8 +619,8 @@ export class WaypointSystem {
   /** FUN_004659b6 */
   private stepWalker(w: Walker, pos: number[] | Float32Array, yaw: number, out: StepOut): number {
     this.prepare(w);
-    const s: StepState = { yaw: normAngle(yaw), x: pos[0] * TO_WALK, z: pos[2] * TO_WALK, diff: 0, dist: 0 };
-    this.lastY = pos[1];
+    const s: StepState = { yaw: normAngle(fr(yaw)), x: fr(pos[0] * TO_WALK), z: fr(pos[2] * TO_WALK), diff: 0, dist: 0 };
+    this.lastY = fr(pos[1]);
     let ret = 0;
     let tail = false;                      // fall through to FUN_004651d4
     const mode = modeOf(w);
@@ -610,8 +635,8 @@ export class WaypointSystem {
     } else if (mode === MODE_FOLLOW || mode === MODE_POINT) tail = true;
     else if (mode === MODE_HEADING) { w.curTurn = w.turnRate; ret = this.headingStep(w, s); }
     if (tail) ret = this.followStep(w, s);
-    pos[0] = s.x * FROM_WALK;
-    pos[2] = s.z * FROM_WALK;
+    pos[0] = fr(s.x * FROM_WALK);
+    pos[2] = fr(s.z * FROM_WALK);
     out.yaw = s.yaw;
     out.dist = s.dist;
     return ret;
@@ -663,15 +688,17 @@ export class WaypointSystem {
       if (w.to < 0) return 0;
       if (w.goal === w.from) return 0;
       if (w.to === w.from) { this.advance(w); continue; }
-      const sn = Math.sin(w.headingCur), cs = Math.cos(w.headingCur);
-      const ox = w.lane * cs + (1 + w.curve) * sn;
-      const oz = -sn * w.lane + (1 + w.curve) * cs;
+      const sn = fr(Math.sin(w.headingCur)), cs = fr(Math.cos(w.headingCur));
+      const k = fr(1 + w.curve);
+      const ox = fr(fr(w.lane * cs) + fr(k * sn));
+      const oz = fr(fr(-sn * w.lane) + fr(k * cs));
       const nd = m.nodes[w.to];
-      const dx = nd.x * TO_WALK + ox - s.x, dz = nd.z * TO_WALK + oz - s.z;
-      w.heading = Math.atan2(dx, dz);
-      s.diff = normAngle(s.yaw - w.heading);
-      w.dist2 = dx * dx + dz * dz;
-      if (w.dist2 < w.reach * w.reach) { this.advance(w); continue; }
+      const ax = fr(nd.x * TO_WALK), az = fr(nd.z * TO_WALK);
+      const dx = fr(fr(ax + ox) - s.x), dz = fr(fr(az + oz) - s.z);
+      w.heading = fr(Math.atan2(dx, dz));
+      s.diff = normAngle(fr(s.yaw - w.heading));
+      w.dist2 = len2(dx, dz);
+      if (w.dist2 < fr(w.reach * w.reach)) { this.advance(w); continue; }
       return 1;
     }
     return 0;
@@ -679,11 +706,12 @@ export class WaypointSystem {
 
   /** FUN_00464918: turn the yaw towards the desired heading by the current turn rate. 0 = reached it, 1 = still turning */
   private turnToward(w: Walker, s: StepState): number {
-    const f = w.curTurn * w.speedScale * this.dt;
-    if (s.diff <= f) {
-      if (-f <= s.diff) { s.yaw = w.heading; return 0; }
-      s.yaw = f + s.yaw;
-    } else s.yaw = s.yaw - f;
+    const f = fr(fr(w.curTurn * w.speedScale) * fr(this.dt));
+    // (x87 compares: an unordered result - the turn rate is NaN after FUN_00462206 divided 0 by 0 - sets C0 and C3, so `<=` is true; written as the negated `>`)
+    if (!(s.diff > f)) {
+      if (!(-f > s.diff)) { s.yaw = w.heading; return 0; }
+      s.yaw = fr(f + s.yaw);
+    } else s.yaw = fr(s.yaw - f);
     s.yaw = normAngle(s.yaw);
     return 1;
   }
@@ -694,18 +722,18 @@ export class WaypointSystem {
    */
   private plan(w: Walker, s: StepState, phase: number): number {
     const m = this.maps[w.map]!;
-    const bend = normAngle(w.headingNext - w.headingCur);
+    const bend = normAngle(fr(w.headingNext - w.headingCur));
     const ab = Math.abs(bend);
-    if (ab < BEND_MIN) {
+    if (!(BEND_MIN <= ab)) {
       w.curve = 0;
-      w.curTurn = w.speed / w.radiusMin;
+      w.curTurn = fr(w.speed / w.radiusMin);
       return 2;
     }
     if (!(ab <= BEND_MAX)) return 0;
-    const half = bend * HALF;
-    const cosH = Math.cos(half);
-    const tanH = Math.sin(half) / cosH;
-    if (phase === 0) w.curve = Math.abs(w.lane) >= LANE_EPS ? -w.lane * tanH : 0;
+    const half = fr(bend * HALF);
+    const sinH = fr(Math.sin(half)), cosH = fr(Math.cos(half));
+    const tanH = fr(sinH / cosH);
+    if (phase === 0) w.curve = LANE_EPS <= Math.abs(w.lane) ? fr(-w.lane * tanH) : 0;
     const kind = m.nodes[w.to].kind;
     let special = false;
     let R = w.radiusMin;
@@ -715,19 +743,19 @@ export class WaypointSystem {
         special = true;
         if (w.lane < 0 && half < 0) R = w.radiusMax;
         else if (w.lane > 0 && half > 0) R = w.radiusMax;
-        else R = w.radiusMax + w.radiusMax;
+        else R = fr(w.radiusMax + w.radiusMax);
       }
-    } else if (phase === 0x3000) R = (w.radiusMax - w.radiusMin) * HALF + w.radiusMin;
-    const excess = R / cosH - R;
+    } else if (phase === 0x3000) R = fr(fr(fr(w.radiusMax - w.radiusMin) * HALF) + w.radiusMin);
+    const excess = fr(fr(R / cosH) - R);
     if (!(excess <= w.radiusLimit) && !special) return 0;
-    const t = Math.abs(tanH) * R;
-    if (!(t * t <= w.dist2)) return 0;
-    if (!((t + t) * (t + t) <= w.segLen2)) return 0;
-    w.reach = 1 + t;
-    w.curTurn = w.speed / R;
-    const a = w.curTurn * QUARTER, b = w.curTurn * EIGHTH;
-    w.speedReduced = Math.cos(b) * (Math.cos(a) * Math.abs(w.speed));
-    w.curTurn = w.speedReduced / R;
+    const t = fr(Math.abs(tanH) * R);
+    if (!(fr(t * t) <= w.dist2)) return 0;
+    if (!(fr((t + t) * (t + t)) <= w.segLen2)) return 0;
+    w.reach = fr(1 + t);
+    w.curTurn = fr(w.speed / R);
+    const a = fr(w.curTurn * QUARTER), b = fr(w.curTurn * EIGHTH);
+    w.speedReduced = fr(Math.cos(b) * fr(Math.cos(a) * Math.abs(w.speed)));
+    w.curTurn = fr(w.speedReduced / R);
     if (w.map === MAP_ROAD && kind === 2) return 2;
     if (special) return 2;
     return 1;
@@ -753,10 +781,11 @@ export class WaypointSystem {
         } else if (phase === 0x3000) w.flags |= 0x1000;
       }
     }
-    const d = (mode === 2 ? w.speedReduced : w.speed) * w.speedScale * this.dt;
-    s.dist += d;
-    s.x += Math.sin(s.yaw) * d;
-    s.z += Math.cos(s.yaw) * d;
+    const d = fr(fr((mode === 2 ? w.speedReduced : w.speed) * w.speedScale) * fr(this.dt));
+    s.dist = fr(d + s.dist);
+    const sx = fr(Math.sin(s.yaw) * d), sz = fr(Math.cos(s.yaw) * d);
+    s.x = fr(sx + s.x);
+    s.z = fr(sz + s.z);
   }
 
   // ------------------------------------------------------------------- traffic (FUN_00464e16 and friends)
@@ -776,7 +805,7 @@ export class WaypointSystem {
   /** FUN_00464bbf: the walker ahead on the same segment (or on the next one) and whether it is too close */
   private aheadBlocked(w: Walker): boolean {
     const m = this.maps[w.map]!;
-    let best = -1e38;
+    let best = fr(-1e38);
     w.blocker = null;
     if (w.to >= 0) {
       for (let p = m.heads[w.to * 3 + 1]; p; p = p.link[1]) {
@@ -784,17 +813,17 @@ export class WaypointSystem {
       }
     }
     if (!w.blocker && w.next >= 0 && w.rec) {
-      best = -1e38;
+      best = fr(-1e38);
       for (let p = m.heads[w.next * 3 + 1]; p; p = p.link[1]) {
         if (p === w || !p.rec || !recEnabled(p.rec) || p.from !== w.to) continue;
-        const dx = w.rec.x - p.rec.x, dy = w.rec.y - p.rec.y, dz = w.rec.z - p.rec.z;
-        const d = dz * dz + dy * dy + dx * dx;
+        const dx = fr(w.rec.x - p.rec.x), dy = fr(w.rec.y - p.rec.y), dz = fr(w.rec.z - p.rec.z);
+        const d = fr(fr(fr(dx * dx) + fr(dy * dy)) + fr(dz * dz));
         if (best < d) { w.blocker = p; best = d; }
       }
     }
     if (w.blocker && w.blocker.rec && w.rec) {
-      const dx = (w.rec.x - w.blocker.rec.x) * TO_WALK, dz = (w.rec.z - w.blocker.rec.z) * TO_WALK;
-      if (dx * dx + dz * dz < w.stopDist2) {
+      const dx = fr((w.rec.x - w.blocker.rec.x) * TO_WALK), dz = fr((w.rec.z - w.blocker.rec.z) * TO_WALK);
+      if (len2(dx, dz) < w.stopDist2) {
         if (!(w.flags & WF_NOYIELD)) { w.flags |= WF_BLOCKED; return true; }
         w.flags |= WF_AHEAD_IGN;
       }
@@ -819,7 +848,7 @@ export class WaypointSystem {
   }
   /** FUN_004649d2: a path walker waits at a crossing while a road walker is approaching the linked road node */
   private carBlocked(w: Walker, s: StepState): boolean {
-    if (!(Math.abs(s.diff) <= w.curTurn)) return false;
+    if (Math.abs(s.diff) > w.curTurn) return false;     // fabs(diff) <= curTurn (true for an unordered compare, see turnToward)
     const road = this.maps[MAP_ROAD];
     const link = this.maps[MAP_PATH]!.nodes[w.to].link;
     if (!road || link < 0 || link >= road.count) return false;
@@ -836,19 +865,19 @@ export class WaypointSystem {
     let dx: number, dz: number;
     if ((w.flags & 0x60000000) === 0x60000000) {
       if (w.pointSet === 0) { w.flags |= WF_STOPPED; w.flags &= 0x0fffffff; return STEP_ARRIVED; }
-      dx = w.point[0] * TO_WALK - s.x; dz = w.point[2] * TO_WALK - s.z;
+      dx = fr(w.point[0] * TO_WALK - s.x); dz = fr(w.point[2] * TO_WALK - s.z);
     } else {
       if (!w.follow) { w.flags |= WF_STOPPED; w.flags &= 0x0fffffff; return STEP_ARRIVED; }
-      dx = w.follow.x * TO_WALK - s.x; dz = w.follow.z * TO_WALK - s.z;
+      dx = fr(w.follow.x * TO_WALK - s.x); dz = fr(w.follow.z * TO_WALK - s.z);
     }
-    w.heading = Math.atan2(dx, dz);
-    s.diff = normAngle(s.yaw - w.heading);
+    w.heading = fr(Math.atan2(dx, dz));
+    s.diff = normAngle(fr(s.yaw - w.heading));
     w.curTurn = w.turnRate;
     return this.turnToward(w, s) === 0 ? STEP_FACING : STEP_TURNING;
   }
   /** FUN_00465146: turn on the spot to the heading set by turnToHeading */
   private headingStep(w: Walker, s: StepState): number {
-    s.diff = normAngle(s.yaw - w.heading);
+    s.diff = normAngle(fr(s.yaw - w.heading));
     w.curTurn = w.turnRate;
     return this.turnToward(w, s) === 0 ? STEP_FACING : STEP_TURNING;
   }
@@ -857,12 +886,12 @@ export class WaypointSystem {
    * unit(d) its direction), which is (|d| + 1)^2 >= 1: it never reports arrival, so this walker keeps going until the caller stops it.
    */
   private pointStep(w: Walker, s: StepState): boolean {
-    let dx = w.point[0] * TO_WALK - s.x, dz = w.point[2] * TO_WALK - s.z;
-    w.heading = Math.atan2(dx, dz);
-    const ux = Math.sin(w.heading), uz = Math.cos(w.heading);
-    s.diff = normAngle(s.yaw - w.heading);
-    dx += ux; dz += uz;
-    w.dist2 = dx * dx + dz * dz;
+    let dx = fr(w.point[0] * TO_WALK - s.x), dz = fr(w.point[2] * TO_WALK - s.z);
+    w.heading = fr(Math.atan2(dx, dz));
+    const ux = fr(Math.sin(w.heading)), uz = fr(Math.cos(w.heading));
+    s.diff = normAngle(fr(s.yaw - w.heading));
+    dx = fr(dx + ux); dz = fr(dz + uz);
+    w.dist2 = len2(dx, dz);
     const go = 1 <= w.dist2;
     if (!go) { w.flags &= ~WF_RUNNING; w.flags |= WF_STOPPED; }
     return go;
@@ -878,15 +907,16 @@ export class WaypointSystem {
     const w = this.get(handle);
     if (!w || !rec) return;
     if (w.to >= 0) {
-      const s: StepState = { yaw: rec.ry, x: rec.x * TO_WALK, z: rec.z * TO_WALK, diff: 0, dist: 0 };
+      const s: StepState = { yaw: fr(rec.ry), x: fr(rec.x * TO_WALK), z: fr(rec.z * TO_WALK), diff: 0, dist: 0 };
       this.seek(w, s);
       rec.ry = w.heading;
       setYaw(rec);
     }
     if (Math.abs(w.lane) > LANE_EPS && w.from >= 0) {
-      const v = w.lane * FROM_WALK, m = rec.m;
+      // FUN_0043abe6 rotates the vector (lane * 8, 0, 0) by the record's matrix (each component stored), then the node position is added
+      const v = fr(w.lane * FROM_WALK), m = rec.m;
       const n = this.node(w.map, w.from);
-      if (n) { rec.x = v * m[0] + n.x; rec.y = v * m[1] + n.y; rec.z = v * m[2] + n.z; }
+      if (n) { rec.x = fr(fr(v * m[0] + 0 * m[4] + 0 * m[8]) + n.x); rec.y = fr(fr(v * m[1] + 0 * m[5] + 0 * m[9]) + n.y); rec.z = fr(fr(v * m[2] + 0 * m[6] + 0 * m[10]) + n.z); }
     }
   }
 }

@@ -215,6 +215,8 @@ export class DlsSynth {
   }
 
   allSoundOff() { for (const v of this.voices) if (v.active) this.kill(v); }
+  /** release every sounding voice (envelope release, no cut) */
+  releaseAll() { for (const v of this.voices) if (v.active) this.release(v); }
 
   cc(pch: number, cc: number, value: number) {
     const c = this.channel(pch);

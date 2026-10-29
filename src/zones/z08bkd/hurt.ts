@@ -4,6 +4,8 @@ import type { GameRecord } from '../../game/record.ts';
 import { HURT_REGISTRATIONS, HURT_TEMPLATES } from './consts.ts';
 import type { HurtTemplate } from './consts.ts';
 import { segmentSphere } from './math.ts';
+import { rotateVector } from './matrix.ts';
+import { ad } from '../common/f32.ts';
 
 export interface HurtEntry {
   rec: GameRecord;
@@ -19,7 +21,10 @@ export class HurtZones {
 
   /** FUN_005ba570(record, category, template) */
   register(rec: GameRecord, category: number, tpl: HurtTemplate) {
-    this.entries.push({ rec, category, tpl, anchorWorld: [0, 0, 0], spheres: tpl.spheres.map((s) => ({ local: s.local, radius: s.radius, world: [0, 0, 0] as [number, number, number] })) });
+    // the template immediates of FUN_005ba32c are float32 (0.2 = 0x3e4ccccd, 0.3, 2.7, 2.8 ...): the decimals of the table are rounded here
+    const f3 = (v: readonly number[]) => [Math.fround(v[0]), Math.fround(v[1]), Math.fround(v[2])] as [number, number, number];
+    const t: HurtTemplate = { anchor: f3(tpl.anchor), anchorRadius: Math.fround(tpl.anchorRadius), spheres: tpl.spheres.map((s) => ({ local: f3(s.local), radius: Math.fround(s.radius) })) };
+    this.entries.push({ rec, category, tpl: t, anchorWorld: [0, 0, 0], spheres: t.spheres.map((s) => ({ local: s.local, radius: s.radius, world: [0, 0, 0] as [number, number, number] })) });
   }
 
   /** FUN_005b9430 registers pirates, shark, swordfish, mantas in this order */
@@ -30,8 +35,10 @@ export class HurtZones {
   /** FUN_005ba5d7: world places of the anchors and spheres (rotate by the record's matrix, add its position); every frame before the update pass */
   update() {
     for (const e of this.entries) {
-      e.rec.toWorld(e.tpl.anchor, e.anchorWorld);
-      for (const s of e.spheres) e.rec.toWorld(s.local, s.world);
+      // FUN_005ba5d7: FUN_0043abe6 (rotate, float32 store), then the record's place added (a second float32 store)
+      const place = (local: ArrayLike<number>, out: number[]) => { const r = rotateVector(e.rec.m, local); out[0] = ad(r[0], e.rec.m[12]); out[1] = ad(r[1], e.rec.m[13]); out[2] = ad(r[2], e.rec.m[14]); };
+      place(e.tpl.anchor, e.anchorWorld);
+      for (const s of e.spheres) place(s.local, s.world);
     }
   }
 

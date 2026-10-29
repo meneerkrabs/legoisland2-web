@@ -1,7 +1,7 @@
 // Object records (docs/re/architecture.md 4.1): the world is a flat array of records (0x68 bytes in the original at DAT_00983804).
 // Field offsets of the original are noted so the decompile can be followed: matrix +0x0c (right +0x0c, up +0x1c, forward +0x2c,
 // translation +0x3c/+0x40/+0x44), Euler +0x4c/+0x50/+0x54, collision object +0x58, controller +0x5c, flags +0x60.
-import { buildMatrix } from '../formats/matrix.ts';
+import { eulerMatrix } from '../zones/exact.ts';
 import type { Model } from '../formats/exe.ts';
 import type { ColObject } from './collision.ts';
 import type { Controller } from './controller.ts';
@@ -32,8 +32,11 @@ export class GameRecord {
   face = 0;
   /** row-major row-vector 4x4 (+0x0c), translation in elements 12..14 */
   m = new Float32Array(16);
-  /** Euler angles +0x4c / +0x50 / +0x54; the walk code keeps its yaw in ry */
-  rx = 0; ry = 0; rz = 0;
+  /** Euler angles +0x4c / +0x50 / +0x54 (float32 fields like the original's: every store rounds); the walk code keeps its yaw in ry */
+  private readonly eul = new Float32Array(3);
+  get rx() { return this.eul[0]; } set rx(v: number) { this.eul[0] = v; }
+  get ry() { return this.eul[1]; } set ry(v: number) { this.eul[1] = v; }
+  get rz() { return this.eul[2]; } set rz(v: number) { this.eul[2] = v; }
   /** matrix of the previous simulation tick (render interpolation) */
   prev = new Float32Array(16);
   /** scale the builder put into the matrix (the original has no separate field; kept for rendering) */
@@ -56,7 +59,7 @@ export class GameRecord {
 
   /** FUN_0043a5e4(rec + 0xc, rx, ry, rz, x, y, z): rebuild the matrix from Euler angles */
   setEuler(rx: number, ry: number, rz: number, x: number, y: number, z: number) {
-    this.m.set(buildMatrix(rx, ry, rz, x, y, z));
+    eulerMatrix(this.m, rx, ry, rz, x, y, z);       // FUN_0043a5e4 per operation in float32 (24-bit x87); formats/matrix.ts buildMatrix is not exact
   }
   /** walk code: yaw only, at the current position */
   rebuildYaw() { this.setEuler(0, this.ry, 0, this.m[12], this.m[13], this.m[14]); }

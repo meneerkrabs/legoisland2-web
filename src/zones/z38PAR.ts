@@ -8,18 +8,24 @@ import type { ZoneGame, ZoneGameCtx } from '../shell/zonegame.ts';
 import { medalOf } from '../shell/zonegame.ts';
 import { MODE } from '../shell/loopmachine.ts';
 import { V } from '../game/vars.ts';
+import { B } from '../game/input.ts';
 import type { Archive } from '../formats/archive.ts';
 import type { World } from '../game/world.ts';
+import type { GameRecord } from '../game/record.ts';
 import type { Ui2D } from '../ui/renderer2d.ts';
 import { ParPilot, CLIP, eulerLocalToWorld, PILOT } from './parachute/par-pilot.ts';
 import { ParBoat, ParBirds, ParBalloon, ParPlane, ParCanopy } from './parachute/par-props.ts';
 import { parRun, dropParRun } from './parachute/par-run.ts';
+import { ParFx } from './parachute/par-fx.ts';
+import { ZoneParticles } from '../fx/particles/zone.ts';
 import type { ParRun } from './parachute/par-run.ts';
 import { ParHud, drawGauge } from './parachute/par-hud.ts';
 import { SoundBank } from './parachute/sound.ts';
 import { giveAnimations } from './parachute/rigs.ts';
 import { PAR_SOUNDS } from './parachute/par-run.ts';
 import type { SoundBackend } from './parachute/sound.ts';
+import { installCtx } from '../island/ctx.ts';
+import type { IslandCtx } from '../island/ctx.ts';
 
 /** constructor addresses of the zone (FUN_00423532's second argument, the extraction's `Attach.ctor`) */
 export const PAR_CTOR = { PILOT: 0x46a926, CANOPY: 0x4684ec, PLANE: 0x4681c0, BALLOON: 0x467fae, BIRD: 0x467d38, BOAT: 0x4676cd } as const;
@@ -63,7 +69,9 @@ export function startParRun(world: World, archive: Archive | null): ParRun {
   const pilot = rec.ctrl?.find<ParPilot>('ParPilot');
   if (!pilot) throw new Error('z38PAR: the pilot node is not attached');
   pilot.init(world, rec);
-  if (run.recs.para) run.recs.para.flags |= 0x10 | 0x8000;     // the canopy collides with nothing; hidden until it opens
+  // PARA keeps the scene's flags 2 like the original: its collision object is header-only (z38PAR: PARA_Chute.col via FUN_0043f700, found by `headerOnlyColSlots`; z40aPO: solaarwing.col is an
+  // NCOL file), so no sweep finds a polygon in it (tools/tests/m8-para-collision.mjs runs the original's FUN_00441270). 0x8000 = the port's 'zero scale, do not draw' bit
+  if (run.recs.para) run.recs.para.flags |= 0x8000;
   // the generic blob shadow of the walk code would draw at sea level under a pilot 1300 units up
   world.vars.set(V.PEPPERSSHADOW, -1);
   world.camera.init(rec);      // FUN_00422b50 runs after the pilot's constructor moved the record (FUN_00466c36)
@@ -89,10 +97,26 @@ export function parSnapshot(world: World) {
   };
 }
 
-function parGame(ctx: ZoneGameCtx): ZoneGame {
+async function parGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   const world = ctx.world;
   dropParRun(world);
+  // the shore foam SEAE carries the island's SeaAmin node (0x4b1212): its texture wobble is FUN_0043ebe0(model, 0, &0, &v), which adds v to the V coordinates of every group of the
+  // mesh. The node reaches it through the island context's `uvScroll`; this zone installs just that service (M5 audit: it was skipped, the foam stood still)
+  installCtx(world, { world, shared: {}, uvScroll(rec: GameRecord, du: number, dv: number) { const n = ctx.gr.groupCount(rec); for (let g = 0; g < n; g++) ctx.gr.scrollGroup(rec, g, du, dv); } } as unknown as IslandCtx);
   const run = startParRun(world, ctx.archive);
+  // the emitters, in the order of the zone's attaches (the pilot's constructor FUN_0046a926 first: footsmoke x 2 + spray01, then the boat's FUN_004676cd: James01), then FUN_0044e8d0
+  const fxz = await ZoneParticles.create(ctx);
+  if (fxz) {
+    const pf = new ParFx(fxz);
+    run.fx = pf;
+    const a = run.recs.pepp.anim;
+    pf.pilotCtor(run.recs.land, run.recs.pepp, a?.clip ?? 0, a?.frame ?? 0);
+    if (run.recs.boat) pf.boatCtor(run.recs.boat);
+    fxz.finish();
+  }
+  // FUN_0043ebe0(SHAD model, 2, DAT_05d57da8, 0) in the draw hook FUN_00468250: the five vertices of the shadow patch are the points FUN_00442a70 computed (ParPilot.ground)
+  const shad = run.recs.shad;
+  if (shad) ctx.gr.vertexOverride = (rec) => (rec === shad ? run.shadow : undefined);
   const sfx = ctx.sh.audio.ga?.sfx ?? null;
   run.sound = new SoundBank(PAR_SOUNDS, sfx as unknown as SoundBackend | null);
   void run.sound.load();
@@ -110,7 +134,7 @@ function parGame(ctx: ZoneGameCtx): ZoneGame {
   };
 
   const apply = () => {
-    const f = hud.update(run, pep.ry);
+    const f = hud.update(run, pep.ry, world.dt);
     ctx.hud.centreText = f.text;
     ctx.hud.left = { tex: f.compass, tint: 0xffffffff };
     ctx.hud.right = { tex: f.chuteIcon, tint: 0xffffffff };
@@ -122,6 +146,8 @@ function parGame(ctx: ZoneGameCtx): ZoneGame {
     introId: 'LESGPT01',
     helpControls: 6,
     onStart() { ctx.hud.visible = true; },
+    /** FUN_00465d39 mode 4 leaves for the result menu when ANY button is HELD (`DAT_0098383c != 0`, not just pressed; M5 audit) */
+    skipBanner() { return (ctx.sh.input.held & ~B.ESC) !== 0; },
     update() {
       if (!run.over) apply();      // FUN_00466f50 runs in the play mode only
       listen();
@@ -143,7 +169,7 @@ function parGame(ctx: ZoneGameCtx): ZoneGame {
       // mode 4: the queued third line when the first two have been spoken, and Pepper's cheer / sad clip keeps playing (clip 8 / 9)
       if (queued && ctx.speechIdle()) { ctx.say(queued); queued = null; }
       const a = pep.anim;
-      if (a && (a.clip === CLIP.CHEER || a.clip === CLIP.SAD)) { a.advance(1); a.prevFrame = a.frame; a.prevClip = a.clip; }
+      if (a && (a.clip === CLIP.CHEER || a.clip === CLIP.SAD)) { a.advance(1, world.dt); a.prevFrame = a.frame; a.prevClip = a.clip; }
     },
     draw2d(ui: Ui2D, _dt: number, mode: number) {
       if (mode !== MODE.PLAY || !ctx.hud.visible) return;
@@ -159,7 +185,7 @@ function parGame(ctx: ZoneGameCtx): ZoneGame {
         : [L('LESGPT09', 200), L('LESGPT10', 280), L('LESGPT11', 380)];
       ctx.banner(ui, { score: { text: String(Math.trunc(s)), y: 100 }, medal, lines });
     },
-    destroy() { run.sound.stopAll(); dropParRun(world); },
+    destroy() { run.sound.stopAll(); dropParRun(world); ctx.gr.vertexOverride = null; },
     debug() { return { ...parSnapshot(world), result, hiscore: ctx.vars.get(PAR_VARS.HISCORE), trophy: ctx.vars.get(PAR_VARS.TROPHY) }; },
   };
 }

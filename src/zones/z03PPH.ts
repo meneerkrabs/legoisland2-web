@@ -5,13 +5,17 @@
 import { registerZoneGame } from '../shell/zonegame.ts';
 import type { ZoneGame, ZoneGameCtx } from '../shell/zonegame.ts';
 import { registerCtor } from '../game/setup.ts';
-import { EXIT } from '../shell/loopmachine.ts';
+import { debugAids } from '../game/debug.ts';
+import { EXIT, MODE as LOOP_MODE } from '../shell/loopmachine.ts';
+import { B } from '../game/input.ts';
+import { prerenderPass } from '../game/controller.ts';
 import { readLevelSelect } from '../shell/tables.ts';
 import type { Ui2D } from '../ui/renderer2d.ts';
-import { FACTORIES, houseOf, swapInDisplayCamera, restoreCamera, KEEP_STALE_SCORE_LINE, TROPHY_SOUND, SOUND_NO_TROPHY, SOUND_NO_INDEX, MODE, PEPPER_CONTROL } from './z03PPH/house.ts';
+import { FACTORIES, houseOf, KEEP_STALE_SCORE_LINE, MODE, PEPPER_CONTROL } from './z03PPH/house.ts';
 import type { HouseState } from './z03PPH/house.ts';
 import { ComputerMenu, COMPUTER_MASK, enterZone } from './z03PPH/computer.ts';
 import { computeIslandTotals } from './z03PPH/totals.ts';
+import { restoreHooks } from '../restore/flag.ts';
 
 for (const [addr, f] of Object.entries(FACTORIES)) registerCtor(+addr, f);
 
@@ -35,8 +39,7 @@ class PepperHouse implements ZoneGame {
     ctx.gr.useFogCall(1);
     // FUN_00423bf0: the island totals / island trophies from the per-game high scores (run by the house loop before the first frame)
     computeIslandTotals(ctx.vars);
-    // FUN_0053e7c0: the trophy jingles are loaded up front (the first play of an id only loads it)
-    for (const id of [...TROPHY_SOUND, SOUND_NO_TROPHY, SOUND_NO_INDEX]) ctx.sfx(id);
+    // FUN_0053e7c0: the trophy jingles are in the zone's sound list (loaded by the audio host)
     const sh = ctx.sh;
     this.oldMask = sh.menu.mask;
     this.computer = new ComputerMenu(sh.menu.engine, {
@@ -49,7 +52,7 @@ class PepperHouse implements ZoneGame {
     this.st.computer = this.computer;
     // dev aid kept from the M2 stub (tools/steps/shell-house.mjs): F9 leaves through the door
     const onKey = (e: KeyboardEvent) => { if (e.code === 'F9' && !this.computer.active) { this.st.leave = true; e.preventDefault(); } };
-    addEventListener('keydown', onKey);
+    if (debugAids()) addEventListener('keydown', onKey);   // only with the debug option: the original has no such key
     this.offKey = () => removeEventListener('keydown', onKey);
   }
 
@@ -60,8 +63,19 @@ class PepperHouse implements ZoneGame {
     if (enterZone(this.ctx.vars)) this.computer.reset();
   }
 
+  /**
+   * Esc before the update pass (FUN_0053df81 -> FUN_00423170 at the loop top): when the pause key is sampled (not while the computer menu or a movie runs) the iteration switches
+   * to mode 3 BEFORE the update pass: no update this tick, the pre-render pass (mode 3 is in its list) still runs with the nodes that ran last. The runner ticks the world first, so the
+   * update pass is frozen for that tick.
+   */
+  beforeTick() {
+    const w = this.ctx.world;
+    w.frozen = (this.ctx.sh.input.pressed & B.ESC) !== 0 && !(this.computer.active || this.movie);
+  }
+
   update(): number | undefined {
     const { st, ctx } = this, w = ctx.world, sh = ctx.sh;
+    w.frozen = false;
     // FUN_0053df81 samples the pause key at the top of the frame, before the menu of this frame ran: the state of the previous frame counts
     this.pauseBlock = this.computer.active || this.movie;
     if (this.movie) return undefined;
@@ -71,6 +85,7 @@ class PepperHouse implements ZoneGame {
       sh.menu.mask = COMPUTER_MASK;
       if (this.computer.step(sh.input.pressed, sh.pointer)) { w.vars.set(PEPPER_CONTROL, MODE.WALK); }
     }
+    restoreHooks.cue?.('pph-computer', { key: this, active: this.computer.active, sfx: (id: number) => ctx.sfx(id), stop: (id: number) => sh.audio.stop(id) });   // restored content (option off: unset)
     // the HUD: the hotspot icon in the bottom-left slot of the icon column (the HUD is not drawn while the computer menu is up)
     ctx.hud.visible = !this.computer.active;
     ctx.hud.column = st.icon >= 0 ? [{ tex: st.icon, tint: 0xffffffff }] : [];
@@ -87,7 +102,20 @@ class PepperHouse implements ZoneGame {
   blockPause(): boolean { return this.pauseBlock; }
   private pauseBlock = false;
 
-  beforeRender() { swapInDisplayCamera(this.ctx.world); }
+  /**
+   * FUN_0053dfda runs the pre-render pass (FUN_004225c5) in mode 3 (the pause menu) as well as in 2 and 6, but the update pass only in 2 / 6: behind the pause menu Pepper's
+   * clock and the camera hook of the nodes that ran last keep going. `everyTick` gets the mode after the runner's transition, so the mode the iteration started with is kept.
+   */
+  everyTick(mode: number) {
+    const top = this.lastMode; this.lastMode = mode;
+    if (top !== LOOP_MODE.PAUSE) return;
+    const w = this.ctx.world;
+    for (const r of w.records) { r.savePrev(); r.anim?.beginTick(); }
+    w.camera.savePrev();
+    w.camera.updateView();
+    prerenderPass(w);
+  }
+  private lastMode: number = LOOP_MODE.FADE_IN;
 
   /** FUN_0053dfda's exit block: when the house was not started from the menu (var 0xb == 0) the exit goes through FUN_00404d14 (back to the zone the player came from); a replay (var 5) goes to its zone */
   exitNext(exit: number): number | undefined {
@@ -112,7 +140,6 @@ class PepperHouse implements ZoneGame {
   }
 
   destroy() {
-    restoreCamera(this.ctx.world);
     this.computer.detach();
     this.st.computer = null;
     this.offKey();

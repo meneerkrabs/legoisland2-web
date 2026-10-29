@@ -18,16 +18,34 @@ export interface TrxSound {
   playing(id: number): boolean;
 }
 
-/** random numbers of the original: FUN_004388ae(max) = rand() / 32767 * max on the CRT's rand (tests inject a seeded source) */
+/**
+ * random numbers of the original: FUN_004388ae(max) = rand() / 32767 * max on the CRT's rand (0 .. 32767), and the integer draws of the zone are `ftol(FUN_004388ae(ms)) % n` (or `& 1`) with
+ * `ms` = FUN_00435c91() = GetTickCount() - the program's start tick, passed as a float32. Tests inject a seeded source and a fixed clock.
+ */
 export interface TrxRandom {
   /** a float in [0, max] (FUN_004388ae) */
   float(max: number): number;
-  /** an integer 0 .. n-1 (`ftol(FUN_004388ae(tick count)) % n` / `& 1`) */
+  /** an integer 0 .. n-1 (`ftol(FUN_004388ae(FUN_00435c91())) % n` / `& 1`) */
   int(n: number): number;
 }
-export function makeRandom(source: () => number = Math.random): TrxRandom {
+const fr = Math.fround;
+export function makeRandom(source: () => number = Math.random, clock: () => number = () => Math.floor(performance.now())): TrxRandom {
+  // RNG: the C runtime's rand(); the shared game RNG replaces `source` when WP-TIME lands
   const next = () => Math.floor(source() * 32768);
-  return { float: (max) => (max <= 0 ? 0 : (next() / 32767) * max), int: (n) => (n <= 1 ? 0 : next() % n) };
+  return {
+    float: (max) => (max <= 0 ? 0 : fr(fr(next() / 32767) * max)),
+    int: (n) => { const ms = Math.fround(clock()); const v = ms <= 0 ? 0 : Math.trunc((next() / 32767) * ms); return n <= 1 ? 0 : v % n; },
+  };
+}
+
+/** the rex's `trexfeet` emitter (DAT_05d5d2b8, started by FUN_0076b070): the calls the rex node makes on it (FUN_00442a20 gate 2 / 1 / 1 = on and 1 / 1 / 1 = off, FUN_00442a00 = its parent matrix, FUN_0044ebd0 slot 0 = the force) */
+export interface TrxFx {
+  feetOn(): void;
+  feetOff(): void;
+  /** the parent matrix = the rex record's live matrix */
+  feetMatrix(): void;
+  /** override slot 0 (fForce) */
+  feetForce(v: number): void;
 }
 
 /** a sound sink that records the calls (tests) or drops them */
@@ -67,6 +85,7 @@ export class TrxRun {
   drkr!: GameRecord;
   sound: TrxSound = new NullSound();
   rng: TrxRandom = makeRandom();
+  fx: TrxFx = { feetOn() { /* */ }, feetOff() { /* */ }, feetMatrix() { /* */ }, feetForce() { /* */ } };
   /** FUN_00439bf8 + FUN_00435a11: speak a line of the zone table (false while speech is busy) */
   say: (id: string) => boolean = () => false;
   /** diagnostics: every spoken line */
@@ -86,9 +105,10 @@ export class TrxRun {
 /** FUN_0043ce45(pos, 4.0): the terrain height below (x, y, z): the ray from y + 4 down 300 against the ground record (radius 1.0, skin 0.1, minus 0.1); NO_GROUND (-1e38) when it hits nothing */
 export function groundAt(w: World, x: number, y: number, z: number): number {
   const g = w.col.groundRec;
-  if (!g) return NO_GROUND;
-  const h = w.col.rayRecord(g, [x, y + RUN.GROUND_UP, z], [0, -RUN.GROUND_DOWN, 0], 3, 1.0, 0.1);
-  return h ? h.point[1] - 0.1 : NO_GROUND;
+  if (!g) return fr(NO_GROUND);
+  // FUN_0043ce45: the ray starts at y + 4 (a float32 sum), the engine returns the float32 hit point; FUN_004425f0 subtracts 0.1 (float32) and rounds
+  const h = w.col.rayRecord(g, [fr(x), fr(fr(y) + RUN.GROUND_UP), fr(z)], [0, -RUN.GROUND_DOWN, 0], 3, 1.0, fr(0.1));
+  return h ? fr(fr(h.point[1]) - fr(0.1)) : fr(NO_GROUND);
 }
 
 /** the 4-character name of a record as the zone loop's dword compares see it (FUN_0085e470 upper-cases every character) */

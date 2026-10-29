@@ -10,11 +10,14 @@ import { RF_ENABLED } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import type { Pe } from '../../formats/exe.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
-import { mul } from '../../render/math.ts';
+import { mulGame } from '../../render/math.ts';
+import { ad, sb, ml, fr, fromBits } from '../../zones/common/f32.ts';
 import { tryCtx } from '../ctx.ts';
 import { wrapPi, rand, sfxAt, soundOf, recPos, setRot } from './common.ts';
 
 export const CTOR_BRIKIMAL = 0x4bd4a8;
+// float constants of FUN_004bcc1b: 23.04, the phase wrap 3.1415758 (0x892558), the tilts 0.0349064 / 0.0698132 (0x892584 / 0x3d8efa03), the rock 0.349064 (0x892150), 1.6 (0x892580), -0.45 (0x8da1b0), 0.174532 (0x89211c)
+const WAIT_DIST2 = fromBits(0x41b851ec), PHASE_WRAP = fromBits(0x40490f94), TILT = fromBits(0x3d0efa03), TILT2 = fromBits(0x3d8efa03), ROCK = fromBits(0x3eb2b884), BOB1 = fromBits(0x3fcccccd), SIDE = fromBits(0xbee66666), LEAN = fromBits(0x3e32b884);
 /** FUN_004bcc00(kind, v) = 0x8d9f10 + v * 0x1c + kind * 0xe0: {morph period, speed, turn rate, bob amplitude, phase rate, phase rate (negative half), flags} */
 export const BRIKIMAL_TABLE = 0x8d9f10;
 /** the records the constructor compares with (`DAT_00983804 + 0x94b0 / 0x9580 / 0x9518`) */
@@ -36,6 +39,8 @@ export function brikimalRow(pe: Pe, kind: number, v: number): BrikimalRow {
 
 export class BrikimalNode implements BehaviourNode {
   readonly kind = 'Brikimal';
+  /** draw hook FUN_004bd41a = FUN_00444940(rec) (then returns 1): the animal's blob shadow, also while the brick morph hides the mesh */
+  readonly blobShadow = true;
   var = 0; mask = 0; value = 0; stamp = 0xfffffffe;
   home: [number, number, number] = [0, 0, 0];   // +0x14
   morph: { state(): number } | null = null;      // +0x20
@@ -71,58 +76,60 @@ export class BrikimalNode implements BehaviourNode {
     const v = w.vars.get(this.var);
     const row = this.rows[v & 7] ?? { period: 300, speed: 0, turn: 0, bob: 0, rate: 0, rateNeg: 0, flags: 0 };
     let moving = false;
-    this.timerA += 1 * w.dt;
-    this.morphT += 1 * w.dt;
+    const dt = fr(w.dt);
+    this.timerA = ad(ml(1, dt), this.timerA);
+    this.morphT = ad(ml(1, dt), this.morphT);
     const ready = (this.morph ? this.morph.state() : 2) === 2;
     if ((row.period < this.morphT || ((w.input.pressed & 0x10000) !== 0 && c.distSq < 256)) && ready) {
       if (v < 7) w.vars.add(this.var, 1); else w.vars.set(this.var, 0);
       this.morphT = 0;
       sfxAt(w, soundOf(w, MORPH_SOUND), recPos(rec));
     }
-    const dx = this.home[0] - rec.x, dy = this.home[1] - rec.y, dz = this.home[2] - rec.z;
-    const d2 = dz * dz + dy * dy + dx * dx;
-    if (23.04 <= c.distSq) { if (0 < this.wait) this.wait -= 1 * w.dt; }
+    const dx = sb(this.home[0], rec.x), dy = sb(this.home[1], rec.y), dz = sb(this.home[2], rec.z);
+    const d2 = ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz));
+    if (WAIT_DIST2 <= c.distSq) { if (0 < this.wait) this.wait = sb(this.wait, ml(1, dt)); }
     else this.wait = 15;
     if (this.wait <= 0 && (row.flags & 4)) {
       if (100 < d2) {
-        const yaw = wrapPi(Math.atan2(dx, dz));
-        const t = wrapPi(yaw - rec.ry);
-        const s = row.turn * w.dt;
-        if (t < -s) rec.ry -= s; else if (s < t) rec.ry += s; else rec.ry = yaw;
+        const yaw = wrapPi(fr(Math.atan2(dx, dz)));
+        const t = wrapPi(sb(yaw, rec.ry));
+        const s = ml(row.turn, dt);
+        if (-s <= t) { if (t <= s) rec.ry = yaw; else rec.ry = ad(s, rec.ry); } else rec.ry = sb(rec.ry, s);
       }
       moving = true;
     }
-    if (0 <= this.phase || row.rateNeg < 0) this.phase += row.rate * w.dt; else this.phase += row.rateNeg * w.dt;
+    if (0 <= this.phase || row.rateNeg < 0) this.phase = ad(ml(row.rate, dt), this.phase); else this.phase = ad(ml(row.rateNeg, dt), this.phase);
     if ((row.flags & 0x18) && this.phase < 0 && 0 <= row.rateNeg) moving = false;
     if (0 <= row.rateNeg) this.phase = wrapPi(this.phase);
-    else if (3.14158 < this.phase) { this.phase -= 3.14158; this.toggle = this.toggle ? 0 : 1; }
+    else if (PHASE_WRAP < this.phase) { this.phase = sb(this.phase, PHASE_WRAP); this.toggle = this.toggle ? 0 : 1; }
     if (this.wait <= 0 && moving) {
-      const k = row.speed * w.dt;
-      rec.x += k * rec.fx; rec.y += k * rec.fy; rec.z += k * rec.fz;
+      const k = ml(row.speed, dt);
+      rec.x = ad(ml(k, rec.fx), rec.x); rec.y = ad(ml(k, rec.fy), rec.y); rec.z = ad(ml(k, rec.fz), rec.z);
     }
     if ((row.flags & 2) === 0) { rec.rx = 0; rec.rz = 0; }
-    else { rec.rx = 0.0349064 - rand(0.0698132); rec.rz = 0.0349064 - rand(0.0698132); }
+    else { rec.rx = sb(TILT, rand(TILT2)); rec.rz = sb(TILT, rand(TILT2)); }
     if (this.animal !== 2) {
       const g = w.col.terrainHeight(rec.x, rec.y, rec.z, 8);     // FUN_0043cd62(pos, 8.0)
-      if (w.seaLevel < g) rec.y = g;
+      if (fr(w.seaLevel) < g) rec.y = g;
     }
     if (row.flags & 1) {
-      rec.rx = Math.sin(this.phase) * 0.349064;
-      rec.y += Math.abs(Math.sin(rec.rx)) * 1.6;
+      rec.rx = fr(Math.sin(this.phase) * ROCK);
+      rec.y = ad(fr(Math.abs(Math.sin(rec.rx)) * BOB1), rec.y);
     }
-    if (0 <= this.phase || row.rateNeg < 0) rec.y += Math.sin(this.phase) * row.bob;
+    if (0 <= this.phase || row.rateNeg < 0) rec.y = ad(fr(Math.sin(this.phase) * row.bob), rec.y);
     setRot(rec.m, 0, rec.ry, 0);
     const m = this.matrix;
     setRot(m, rec.rx, rec.ry, rec.rz);
-    m[12] = rec.m[0] * -0.45 + rec.x; m[13] = rec.m[1] * -0.45 + rec.y; m[14] = rec.m[2] * -0.45 + rec.z;
+    m[12] = ad(ml(rec.m[0], SIDE), rec.x); m[13] = ad(ml(rec.m[1], SIDE), rec.y); m[14] = ad(ml(rec.m[2], SIDE), rec.z);
     if (row.flags & 0x10) {
       if (!moving) { if (this.prevToggle === this.toggle) this.toggle = this.toggle ? 0 : 1; }
       else {
         this.prevToggle = this.toggle;
         if (0 < this.phase) {
-          const a = (this.toggle === 0 ? 1 : -1) * Math.sin(this.phase) * 0.174532;
+          const sn = Math.sin(this.phase);
+          const a = this.toggle === 0 ? fr(sn * LEAN) : -fr(sn * LEAN);
           const r = buildMatrix(0, 0, a, 0, 0, 0);       // FUN_0043a340(tmp, 0, 0, a), then tmp * matrix
-          const out = mul(r, m);
+          const out = mulGame(r, m);
           m.set(out);
         }
       }

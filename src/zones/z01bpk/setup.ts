@@ -7,12 +7,14 @@ import { AnimInstance } from '../../game/anim.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
+import { buildMatrixF32 } from '../../formats/matrixf32.ts';
 import { BpkRun, BpkSwitch, BpkWalk, REC, VAR } from './run.ts';
 import { BpkSkate } from './skate.ts';
 
 /** FUN_00493506 / FUN_004938e8 write Pepper's matrix and place with `mov dword [reg + 0xe44 ..], imm32` (the record array + 0xe38 = record 35: +0xc .. +0x34 the matrix rows, +0x3c .. +0x44 the place) */
 export const START_FN = [0x493506, 0x493897] as const;
 const REC_BASE = REC.PEPPER * 0x68;
+const f32 = Math.fround;
 /** the offsets of the matrix elements m[0..2], m[4..6], m[8..10] and the translation within the record (+0x0c ..) */
 const START_OFFSETS: Record<number, number> = { 0x0c: 0, 0x10: 1, 0x14: 2, 0x1c: 4, 0x20: 5, 0x24: 6, 0x2c: 8, 0x30: 9, 0x34: 10, 0x3c: 12, 0x40: 13, 0x44: 14 };
 
@@ -67,6 +69,8 @@ export function prepareBpk(world: World, pepper: GameRecord, rigs: BpkRigs, pe: 
   const skate = chain.nodes.find((n) => n.kind === 'bpkSkate') as BpkSkate | undefined;
   if (!swc || !walk || !skate) throw new Error(`z01BPK: the node chain of PEPP is incomplete (${chain.nodes.map((n) => n.kind).join(' ')})`);
   const run = swc.run;
+  // the zone loader reads PEPP_HR.col, SkBoard.col and the other character files with FUN_0043f700 (header only, no polygons): those records are never hit by a sweep (S5: why the board
+  // does not lift Pepper). `setupZone` strips them generically (src/game/colshapes.ts `applyHeaderOnlyCols`, the slots read from the loader code), nothing to do here.
   // FUN_004933c4: PEPPER_CONTROL = 1, the state mailbox 0x1b, DAT_009daa7c = the board record 0x24, gravity -10 (0xc1200000), the trick score 0
   world.vars.set(VAR.PEPPER_CONTROL, 1);
   world.pep.mailbox = 0x1b;
@@ -128,11 +132,12 @@ export function spectatorsTick(world: World, g: BpkGame) {
   const p = g.pepper;
   for (const r of g.spectators) {
     r.anim?.advance(1.0, world.dt);
-    const dx = p.x - r.x, dy = p.y - r.y, dz = p.z - r.z;
+    // the locals are float32 stores (local_20 / 1c / 18), the dot product and the turn are x87 expressions stored into the record's float +0x50
+    const dx = f32(p.x - r.x), dy = f32(p.y - r.y), dz = f32(p.z - r.z);
     const dot = r.m[10] * dz + r.m[9] * dy + r.m[8] * dx;
     if (dot <= SPECTATOR.FACING) {
-      if (dot <= 0) r.ry = r.ry - SPECTATOR.TURN * world.dt; else r.ry = SPECTATOR.TURN * world.dt + r.ry;
-    } else r.ry = Math.atan2(dx, dz);
-    r.setEuler(0, r.ry, 0, r.x, r.y, r.z);
+      if (dot <= 0) r.ry = f32(r.ry - SPECTATOR.TURN * world.dt); else r.ry = f32(SPECTATOR.TURN * world.dt + r.ry);
+    } else r.ry = f32(Math.atan2(dx, dz));
+    r.m.set(buildMatrixF32(0, r.ry, 0, r.x, r.y, r.z));
   }
 }

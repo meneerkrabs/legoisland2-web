@@ -56,26 +56,26 @@ subtitle drawing, letterbox, FOV). Wired through `ctx.cutscene`, `ZoneGame.intro
 | id (FUN_0045988b) | command | handler | status |
 |---|---|---|---|
 | 0 | SETVISIBILITY | 0x45c595 | done 1:1 |
-| 1 | SETANIM | 0x45ce77 | approximated: clip via an env name map, no-op without a mapping |
+| 1 | SETANIM | 0x45ce77 | not used by `ogl02` (its 16 commands: SETVISIBILITY x2, SETPOSITION x2, SETTARGET x3, SETFOV x2, SAYTEXT x7); the host runs the faithful WP2 handler (zone dictionary) if a script has it |
 | 2 | SAYTEXT | 0x45cf83 | done: speech, subtitle, minimum time (len + 20 + duration) / 20 s, skip |
 | 3 | SETTARGET | 0x45cd23 / 0x45ec4f | done (actor yaw / camera look-at) |
 | 4 | camera MOVETARGET | 0x45eeaa | done (eased move 0x45edae / eff9 / f1bc / f2f4) |
-| 5 | SETPOSITION | 0x45c5e2 / 0x45ebc8 | done for waypoints; actor-target sides approximated (FUN_00422f21 not ported) |
-| 6 | MOVEPOSITION | 0x45c66b / 0x45ecec | camera done; actor walks straight at 0.5/tick (approximated) |
-| 7 | FOLLOW | 0x45f543 | camera approximated (look-at follows +3.37); actor no-op |
+| 5 | SETPOSITION | 0x45c5e2 / 0x45ebc8 | done (WP2: FUN_00422f21 actor-relative sides ported; ogl02 places the camera by waypoints) |
+| 6 | MOVEPOSITION | 0x45c66b / 0x45ecec | not used by `ogl02`; the host runs the faithful WP2 handlers (waypoint walker FUN_0045c66b / 0045c80d, the camera's eased move / B-spline) |
+| 7 | FOLLOW | 0x45f543 / 0x45cb50 | not used by `ogl02`; WP2's faithful handlers (camera look-at follows the actor +3.37, the actor's walker follow mode) |
 | 8 | SETSWITCH | 0x45f670 | done |
 | 9 | WAV / MIDI | stub | no-op (never emitted) |
 | 10 / 11 | SETMOVESPEED / SETTARGETSPEED | 0x45f5b8 | done |
 | 12 | SETFOV | 0x45f64b | done |
-| 13 / 14 | SETEXPRESSION / ATTACH | | no-op |
+| 13 / 14 | SETEXPRESSION / ATTACH | 0x45d294 / 0x45d2b9 | done (WP2); not used by `ogl02` |
 | 15 | ENABLEAI | 0x45d301 | done |
 
-Not done: the end-of-script clean-up of Pepper (idle animation, camera behind her, walker re-pin), mouth frames. Spline targets are no-ops. The real `ogl02` (16 commands, 8 lines,
+(Updated by WP-ISLAND, gaps S9: the end-of-script clean-up of Pepper (idle animation, camera behind her, walker re-pin), the mouth frames and the spline targets were ported by WP2, `m4-wp2-*`; the table above predates that.) The real `ogl02` (16 commands, 8 lines,
 FOV 1 -> 0.5 -> 1, ~981 ticks = 32.7 s) runs in the test.
 
 ## 6. Known differences
 
-- Particles (footsmoke, spray, bbflame, botexpl, rocket01, T_gold) not ported. The shuttle door-part rotations are not ported. The wing has no collision.
+- Particles: wired (WP-PART-WIRE, last section). The shuttle door-part rotations are ported (`ApoPilot.turnDoors`, `GameRenderer.partMatrices`). The wing has no collision in the port (UNCERTAIN, see the oracle notes).
 - Music starts at zone entry. The HUD left icon is absent (stale global in the original). Cutscene camera placement relative to actors is approximated.
 - The browser bot has latency: the browser run expects >= 6 of 15 rings (node bot: 11 rings, score 6657 silver; browser WIN: 13 rings, score ~7650 silver, trophy 2, then node 64 z40OGL; LOSS: no wing, score 0, abort to island node 61).
 
@@ -95,3 +95,38 @@ node tools/browse.mjs "http://localhost:5499/?zone=z40aPO&mute=1" tools/steps/m3
 
 The runner hooks (`ctx.cutscene`, `introHold`) are generic: another zone declares `await ctx.cutscene.declare([{slot, zone, script, strings, area}])` and `ctx.cutscene.start(slot)`.
 Shared-file edits: `src/shell/zonegame.ts` (`ZoneGameCtx.cutscene`, `ZoneGame.introHold`), `src/shell/playzone.ts` (cutscene host, hold handling around the intro).
+
+## Differential test (WP-VERIFY)
+
+`node tools/test-formats.mjs --only m7-z40aPO-emu` (tools/tests/m7-z40aPO-emu.mjs + tools/lib/m7-z40aPO-emu.mjs on tools/lib/m7-zone-emu.mjs, a vendored extension of the M5 audit's tools/lib/apo-emu.mjs; about 24 M checks, 25-40 s; `APO_FULL=1`
+runs all 19 natural scenarios at both dt, about 3 minutes): the ORIGINAL's whole update pass of the zone runs in the x86 emulation next to `World.tick()`: pilot `FUN_007d3187` (constructor `FUN_007d53af`), rock monsters `FUN_007d28e0`,
+brickbots `FUN_007d19e0`, asteroids `FUN_007d14b0`, the wing's draw hook `FUN_007d2dd8` (all through their vtable slots; constructors in the order of `FUN_007d0839`), the HUD `FUN_007d0f00` and the end block of the loop
+(case 2 of `FUN_007cf929`, run from the middle of the function). Same buttons and random numbers; compared tick by tick: every record that either side moved (all of them every 64 ticks): matrix / Euler / visibility; the pilot's node, the 8
+bot nodes (aim, flying, timer, counter, exploded), rock-monster flags and animations, asteroid spins, the wing's scale, Pepper's animation, all globals (score, ring flags, groups, height, canopy, chuteOk, landScore ...), the camera, the shuttle's
+sub-object matrices, the shadow patch, the HUD values and every sound / speech call by sound-slot identity (`FUN_007d0cb0` stores one handle per global). The collision queries answered by the port's `CollisionWorld` over a world mirroring the
+ORIGINAL's emulated records (so the props evolve independently of the port's); the rock monsters' box test `FUN_007d3050` runs natively (12000 random segments against `segmentHitsRecordBox(1.2)`: 864 crossings, 0 disagreements, normals equal).
+dt is a parameter of both sides: every scenario runs at dt 1 and dt 0.5. Scenarios: natural jumps (3 bot landings, idle, no wing, chases and dives at the rock monsters / asteroids / targets, the sky sphere, 3 random-button jumps)
+and 16 staged starts (next to each rock monster, the targets without wing, the planet, the brickbots, wing at low altitude, a landing, a random start). The end block over 440 cases (score x stored hiscore x stale trophy) agrees with
+`apoFinish` / `apoResultSpeech` (hiscore, trophy 0..3, result, speech lines).
+
+Result: no deviation in the pilot, the props or the end rules at the tolerances used (1e-5 relative, plus an absolute floor of 6e-4 = 5 ulp of 2000 for coordinate-type values: the port keeps doubles where the original has float32 and the noise of the
+altitude stays in the values; the shadow points use 5e-4 relative because they are terrain heights under such a position). Recorded (the code belongs to the M5 audit, not changed here), with counts in the notes of the test:
+* dt 0.5: `ApoPilot` (states 0, 1, 2, 3, 4, 5, 8) and `ApoRockMonsters` call `anim.advance(rate)` without `w.dt` (the original's `FUN_0043b76a` steps by rate * DAT_008b1718): Pepper's animation frame is 1 instead of 0.5 after the first tick.
+* dt 0.5: `src/zones/z40aPO.ts` calls `hud.update(run)` (twice) without `world.dt`: the spinning ring icons step 1 * DAT_008b1718 in `FUN_007d0f00` (14.5 against 15 after one tick).
+* the altitude gauge value `DAT_05d4e138` is not clamped below in the original (it exceeds 204 when `height > refAlt`, e.g. after a bounce); `ApoHud` clamps the marker fraction to 0..1.
+* the SHAD record is visible inside the wing's draw hook only in the original; the port keeps it visible while the pilot glides (render only). The rock monsters' hit point `FUN_007d3050` returns is overwritten by the range checks of later faces
+  (`FUN_0043d5ec`): the port returns the clean point, callers use the normal only.
+* the beacon of target 1 uses the same global as the beacon of target 3 (`DAT_05d5ee38`; `DAT_05d5ee44` is loaded but never played): matches the port's `beacon1`.
+Not covered: the intro (mode 1: cutscene, the camera ease and the reset of the pilot to (0, 2000, 0) read as in the port), the loop's modes 0 / 7 / 8 / 9 / 5 (generic template).
+
+## WP-PART-WIRE / WP-MINI (2026-10-29)
+
+Emitters (`src/zones/parachute/apo-fx.ts`, wired in `z40aPO.ts` in the order of the zone's attaches; the archive's `Particle/` folder: bbflame / botexpl01 / footsmoke / T_gold / rocket01):
+* `FUN_007d53af` (the pilot, record 6): `footsmoke.par` (0x7d53dc) on `DAT_05d5f210` (bone 2 of the pilot's pose x his record) at (0.79, 0.07, -0.53), `footsmoke.par` (0x7d5413) on `DAT_05d5f250` (bone 4) at (-0.79, 0.07, -0.53), `T_gold.par` (0x7d5484) on record 3 (TAR1) at the origin, rotation -pi/2 about x; then (every call) T_gold off, the footsmokes on. T_gold goes on (2, 1, 1) every tick in the free fall while the pilot is below the third group's height (310) and a ring of the group was passed (0x7d3b58, the `else` of the "group missed" test: `ApoPilot`), the footsmokes go off in the states 5 / 6 (0x7d4cde / f9) and otherwise the bone matrices are refreshed (pose of the last draw, `common/pose.ts`) at the end of the update (the port's collision test runs after the camera block, so this is done after it, with the final state).
+* `FUN_007d2650` (the eight brickbots, records 69..76 = BBT0..7): `rocket01.par` (0x7d2834) on each bot's live matrix, no rotation, gate on; `FUN_007d19e0` switches a bot's rocket off (1, 1, 1) while it is parked and the pilot is below y = 500 (0x7d1c54... in `ApoBots`), on at its launch (0x7d1c08). `botexpl01.par` goes through `FUN_004429e0` (returns the invalid handle 0xbabababa; nothing is started, no slot is used) and every gate / matrix call on it is ignored; `bbflame.par` is never started.
+Verified: node test `m8-wire-z40aPO` (14 checks: executable names, 11 starts in order with arguments, the constructor's gate calls, a whole scripted game for the footsmoke gates and the rocket gates, the T_gold condition), the oracle `m7-z40aPO-emu` (23.4 M checks, 0 differences, unchanged by the edits).
+
+Residuals closed (WP-MINI): the pilot's / rock monsters' animation advances use `dt` (`anim.advance(rate, dt)`), the HUD spin counters step `1 * dt` as float32 (`hud.update(run, dt)` was called without dt), the gauge value is kept unclamped (`gauge.value`; the draw clamps). The SHAD patch was already `vertexOverride`. Open: the wing's collision (UNCERTAIN: whether `PARA` takes part in the pilot's sweeps needs the collision primitive `FUN_00441270` run against the real record flags: the oracle world copies the port's flags).
+
+PARA collision question (WP-MINI follow-up, not settled in the emulator): the set-up writes `PARA` (record 79) flags = 2 (`LE2.c` 234616), the sweep `FUN_00441270` tests every record with flag 2 (or 0x20) and without 0x10 that is not the mover and has a collision object with radius > 0, so by the flags alone the canopy would take part. `m7-z40aPO-emu` cannot decide it: it answers `FUN_00441270` from the port's collision code on a proxy world. The port keeps `0x10` on PARA because a solid canopy (scale 0.55, around the pilot) would bounce the pilot in every glide / opening tick; the original plays without that. Deciding the mechanism (zero-scale matrix, box transform, radius) needs the original's collision objects loaded in the emulator.
+

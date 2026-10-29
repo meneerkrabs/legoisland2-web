@@ -75,6 +75,7 @@ export const K = {
   X190: 190, X224: 224, P1_3: f32(1.3), P3_8: f32(3.8), P4_3: f32(4.3), Z_OFF: f32(3.75), X_OFF: f32(3.7), CAM8_MAX_X: 170, CAM6_MAX_X: 245, CAM10_MIN_Z: -75,
   /** 0x892690 = 6.4: camera mode 1 looks that far above the line between the knights */ CAM1_UP: f32(6.4),
   /** doubles: 0x8926f8 = 1.4 (the wobble divisor), 0x8926f0 = 10 (the pull-back divisor) */ WOBBLE_DIV: 1.4, PULL_DIV: 10,
+  /** 0x892100 = 128: the analogue stick (-128..127) is divided by it */ STICK_DIV: 128,
   /** 0x89207c = pi: the spectators face the player + pi */ PI: f32(Math.PI),
 };
 

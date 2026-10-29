@@ -981,7 +981,7 @@ export class CutsceneRunner {
   }
 
   /** FUN_0045f2f4: one step of the move; true when it has arrived */
-  private camStep(m: Cmd, cam: Float64Array, o: number): boolean {
+  private camStep(m: Cmd, cam: Float32Array | Float64Array, o: number): boolean {
     const kind = m.c.targetKind;
     const set = (p: ArrayLike<number>) => { cam[o] = p[0]; cam[o + 1] = p[1]; cam[o + 2] = p[2]; };
     const mv = m.x.move as EasedMove | undefined;

@@ -1,7 +1,7 @@
 // MusicRenderer: DmPerformance + DlsSynth glued together. Produces stereo float audio at a given sample rate, block by block
 // (used offline in node for verification and in the browser by music.ts, which streams the blocks through Web Audio).
 import { DmPerformance } from './sequencer.ts';
-import type { DmEvent, DmSegmentAssets, PlayOptions, SegmentHandle, Boundary } from './sequencer.ts';
+import type { DmEvent, DmSegmentAssets, PlayOptions, SegmentHandle, Boundary, DmNotification } from './sequencer.ts';
 import { DlsSynth } from './synth.ts';
 import { resolveInstrument } from './instruments.ts';
 import { INST_TRANSPOSE, INST_PITCHBENDRANGE } from './format.ts';
@@ -30,6 +30,8 @@ export class MusicRenderer {
   outputGain = 1;
   private queue: Queued[] = [];
   stats: RendererStats = { events: 0, unresolvedPatches: 0, patches: 0 };
+  /** a GUID_NOTIFICATION_SEGMENT message came due: option and the frame (of this renderer's clock) it belongs to */
+  onNotify: ((option: DmNotification, frame: number) => void) | null = null;
   /** called for every channel whose band entry could not be resolved to a DLS instrument */
   onUnresolved: ((pch: number, patch: number) => void) | null = null;
 
@@ -42,6 +44,17 @@ export class MusicRenderer {
   get time(): number { return this.frame / this.sampleRate; }
 
   play(assets: DmSegmentAssets, opts?: PlayOptions): SegmentHandle { return this.perf.play(assets, opts); }
+  /**
+   * `perf.play` at an exact time (seconds of this renderer's clock): events of the running primary segment that are already queued but not yet
+   * sounded and fall at or after that time are dropped (they belong to a segment that is replaced at that moment).
+   */
+  playAt(assets: DmSegmentAssets, atSec: number, opts: PlayOptions = {}): SegmentHandle {
+    if (!opts.secondary && this.perf.primaryHandle) {
+      const cut = Math.round(atSec * this.sampleRate);
+      this.queue = this.queue.filter((q) => q.frame < cut);
+    }
+    return this.perf.play(assets, { ...opts, atSec });
+  }
   stop(h?: SegmentHandle | null, boundary?: Boundary) { this.perf.stop(h, boundary); }
   get playing(): boolean { return this.perf.playing || this.synth.activeVoices > 0 || this.queue.length > 0; }
 
@@ -64,7 +77,7 @@ export class MusicRenderer {
     }
   }
 
-  private apply(q: Queued['ev']) {
+  private apply(q: Queued['ev'], frame: number) {
     const s = this.synth;
     if (q.kind === 'off') { s.noteOff(q.pch, q.key); return; }
     switch (q.kind) {
@@ -73,6 +86,7 @@ export class MusicRenderer {
       case 'bend': s.pitchBend(q.pch, q.value); break;
       case 'alloff': s.allNotesOff(q.pch); break;
       case 'reset': s.resetChannels(); break;
+      case 'notify': this.onNotify?.(q.option, frame); break;
       case 'patch': {
         this.stats.patches++;
         const r = q.dls ? resolveInstrument(q.inst, q.dls) : null;
@@ -98,7 +112,7 @@ export class MusicRenderer {
       const here = this.frame + done;
       let stop = endFrame;
       // apply all events due now, then render up to the next event
-      while (this.queue.length && this.queue[0].frame <= here) this.apply(this.queue.shift()!.ev);
+      while (this.queue.length && this.queue[0].frame <= here) { const e = this.queue.shift()!; this.apply(e.ev, e.frame); }
       if (this.queue.length) stop = Math.min(stop, this.queue[0].frame);
       // limit sub-block size so pitch bend / controller smoothing stays reasonable
       const chunk = Math.min(stop - here, 256);

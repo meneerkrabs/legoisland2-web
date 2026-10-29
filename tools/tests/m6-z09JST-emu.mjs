@@ -16,6 +16,7 @@ export default {
   run(ctx) {
     const failures = [], notes = [];
     let checked = 0;
+    const stats = {};
     const pe = loadExe(ctx.dataRoot);
 
     /** one scenario: `keys(duel, tick)` -> the buttons of the tick; returns { ticks, states } */
@@ -33,6 +34,9 @@ export default {
       const og = S.gear.set.bind(S.gear);
       S.gear.set = (r, s, on) => { plog.push(`gear ${r}:${s}:${on ? 'on' : 'off'}`); og(r, s, on); };
       S.duel.onEffect = (n) => effects.push(n);
+      // the particle calls (the eight orsemud1 emitters: handles 1..8 of the oracle, 0 = botexpl01 whose start is the stub FUN_004429e0): gates and matrices, compared tick by tick
+      const pfx = [];
+      S.duel.host.fx = { gate: (i, on) => pfx.push(`fx ${i + 1} ${on ? 2 : 1}`), matrix: (i, m) => pfx.push(`fxm ${i + 1} ${Array.from(m).map((v) => v.toFixed(3)).join(',')}`) };
       plog.length = 0;                      // the constructor's calls are not compared tick by tick (checked after it)
       const d = S.duel, W = L.world;
       // ---- the oracle: its own world (records, animations) built the same way, then the original's constructor
@@ -95,14 +99,14 @@ export default {
         }
         return out;
       };
-      const rest = (log) => log.filter((l) => !l.startsWith('fx ') && !l.startsWith('setVar'));
+      const rest = (log) => log.filter((l) => !l.startsWith('fx ') && !l.startsWith('fxm ') && !l.startsWith('setVar'));
       const states = new Set();
       let n = 0, orderEx = '', panels = 0, post = 0;
       for (; n < maxTicks; n++) {
         const k = keys(d, n);
         const pre = { state: d.state, popup: d.popup, bonusSpeed: d.bonusSpeed, precision: d.precision, roundPts: d.roundPts, medal: d.medal, score: d.score };
         W.input.setVirtual(k);
-        plog.length = 0; effects.length = 0;
+        plog.length = 0; effects.length = 0; pfx.length = 0;
         W.tick();
         // the port's duel ran inside W.tick through the JSTGame node; the oracle gets the buttons the port's input mapper made of the keys
         const held = W.input.held, pressed = W.input.pressed;
@@ -118,6 +122,19 @@ export default {
           if (pre.state === 0x21 || pre.state === 0x23) { checked++; if (emu.texts.filter((x) => x.panel).length !== 1 && failures.length < 12) failures.push(`${label}: tick ${n}: ${emu.texts.filter((x) => x.panel).length} panels drawn`); panels++; }
         }
         compare(n);
+        {
+          const o = olog.filter((l) => (l.startsWith('fx ') && !l.startsWith('fx 0 ')) || l.startsWith('fxm '));
+          checked++;
+          let same = o.length === pfx.length;
+          for (let q = 0; same && q < o.length; q++) {
+            if (o[q].startsWith('fxm')) {
+              const [ho, mo] = [o[q].split(' ')[1], o[q].split(' ')[2].split(',').map(Number)], [hp, mp] = [pfx[q].split(' ')[1], pfx[q].split(' ')[2]?.split(',').map(Number)];
+              if (!pfx[q].startsWith('fxm') || ho !== hp || !mp || mo.some((v, k) => !(Math.abs(v - mp[k]) <= 2e-3 * Math.max(1, Math.abs(v))))) same = false;
+            } else if (o[q] !== pfx[q]) same = false;
+          }
+          if (!same && failures.length < 12) failures.push(`${label}: tick ${n} particle calls: original [${o.join(' ; ')}] port [${pfx.join(' ; ')}]`);
+          stats.fxCalls = (stats.fxCalls ?? 0) + o.length;
+        }
         const a = rest(olog), b = plog.slice();
         checked++;
         if (a.join('|') !== b.join('|')) { if (failures.length < 12) failures.push(`${label}: tick ${n} calls differ: original [${a.join(' ; ')}] port [${b.join(' ; ')}]`); }
@@ -157,6 +174,7 @@ export default {
     for (const seed of [2, 10, 12, 13]) { run(`win-s${seed}`, seed, botKeys('win'), 6000); run(`loss-s${seed}`, seed + 100, botKeys('loss'), 6000); }
     const want = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xb, 0xc, 0xe, 0xf, 0x10, 0x11, 0x12, 0x13, 0x14, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1f, 0x20, 0x21, 0x22, 0x23];
     const missing = want.filter((s) => !visited.has(s));
+    notes.push(`particle calls compared with the original's: ${stats.fxCalls}`);
     notes.push(`states visited: ${[...visited].map((s) => s.toString(16)).sort().join(' ')}${missing.length ? ` (not reached: ${missing.map((s) => s.toString(16)).join(' ')})` : ''}`);
     checked++;
     if (missing.length) failures.push(`states not reached by the scenarios: ${missing.map((s) => s.toString(16)).join(' ')}`);

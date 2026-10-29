@@ -22,9 +22,9 @@ Pepper walks to one of eight fishing spots (Shift), aims (left / right), casts (
 
 ## Approximations / open
 * No particle runtime: the splash emitter is not drawn (the ripple ring SPLH is). The generic NPC conversation needs the island context (no speech lines for the fisherman).
-* S252 == 2 (node 44) has no writer in the zone code; not needed for the story path above.
-* Hint system (`fshhol.str`, HOLOA) not ported; unknown call FUN_0085eb80 in the rod hook skipped; camera variants for DAT_00987660 != 0 unused.
-* No differential x86 test of FUN_006f6e2b yet.
+* S252 == 2 (node 44): settled by WP-VERIFY, there is no writer in the zone code (the Fishing node writes var 0xfb / 0xfc only; no store to story var 252 other than the cutscene start = 1).
+* Hint system (`fshhol.str`, HOLOA) not ported; FUN_0085eb80 in the rod hook is the CRT `printf` called with an empty format (the buffer DAT_05d5cbc4 is never written): 2440 calls in the oracle, 0 non-empty, so skipping it is exact; camera variants for DAT_00987660 != 0 unused.
+* The Fisherman node (FUN_006f9090, walker engine), the zone loop modes of FUN_006f3511, the HUD hook FUN_00705c64 and the draw timing of the popups in `z21FSH.ts` (the original draws at update time the slots visible at the start of the tick; the port's draw2d uses the post-tick set, one tick later) are not covered by the differential test.
 
 ## Shared-file edits
 `src/zones/index.ts` (import), `src/shell/loopmachine.ts` (`skipBanner`), `src/render/renderer.ts` (`drawLine`).
@@ -32,3 +32,20 @@ Pepper walks to one of eight fishing spots (Shift), aims (left / right), casts (
 ## Runs
 `node tools/test-formats.mjs --only m6-z21FSH`; `node tools/browse.mjs "http://localhost:5602/?zone=z21FSH&mute=1" tools/steps/m6-z21FSH.mjs --size 1024x768 --out /tmp/m6-z21FSH` (win, ~4 min);
 `...?zone=z21FSH&node=43&mute=1 ... m6-z21FSH-loss.mjs` (pause, loss, retry, abort). Shortcuts: fish / Bertha moved to the bobber, casts set to 1 in the loss run.
+
+## Differential test (WP-VERIFY)
+`tools/tests/m7-z21FSH-emu.mjs` (+ `tools/lib/m7-z21FSH-emu.mjs`) runs the original node code of FUN_006f6e2b (Fishing node, shoal, Bertha, rod, fish update FUN_007061ee, popups) natively in the x86 emulator beside the port, in controller-chain order with the original's return codes, with the engine calls hosted (game vars, anims, sounds, text, rand fed from the port's rng, the three matrix builders native).
+* Constructors: the original's constructors against the port's bind (344 fields the original leaves uninitialised are skipped).
+* Per tick, strict float32 equality: nodes that ran, the 0x68-byte records, Fishing/shoal/Bertha/rod fields, 32 popup slots, globals, story vars, anims, the call log (sounds, texts), rand-call count, part matrices, line and rod draws, popup texts.
+* 12 seeded games (9 at dt 1, 3 at dt 0.5, an angler driver with bait attraction): 16k ticks, 45.4M checks, 0 mismatches, about 22 s. Every state 0..14, Bertha landed, forced approach, snaps, popups and result 1 are visited.
+* Found and fixed in the port: constructor draw order and the extra rand(20); `rec.ry` untouched by the node; Bertha draw offset; splash flag one tick early; rod hook drew Pepper's record instead of the rod's; state 10 advances Pepper's anim twice and keeps the WRIGGLE sound; FSwitch (FUN_006f4b65) allows var 2 only with state < 7 (or var 1); catch popup text overflows its 12-byte buffer ("13kg = 1014p\n"); many float32 store sites (K constants are float32 now).
+* Not checked: the exact constants against .rdata, and the spots-table slice (FUN_006f3eec loop) separately; both are covered indirectly by the per-tick comparison.
+
+## WP-PART-WIRE / WP-MINI (2026-10-29)
+* **x87 precision**: Direct3D 7 leaves the FPU in 24-bit mode (docs/re/engine-m1.md 8.1). The collision code of the port is exact in that mode, so the old oracle (53 bit) showed 41 PEPP-matrix mismatches (`Fishing.py`, the ground ray). The oracle now runs at `cw = 0x7f` (`FSH_CW=0x27f` for the old mode) and the zone code rounds every operation (`rules.ts`, `nodes.ts`, `src/zones/common/x87.ts` `euler24` / `normalize24` / `cross24`, `render/math.ts` `mulGame` / `transformPointGame`). `m7-z21FSH-emu`: 45.4M checks, 0 mismatches. Also fixed: `FUN_004388ae` = float(float(r / 32767) * max), sqrt of `FUN_0043cf57` rounded, sum orders (x, y, z) of the bite metric / distances, the stale `K.TWO_PI`.
+* **Emitter**: `splash01.par` started in the Fishing constructor (FUN_006f8e5a @ 0x6f8ec7): parent = LAND record matrix (record 4), offset 0, rotation (-pi/2, 0, 0), gate off. Landing (state 7 sub 3, 0x6f7b45 / 0x6f7b60): `setMatrix(DAT_05d5caf0 = (identity, bx, ty, bz))` + on; reeling (0x6f7f78): off. `fx.finish()` after it. Screenshot `tools/steps/wa-z21FSH-splash.mjs`.
+* **Fisherman speech**: `src/zones/z21fsh/ctx.ts` installs a reduced IslandCtx (table = fsh.str, speech, cutscene override, objective); FSHMA is spoken (`tools/steps/wa-z21FSH-talk.mjs`). `fshhol.str` / HOLOA is only read by a hologram node (0x88d41f): the zone has none, so nothing to port.
+* **Popups** are drawn from the slots visible at the start of the tick (FUN_006f49b3 draws before it counts down); the HUD score counter uses `FUN_004388ae(20)` exactly.
+* `DAT_00987660` is the 16-bit display flag (never set at the default 32 bit): the camera variants are unreachable. S252 == 2: no writer (WP-VERIFY).
+* **Second talk** (FSHMC): explained and verified (`tools/steps/wa-z21FSH-talk.mjs`: "Veel wijting vandaag." is spoken at the second Shift). The first Shift is also the FSwitch key (FUN_006f4bfa starts Pepper's walk to a spot while fb == 1) and the Fishing node then owns Pepper's matrix: after the first talk she walks off, the fisherman leaves the view and the range, `stateLogic` (FUN_00425902, runs in the pre-render only while the NPC is in view) stops and the line counter is reset once she is out of the talk radius. So FSHMC needs a later Shift next to the fisherman. Pointing the way needs an objective target (FUN_00424e37: the default is the nearest other talk NPC with ctor 0x426151; z21 has none, so `line` falls back to 0, as in the port's SGMFIG; the objective globals the island leaves behind are not known).
+* Open: the Fisherman walker node and the zone loop modes are not covered by the oracle. Loss bot `m6-z21FSH-loss`: ALL OK.

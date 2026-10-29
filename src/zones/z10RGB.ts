@@ -3,14 +3,16 @@
 // FUN_005f418b (modes 7 / 0 / 1 / 9 / 2 / 3 / 4 / 5 / 8: the runner's template), the five behaviour nodes (src/zones/z10rgb/), the HUD, the intro / help / banner
 // texts, the speech, the sounds and the result variables. This file registers the constructors and the zone game (the glue to the shell).
 import { registerCtor } from '../game/setup.ts';
+import { restoreHooks } from '../restore/flag.ts';
 import { registerZoneGame } from '../shell/zonegame.ts';
 import type { ZoneGame, ZoneGameCtx } from '../shell/zonegame.ts';
 import { MODE as LOOP } from '../shell/loopmachine.ts';
 import { UiTextureSet } from '../ui/renderer2d.ts';
 import type { Ui2D } from '../ui/renderer2d.ts';
 import type { ScreenLine, Medal } from '../shell/helpscreen.ts';
-import { CTOR, K, MODE, PHASE, REC, VAR } from './z10rgb/consts.ts';
+import { CTOR, K, MODE, PHASE, REC, VAR, f32 } from './z10rgb/consts.ts';
 import { RgbState } from './z10rgb/shared.ts';
+import { NO_HANDLE, ZoneParticles } from '../fx/particles/zone.ts';
 import { updateBalls } from './z10rgb/balls.ts';
 import { PepSwitcNode, PeppHitNode } from './z10rgb/pepper.ts';
 import { CannonNode, CedricNode } from './z10rgb/enemy.ts';
@@ -55,11 +57,41 @@ registerZoneGame('z10RGB', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   st.say = (id) => ctx.say(id);
   ctx.gr.fov = st.fov;
 
+  // ---- particles: FUN_005f67b0 creates the engine ("z10rgb" archive); FUN_005f8050 (the ball pool, from FUN_005f690b) starts one `impact01` per ball on the ball's matrix at
+  // (0, 0.8, 0), rotated -pi / 2 about x, gate OFF, with LAND as its collision record; FUN_0044e8d0 follows in the loop's set-up (FUN_005f418b); the PepSwitc constructor FUN_005f4f14
+  // (FUN_005f48d0) then starts the four `dust` emitters (cannonhit.par) on the four cannons CP00..CP03 at (0, 0, 4), rotated -0.3295 about x, gated by var 0xfd bit k (set by the hit
+  // inside cannon k, FUN_005f542f). The balls switch theirs on at a ground hit and off 2 ticks into the splash (`balls.ts`).
+  const fx = await ZoneParticles.create(ctx);
+  if (fx) {
+    const up = f32(0x3f4ccccd), tilt = f32(0xbfc90fdb);
+    for (const b of st.balls) {
+      b.fxHandle = fx.start('impact01.par', b.rec.m, [0, up, 0], [tilt, 0, 0]);
+      fx.collideWith(b.fxHandle, world.records[REC.LAND]);
+    }
+    fx.finish();
+    REC.CP.forEach((r, k) => fx.start('dust', world.records[r].m, [0, 0, f32(0x40800000)], [f32(0xbea8f5c3), 0, 0], [VAR.PEPP_CANNON_BIT, 1 << k, 1 << k]));
+    st.fx = {
+      ballOn(b) { if (b.fxHandle !== NO_HANDLE) { fx.on(b.fxHandle); fx.setMatrix(b.fxHandle, b.rec.m); } },
+      ballOff(b) { fx.off(b.fxHandle); },
+    };
+  }
+  // ---- the ball shadows (FUN_005f90f7, after the records, before the particles): CSHD's five vertices = the ground points of every flying ball whose ground was found this tick
+  const cshd = world.records[REC.CSHD];
+  // CSHD's flags are |= 3 for the loop and &= ~2 afterwards (so the model is hidden from the second frame on); it is drawn at its own matrix (10.7, -13.7, -2.8: the builder FUN_005f9xxx
+  // puts it there), the points being world coordinates: the original's shadows lie 13.7 under the ground and show only where the ground is lower (faithful, docs/re/m6/z10RGB.md)
+  ctx.gr.meshDraws = () => {
+    cshd.flags |= 3;
+    const out = st.balls.filter((b) => b.state === 2 && b.shadow !== 0).map((b) => ({ rec: cshd, verts: b.samples }));
+    cshd.flags &= ~2;
+    return out;
+  };
+
   // ---- sounds: 2D ones through the engine's slots, 3D ones positional; the listener is the camera
   const ga = sh.audio.ga;
   const bank = new SoundBank((ga?.sfx as unknown as SoundBackend | undefined) ?? null);
   void bank.load();
   st.sound = bank;
+  st.cue = (name, pos) => restoreHooks.cue?.(name, { sfxAt: (id: number, p: readonly number[]) => sh.audio.playAt(id, p), pos });     // restored content (option off: the hook is unset)
   const listen = () => {
     const c = world.camera.c;
     ga?.sfx.setListener({ x: c[0], y: c[1], z: c[2] }, { x: c[15], y: c[16], z: c[17] }, { x: c[12], y: c[13], z: c[14] });
@@ -125,7 +157,7 @@ registerZoneGame('z10RGB', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
         ctx.banner(ui, { score: { text: String(st.score), y: 100 }, medal: b.medal, lines });
       } else ctx.banner(ui, { lines: [{ text: ctx.strings?.text('CASGRB05') ?? 'CASGRB05', y: 100, wrap: 30 }] });
     },
-    destroy() { bank.stopAll(); barrel?.dispose(); },
+    destroy() { bank.stopAll(); barrel?.dispose(); ctx.gr.meshDraws = null; },
     debug() {
       return {
         phase: st.phase, score: st.score, ticks: st.ticks, mode: world.vars.get(VAR.MODE), cannonsLeft: st.cannonsLeft, lives: st.lives, inCannon: st.pepperCannon,

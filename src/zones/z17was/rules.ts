@@ -10,6 +10,7 @@ import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { AnimInstance } from '../../game/anim.ts';
 import type { Blk } from '../../formats/anim.ts';
+import { gameRandom } from '../common/tickrand.ts';
 
 /** constructor addresses in the EXE (the `ctor` of the set-up's attaches, docs/re/zone-setup.md) */
 export const CTOR_PEPWAS = 0x69bf24, CTOR_ZONEWAS = 0x69b337;
@@ -80,8 +81,9 @@ export const K = {
   RISE_TICKS: 6, SINK_TICKS: 9, UP_TICKS: 48,
   /** _DAT_00892084: the snake stops 0.8 below the full travel */
   TOP_MARGIN: f32(0.8),
-  /** p+0x108 values by elapsed ticks (_DAT_00892044 = 480, _DAT_00892634 = 930, _DAT_00892630 = 1830): the pause between two spawns */
-  SPAWN_GAP: [15, 19, 24] as const, GAP_AT: [480, 930, 1830] as const,
+  /** p+0x108 (the ctor starts it at 30): the pause between two spawns, by the TICKS LEFT (+0xc0 against _DAT_00892044 = 480, _DAT_00892634 = 930, _DAT_00892630 = 1830):
+   *  24 below 1830 left, 19 below 930, 15 below 480 (M5 audit, oracle test: M3 had read the thresholds as ticks played, which made the pauses grow instead of shrink) */
+  SPAWN_GAP: [15, 19, 24] as const, GAP_AT: [480, 930, 1830] as const, GAP_START: 30,
   /** _DAT_008921f0: the gem holder's lid sits 0.75 higher */
   HOLDER_LIFT: f32(0.75),
   /** _DAT_008920cc: the gem hovers 0.1 above the lid height */
@@ -103,22 +105,33 @@ export interface WasSounds {
   play(id: number): void;
   /** FUN_004433f0: play a 3D sound at a position (cut beyond its maximum distance) */
   play3D(id: number, x: number, y: number, z: number): void;
+  /** restored content (src/restore/features/cues.ts, popups.ts): an event of the swing (`was-hit` with kind 'gem' / 'snake', `was-miss`); undefined = the original */
+  cue?(name: string, kind?: string): void;
 }
 export interface WasRng {
   /** a uniform integer 0 .. n-1 (the original's `ftol(FUN_004388ae(float))` of FUN_00435c91 = GetTickCount, `& 3` / `% 3`, or FUN_004388ae(8.0)) */
   int(n: number): number;
 }
-export const mathRng: WasRng = { int: (n) => Math.floor(Math.random() * n) };
+export const mathRng: WasRng = { int: (n) => Math.floor(gameRandom() * n) };     // RNG: the C runtime generator
 export const silentSounds: WasSounds = { play() {}, play3D() {} };
 
 /** the globals of the zone (DAT_00925e58, DAT_05d5be4c / be50 / be54, the round-robin counters DAT_05d5be58 / be5c) */
 export class WasShared {
-  /** DAT_00925e58: the clip Pepper plays now (.data value 1) */
-  clip = 1;
+  /** DAT_00925e58: the clip Pepper plays now (.data value 1). A global of the process: the pepwas constructor does not reset it, so a new run (restart, re-entering the zone)
+   *  starts with the clip the previous run left there (M5 audit; `WasShared.resetGlobals()` is for tests) */
+  private static clipGlobal = 1;
+  private static scoreGlobal = 0; private static gemsGlobal = 0;
+  static resetGlobals() { WasShared.clipGlobal = 1; WasShared.scoreGlobal = 0; WasShared.gemsGlobal = 0; }
+  get clip(): number { return WasShared.clipGlobal; }
+  set clip(v: number) { WasShared.clipGlobal = v; }
   /** DAT_05d5be4c: the game is over */
   done = false;
   /** DAT_05d5be54 / DAT_05d5be50: the final score and gem count (set when the time is up) */
-  finalScore = 0; finalGems = 0;
+  /** persist across restarts like the original's statics (written only at 0x699fb9 / 0x699fc8, never reset) */
+  get finalScore(): number { return WasShared.scoreGlobal; }
+  set finalScore(v: number) { WasShared.scoreGlobal = v; }
+  get finalGems(): number { return WasShared.gemsGlobal; }
+  set finalGems(v: number) { WasShared.gemsGlobal = v; }
   swishRr = 0; xswishRr = 0;
   sounds: WasSounds = silentSounds;
   rng: WasRng = mathRng;
@@ -126,7 +139,6 @@ export class WasShared {
 
 const hide = (r: GameRecord) => { r.flags &= ~0xffff; };
 const showRec = (r: GameRecord) => { r.flags |= 1; r.flags |= 2; };
-const flags16 = (r: GameRecord, v: number) => { r.flags = (r.flags & ~0xffff) | v; };
 
 /** how the nodes find the records and the rigs of the zone (the original: byte offsets from DAT_00983804) */
 export function checkRecords(records: readonly GameRecord[]): string[] {
@@ -241,8 +253,8 @@ export class ZoneWasNode implements BehaviourNode {
   private shown: GameRecord[] = [];
   /** p+0xf8: the clock is shown */
   showTime = true;
-  /** the strings the HUD draws (DAT_05d4dd60 "mm:ss") */
-  timeText = '';
+  /** the strings the HUD draws (DAT_05d4dd60 "mm:ss", DAT_05d4dd20 gems, DAT_05d4dd44 hits, the score line): FUN_00699e80 formats them before this tick's swing / spawn logic, so they lag the counters by a tick */
+  timeText = ''; gemText = '0'; hitText = '0'; scoreText = '0';
   /** (port) the gem was just shown: its first position is not interpolated */
   private gemFresh = false;
   /** the lid height when closed: p+0x80 = the y of LID0 */
@@ -269,7 +281,7 @@ export class ZoneWasNode implements BehaviourNode {
       R(REC.LID[k]).y = this.closedY;                          // *(p[k + 9] + 0x40) = p[0x20]
       this.shown[k] = R(REC.BAS[k]);
     }
-    flags16(R(REC.GEMM), 0);                                   // p[0x18]: +0x60 = 0 (+0x62 = 0x20: the upper flag word, not modelled)
+    R(REC.GEMM).flags = 0x20 << 16;                            // p[0x18]: +0x60 = 0, +0x62 = 0x20 (the record's flags are one 32 bit word)
     // animation instances: the snakes' clip 3 (idle) from the frames 0 / 3 / 7 / 6 of the records 1 / 2 / 3 / 4 (FUN_0043b6a3(rec + 8, 3, frame)), the skeletons' clips 13 / 14
     if (rigs.SNAK) {
       const start = new Map<number, number>([[1, 0], [2, 3], [3, 7], [4, 6]]);
@@ -319,9 +331,10 @@ export class ZoneWasNode implements BehaviourNode {
       const t = Math.trunc(this.timeLeft / 30);
       this.timeText = `${String(Math.trunc(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
     }
-    // the pause between two snakes gets shorter: 15 ticks, 19 after 480 ticks, 24 after 930 (and stays) -- the original keeps 24 after 1830
-    if (this.elapsed >= K.GAP_AT[0]) {
-      if (this.elapsed >= K.GAP_AT[1]) { if (this.elapsed < K.GAP_AT[2]) this.gap = K.SPAWN_GAP[2]; }
+    this.scoreText = String(this.score); this.gemText = String(this.gems); this.hitText = String(this.hits);
+    // the pause between two snakes gets shorter as the clock runs down: 30 at the start, 24 below 1830 ticks left, 19 below 930, 15 below 480 (the comparisons use the clock after this tick's decrement)
+    if (this.timeLeft >= K.GAP_AT[0]) {
+      if (this.timeLeft >= K.GAP_AT[1]) { if (this.timeLeft < K.GAP_AT[2]) this.gap = K.SPAWN_GAP[2]; }
       else this.gap = K.SPAWN_GAP[1];
     } else this.gap = K.SPAWN_GAP[0];
 
@@ -348,8 +361,10 @@ export class ZoneWasNode implements BehaviourNode {
         if (elapsed0 - this.topAt[k] <= K.UP_TICKS || this.squash) {
           // the lid rides on the snake's head: bone 10 of the snake's pose, in the snake's frame
           const sa = snake.anim!;
-          sa.advance(1.0, dt);
+          // FUN_0043bc58 reads the matrices the renderer evaluated into the animation's buffer at the end of the previous loop iteration, i.e. the pose of the frame BEFORE this
+          // tick's FUN_0043b76a advance (M5 audit: the head, and so the lid, follows one frame behind the snake)
           const bones = sa.pose(1);
+          sa.advance(1.0, dt);
           lid.m.set(snake.m);
           if (bones && bones.length >= 11 * 16) {
             const p = lid.toWorld([bones[10 * 16 + 12], bones[10 * 16 + 13], bones[10 * 16 + 14]]);
@@ -418,6 +433,7 @@ export class ZoneWasNode implements BehaviourNode {
       }
       if (k !== -1 && this.state[k] !== SN.HIDDEN && this.state[k] !== SN.RISING && this.state[k] !== SN.SINKING) {
         this.snd(SND.HIT[k]);
+        let hitKind = '';
         if (this.holder === k) {
           if (sh.clip === 9 || sh.clip === 8 || sh.clip === 6 || sh.clip === 7) {
             // the grab clip on the snake that holds the gem
@@ -425,6 +441,7 @@ export class ZoneWasNode implements BehaviourNode {
             this.score += K.SCORE_GEM; this.flashFlag = 1; this.flash = 8;
             if (this.score > K.SCORE_MAX) this.score = K.SCORE_MAX;
             this.snd(SND.GET_CRYSTAL);
+            hitKind = 'gem';
             this.hit[k] = 2;
             hide(R[REC.GEMM]);
           }
@@ -435,9 +452,11 @@ export class ZoneWasNode implements BehaviourNode {
           this.hits++;
           this.hit[k] = 1; this.flashFlag = 1; this.flash = 8;
           this.squash = true;
+          hitKind = 'snake';
           R[REC.SNAKE[k]].anim!.start(CLIP.SNAKE_SQUASH, 0);
         }
-      }
+        if (hitKind) this.shared.sounds.cue?.('was-hit', hitKind);
+      } else if (k !== -1) this.shared.sounds.cue?.('was-miss');       // a swing that lands on an empty / rising / sinking basket
     }
 
     // ---- the squashed snake follows Pepper's hammer; the basket is replaced by the dented shapes KET2..KET8

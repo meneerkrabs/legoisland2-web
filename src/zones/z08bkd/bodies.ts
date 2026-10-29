@@ -11,12 +11,13 @@ import { BkdNode } from './env.ts';
 import type { Env } from './env.ts';
 import { angleDelta, normalize3, rotateShape, wrapAngle } from './math.ts';
 import { bounce, castQuad, swingPush } from './physics.ts';
+import { setEuler } from './matrix.ts';
 
-const fr = Math.fround;
+import { fr, ad, sb, ml, dv, sq } from '../common/f32.ts';
 const PLANE_Z = DIVER.PLANE_Z;
 
 /** the matrix of a record from its three angles and its place (FUN_0043a5e4(rec + 0xc, rx, ry, rz, x, y, z)) */
-const rebuild = (rec: GameRecord, rx: number, ry: number, rz: number) => rec.setEuler(rx, ry, rz, rec.x, rec.y, rec.z);
+const rebuild = (rec: GameRecord, rx: number, ry: number, rz: number) => setEuler(rec, rx, ry, rz, rec.x, rec.y, rec.z);
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------ anchor
 
@@ -32,10 +33,11 @@ export class AnchorNode extends BkdNode {
     void _c; void w;
     const dt = this.env.clock.dt;
     let rz = rec.rz;
-    let f = fr(fr(C.ONE - fr(Math.abs(rz) / C.ANCHOR_HI)) + C.HALF);
+    let f = ad(sb(C.ONE, dv(Math.abs(rz), C.ANCHOR_HI)), C.HALF);
     if (C.ONE < f) f = 1;
-    this.speed = fr(this.base * f * f * f);
-    rz = fr(this.speed * dt + rz);
+    const f3 = ml(ml(f, f), f);                  // asm 0x5be898: f * f * f is stored as float32 first (fstp [ebp - 8]), then multiplied by the node's value
+    this.speed = ml(this.base, f3);
+    rz = ad(ml(this.speed, dt), rz);
     if (C.ZERO < this.base) { if (C.ANCHOR_HI < rz) this.base = -this.base; } else if (rz < C.ANCHOR_LO) this.base = -this.base;
     rec.rz = rz;
     rebuild(rec, 0, 0, rz);
@@ -55,8 +57,8 @@ export class PageNode extends BkdNode {
   readonly kind = 'PageBeh';
   update(w: World, rec: GameRecord, _c: Controller): number {
     void _c; void w;
-    rec.ry = wrapAngle(fr(C.OCTO_ANGLE * this.env.clock.dt + rec.ry));
-    rec.setEuler(0, rec.ry, 0, rec.x, rec.y, PLANE_Z);
+    rec.ry = wrapAngle(ad(ml(C.OCTO_ANGLE, this.env.clock.dt), rec.ry));
+    setEuler(rec, 0, rec.ry, 0, rec.x, rec.y, PLANE_Z);
     return NODE_STOP;
   }
   /** FUN_005bf9b0: taken (hidden) */
@@ -66,9 +68,9 @@ export class PageNode extends BkdNode {
 // ------------------------------------------------------------------------------------------------------------------------------------------------ bricks
 
 /** FUN_005c0351: the brick's collision quad (x +-1.6, y 0.1 .. 0.9, z 10) */
-const BRICK_SHAPE = [[f32bits(0x3fcccccd), f32bits(0x3f666666), 10], [-f32bits(0x3fcccccd), f32bits(0x3f666666), 10], [-f32bits(0x3fcccccd), f32bits(0x3dcccccd), 10], [f32bits(0x3fcccccd), f32bits(0x3dcccccd), 10]];
+export const BRICK_SHAPE = [[f32bits(0x3fcccccd), f32bits(0x3f666666), 10], [-f32bits(0x3fcccccd), f32bits(0x3f666666), 10], [-f32bits(0x3fcccccd), f32bits(0x3dcccccd), 10], [f32bits(0x3fcccccd), f32bits(0x3dcccccd), 10]];
 /** the BALL / cannon-ball quad (FUN_005bcdda): 1.6 x 1.6 */
-const BALL_SHAPE = [[f32bits(0x3f4ccccd), f32bits(0x3f4ccccd), 10], [-f32bits(0x3f4ccccd), f32bits(0x3f4ccccd), 10], [-f32bits(0x3f4ccccd), -f32bits(0x3f4ccccd), 10], [f32bits(0x3f4ccccd), -f32bits(0x3f4ccccd), 10]];
+export const BALL_SHAPE = [[f32bits(0x3f4ccccd), f32bits(0x3f4ccccd), 10], [-f32bits(0x3f4ccccd), f32bits(0x3f4ccccd), 10], [-f32bits(0x3f4ccccd), -f32bits(0x3f4ccccd), 10], [f32bits(0x3f4ccccd), -f32bits(0x3f4ccccd), 10]];
 
 export class BrickNode extends BkdNode {
   readonly kind = 'BrkBeh';
@@ -97,14 +99,14 @@ export class BrickNode extends BkdNode {
   update(w: World, rec: GameRecord, _c: Controller): number {
     void _c;
     const dt = this.env.clock.dt;
-    this.age = fr(dt + this.age);
+    this.age = ad(dt, this.age);
     if (this.active) {
-      const pts = rotateShape(BRICK_SHAPE, 4, fr(rec.rz + C.HALF_PI));
-      for (const p of pts) { p[0] = fr(p[0] + rec.x); p[1] = fr(p[1] + rec.y); }
+      const pts = rotateShape(BRICK_SHAPE, 4, ad(rec.rz, C.HALF_PI));
+      for (const p of pts) { p[0] = ad(p[0], rec.x); p[1] = ad(p[1], rec.y); }
       const q = castQuad(w, pts, 4, rec, this.list);
       let hitSolid = false, hitAnchor = false;
       for (const h of q.hits) { if (this.solid.has(h)) hitSolid = true; if (h === this.anchor) hitAnchor = true; }
-      this.b.vy = fr(C.MINUS_TWO * dt + this.b.vy);
+      this.b.vy = ad(ml(C.MINUS_TWO, dt), this.b.vy);
       if (hitAnchor) {
         const a = this.env.nodeOf<AnchorNode>(this.anchor!);
         const v = a.push(this.anchor!, [rec.x, rec.y, rec.z]);
@@ -115,9 +117,9 @@ export class BrickNode extends BkdNode {
         if (bounce(this.b, [rec.x, rec.y, rec.z], q.normal, q.point)) this.active = false;
       }
       this.last = [rec.x, rec.y, rec.z];
-      rec.x = fr(this.b.vx * dt + rec.x);
-      rec.y = fr(this.b.vy * dt + rec.y);
-      rec.rz = fr(this.b.angVel * dt + rec.rz);
+      rec.x = ad(ml(this.b.vx, dt), rec.x);
+      rec.y = ad(ml(this.b.vy, dt), rec.y);
+      rec.rz = ad(ml(this.b.angVel, dt), rec.rz);
     }
     rebuild(rec, rec.rx, rec.ry, rec.rz);
     return NODE_STOP;
@@ -164,18 +166,18 @@ export class BallNode extends BkdNode {
     void _c;
     const dt = this.env.clock.dt;
     if (!this.active) return NODE_STOP;
-    this.age = fr(dt + this.age);
+    this.age = ad(dt, this.age);
     const cannon = this.env.records[REC.CANNON];
     if (C.TWENTY < this.age) {
       this.deactivate(rec);
       this.env.nodeOf<CannonNode>(cannon).giveBack(rec);
       return NODE_STOP;
     }
-    const pts = rotateShape(BALL_SHAPE, 4, fr(rec.rz + C.HALF_PI));
-    for (const p of pts) { p[0] = fr(p[0] + rec.x); p[1] = fr(p[1] + rec.y); }
+    const pts = rotateShape(BALL_SHAPE, 4, ad(rec.rz, C.HALF_PI));
+    for (const p of pts) { p[0] = ad(p[0], rec.x); p[1] = ad(p[1], rec.y); }
     const q = castQuad(w, pts, 4, rec, this.list);
     const hitLand = q.hits.includes(this.env.records[REC.LAND]), hitAnchor = q.hits.includes(this.env.records[REC.ANCHOR]);
-    this.b.vy = fr(this.b.vy - C.FOUR * dt);
+    this.b.vy = sb(this.b.vy, ml(C.FOUR, dt));
     if (hitAnchor) {
       const anchor = this.env.records[REC.ANCHOR];
       const v = this.env.nodeOf<AnchorNode>(anchor).push(anchor, [rec.x, rec.y, rec.z]);
@@ -186,9 +188,9 @@ export class BallNode extends BkdNode {
       bounce(this.b, [rec.x, rec.y, rec.z], q.normal, q.point);
     }
     this.last = [rec.x, rec.y, rec.z];
-    rec.x = fr(this.b.vx * dt + rec.x);
-    rec.y = fr(this.b.vy * dt + rec.y);
-    rec.rz = fr(this.b.angVel * dt + rec.rz);
+    rec.x = ad(ml(this.b.vx, dt), rec.x);
+    rec.y = ad(ml(this.b.vy, dt), rec.y);
+    rec.rz = ad(ml(this.b.angVel, dt), rec.rz);
     rebuild(rec, rec.rx, rec.ry, rec.rz);
     return NODE_STOP;
   }
@@ -230,23 +232,23 @@ export class CannonNode extends BkdNode {
     void _c; void w;
     const dt = this.env.clock.dt;
     const diver = this.env.records[REC.PEPP];
-    const dx = fr(diver.x - rec.x), dy = fr(diver.y - rec.y), dz = fr(diver.z - rec.z);
-    const d2 = fr(dz * dz + dy * dy + dx * dx);
+    const dx = sb(diver.x, rec.x), dy = sb(diver.y, rec.y), dz = sb(diver.z, rec.z);
+    const d2 = ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz));
     if (d2 < C.SIXTEEN_HUNDRED && rec.x <= diver.x) {
       // aim: -atan2(dx, dy) + 5 deg (mirrored below 0), wrapped, clamped to [4.014236, 5.497758]
-      const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-      let a = fr(-Math.atan2(dx / len, dy / len) + C.FIVE_DEG);
+      const n = normalize3([dx, dy, dz]);                       // FUN_0043cec0 on the vector (float32 stores), then atan2 of its x / y
+      let a = ad(-Math.atan2(n[0], n[1]), C.FIVE_DEG);
       if (C.ZERO < a) a = -a;
       a = wrapAngle(a);
       if (C.ANG_HI < a) a = fr(5.497758);
       if (a < C.ANG_LO) a = fr(4.014236);
-      const rz = fr(a + C.HALF_PI);
-      rec.rz = rz;
-      rec.setEuler(0, 0, rz, rec.x, rec.y, rec.z);
+      const rz = ad(a, C.HALF_PI);
+      // (the original only rebuilds the matrix, FUN_0043a5e4(rec + 0xc, 0, 0, rz, pos): the record's +0x54 stays: WP-VERIFY)
+      setEuler(rec, 0, 0, rz, rec.x, rec.y, rec.z);
       const c = fr(Math.cos(rz)), s = fr(Math.sin(rz));
-      const vel = [fr(c * C.TEN), fr(s * C.TEN)];
-      const muzzle = [fr(fr(c * C.FIVE) + rec.x), fr(fr(s * C.FIVE) + rec.y), 10];
-      this.timer = fr(this.timer - dt);
+      const vel = [ml(c, C.TEN), ml(s, C.TEN)];
+      const muzzle = [ad(ml(c, C.FIVE), rec.x), ad(ml(s, C.FIVE), rec.y), 10];
+      this.timer = sb(this.timer, dt);
       if (this.timer <= C.ZERO) {
         let i = 0;
         while (i < this.slots.length && this.slots[i] === null) i++;
@@ -286,38 +288,38 @@ export class ClamNode extends BkdNode {
     const dt = this.env.clock.dt;
     const pos = [rec.x, rec.y, rec.z];
     let rx = rec.rx;
-    let a = fr(rx + C.EIGHTH_PI);
+    let a = ad(rx, C.EIGHTH_PI);
     if (a < C.ZERO) a = -a;
-    let ease = fr(fr(C.ONE - fr(a / C.EIGHTH_PI)) + C.HALF);
+    let ease = ad(sb(C.ONE, dv(a, C.EIGHTH_PI)), C.HALF);
     if (C.ONE < ease) ease = 1;
-    ease = fr(ease * ease * ease);
+    ease = ml(ml(ease, ease), ease);
     if (this.speed <= C.ZERO) {
       if (this.timer === C.ZERO) {
-        rx = fr(dt * ease * this.speed + rx);
+        rx = ad(ml(ml(dt, ease), this.speed), rx);
         if (rx < C.MINUS_QUARTER_PI) { this.speed = -this.speed; this.timer = 4; }
         this.env.sound.at('CLAM_OPEN', pos);
         this.holding = false;
       } else {
-        this.timer = fr(this.timer - dt);
+        this.timer = sb(this.timer, dt);
         if (this.timer < C.ZERO) this.timer = 0;
       }
     }
     if (C.ZERO < this.speed) {
       if (this.timer === C.ZERO) {
         this.env.sound.stop('CLAM_OPEN');
-        rx = fr(dt * ease * this.speed + rx);
+        rx = ad(ml(ml(dt, ease), this.speed), rx);
         if (C.ZERO < rx) {
           this.env.sound.at('CLAM_SHUT', pos);
           this.speed = -this.speed;
           if (this.holding) this.timer = 4;
         }
       } else {
-        this.timer = fr(this.timer - dt);
+        this.timer = sb(this.timer, dt);
         if (this.timer < C.ZERO) this.timer = 0;
       }
     }
     rec.rx = rx;
-    rec.setEuler(rx, rec.ry, rec.rz, rec.x, rec.y, rec.z);
+    setEuler(rec, rx, rec.ry, rec.rz, rec.x, rec.y, rec.z);
     return NODE_STOP;
   }
 
@@ -325,7 +327,7 @@ export class ClamNode extends BkdNode {
   static inside(probe: ArrayLike<number>, pos: ArrayLike<number>, angle: number): boolean {
     const c = fr(Math.cos(angle)), s = fr(Math.sin(angle));
     const d = normalize3([probe[0] - pos[0], probe[1] - pos[1], probe[2] - pos[2]]);
-    return d[0] * 0 + d[1] * c + d[2] * s < C.ZERO;
+    return ad(ad(ml(d[0], 0), ml(d[1], c)), ml(d[2], s)) < C.ZERO;
   }
 
   /**
@@ -336,7 +338,7 @@ export class ClamNode extends BkdNode {
   touch(rec: GameRecord, pos: ArrayLike<number>, heading: number): { vel?: [number, number, number]; angVel?: number } {
     const out: { vel?: [number, number, number]; angVel?: number } = {};
     if (!this.holding) {
-      const probe = [rec.x, fr(rec.y + C.THREE), rec.z];
+      const probe = [rec.x, ad(rec.y, C.THREE), rec.z];
       if (!ClamNode.inside(probe, pos, rec.rx)) {
         if (this.speed <= C.ZERO) out.vel = [0, -1, 0];
         else this.holding = true;
@@ -344,12 +346,12 @@ export class ClamNode extends BkdNode {
       out.angVel = 0;
     }
     if (this.holding) {
-      const target = [rec.x, fr(rec.y + C.TWO), 10];
-      const d = [target[0] - pos[0], target[1] - pos[1], 10 - pos[2]];
-      const dist = Math.sqrt(d[2] * d[2] + d[1] * d[1] + d[0] * d[0]);
+      const target = [rec.x, ad(rec.y, C.TWO), 10];
+      const d = [sb(target[0], pos[0]), sb(target[1], pos[1]), sb(10, pos[2])];
+      const dist = sq(ad(ad(ml(d[0], d[0]), ml(d[1], d[1])), ml(d[2], d[2])));
       normalize3(d);
-      const k = fr(dist * C.FOUR);
-      out.vel = [fr(k * d[0]), fr(k * d[1]), fr(k * d[2])];
+      const k = ml(dist, C.FOUR);
+      out.vel = [ml(k, d[0]), ml(k, d[1]), ml(k, d[2])];
       const want = heading <= C.ZERO || C.PI < heading ? f32bits(0x409c6173) : f32bits(0x3fb2b884);
       const dir = angleDelta(want, heading).dir;
       out.angVel = dir === -1 ? -f32bits(0x3fb2b884) : f32bits(0x3fb2b884);
@@ -382,29 +384,29 @@ export class OctopusNode extends BkdNode {
       if (C.ZERO <= rz) { hi = true; rz = 0; }
       else {
         if (C.CLAM_OPEN_LIM < rz) this.speed = f32bits(0x401135eb);
-        rz = fr(this.speed * dt * C.POINT_FIFTEEN + rz);
+        rz = ad(ml(ml(this.speed, dt), C.POINT_FIFTEEN), rz);
       }
     } else if (rz <= C.CLAM_SHUT_LIM) { lo = true; rz = fr(-1.2217239); }
     else {
       if (rz < C.CLAM_OPEN_MID) this.speed = f32bits(0xbff5bdb5);
-      rz = fr(this.speed * dt * C.POINT_FIFTEEN + rz);
+      rz = ad(ml(ml(this.speed, dt), C.POINT_FIFTEEN), rz);
     }
     if (this.firstHalf) {
-      if (frame < C.ZERO || C.THIRTY <= frame) { this.firstHalf = false; this.a = true; } else anim.advance(f32bits(0x3e19999a));
+      if (frame < C.ZERO || C.THIRTY <= frame) { this.firstHalf = false; this.a = true; } else anim.advance(f32bits(0x3e19999a), w.dt);
     }
     if (this.secondHalf) {
-      if (frame < C.THIRTY || count * C.ONE <= frame) { this.secondHalf = false; this.b = true; } else anim.advance(f32bits(0x3e19999a));
+      if (frame < C.THIRTY || count * C.ONE <= frame) { this.secondHalf = false; this.b = true; } else anim.advance(f32bits(0x3e19999a), w.dt);
     }
     if (this.a && lo) { this.speed = f32bits(0x3eb2b884); this.a = false; this.secondHalf = true; }
     if (this.b && hi) { this.speed = f32bits(0xbf32b884); this.b = false; this.firstHalf = true; }
     arm.rz = rz;
-    arm.setEuler(arm.rx, arm.ry, rz, arm.x, arm.y, arm.z);
+    setEuler(arm, arm.rx, arm.ry, rz, arm.x, arm.y, arm.z);
     return NODE_STOP;
   }
 
   /** FUN_005be130(tentacle, pos, &out): the push of the moving tentacle (angle + pi/2) */
   push(arm: GameRecord, pos: ArrayLike<number>): [number, number, number] {
-    return swingPush([arm.x, arm.y, arm.z], fr(arm.rz + C.HALF_PI), this.speed, pos);
+    return swingPush([arm.x, arm.y, arm.z], ad(arm.rz, C.HALF_PI), this.speed, pos);     // fadd [0x892220] before the cos / sin calls (24-bit precision: one float32 result)
   }
 }
 
@@ -437,9 +439,9 @@ export class PirateNode extends BkdNode {
     void _c; void w;
     const env = this.env, dt = env.clock.dt;
     const diver = env.records[REC.PEPP];
-    const dx = fr(rec.x - diver.x), dy = fr(rec.y - diver.y), dz = fr(rec.z - diver.z);
+    const dx = sb(rec.x, diver.x), dy = sb(rec.y, diver.y), dz = sb(rec.z, diver.z);
     if (this.alerted && !this.engaged) {
-      if (fr(dz * dz + dy * dy + dx * dx) < C.HUNDRED) {
+      if (ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz)) < C.HUNDRED) {
         this.engaged = true; this.near = true; this.state = 3;
         rec.anim?.start(this.state, 1);
         env.sound.play('SKELETON_ANIMATE');
@@ -447,17 +449,17 @@ export class PirateNode extends BkdNode {
       }
     }
     if (this.engaged) {
-      if (this.cooldown !== C.ZERO) { this.cooldown = fr(this.cooldown - dt); if (this.cooldown < C.ZERO) this.cooldown = 0; }
-      const tx = fr(diver.x - rec.x), ty = fr(diver.y - rec.y), tz = fr(diver.z - rec.z);
-      this.near = !(C.TWO_FIFTY_SIX <= fr(tz * tz + ty * ty + tx * tx));
-      const len = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1;
-      const yaw = fr(Math.atan2(tx / len, tz / len));
-      rec.ry = yaw;
-      rec.setEuler(0, yaw, 0, rec.x, rec.y, rec.z);
+      if (this.cooldown !== C.ZERO) { this.cooldown = sb(this.cooldown, dt); if (this.cooldown < C.ZERO) this.cooldown = 0; }
+      const tx = sb(diver.x, rec.x), ty = sb(diver.y, rec.y), tz = sb(diver.z, rec.z);
+      this.near = !(C.TWO_FIFTY_SIX <= ad(ad(ml(tx, tx), ml(ty, ty)), ml(tz, tz)));
+      const n = normalize3([tx, ty, tz]);                       // FUN_0043cec0, then atan2 of x / z
+      const yaw = fr(Math.atan2(n[0], n[2]));
+      // (the original only rebuilds the matrix: FUN_0043a5e4(rec + 0xc, 0, yaw, 0, pos); the record's +0x50 is not written: WP-VERIFY)
+      setEuler(rec, 0, yaw, 0, rec.x, rec.y, rec.z);
       let ending = false;
       if (this.state !== -1) {
         const a = rec.anim!;
-        if (fr(a.frameCount - C.TWO) < a.frame) ending = true;
+        if (sb(a.frameCount, C.TWO) < a.frame) ending = true;
       }
       if (ending) {
         let next = 2;
@@ -468,7 +470,7 @@ export class PirateNode extends BkdNode {
         if (next !== this.state) { this.state = next; rec.anim?.start(this.state, 1); }
       }
     }
-    if (this.state !== -1) rec.anim?.advance(1.0);
+    if (this.state !== -1) rec.anim?.advance(1.0, w.dt);
     return NODE_STOP;
   }
 

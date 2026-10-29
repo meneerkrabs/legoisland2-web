@@ -1,6 +1,6 @@
 // Pepper's house (z03PPH): the behaviour nodes the set-up attaches (FUN_0053ea4d, docs/re/m3/z03PPH.md) and the state they share. DOM-free.
 //
-//   record PEPP (33)  ClimLadr 0x5421af  @0 always      draw clamp for a ladder the house does not have (no effect)
+//   record PEPP (33)  ClimLadr 0x5421af  @0 always      update 3; draw hook: Pepper is drawn only while walking (y clamp 12.8 never matters)
 //                     SGwalk   0x42f470  @1 var 0x5e & 1  the M1 walk
 //                     PeppComp 0x5400d5  @2 var 0x5e & 4  the computer (position, camera; the menu is stepped by the zone game: ComputerMenu)
 //                     browser  0x541b79  @3 var 0x5e & 2  the trophy browser (update FUN_005414b0, camera FUN_005419dc)
@@ -9,13 +9,15 @@
 //   record DOOR (2)   0x540db1 the door (FUN_00540b96), record LND1 (0) 0x540f4e (always drawn)
 //   records 8..30     Trophy 0x54116c / island trophy 0x5413c4: the trophy shown by the value of a TROPHY_xxx variable (FUN_00541034 / FUN_0054128c)
 // Mode word var 0x5e (PEPPER_CONTROL): 1 walking, 4 computer, 2 trophy browser, 0x20 map view.
-import { NODE_CONTINUE, NODE_STOP } from '../../game/controller.ts';
+import { NODE_RERUN, NODE_STOP } from '../../game/controller.ts';
 import type { BehaviourNode } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { B } from '../../game/input.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import type { ComputerMenu } from './computer.ts';
+import { f32, subf, addf, easeToward, toWorldExact, eulerExact } from '../f32math.ts';
+const F3 = (a: readonly (readonly number[])[]) => a.map((v) => v.map(f32) as unknown as readonly [number, number, number]);
 
 /** PEPPER_CONTROL values of the house */
 export const MODE = { WALK: 1, TROPHIES: 2, COMPUTER: 4, MAP: 0x20 } as const;
@@ -31,16 +33,16 @@ export const REC = { LND1: 0, DOOR: 2, PHSE: 6, FIRST_TROPHY: 8, LAST_TROPHY: 30
 
 // ---------------------------------------------------------------------------------------------------------------------------------- constants
 /** FUN_005408c4: the two fixed camera positions (0x41266666 ...): [0] ground floor, [1] the start / upper floor; `cur` starts at [1] */
-export const CAM_POS: readonly (readonly [number, number, number])[] = [[10.4, 8.8, -8.0], [0.0, 18.4, 8.48]];
+export const CAM_POS: readonly (readonly [number, number, number])[] = F3([[10.4, 8.8, -8.0], [0.0, 18.4, 8.48]]);
 /** FUN_005408c4: hotspot centres (node +0x34, 12 bytes each), types (+0x70) and box half sizes (+0x84) */
-export const HOTSPOT_POS: readonly (readonly [number, number, number])[] = [
+export const HOTSPOT_POS: readonly (readonly [number, number, number])[] = F3([
   [-6.52, 0.96, -6.568], [-15.0, 0.96, 6.0], [-6.0, 0.96, 10.0], [10.772, 0.96, 3.8], [-6.0, 0.96, 10.0],
-];
+]);
 /** 0 = just the box, 1 = the player has to face +z within 0.78 rad (|ry| <= 0.78), 2 = face -z (|ry - pi| <= 0.78) */
 export const HOTSPOT_TYPE: readonly number[] = [0, 0, 1, 0, 0];
-export const HOTSPOT_RADIUS: readonly number[] = [8.0, 8.0, 8.0, 80.0, 1.6];
+export const HOTSPOT_RADIUS: readonly number[] = [8.0, 8.0, 8.0, 80.0, 1.6].map(f32);
 /** 0.78 (0x892600): the heading tolerance of FUN_005402ac */
-export const HEADING_TOLERANCE = 0.78;
+export const HEADING_TOLERANCE = f32(0.78);
 /** hotspot results (FUN_005402ac's return, 5 = none) -> what the player can do there */
 export const HOTSPOT = { COMPUTER: 0, MAP: 1, DOOR: 2, TROPHIES: 3, DOOR_NEAR: 4, NONE: 5 } as const;
 /** the HUD icon (column slot 0, Overlays/z03PPH) per hotspot: _DAT_05d4e144 */
@@ -48,23 +50,23 @@ export const ICON = { NONE: -1, DOOR: 0, TROPHIES: 1, COMPUTER: 2 } as const;
 /** walking out of the door: z > 15.0 (0x892074) leaves the house */
 export const EXIT_Z = 15.0;
 /** camera easing factor of FUN_0054042d (0x8920cc = 0.1 per tick of the distance) and its snap distance */
-export const CAM_EASE = 0.1;
+export const CAM_EASE = f32(0.1);
 /** FUN_00540b96: the door opens 5 degrees per tick up to 90 (0x892070 / 0x892598); position (-3.763, 0, 14.598) (FUN_00540b96's FUN_0043a5e4 call) */
 export const DOOR_STEP = 5, DOOR_MAX = 90, DEG = 0.01745319925248623;
-export const DOOR_POS: readonly [number, number, number] = [-3.763, 0.0, 14.598];
+export const DOOR_POS: readonly [number, number, number] = [f32(-3.763), 0.0, f32(14.598)];
 /** the computer: Pepper's place (FUN_0053ff69) and camera (FUN_0053ffa1: eye, look-at) */
-export const COMPUTER_POS: readonly [number, number, number] = [-6.52, 0.96, -6.704];
-export const COMPUTER_EYE: readonly [number, number, number] = [-8.4, 4.88, -6.704];
-export const COMPUTER_LOOK: readonly [number, number, number] = [-10.92, 4.88, -6.704];
+export const COMPUTER_POS: readonly [number, number, number] = [f32(-6.52), f32(0.96), f32(-6.704)];
+export const COMPUTER_EYE: readonly [number, number, number] = [f32(-8.4), f32(4.88), f32(-6.704)];
+export const COMPUTER_LOOK: readonly [number, number, number] = [f32(-10.92), f32(4.88), f32(-6.704)];
 /** trophy browser / map view: the camera starts and ends at this point (0x41266666, 0x41200000, 0xc13851ec) */
-export const BROWSE_HOME: readonly [number, number, number] = [10.4, 10.0, -11.52];
+export const BROWSE_HOME: readonly [number, number, number] = [f32(10.4), 10.0, f32(-11.52)];
 /** the browser camera follows the trophy with 0.2 of the distance per tick (0x8920f0), arrives within 0.1 (0x8920cc) */
-export const BROWSE_EASE = 0.2, BROWSE_SNAP = 0.1;
+export const BROWSE_EASE = f32(0.2), BROWSE_SNAP = f32(0.1);
 /** FUN_005419dc: camera 2.24 in front of the trophy (z - 2.24), eye 1.44 and look-at 0.64 above the trophy for the mini-game trophies (kind 0) */
-export const BROWSE_BACK = 2.24, BROWSE_EYE_UP = 1.44, BROWSE_LOOK_UP = 0.64;
+export const BROWSE_BACK = f32(2.24), BROWSE_EYE_UP = f32(1.44), BROWSE_LOOK_UP = f32(0.64);
 /** FUN_00541f94 / FUN_00541e71: the wall map (TIMM) is looked at from 2.8 to its +x side */
 export const MAP_TARGET: readonly [number, number, number] = [-15.0, 7.0, 6.0];
-export const MAP_EYE_DX = 2.8;
+export const MAP_EYE_DX = f32(2.8);
 /** the trophy sounds of the browser: the sound ids FUN_0053e7c0 loads into DAT_05d58714 + index * 4 (index = the third word of the attach), no trophy / no index */
 export const TROPHY_SOUND: readonly number[] = [0x28a, 0x298, 0x28b, 0x28e, 0x292, 0x293, 0x297, 0x28f, 0x28d, 0x288, 0x296, 0x290, 0x28c, 0x294, 0x295, 0x291, 0x2e, 0xe3, 0x152, 0x102, 0x29d, 0x2fc, 0x32e];
 export const SOUND_NO_TROPHY = 0x29a, SOUND_NO_INDEX = 0x299;
@@ -101,10 +103,6 @@ export class HouseState {
   /** the camera easing point of the hotspot node (node +0x98) and the floor camera index (+0xa4) */
   camCur: [number, number, number] = [...CAM_POS[1]];
   camIdx = 1;
-  /** the camera state the frame is drawn with (see HotspotNode) and the one of the previous tick; `trueCam` holds the real state while the display camera is swapped in */
-  dispCur: Float64Array | null = null;
-  dispPrev: Float64Array | null = null;
-  trueCam: Float64Array | null = null;
   /** diagnostics: hotspot of the last tick, trophy sounds played */
   lastHotspot: number = HOTSPOT.NONE;
   sounds: number[] = [];
@@ -135,13 +133,15 @@ abstract class HouseNode implements BehaviourNode {
 
 // ---------------------------------------------------------------------------------------------------------------------------------- ClimLadr
 /**
- * ClimLadr (FUN_005421af, vtable 0x8eb7b8, record PEPP, no gate): its update returns 3 and its draw hook draws the record with y clamped to 12.8 while walking
- * (FUN_005420c4). The floor of the house is at y = 0 everywhere (the ladder code at 0x542259 is not attached by the set-up), so the clamp never matters.
- * The original's return code 3 with no exclusive node behaves like 2 (continue); the port's update pass treats 3 as "stop", so 2 is returned.
+ * ClimLadr (FUN_005421af, vtable 0x8eb7b8, record PEPP, no gate): its update returns 3 (FUN_00542090: ran, go on: the house has no exclusive node) and its draw hook (FUN_005420c4)
+ * draws the record itself while Pepper walks (var 0x5e bit 0) with y clamped to 12.8 and returns 1; otherwise it draws nothing and returns 3: either way the default draw is skipped,
+ * so **Pepper is only drawn while walking** (not at the computer, in the trophy browser or at the wall map). The clamp never matters: the ground of the house is at y = 0 everywhere
+ * (the ladder code at 0x542259 is not attached by the set-up), so the port returns 0 ("not handled") while walking and the default draw does what the hook's FUN_00444480 does.
  */
 export class ClimLadrNode extends HouseNode {
   readonly kind = 'ClimLadr';
-  update(): number { return NODE_CONTINUE; }
+  update(): number { return NODE_RERUN; }
+  draw(w: World): number { return (w.vars.get(PEPPER_CONTROL) & 1) === 1 ? 0 : 3; }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------- PeppComp
@@ -163,10 +163,10 @@ export class PeppCompNode extends HouseNode {
 export function scanHotspots(toWorld: (p: readonly number[]) => number[], px: number, pz: number, ry: number): number {
   for (let i = 0; i < 5; i++) {
     const t = HOTSPOT_TYPE[i];
-    const heading = t === 2 ? Math.abs(ry - Math.PI) : Math.abs(ry);
+    const heading = t === 2 ? Math.abs(subf(ry, f32(Math.PI))) : Math.abs(ry);
     if (t === 0 || heading <= HEADING_TOLERANCE) {
       const p = toWorld(HOTSPOT_POS[i]);
-      if (Math.abs(p[0] - px) <= HOTSPOT_RADIUS[i] && Math.abs(p[2] - pz) <= HOTSPOT_RADIUS[i]) return i;
+      if (Math.abs(subf(p[0], px)) <= HOTSPOT_RADIUS[i] && Math.abs(subf(p[2], pz)) <= HOTSPOT_RADIUS[i]) return i;
     }
   }
   return HOTSPOT.NONE;
@@ -176,30 +176,24 @@ export function scanHotspots(toWorld: (p: readonly number[]) => number[], px: nu
  * PeppHse on record PHSE (FUN_005408c4 / vtable 0x8eb538): the update (FUN_0054042d) eases the camera position towards the fixed camera of the player's floor
  * and, while walking, looks at the hotspots; the pre-render hook (FUN_00540733) writes the camera (eye = the eased position, look-at = the player, up = +y).
  *
- * The original builds the view matrix of a frame BEFORE the pre-render pass (FUN_0053dfa2 sits between FUN_0042226e and FUN_004225c5), so what is drawn is the
- * camera the walk node's chase code left after this tick's update pass, starting from the camera of the previous pre-render. This node keeps that "display
- * camera" next to the real one (`HouseState.dispCur`); `swapInDisplayCamera` / the restore at the start of the next update let the renderer draw it.
+ * Which camera is drawn (settled by the differential test m7-z03PPH-emu): the loop sets the view from the camera after the update pass (FUN_0053dfa2), but the camera
+ * functions of the nodes (this one, PeppComp, the browser, the map) call FUN_0043cc5c themselves in the pre-render pass, which sets the device's view again, and the draw hook of
+ * PeppHse (FUN_005407eb) re-applies the camera once more at record 6. Every record is therefore drawn with the camera the PRE-RENDER pass left, i.e. the real camera state:
+ * eye = the eased fixed camera, look-at = the player's position (his feet). (Before WP-VERIFY the port drew the camera of the update pass, which looks 4 above the player.)
  */
 export class HotspotNode extends HouseNode {
   readonly kind = 'PeppHse';
   update(w: World, rec: GameRecord): number {
     const st = houseOf(w), pep = pepperOf(w);
-    restoreCamera(w);
     // FUN_005401e0: the camera look-at is the player; the floor camera index is 0 when the player is not above the height of camera 0 (+0x18 = 8.8)
-    st.camIdx = pep.y - CAM_POS[0][1] <= 0 ? 0 : 1;
+    st.camIdx = subf(pep.y, CAM_POS[0][1]) <= 0 ? 0 : 1;
     // ease the camera position
-    const tgt = CAM_POS[st.camIdx], cur = st.camCur;
-    const dx = tgt[0] - cur[0], dy = tgt[1] - cur[1], dz = tgt[2] - cur[2];
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (dist >= CAM_EASE) {
-      const k = (1 / dist) * (dist * CAM_EASE);      // the normalised delta scaled by dist * 0.1 (FUN_0043cec0 + the multiply)
-      cur[0] += dx * k; cur[1] += dy * k; cur[2] += dz * k;
-    } else { cur[0] = tgt[0]; cur[1] = tgt[1]; cur[2] = tgt[2]; }
+    easeToward(st.camCur, CAM_POS[st.camIdx], CAM_EASE, CAM_EASE);     // FUN_0054042d: the normalised delta scaled by dist * 0.1, snap below 0.1 (float32)
     const v = w.vars;
     if (v.get(PEPPER_CONTROL) === MODE.WALK) {
       if (EXIT_Z < pep.z) st.leave = true;
       const act = (w.input.pressed & B.SHIFT) !== 0;
-      const h = scanHotspots((p) => rec.toWorld(p), pep.x, pep.z, pep.ry);
+      const h = scanHotspots((p) => toWorldExact(rec.m, p), pep.x, pep.z, pep.ry);
       st.lastHotspot = h;
       switch (h) {
         case HOTSPOT.COMPUTER:
@@ -226,13 +220,10 @@ export class HotspotNode extends HouseNode {
           st.icon = ICON.NONE; st.doorOpen = false;
       }
     }
-    return NODE_CONTINUE;
+    return NODE_STOP;       // FUN_0054042d returns 1 (alone in its chain)
   }
   prerender(w: World) {
-    const st = houseOf(w), pep = pepperOf(w), c = w.camera.c;
-    // what this frame is drawn with: the camera as the update pass left it (the first pre-render hook of the tick runs before Pepper's)
-    if (!st.dispCur) { st.dispCur = Float64Array.from(c.subarray(0, 6)); st.dispPrev = Float64Array.from(st.dispCur); }
-    else { st.dispPrev!.set(st.dispCur); st.dispCur.set(c.subarray(0, 6)); }
+    const st = houseOf(w), pep = pepperOf(w);
     // FUN_00540733
     setCam(w, st.camCur, [pep.x, pep.y, pep.z]);
   }
@@ -243,21 +234,6 @@ export function openComputer(w: World) {
   const st = houseOf(w);
   st.computer?.reset();
   w.vars.set(PEPPER_CONTROL, MODE.COMPUTER);
-}
-
-/** put the real camera state back (called at the start of the update pass: the renderer may have swapped the display camera in) */
-export function restoreCamera(w: World) {
-  const st = houseOf(w);
-  if (st.trueCam) { w.camera.c.set(st.trueCam, 0); st.trueCam = null; }
-}
-/** the renderer is about to draw: swap the display camera into the world camera (interpolated by the renderer from `prev` to `c`) */
-export function swapInDisplayCamera(w: World) {
-  const st = houseOf(w);
-  if (!st.dispCur || !st.dispPrev) return;
-  const cam = w.camera;
-  if (!st.trueCam) st.trueCam = Float64Array.from(cam.c.subarray(0, 6));
-  cam.c.set(st.dispCur, 0);
-  cam.prev.set(st.dispPrev, 0);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------- door
@@ -271,19 +247,19 @@ export class DoorNode extends HouseNode {
     switch (this.state) {
       case 0: this.angle = 0; if (open) this.state = 1; break;
       case 1:
-        this.angle += DOOR_STEP;
+        this.angle = f32(this.angle + DOOR_STEP);
         if (DOOR_MAX <= this.angle) this.state = 2;
         if (!open) this.state = 3;
         break;
       case 2: this.angle = DOOR_MAX; if (!open) this.state = 3; break;
       case 3:
-        this.angle -= DOOR_STEP;
+        this.angle = f32(this.angle - DOOR_STEP);
         if (this.angle <= 0) this.state = 0;
         if (open) this.state = 1;
         break;
     }
-    rec.setEuler(0, this.angle * DEG, 0, DOOR_POS[0], DOOR_POS[1], DOOR_POS[2]);
-    return NODE_CONTINUE;
+    rec.m.set(eulerExact(0, f32(this.angle * DEG), 0)); rec.m[12] = DOOR_POS[0]; rec.m[13] = DOOR_POS[1]; rec.m[14] = DOOR_POS[2];   // FUN_0043a5e4
+    return NODE_STOP;       // FUN_00540b96 returns 1 (the node is alone in its chain)
   }
 }
 
@@ -342,6 +318,9 @@ export class TrophyBrowserNode extends HouseNode {
     const st = houseOf(w), pressed = w.input.pressed;
     // the text slots 1 and 3 are cleared every frame (and not slot 2: a stale score line stays)
     st.lines.line1 = ''; st.lines.line3 = '';
+    // FUN_005414b0 fetches the trophy node of the CURRENT record first (`local_10 = **(rec + 0x5c)`); a Left / Right in the same tick changes the record but the hi-score line, the sound and
+    // the value test of this tick still use the old record's node (found by the oracle test: two trophies on the same spot let the camera arrive in the tick of the step)
+    const node = w.records[st.trophyIndex].ctrl?.nodes[0] as TrophyNode | undefined;
     if (st.browseState === 0 && (pressed & ~3) !== 0) st.browseState = 1;     // any button but Left / Right (incl. Esc: the pause menu opens as well)
     if ((pressed & B.ALT) !== 0) st.browseState = 1;
     if ((pressed & B.SPACE) !== 0) st.browseState = 1;
@@ -351,16 +330,10 @@ export class TrophyBrowserNode extends HouseNode {
     const cur = w.records[st.trophyIndex];
     const target: [number, number, number] = st.browseState === 1 ? [...BROWSE_HOME] : [cur.x, cur.y, cur.z];
     const f = st.browseFocus;
-    const dx = target[0] - f[0], dy = target[1] - f[1], dz = target[2] - f[2];
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (BROWSE_SNAP <= dist) {
-      const k = (1 / dist) * (dist * BROWSE_EASE);
-      f[0] += dx * k; f[1] += dy * k; f[2] += dz * k;
+    if (easeToward(f, target.map(f32), BROWSE_EASE, BROWSE_SNAP)) {
       this.moved = true;
     } else {
-      f[0] = target[0]; f[1] = target[1]; f[2] = target[2];
       if (st.browseState === 0) {
-        const node = cur.ctrl?.nodes[0] as TrophyNode | undefined;
         st.lines.line1 = 'HISCORE';
         st.lines.line2 = String(node && node.hiscoreVar >= 0 ? w.vars.get(node.hiscoreVar) : 0);
         st.lines.line3 = trophyLevelId(cur.name);
@@ -383,8 +356,8 @@ export class TrophyBrowserNode extends HouseNode {
     const st = houseOf(w), f = st.browseFocus;
     const tn = w.records[st.trophyIndex].ctrl?.nodes[0] as TrophyNode | undefined;
     // FUN_005419dc
-    if (tn && tn.islandKind === 1) setCam(w, [f[0], f[1], f[2] - BROWSE_BACK], f);
-    else setCam(w, [f[0], f[1] + BROWSE_EYE_UP, f[2] - BROWSE_BACK], [f[0], f[1] + BROWSE_LOOK_UP, f[2]]);
+    if (tn && tn.islandKind === 1) setCam(w, [f[0], f[1], subf(f[2], BROWSE_BACK)], f);
+    else setCam(w, [f[0], addf(f[1], BROWSE_EYE_UP), subf(f[2], BROWSE_BACK)], [f[0], addf(f[1], BROWSE_LOOK_UP), f[2]]);
   }
 }
 
@@ -397,20 +370,14 @@ export class MapViewNode extends HouseNode {
     if (st.mapState === -1) { st.mapFocus = [...BROWSE_HOME]; st.mapState = 0; }
     const target: readonly number[] = st.mapState === 1 ? BROWSE_HOME : MAP_TARGET;
     const f = st.mapFocus;
-    const dx = target[0] - f[0], dy = target[1] - f[1], dz = target[2] - f[2];
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (BROWSE_SNAP <= dist) {
-      const k = (1 / dist) * (dist * BROWSE_EASE);
-      f[0] += dx * k; f[1] += dy * k; f[2] += dz * k;
-    } else {
-      f[0] = target[0]; f[1] = target[1]; f[2] = target[2];
+    if (!easeToward(f, target, BROWSE_EASE, BROWSE_SNAP)) {
       if (st.mapState === 1) { st.mapState = -1; w.vars.set(PEPPER_CONTROL, MODE.WALK); }
     }
     return NODE_STOP;
   }
   prerender(w: World) {
     const f = houseOf(w).mapFocus;
-    setCam(w, [f[0] + MAP_EYE_DX, f[1], f[2]], f);     // FUN_00541e71
+    setCam(w, [addf(f[0], MAP_EYE_DX), f[1], f[2]], f);     // FUN_00541e71
   }
 }
 

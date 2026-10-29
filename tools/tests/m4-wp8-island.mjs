@@ -129,7 +129,33 @@ export default {
       if (have.length) { recs[have[0]].hide(); eq('mode 4: hidden ones are skipped', o.target(recs, null, 1, path)?.record ?? -1, have[1] ?? -1); }
       o.pair(161, 165, 8);
       eq('mode 2: the second record', o.target(recs, null, 1, path)?.record, 165);
-      eq('mode 2 with Pepper in a vehicle and a delivery list: the first record', o.target(recs, null, 8, path, -2)?.record, 161);
+      eq('mode 2 with Pepper in a vehicle and a delivery list: the first record', o.target(recs, null, 8, path, { kind: -2, docks: [], pads: [], nodePos: () => null })?.record, 161);
+      // the vehicle branch of FUN_00424e37 (S4): the nearest FREE berth by XZ distance to `from`, then PATH node number = the berth's INDEX (the original's slip)
+      {
+        const pos = new Map([[1, new Map()]]);
+        const berths = (xs, base) => xs.map(([x, z, taken], k) => ({ map: 1, node: base + k, taken }));
+        const nodeAt = (list, xs) => xs.forEach(([x, z], k) => pos.get(1).set(list[k].node, [x, 0, z]));
+        const docks = berths([[0, 100, false], [50, 0, false], [10, 10, true], [90, 90, false]], 100), pads = berths([[500, 500, false], [20, 5, false], [3, 3, true]], 200);
+        nodeAt(docks, [[0, 100], [50, 0], [10, 10], [90, 90]]); nodeAt(pads, [[500, 500], [20, 5], [3, 3]]);
+        const veh = (kind) => ({ kind, docks, pads, nodePos: (m, n) => pos.get(m)?.get(n) ?? null });
+        const from = { x: 0, y: 0, z: 0 };
+        const P = (n) => [n * 10, n, n * 100];
+        o.pathNode(0x1a5, 16);
+        let t = o.target(recs, from, 8, P, veh(-2));
+        ok(t && near(t.pos, P(1)) && t.record === -1, `boat (-2): the nearest free dock is index 1 (50, 0), its target is PATH node 1 = (${t?.pos})`);
+        t = o.target(recs, from, 8, P, veh(-3));
+        ok(t && near(t.pos, P(1)), `helicopter (-3): the nearest free pad is index 1 (20, 5), target PATH node 1 (${t?.pos})`);
+        docks[1].taken = true; pads[1].taken = true;
+        t = o.target(recs, from, 8, P, veh(-2));
+        ok(t && near(t.pos, P(0)), `dock 1 taken: index 0 (0, 100) is next, PATH node 0 (${t?.pos})`);
+        for (const d of docks) d.taken = true;
+        t = o.target(recs, from, 8, P, veh(-2));
+        ok(t && near(t.pos, [0, 0, 0]), `no free dock: index -1, FUN_00462be9 reads before the array: the origin (${t?.pos})`);
+        t = o.target(recs, from, 8, P, veh(-4));
+        ok(t && near(t.pos, [0, 0, 0]), 'kind -4 (pizza / Ptera code): neither loop runs, index -1');
+        t = o.target(recs, from, 8, P, veh(-1));
+        ok(near(t.pos, P(0x1a5)), 'kind -1 (car): the plain branch, mode 3');
+      }
       o.pathNode(0x1a5, 16);
       ok(near(o.target(recs, null, 1, path).pos, path(0x1a5)), 'mode 3: the PATH node');
       o.record(-1, 16);

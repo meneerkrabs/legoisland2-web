@@ -8,7 +8,7 @@ import { HAT_CUTSCENES } from '../../src/zones/z28HAT.ts';
 import {
   CTOR, REC, K, VAR, WINCH, BRONTY, MEDAL, HAT_SOUNDS, SCORE_CAP, checkRecords, medalOf, resultLines, medalText, applyResult, finishGame, HatShared, findRecords, readAnimDictionary,
 } from '../../src/zones/z28hat/rules.ts';
-import { prepareHat, hatSounds, hatSnapshot, hatUpdate, RIGS } from '../../src/zones/z28hat/game.ts';
+import { prepareHat, hatSounds, hatSnapshot, hatUpdate, hatGlobals, RIGS } from '../../src/zones/z28hat/game.ts';
 import { DINO_ARGS, BABY_ARGS, DINO, DINO_START_CLIP, BABY_START_FRAME, fx, mouthOf } from '../../src/zones/z28hat/nodes.ts';
 import { setRandomSource } from '../../src/zones/parachute/util.ts';
 import { GameVars } from '../../src/game/vars.ts';
@@ -65,8 +65,10 @@ export default {
     const seeded = (s) => { seed = s; setRandomSource(() => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x80000000; }); };
     /** a fresh game: the zone's scene with the set-up's attaches, the constructor effects (prepareHat) */
     const fresh = (s = 1, opts) => {
-      seeded(s);
+      seeded(s); hatGlobals.winchLast = 0;
       fx.rumble = 0; fx.fireball.length = 0;
+      // a recording stand-in for the zone's ZoneParticles (FUN_00442960 / 00442a00 / 00442a20 calls of the fireball)
+      fx.particles = { log: [], start(name, m, pos, rot, gate) { this.log.push(['start', name, m, [...pos], [...rot], [...gate]]); return 7; }, setMatrix(h, m) { this.log.push(['matrix', h, m]); }, on(h) { this.log.push(['on', h]); }, off(h) { this.log.push(['off', h]); } };
       const L = loadZone(ctx, 'z28HAT');
       const sound = hatSounds(null);
       const { shared, nodes } = prepareHat(L.world, arch, sound, opts);
@@ -240,7 +242,7 @@ export default {
         const { hotb, drop, winch, pepp, bron, hate } = G.R;
         near(hotb.x, drop.x, 1e-6, 'balloon x = drop zone'); near(hotb.z, drop.z, 1e-6, 'balloon z = drop zone');
         near(hotb.y, drop.y + 40, 1e-4, 'balloon 40 over the drop zone');
-        near(Math.atan2(hotb.fx, hotb.fz), Math.PI, 1e-5, 'balloon turned half a circle (facing -z)');
+        near(Math.abs(Math.atan2(hotb.fx, hotb.fz)), Math.PI, 1e-5, 'balloon turned half a circle (facing -z)');
         near(winch.y, hotb.y - 18.4, 1e-4, 'the hook hangs 18.4 under the balloon');
         const c = G.w.camera.c;
         const eye = hotb.toWorld([0, 15.2, -16]);
@@ -302,7 +304,7 @@ export default {
         const x0 = G.R.hotb.x;
         run(G, 5, B.LEFT);
         ok(vars(G).get(VAR.CONTROL) === 0, 'knocked: var 0xfc stays 0 for the timer');
-        near(Math.atan2(G.R.hotb.fx, G.R.hotb.fz), Math.PI, 1e-6, 'knocked: Left does not turn');
+        near(Math.abs(Math.atan2(G.R.hotb.fx, G.R.hotb.fz)), Math.PI, 1e-6, 'knocked: Left does not turn');
         ok(G.R.hotb.x - x0 > 1.0, 'knocked: the push moves the balloon');
         run(G, 11);
         ok(vars(G).get(VAR.CONTROL) === 1, 'after 15 ticks (and one more) control is back');
@@ -325,7 +327,7 @@ export default {
         step(G, B.SHIFT);
         ok(vars(G).get(VAR.WINCH) === WINCH.LOWER, 'Shift: lowering (var 0xfa = 1)');
         step(G);
-        near(G.N.winch.len, 18.4, 1e-9, 'the winch moves by the state of the previous tick: the first tick after the press still rests');
+        near(G.N.winch.len, 18.4, 1e-6, 'the winch moves by the state of the previous tick: the first tick after the press still rests');
         const len = G.N.winch.len; step(G); near(G.N.winch.len - len, 1.6, 1e-6, 'lowering: 1.6 per tick');
         ok(G.sound.count('play', 'winchMove') > 0, 'the winch loop plays while it moves');
         step(G, B.SHIFT); ok(vars(G).get(VAR.WINCH) === WINCH.RAISE, 'Shift while lowering: raising');
@@ -453,8 +455,11 @@ export default {
         ok(seen.has(BRONTY.EAT) && seen.has(BRONTY.STANCE), `Bronty went idle -> eat the pizza -> stance (${[...seen]})`);
         ok(Math.abs(bron.anim.frame - 20) < 1.5 && bron.anim.clip === 1, `the fireball leaves at frame ${bron.anim.frame.toFixed(1)} of clip 1`);
         ok(G.sound.count('at', 'brontyBurp') >= 1, 'the burp sound at frame 20');
-        ok(G.R.frb1.flags & 2 && G.R.flames.every((r) => r.flags & 2), 'the three flame sheets are shown while it flies');
-        ok(G.R.frb1.flags & 0x10 && G.R.flames.every((r) => r.flags & 0x10), '(and are not collidable)');
+        ok(!(G.R.frb1.flags & 2) && G.R.flames.every((r) => !(r.flags & 2)), 'the model records FRB1-3 stay hidden (the flames are the burp.par emitter)');
+        const plog = fx.particles.log;
+        ok(plog[0][0] === 'start' && plog[0][1] === 'burp.par' && plog[0][2] === G.R.frb1.m && plog[0][3].join() === '0,0,0' && Math.abs(plog[0][4][0] - Math.PI) < 1e-6 && plog[0][4][1] === 0 && plog[0][4][2] === 0 && plog[0][5].join() === '1,1,1', 'ctor FUN_00793867: start(burp.par, record matrix, 0 0 0, rot (pi 0 0), gate off)');
+        ok(plog.some((e) => e[0] === 'matrix' && e[1] === 7 && e[2] === G.R.frb1.m), 'launch: FUN_00442a00(handle, record matrix)');
+        ok(!plog.some((e) => e[0] === 'on'), 'the gate is switched on in the flying branch, from the next tick');
         const mouth = [G.R.frb1.x, G.R.frb1.y, G.R.frb1.z];
         ok(mouth[1] > bron.y + 10, `it starts at Bronty\'s mouth (${mouth.map((v) => v.toFixed(1))})`);
         const v = G.N.fireball.v; near(Math.hypot(...v), 2.4, 1e-3, 'fireball speed 2.4 per tick');
@@ -470,6 +475,7 @@ export default {
         ok(Math.abs(G.S.push[0] - v[0]) < 1e-9 && G.S.push[1] === 0 && Math.abs(G.S.push[2] - v[2]) < 1e-9, 'push = (vx, 0, vz)');
         ok(G.sound.count('play', 'fireballHit') === 1 && G.sound.count('stop', 'fireballFly') >= 1, 'the hit sound, the loop stops');
         ok(fx.fireball.join() === 'start,stop', 'emitter start / stop');
+        ok(plog.filter((e) => e[0] === 'on').length >= 2 && plog.filter((e) => e[0] === 'off').length === 1 && plog[plog.length - 1][0] === 'off', 'on every flying tick, off once at the hit');
         // a fireball that misses ends 200 from the origin
         const G2 = fresh(9); const f2 = G2.N.fireball;
         f2.active = true; f2.v = [2.4, 0, 0]; G2.R.frb1.x = 150; G2.R.frb1.y = 100; G2.R.frb1.z = 150; G2.R.frb1.flags |= 2;

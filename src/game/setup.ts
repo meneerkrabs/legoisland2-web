@@ -12,6 +12,7 @@ import { parseCompiledWaypoints } from '../formats/waypoints.ts';
 import type { Blk } from '../formats/anim.ts';
 import { GameRecord, RF_NO_COLLIDE, RF_SOLID_HIDDEN, RF_NPC } from './record.ts';
 import { buildRecords } from './zone.ts';
+import { CollisionWorld, NO_GROUND } from './collision.ts';
 import type { ZoneData } from './zone.ts';
 import { World } from './world.ts';
 import { AnimInstance } from './anim.ts';
@@ -20,10 +21,11 @@ import type { BehaviourNode } from './controller.ts';
 import './nodes.ts';
 import { extractZoneSetup, activeEntries, hiddenRecords, nameOfEntry, nameMatches, readZoneTable, ZONE_ARCHIVES, RF } from '../formats/zonesetup.ts';
 import type { Attach, Base, ZoneSetup } from '../formats/zonesetup.ts';
-import { emulateIslandSetup } from '../formats/emusetup.ts';
+import { emulateSetup, emuSpecOf } from '../formats/emusetup.ts';
 import type { EmuEnv, IslandSetup } from '../formats/emusetup.ts';
 import { extractZone } from '../formats/exe.ts';
 import type { Pe } from '../formats/exe.ts';
+import { applyHeaderOnlyCols } from './colshapes.ts';
 import { ST } from './walk.ts';
 import type { WalkNode } from './walk.ts';
 import type { SwimNode } from './swim.ts';
@@ -51,6 +53,8 @@ export interface ZoneProfile {
   setup?: ZoneSetup;
   /** `profileFor(..., { islandVars })`: the full emulation result of the island's set-up (argument blocks, dictionaries, story-handler calls ...) */
   island?: IslandSetup;
+  /** M5: the emulation result of any zone whose set-up runs in the emulator (`profileFor(..., { emuVars })`: the island and the hubs); for the island the same object as `island` */
+  emu?: IslandSetup;
   /** index of the ground record (FUN_004425e0) when known; wins over `ground` */
   groundIndex?: number | null;
   /** a placeholder from `PROFILES` for a zone without a hand-written profile: `setupZone` needs `opts.pe` to extract it */
@@ -166,6 +170,23 @@ export interface ProfileOptions {
   islandVars?: EmuEnv['vars'];
   /** the island's archive (the set-up loads the compiled waypoint maps from it); needed with `islandVars` */
   archive?: Archive;
+  /** M5: run the set-up of ANY emulated zone (the island and the six hubs, `emuSpecOf`) for these game variables, like `islandVars` does for the island (the result is `profile.emu`) */
+  emuVars?: EmuEnv['vars'];
+}
+
+/** the terrain query of the emulated set-up (FUN_0043cd62): the port's ground ray against the zone's ground record (built lazily on the first call) */
+function terrainOf(scene: ZoneScene, archive?: Archive): EmuEnv['terrainHeight'] | undefined {
+  if (!archive) return undefined;
+  let cw: CollisionWorld | null = null;
+  return (ground, x, y, z, dy) => {
+    if (!cw) {
+      cw = new CollisionWorld();
+      cw.records = buildRecords(scene.zone, scene, archive).records;
+    }
+    cw.groundRec = cw.records[ground] ?? null;
+    const h = cw.terrainHeight(x, y, z, dy);
+    return h <= NO_GROUND ? null : h;
+  };
 }
 
 /**
@@ -176,8 +197,9 @@ export function profileFor(zone: string, pe: Pe, scene?: ZoneScene, starts?: num
   starts ??= pe.functionStarts();
   scene ??= extractZone(pe, zone, undefined, starts);
   // the island with concrete game variables: the set-up is RUN out of the executable (emusetup.ts, docs/re/m4/emu.md) instead of interpreted symbolically
-  const emu = zone === 'z02LGI' && opts.islandVars ? emulateIslandSetup(pe, scene, { vars: opts.islandVars, archive: opts.archive }) : null;
-  const setup = emu ? emu.toZoneSetup() : extractZoneSetup(pe, zone, scene, starts);
+  const emuVars = opts.emuVars ?? (zone === 'z02LGI' ? opts.islandVars : undefined);
+  const emu = emuVars && emuSpecOf(zone) ? emulateSetup(pe, scene, { vars: emuVars, archive: opts.archive, terrainHeight: terrainOf(scene, opts.archive) }, zone) : null;
+  const setup = emu ? emu.toZoneSetup() : extractZoneSetup(pe, zone, scene, starts, { ctorRender: true });
   const kind = readZoneTable(pe).find((t) => t.index === setup.subgame)?.kind ?? 0;
   const names = scene.records.map((r) => r.name);
   const ref = zone === 'z02LGI' ? PROFILE_LGI : undefined;
@@ -185,7 +207,7 @@ export function profileFor(zone: string, pe: Pe, scene?: ZoneScene, starts?: num
     zone: setup.zone, subgame: setup.subgame, seaLevel: setup.seaLevel ?? 0, gravity: setup.gravity ?? -10, hub: kind === 1,
     ground: setup.groundName, groundIndex: setup.groundRecord, hide: hiddenRecords(setup, () => 0, names), rig: 'MFIG', setup,
   };
-  if (emu) p.island = emu;
+  if (emu) { p.emu = emu; if (zone === 'z02LGI') p.island = emu; }
   // arrival place: the island keeps the hand-written one (FUN_004c2d22 picks the node from the zone the player comes from: not extracted); the other zones
   // use the waypoint place the set-up code puts the player record at, when there is one
   if (ref?.start) p.start = ref.start;
@@ -319,6 +341,7 @@ export function setupZone(scene: ZoneScene, archive: Archive, profile: ZoneProfi
   world.zone = profile.zone;
   world.records = records;
   world.col.records = records;
+  if (opts.pe && scene.loaderAt > 0) applyHeaderOnlyCols(world, opts.pe, scene);   // the loader's FUN_0043f700 slots (the engine-level S5 rule), before the set-up code writes box shapes
   const gi = profile.groundIndex ?? (profile.ground ? records.findIndex((r) => r.name === profile.ground) : -1);
   world.col.groundRec = gi !== null && gi >= 0 ? records[gi] ?? null : null;
   world.seaLevel = profile.seaLevel;

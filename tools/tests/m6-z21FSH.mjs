@@ -236,7 +236,7 @@ export default {
       {
         const mk = (x, y, z) => { const f = new Fish(new Float32Array(16)); f.x = x; f.y = y; f.z = z; return f; };
         const mkF = (state, casts, rec) => ({ state, bite: 0, casts, bx: 0, by: 0, bz: 0, lure: 0.8, hooked: null, rec });
-        const rec = { x: 0, y: 0, z: 40 };
+        const rec = { x: 0, y: 0, z: 40, m: Object.assign(new Float32Array(16), { 14: 40 }) };
         const hooks = { n: 0, struck() { this.n++; } };
         // within distance^2 / (1 + lure) < 8: the nearest fish bites at once
         const F1 = mkF(ST.WAIT, 5, rec);
@@ -244,7 +244,7 @@ export default {
         const env = { fishing: F1, held: 0, dt: 1, pick: newPick(), buildEuler: () => {} };
         const gh = new Follower([[0, 0, 0]], 0, 1000);
         for (const f of [a, b, far]) { f.hooked = false; f.approaching = true; fishStep(f, gh, env); }
-        ok(env.pick.fish === b && near(env.pick.best, 1 / 1.8, 1e-9), `the nearest fish is the candidate (metric ${env.pick.best})`);
+        ok(env.pick.fish === b && near(env.pick.best, 1 / 1.8, 1e-6), `the nearest fish is the candidate (metric ${env.pick.best})`);
         pickBite(F1, env.pick, hooks, 1);
         ok(F1.bite === 1 && b.biting && b.biteTimer === 30 && F1.hooked === b && hooks.n === 1 && env.pick.fish === null && env.pick.best === 99999, 'it bites: bite = 1, 30 ticks, the picker resets');
         // a fish beyond metric 8 does not bite
@@ -427,7 +427,7 @@ export default {
         const rn = reel(g, 36);
         ok(F.state === ST.LANDED || F.state === ST.READY, `landed after ${rn} ticks (state ${F.state})`);
         g.tick(0);
-        ok(F.state === ST.READY && F.count === 1 && F.total === 780 && S.popups.slots.some((p) => p.active && p.text === '10kg = 780pts'), `10 kg = 780 points (${F.total}), popup "${S.popups.slots.find((p) => p.active)?.text}"`);
+        ok(F.state === ST.READY && F.count === 1 && F.total === 780 && S.popups.slots.some((p) => p.active && p.text === '10kg = 780pt\n'), `10 kg = 780 points (${F.total}), popup "${S.popups.slots.find((p) => p.active)?.text}"`);
         ok(w0 < 10 && f4.weight === 10, `the struggling fish lost weight (${w0}) and gets it back (${f4.weight})`);
         ok(g.spy.played.includes(SND.FISH_CAUGHT) && g.spy.played.includes(SND.CATCH_FISH) && g.spy.said.length >= 1 && ['FSHMA', 'FSHMC', 'ADSGFI09', 'ADSGFI10', 'ADSGFI11', 'ADSGFI12', 'ADSGFI13'].includes(g.spy.said.at(-1)[0]), 'catch sounds and a catch line');
         ok(f4.y === -2 && !f4.hooked, 'the fish goes back into the lake');

@@ -7,17 +7,20 @@
 // 0x2b crouch held, 0x20 in the air (and the trick clips of FUN_0048e840 while the state is 0x20), 0x21 landing, 0x23 crash. The board record SKBD (DAT_009daa7c = 0x24)
 // follows Pepper's matrix and plays SKBD.blk clips 1 (getting on), 3 (rolling), 4 (lean), 5 .. 0xe (the board's part of a trick).
 // docs/re/m6/z01BPK.md lists every constant with its address; tools/tests/m6-z01BPK.mjs checks them against the executable.
+import { parkSession } from '../../island/vehicles/crashsound.ts';
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
-import { RF_NO_COLLIDE } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { B } from '../../game/input.ts';
 import { RAMP_TABLE } from '../../game/camera.ts';
+import { setYawMatrix } from './run.ts';
 import type { BpkRun } from './run.ts';
 
 // ---------------------------------------------------------------------------------------------------------------------------------- constants
 const f32 = Math.fround;
+/** the float32 with this bit pattern (the constants of .rdata: a decimal literal can be one ulp off, e.g. 0x3e490fdb = pi / 16 is not f32(0.19635)) */
+function fbits(u: number): number { const dv = new DataView(new ArrayBuffer(4)); dv.setUint32(0, u, true); return dv.getFloat32(0, true); }
 /** the sweeps of the park: radius 0.8 / skin 0.6 (ground, walls), the second wall sweep radius 0.6 (0x3f4ccccd / 0x3f19999a); the head bump uses 1.4 (0x8d2120) */
 export const PARK = {
   RADIUS: f32(0.8), SKIN: f32(0.6), RADIUS2: f32(0.6), BUMP_RADIUS: f32(1.4),
@@ -31,8 +34,8 @@ export const PARK = {
   JUMP_V0: 20.0, LAUNCH_V0: 30.0, CHARGE_STEP: f32(0.06), CHARGE_MAX: 2.0,
   /** the arena: x +-39.9 (0x892520 / 0x89251c), z +-24 (0x892518 / 0x8921a4), floor 0.6479 (0x892514), camera x +-37.9 / z +-21.9 (0x892508 / 0x892504 / 0x892500 / 0x8924fc) */
   WALL_X: f32(39.9), WALL_Z: 24.0, FLOOR: f32(0.6479), CAM_X: f32(37.9), CAM_Z: f32(21.9),
-  /** the turn away from a wall / the half-pipe: 0.19635 rad per tick (0x8924ec), the pipe's air spin 10 degrees per tick (0x8920d8 = 0.0174532, a truncated pi / 180) */
-  WALL_TURN: f32(0.19635), SPIN: 10.0, DEG: f32(0.0174532),
+  /** the turn away from a wall / the half-pipe: pi / 16 = 0.19634954 rad per tick (0x8924ec = 0x3e490fdb), the pipe's air spin 10 degrees per tick (0x8920d8 = 0.0174532, a truncated pi / 180) */
+  WALL_TURN: fbits(0x3e490fdb), SPIN: 10.0, DEG: f32(0.0174532),
   /** the ledge test only counts on the start platform (z <= -25: 0x892510), a drop of more than 2 (0x892028) */
   LEDGE_Z: -25.0, LEDGE: 2.0, AHEAD: 2.5,
   /** launching off the top of a pipe: y > 9.25 (0x89250c) while moving up */
@@ -110,15 +113,79 @@ export function holdsTrick(held: number, steer: number, y: number, clip: number)
 const UNSET = -107374176.0;    // a local of the original that is not written on one path: the debug heap fill 0xcccccccc read as a float
 const NO_GROUND = -1000.0;     // 0x8920fc
 
-/** FUN_0043cec0: normalise in place (a zero vector stays zero) */
+/** FUN_0043cec0: normalise in place with the executable's float32 stores: l = (float)(x x + y y + z z), k = (float)(1 / sqrt(l)), v[i] = (float)(k v[i]); a zero vector stays zero */
 function normalize(v: number[]): number[] {
-  const l = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
-  if (l !== 0) { const k = 1 / Math.sqrt(l); v[0] *= k; v[1] *= k; v[2] *= k; }
+  const l = f32(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+  if (l !== 0) { const k = f32(1 / Math.sqrt(l)); v[0] = f32(k * v[0]); v[1] = f32(k * v[1]); v[2] = f32(k * v[2]); }
   return v;
 }
 
 /** the states in which the park plays its rolling sound (FUN_0048fece) */
 const ROLLING = [0x0e, 0x19, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2d];
+
+
+// ---------------------------------------------------------------------------------------------------------------------------------- FUN_0048e840 (shared)
+/** the node fields FUN_0048e840 reads and writes (node + 0x18 based: state, +0x1c trickMid, +0x28 / +0x30 stick, +0x40 rate, +0x5c speed, +0x60 maxSpeed, +0x78 progress) */
+export interface TrickNode { state: number; trickMid: number; steer: number; stickY: number; trickRate: number; speed: number; maxSpeed: number; progress: number }
+/** the globals it uses: DAT_05d58004 (the trick score) and DAT_05d58008 (the "landing already counted" flag) */
+export interface TrickGlobals { trickScore: number; trickFlag: number }
+
+/** the progress of a running stunt: at the end +30 score per tick, else +rate and +15 */
+function advanceTrick(n: TrickNode, g: TrickGlobals, dt: number) {
+  if (TRICK.MAX <= n.progress) { n.progress = TRICK.MAX; g.trickScore = f32(TRICK.SCORE_END * dt + g.trickScore); }
+  else {
+    n.progress = f32(n.trickRate * dt + n.progress);
+    if (TRICK.MAX < n.progress) n.progress = TRICK.MAX;
+    g.trickScore = f32(TRICK.SCORE_RUN * dt + g.trickScore);
+  }
+}
+
+/**
+ * FUN_0048e840 (LE2.c:68000, called from FUN_00490e2e at LE2.c:69866 whenever the node's state is 0x20, on the island too): the stunts of the air.
+ * `clip` = Pepper's current clip (FUN_0043b72b), `play` is called for every stunt whose condition holds (the park plays the stunt's own sound,
+ * `if (DAT_05d580a4 == 0) FUN_004435a0(DAT_05d581f0)` on the island plays sound 0x1ab for all of them).
+ */
+export function skateTricks(n: TrickNode, g: TrickGlobals, w: World, rec: GameRecord, board: GameRecord | null, clip: number, play: (t: Trick) => void) {
+  const held = w.input.held, dt = w.dt;
+  let c1 = 0, c2 = 0;
+  if (n.state === 0x20 && clip !== 0x20) {
+    if (!holdsTrick(held, n.steer, n.stickY, clip)) {
+      // the inputs of the running stunt are gone
+      if (0 < n.progress) {
+        if (DECAY_CLIPS.includes(clip)) {
+          n.progress = f32(n.progress - (n.trickRate + n.trickRate) * dt);
+          if (n.progress < 0) n.progress = 0;
+          if (g.trickFlag === 0 && n.progress <= TRICK.JUDGE && g.trickScore !== 0) {
+            n.trickMid = 0;
+            if (n.maxSpeed < PARK.MAX_SPEED_CAP && n.speed === n.maxSpeed) n.maxSpeed = f32(n.maxSpeed + TRICK.SPEED_STEP);
+          }
+        } else if (g.trickFlag === 0 && TRICK.JUDGE <= n.progress && g.trickScore !== 0) {
+          n.trickMid = 1;
+          if (n.maxSpeed < PARK.MAX_SPEED_CAP && n.speed === n.maxSpeed) n.maxSpeed = f32(n.maxSpeed + TRICK.SPEED_STEP);
+        }
+        if (!DECAY_CLIPS.includes(clip)) advanceTrick(n, g, dt);
+      }
+    } else advanceTrick(n, g, dt);
+    // the frame of both clips follows the progress
+    const f = f32((n.progress * 1.0) / TRICK.DIV);
+    const pf = f32((rec.anim?.frameCount ?? 0) * f), bf = f32((board?.anim?.frameCount ?? 0) * f);
+    board?.anim?.seek(bf);
+    rec.anim?.seek(pf);
+  } else n.trickMid = 0;
+  if (clip === 0x20) {
+    // a stunt button with a direction starts a stunt (Space, then Ctrl, then Shift: a later one overrides an earlier one, every one plays its sound)
+    for (const btn of [B.SPACE, B.CTRL, B.SHIFT]) {
+      if ((held & btn) === 0) continue;
+      const tr = trickFor(btn, n.steer, n.stickY);
+      if (!tr) continue;
+      c1 = tr.clip; if (tr.board !== 0) c2 = tr.board;
+      n.trickRate = tr.rate;
+      play(tr);
+    }
+  }
+  if (c1 !== 0) rec.anim?.start(c1, 0);
+  if (c2 !== 0) board?.anim?.start(c2, 0);
+}
 
 // ---------------------------------------------------------------------------------------------------------------------------------- the node
 export class BpkSkate implements BehaviourNode {
@@ -154,7 +221,7 @@ export class BpkSkate implements BehaviourNode {
   pipeN: [number, number, number] = [0, 8.0, 0];
   pipeRec: GameRecord | null = null;
 
-  constructor(run: BpkRun) { this.run = run; }
+  constructor(run: BpkRun) { this.run = run; parkSession.visited = true; }   // the park's sound set (FUN_00492ec0) ran: DAT_05d58064 / 05d5802c hold park slots from now on
 
   private board(w: World): GameRecord | null { return w.records[this.run.board] ?? null; }
 
@@ -176,7 +243,7 @@ export class BpkSkate implements BehaviourNode {
   private input(w: World, rec: GameRecord) {
     this.ramp(w.input.held);
     if (this.maxSpeed <= this.speed) this.speed = this.maxSpeed; else this.speed = f32(this.speed + PARK.PUSH);
-    if (this.state !== 0x20) rec.ry = this.steer * PARK.TURN * w.dt + rec.ry;
+    if (this.state !== 0x20) rec.ry = f32(this.steer * PARK.TURN * w.dt + rec.ry);
   }
 
   // ------------------------------------------------------------------------------------------------------------------------------- sound
@@ -198,24 +265,24 @@ export class BpkSkate implements BehaviourNode {
       // the lean poses: Pepper's clip pepClip and the board's clip 4, both scrubbed to frame n + n * steer / 127
       rec.anim?.start(pepClip, 0);
       board?.anim?.start(4, 0);
-      const s = this.steer / 127.0;
-      if (board?.anim) { const n = (board.anim.frameCount - 1) * 0.5; board.anim.seek(n * s + n); }
-      if (rec.anim) { const n = (rec.anim.frameCount - 1) * 0.5; rec.anim.seek(n * s + n); }
+      const s = f32(this.steer / 127.0);
+      if (board?.anim) { const n = f32((board.anim.frameCount - 1) * 0.5); board.anim.seek(f32(n * s + n)); }
+      if (rec.anim) { const n = f32((rec.anim.frameCount - 1) * 0.5); rec.anim.seek(f32(n * s + n)); }
     };
     switch (this.state) {
       case 0x0e: case 0x19: rate = 1.0; break;
       case 0x16: this.speed = 0; boardRate = 0.5; break;
       case 0x20: {
         // the jump arc: y = vy t + y0 + g t^2 / 2 with vy = g t + v0
-        this.t = 0.1 * dt + this.t;
-        this.vy = this.t * w.gravity + this.v0;
-        let y = this.vy * this.t + this.y0 + w.gravity * (this.t * this.t) * 0.5;
+        this.t = f32(PARK.PUSH * dt + this.t);
+        this.vy = f32(this.t * w.gravity + this.v0);
+        let y = f32(this.vy * this.t + this.y0 + w.gravity * (this.t * this.t) * 0.5);
         const cur = rec.y;
-        if (4.0 < Math.abs(y - cur) && y - cur < 0) y = cur - 4.0;
+        if (4.0 < Math.abs(y - cur) && y - cur < 0) y = f32(cur - 4.0);
         if (y < cur) this.jumpY = y;
         else {
-          const h = w.col.sweep(rec, [rec.x, cur + 4.0, rec.z], [0, y - cur, 0], 1, PARK.BUMP_RADIUS, PARK.BUMP_RADIUS);
-          this.jumpY = h ? (h.point[1] - (y - cur)) - 4.0 : y;
+          const h = w.col.sweep(rec, [rec.x, f32(cur + 4.0), rec.z], [0, f32(y - cur), 0], 1, PARK.BUMP_RADIUS, PARK.BUMP_RADIUS);
+          this.jumpY = h ? f32((f32(h.point[1]) - f32(y - cur)) - 4.0) : y;
         }
         this.grounded = 0;
         this.vx = 0; this.vyv = 0; this.vz = 0;
@@ -230,26 +297,26 @@ export class BpkSkate implements BehaviourNode {
         if (this.steer < 0x15 && -0x15 < this.steer) {
           if (rec.anim?.clip !== 0x29) { next = 0x29; board?.anim?.start(3, 0); }
         } else { lean(0x51); rate = 0; boardRate = 0; }
-        if ((held & B.ALT) !== 0) { next = 0x2a; this.charge = 0.10000000149011612; }
+        if ((held & B.ALT) !== 0) { next = 0x2a; this.charge = PARK.PUSH; }
         break;
       case 0x2a: rate = 1.0; break;
       case 0x2b:
         if ((held & B.ALT) === 0) {
-          this.t = 0; this.v0 = this.charge * PARK.JUMP_V0; this.charge = 0;
-          this.jumpY = this.y0 + 4.0; this.y0 = rec.y;
+          this.t = 0; this.v0 = f32(this.charge * PARK.JUMP_V0); this.charge = 0;
+          this.jumpY = f32(this.y0 + 4.0); this.y0 = rec.y;
           next = 0x20;
         } else {
           if (this.steer < 0x15 && -0x15 < this.steer) {
             if (rec.anim?.clip !== 0x2b) { next = 0x2b; board?.anim?.start(3, 0); }
           } else { lean(0x53); boardRate = 0; }
-          if (this.charge < PARK.CHARGE_MAX) this.charge = PARK.CHARGE_STEP * dt + this.charge;
+          if (this.charge < PARK.CHARGE_MAX) this.charge = f32(PARK.CHARGE_STEP * dt + this.charge);
         }
         rate = 0;
         break;
       case 0x32:
-        this.t = 0.1 * dt + this.t;
-        this.vy = this.t * w.gravity + this.v0;
-        this.jumpY = this.vy * this.t + this.y0 + w.gravity * (this.t * this.t) * 0.5;
+        this.t = f32(PARK.PUSH * dt + this.t);
+        this.vy = f32(this.t * w.gravity + this.v0);
+        this.jumpY = f32(this.vy * this.t + this.y0 + w.gravity * (this.t * this.t) * 0.5);
         this.speed = -1.0;
         rate = 1.0;
         break;
@@ -277,9 +344,9 @@ export class BpkSkate implements BehaviourNode {
       if (fwdY !== 0) this.pipeSpeed = f32(0.25 / fwdY);
     } else {
       if (this.spin >= 0 || fwdY <= PARK.SPIN_STOP) {
-        if (this.spin > 0 && PARK.SPIN_STOP < fwdY) rec.ry = this.spin * PARK.DEG * w.dt + rec.ry;
-      } else rec.ry = this.spin * PARK.DEG * w.dt + rec.ry;
-      if (rec.anim?.clip !== 0x5f) rec.rebuildYaw();
+        if (this.spin > 0 && PARK.SPIN_STOP < fwdY) rec.ry = f32(this.spin * PARK.DEG * w.dt + rec.ry);
+      } else rec.ry = f32(this.spin * PARK.DEG * w.dt + rec.ry);
+      if (rec.anim?.clip !== 0x5f) setYawMatrix(rec);
     }
   }
 
@@ -295,7 +362,7 @@ export class BpkSkate implements BehaviourNode {
       case 0x28: if (-0x14 < this.steer) next = 0x29; break;
       case 0x16:
         // the park: turn (0.19635 per tick) until Pepper faces +z, and lock the stunt logic
-        if (rec.m[10] < PARK.FACE_DOT) { rec.ry = rec.ry - PARK.WALL_TURN * w.dt; rec.rebuildYaw(); }
+        if (rec.m[10] < PARK.FACE_DOT) { rec.ry = f32(rec.ry - PARK.WALL_TURN * w.dt); setYawMatrix(rec); }
         this.locked = 1;
         if (this.animResult === 2) { next = 0x2d; board?.anim?.start(3, 0); }
         break;
@@ -335,10 +402,10 @@ export class BpkSkate implements BehaviourNode {
       }
       case 0x23: this.maxSpeed = PARK.MAX_SPEED; this.speed = 0; if (this.animResult === 2) next = 0x29; break;
       case 0x2a:
-        if (this.charge < PARK.CHARGE_MAX) this.charge = PARK.CHARGE_STEP * w.dt + this.charge;
+        if (this.charge < PARK.CHARGE_MAX) this.charge = f32(PARK.CHARGE_STEP * w.dt + this.charge);
         if (this.animResult !== 0) {
           if ((w.input.held & B.ALT) !== 0) next = 0x2b;
-          else { this.t = 0; this.v0 = this.charge * PARK.JUMP_V0; this.charge = 0; this.jumpY = this.y0 + 4.0; this.y0 = rec.y; next = 0x20; }
+          else { this.t = 0; this.v0 = f32(this.charge * PARK.JUMP_V0); this.charge = 0; this.jumpY = f32(this.y0 + 4.0); this.y0 = rec.y; next = 0x20; }
         }
         break;
       case 0x2d:
@@ -352,75 +419,13 @@ export class BpkSkate implements BehaviourNode {
   }
 
   // ------------------------------------------------------------------------------------------------------------------------------- FUN_0048e840
-  /** the stunts of the air (state 0x20): `clip` = Pepper's current clip. Returns nothing; changes the progress, the score, the clips */
+  /** the stunts of the air (state 0x20): `clip` = Pepper's current clip (the code is shared with the island skateboard, `skateTricks`) */
   private tricks(w: World, rec: GameRecord, clip: number) {
-    const run = this.run, held = w.input.held, dt = w.dt;
-    const board = this.board(w);
-    let c1 = 0, c2 = 0;
-    if (this.state === 0x20 && clip !== 0x20) {
-      if (!holdsTrick(held, this.steer, this.stickY, clip)) {
-        // the inputs of the running stunt are gone
-        if (0 < this.progress) {
-          if (DECAY_CLIPS.includes(clip)) {
-            this.progress = this.progress - (this.trickRate + this.trickRate) * dt;
-            if (this.progress < 0) this.progress = 0;
-            if (run.trickFlag === 0 && this.progress <= TRICK.JUDGE && run.trickScore !== 0) {
-              this.trickMid = 0;
-              if (this.maxSpeed < PARK.MAX_SPEED_CAP && this.speed === this.maxSpeed) this.maxSpeed = f32(this.maxSpeed + TRICK.SPEED_STEP);
-            }
-          } else if (run.trickFlag === 0 && TRICK.JUDGE <= this.progress && run.trickScore !== 0) {
-            this.trickMid = 1;
-            if (this.maxSpeed < PARK.MAX_SPEED_CAP && this.speed === this.maxSpeed) this.maxSpeed = f32(this.maxSpeed + TRICK.SPEED_STEP);
-          }
-          if (!DECAY_CLIPS.includes(clip)) this.advanceTrick(dt);
-        }
-      } else this.advanceTrick(dt);
-      // the frame of both clips follows the progress
-      const f = (this.progress * 1.0) / TRICK.DIV;
-      const pf = (rec.anim?.frameCount ?? 0) * f, bf = (board?.anim?.frameCount ?? 0) * f;
-      board?.anim?.seek(bf);
-      rec.anim?.seek(pf);
-    } else this.trickMid = 0;
-    if (clip === 0x20) {
-      // a stunt button with a direction starts a stunt (Space, then Ctrl, then Shift: a later one overrides an earlier one, every one plays its sound)
-      for (const btn of [B.SPACE, B.CTRL, B.SHIFT]) {
-        if ((held & btn) === 0) continue;
-        const tr = trickFor(btn, this.steer, this.stickY);
-        if (!tr) continue;
-        c1 = tr.clip; if (tr.board !== 0) c2 = tr.board;
-        this.trickRate = tr.rate;
-        run.sounds.play(tr.sound);
-      }
-    }
-    if (c1 !== 0) rec.anim?.start(c1, 0);
-    if (c2 !== 0) board?.anim?.start(c2, 0);
-  }
-
-  /** the progress of a running stunt: at the end +30 score per tick, else +rate and +15 */
-  private advanceTrick(dt: number) {
-    const run = this.run;
-    if (TRICK.MAX <= this.progress) { this.progress = TRICK.MAX; run.trickScore = TRICK.SCORE_END * dt + run.trickScore; }
-    else {
-      this.progress = this.trickRate * dt + this.progress;
-      if (TRICK.MAX < this.progress) this.progress = TRICK.MAX;
-      run.trickScore = TRICK.SCORE_RUN * dt + run.trickScore;
-    }
+    skateTricks(this, this.run, w, rec, this.board(w), clip, (tr) => this.run.sounds.play(tr.sound));
   }
 
   // ------------------------------------------------------------------------------------------------------------------------------- FUN_00490e2e
-  /**
-   * The board record SkBoard.col (384 polygons with flags 0x23) sits at Pepper's feet; the sweeps from 1.2 above his feet start inside the skin of the board's
-   * chamfer planes and lift him onto it every tick. The original evidently does not (same rules in FUN_00441270, UNCERTAIN why: the island port made the same
-   * observation, docs/re/m4/wp6-vehicles.md), so the board is left out of the skateboard's own sweeps.
-   */
-  private withoutBoard<T>(w: World, f: () => T): T {
-    const b = this.board(w);
-    if (!b || (b.flags & RF_NO_COLLIDE)) return f();
-    b.flags |= RF_NO_COLLIDE;
-    try { return f(); } finally { b.flags &= ~RF_NO_COLLIDE; }
-  }
-
-  update(w: World, rec: GameRecord, _ctrl: Controller): number { void _ctrl; return this.withoutBoard(w, () => this.ride(w, rec)); }
+  update(w: World, rec: GameRecord, _ctrl: Controller): number { void _ctrl; return this.ride(w, rec); }
   /** FUN_004928d2: in the park both of its branches are skipped (they test CURRENT_SUBGAME != 1) */
   prerender(): void { /* nothing */ }
 
@@ -435,27 +440,27 @@ export class BpkSkate implements BehaviourNode {
       this.speed = 0;
       if (g.mailbox === 1) {
         // the walk node was jumping: continue the jump on the board
-        g.mailbox = 0x20; this.state = 0x20; this.t = 0; this.v0 = 20.0; this.y0 = rec.y; this.jumpY = this.y0 + 2.0;
+        g.mailbox = 0x20; this.state = 0x20; this.t = 0; this.v0 = 20.0; this.y0 = rec.y; this.jumpY = f32(this.y0 + 2.0);
       } else if (g.mailbox !== 0) { this.state = g.mailbox; g.mailbox = 0; }
     }
     if (this.state !== 0x23 && this.state !== 0x16) { this.input(w, rec); }
     next = this.stateWork(w, rec);
     let ground = UNSET;          // local_2c
     if (this.state !== 0x16) {
-      const h = w.col.sweep(rec, [rec.x, rec.y + PARK.FEET, rec.z], [0, this.vyv * dt - PARK.GROUND_REACH, 0], 3, PARK.RADIUS, PARK.SKIN);
+      const h = w.col.sweep(rec, [rec.x, f32(rec.y + PARK.FEET), rec.z], [0, f32(this.vyv * dt - PARK.GROUND_REACH), 0], 3, PARK.RADIUS, PARK.SKIN);
       if (!h) {
         this.grounded = 1; this.onPipe = 0; this.pipeRec = null;
         g.surfaceAtFeet = w.col.lastSurface();
       } else {
         g.surfaceAtFeet = w.col.lastSurface();
-        if (h.rec.name === 'QPIP') { this.onPipe = 1; this.pipeRec = h.rec; this.pipeN = [h.normal[0], h.normal[1], h.normal[2]]; }
+        if (h.rec.name === 'QPIP') { this.onPipe = 1; this.pipeRec = h.rec; this.pipeN = [f32(h.normal[0]), f32(h.normal[1]), f32(h.normal[2])]; }
         else if (this.grounded !== 0) { this.onPipe = 0; this.pipeRec = null; }
-        ground = h.point[1];
+        ground = f32(h.point[1]);
         if (this.t === 0) rec.y = ground;
       }
     }
     // the matrix: flat from the yaw unless the jump clip is playing (then the tilt of the half-pipe stays)
-    if (rec.anim?.clip !== 0x20) rec.rebuildYaw();
+    if (rec.anim?.clip !== 0x20) setYawMatrix(rec);
     if (this.state === 0x20 || this.onPipe || this.state === 0x16) {
       if (this.onPipe && this.state !== 0x23 && !this.locked) {
         // tilt Pepper to the pipe's surface: up = the normal, forward = the old forward without its normal part
@@ -464,33 +469,33 @@ export class BpkSkate implements BehaviourNode {
       }
     }
     const fx = rec.m[8], fy = rec.m[9], fz = rec.m[10];
-    this.vx = this.speed * fx * dt; this.vyv = this.speed * fy * dt; this.vz = this.speed * fz * dt;
+    this.vx = f32(this.speed * fx * dt); this.vyv = f32(this.speed * fy * dt); this.vz = f32(this.speed * fz * dt);
     if (this.onPipe && !this.grounded && this.pipeRec) {
       // above a half-pipe the board slides along the pipe's right axis by pipeSpeed (the sign follows the spin)
       const pr = this.pipeRec.m;
-      const dx = this.pipeSpeed * pr[0], dy = this.pipeSpeed * pr[1], dz = this.pipeSpeed * pr[2];
+      const dx = f32(this.pipeSpeed * pr[0]), dy = f32(this.pipeSpeed * pr[1]), dz = f32(this.pipeSpeed * pr[2]);
       if (this.spin > 0) { this.vx = dx; this.vyv = dy; this.vz = dz; }
       else if (this.spin < 0) { this.vx = -dx; this.vyv = -dy; this.vz = -dz; }
     }
     // walls: slide along, turn away from the wall; a second hit stops the board
     const ox = rec.x, oy = rec.y, oz = rec.z;                  // local_68 / 64 / 60
     {
-      const from = [rec.x, rec.y + PARK.FEET, rec.z];
+      const from = [rec.x, f32(rec.y + PARK.FEET), rec.z];
       let h = w.col.sweep(rec, from, [this.vx, this.vyv, this.vz], 3, PARK.RADIUS, PARK.SKIN);
       if (h && h.rec.name !== 'QPIP') {
-        const n = h.normal;
-        const d = n[2] * this.vz + n[1] * 0 + n[0] * this.vx;
-        this.vx -= n[0] * d; this.vyv -= n[1] * d; this.vz -= n[2] * d;
+        const n = [f32(h.normal[0]), f32(h.normal[1]), f32(h.normal[2])];
+        const d = f32(n[2] * this.vz + n[1] * 0 + n[0] * this.vx);
+        this.vx = f32(this.vx - n[0] * d); this.vyv = f32(this.vyv - n[1] * d); this.vz = f32(this.vz - n[2] * d);
         if (this.spin === 0) {
           const dr = n[2] * rec.m[2] + n[1] * rec.m[1] + n[0] * rec.m[0];
-          if (dr <= 0) rec.ry = rec.ry - PARK.WALL_TURN * dt; else rec.ry = PARK.WALL_TURN * dt + rec.ry;
+          if (dr <= 0) rec.ry = f32(rec.ry - PARK.WALL_TURN * dt); else rec.ry = f32(PARK.WALL_TURN * dt + rec.ry);
         }
-        h = w.col.sweep(rec, [ox, oy + PARK.FEET, oz], [this.vx, this.vyv, this.vz], 3, PARK.RADIUS2, PARK.SKIN);
+        h = w.col.sweep(rec, [ox, f32(oy + PARK.FEET), oz], [this.vx, this.vyv, this.vz], 3, PARK.RADIUS2, PARK.SKIN);
         if (h) { this.vx = 0; this.vyv = 0; this.vz = 0; }
       }
     }
-    let nx = rec.x + this.vx, nz = rec.z + this.vz;
-    let ny = rec.y + this.vyv;
+    let nx = f32(rec.x + this.vx), nz = f32(rec.z + this.vz);
+    let ny = f32(rec.y + this.vyv);
     if (this.t !== 0) {
       if (this.jumpY <= ground) {
         ny = ground; next = 0x21;
@@ -502,11 +507,11 @@ export class BpkSkate implements BehaviourNode {
       if (-PARK.WALL_X <= nx) {
         if (PARK.WALL_X < nx) {
           nx = PARK.WALL_X;
-          if (this.spin === 0) { const d = rec.m[0] * -8.0; if (d <= 0) rec.ry = rec.ry - PARK.WALL_TURN * dt; else rec.ry = PARK.WALL_TURN * dt + rec.ry; }
+          if (this.spin === 0) { const d = rec.m[0] * -8.0; if (d <= 0) rec.ry = f32(rec.ry - PARK.WALL_TURN * dt); else rec.ry = f32(PARK.WALL_TURN * dt + rec.ry); }
         }
       } else {
         nx = -PARK.WALL_X;
-        if (this.spin === 0) { const d = rec.m[0] * 8.0; if (d <= 0) rec.ry = rec.ry - PARK.WALL_TURN * dt; else rec.ry = PARK.WALL_TURN * dt + rec.ry; }
+        if (this.spin === 0) { const d = rec.m[0] * 8.0; if (d <= 0) rec.ry = f32(rec.ry - PARK.WALL_TURN * dt); else rec.ry = f32(PARK.WALL_TURN * dt + rec.ry); }
       }
       if (-PARK.WALL_Z <= nz) { if (PARK.WALL_Z < nz) nz = PARK.WALL_Z; } else nz = -PARK.WALL_Z;
     }
@@ -515,12 +520,12 @@ export class BpkSkate implements BehaviourNode {
     next = this.machine(w, rec, next);
     // an edge in front (only on the start platform, z <= -25): off it in a jump (v0 30)
     const yNow = rec.y;
-    const px = rec.m[8] * PARK.AHEAD + ox, py = rec.m[9] * PARK.AHEAD + oy, pz = rec.m[10] * PARK.AHEAD + oz;
-    let below = w.col.terrainHeight(px, py, pz, 4.0);
+    const px = f32(rec.m[8] * PARK.AHEAD + ox), py = f32(rec.m[9] * PARK.AHEAD + oy), pz = f32(rec.m[10] * PARK.AHEAD + oz);
+    let below = f32(w.col.groundRay(px, f32(py + 4.0), pz));
     if (below < NO_GROUND) below = w.seaLevel;
-    const hd = w.col.sweep(rec, [px, py + 80.0, pz], [0, -160.0, 0], 1, 0.009999999776482582, 0);   // FUN_00441a90
-    if (hd && below < hd.point[1]) below = hd.point[1];
-    if (PARK.LEDGE < yNow - below && w.col.terrainHeight(ox, oy, oz, 4.0) < rec.y && this.state !== 0x20 && this.state !== 0x16 && next !== 0x20 && rec.z <= PARK.LEDGE_Z) {
+    const hd = w.col.sweep(rec, [px, f32(py + 80.0), pz], [0, -160.0, 0], 1, 0.009999999776482582, 0);   // FUN_00441a90
+    if (hd && below < f32(hd.point[1])) below = f32(hd.point[1]);
+    if (PARK.LEDGE < yNow - below && w.col.groundRay(ox, f32(oy + 4.0), oz) < rec.y && this.state !== 0x20 && this.state !== 0x16 && next !== 0x20 && rec.z <= PARK.LEDGE_Z) {
       this.launch(rec);
       next = 0x20;
     }
@@ -534,16 +539,16 @@ export class BpkSkate implements BehaviourNode {
     if (this.state === 0x20) this.tricks(w, rec, clip);
     // the board follows Pepper
     const board = this.board(w);
-    if (board) { for (let i = 0; i < 15; i++) if (i !== 3 && i !== 7 && i !== 11) board.m[i] = rec.m[i]; board.rx = rec.rx; board.ry = rec.ry; board.rz = rec.rz; }
+    if (board) { for (let i = 0; i < 15; i++) if (i !== 3 && i !== 7 && i !== 11) board.m[i] = rec.m[i]; }   // the original copies the 12 matrix words only (not the Euler angles +0x4c .. +0x54): WP-VERIFY
     // the skateboard camera: looks at 4 above Pepper, the eye eases (0.1, in the air 0.8) to (0, 12, -14) in his frame, kept inside the arena
     const c = w.camera.c;
     const k = this.state === 0x20 ? PARK.CAM_EASE_AIR : PARK.CAM_EASE;
-    c[3] = rec.x; c[4] = rec.y + 4.0; c[5] = rec.z;
-    const ideal = rec.toWorld(PARK.CAM_OFFSET);
-    c[0] = (ideal[0] - c[0]) * k + c[0];
+    c[3] = rec.x; c[4] = f32(rec.y + 4.0); c[5] = rec.z;
+    const ideal = rec.toWorld(PARK.CAM_OFFSET).map(f32);
+    c[0] = f32((ideal[0] - c[0]) * k + c[0]);
     if (-PARK.CAM_X <= c[0]) { if (PARK.CAM_X < c[0]) c[0] = PARK.CAM_X; } else c[0] = -PARK.CAM_X;
-    c[1] = (ideal[1] - c[1]) * k + c[1];
-    c[2] = (ideal[2] - c[2]) * k + c[2];
+    c[1] = f32((ideal[1] - c[1]) * k + c[1]);
+    c[2] = f32((ideal[2] - c[2]) * k + c[2]);
     if (-PARK.CAM_Z <= c[2]) { if (PARK.CAM_Z < c[2]) c[2] = PARK.CAM_Z; } else c[2] = -PARK.CAM_Z;
     return NODE_STOP;
   }
@@ -551,7 +556,7 @@ export class BpkSkate implements BehaviourNode {
   /** a jump from the ground without a crouch: v0 30, start height = the current y (the original plays DAT_05d5802c = sound 300, SND_SILENCE: nothing to hear) */
   private launch(rec: GameRecord) {
     this.t = 0; this.v0 = PARK.LAUNCH_V0; this.charge = 0;
-    this.jumpY = this.y0 + 4.0; this.y0 = rec.y;
+    this.jumpY = f32(this.y0 + 4.0); this.y0 = rec.y;
   }
 }
 
@@ -565,12 +570,12 @@ export const SND = { WHEELS: 0x94, FALLOFF: 0x1a8, HUNGRY: 0x1b4, PIZZASPIN: 0x1
  */
 export function alignTo(rec: GameRecord, nIn: readonly number[]) {
   const m = rec.m;
-  const n = normalize([nIn[0], nIn[1], nIn[2]]);
+  const n = normalize([f32(nIn[0]), f32(nIn[1]), f32(nIn[2])]);
   let f = [m[8], m[9], m[10]];
-  const d = f[2] * n[2] + f[1] * n[1] + f[0] * n[0];
-  f = [f[0] - d * n[0], f[1] - d * n[1], f[2] - d * n[2]];
+  const d = f32(f[2] * n[2] + f[1] * n[1] + f[0] * n[0]);
+  f = [f32(f[0] - d * n[0]), f32(f[1] - d * n[1]), f32(f[2] - d * n[2])];
   normalize(f);
-  const r = [n[1] * f[2] - n[2] * f[1], n[2] * f[0] - n[0] * f[2], n[0] * f[1] - n[1] * f[0]];
+  const r = [f32(n[1] * f[2] - n[2] * f[1]), f32(n[2] * f[0] - n[0] * f[2]), f32(n[0] * f[1] - n[1] * f[0])];
   m[0] = r[0]; m[1] = r[1]; m[2] = r[2];
   m[4] = n[0]; m[5] = n[1]; m[6] = n[2];
   m[8] = f[0]; m[9] = f[1]; m[10] = f[2];

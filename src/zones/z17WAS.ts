@@ -2,13 +2,15 @@
 // `zonewas`: src/zones/z17was/rules.ts) and the zone game (the 2D layer, the intro / banner texts, the medal variables, the sounds, the fixed camera).
 import { registerCtor } from '../game/setup.ts';
 import { registerZoneGame } from '../shell/zonegame.ts';
+import { GATE_ON, ZoneParticles } from '../fx/particles/zone.ts';
 import type { ZoneGame } from '../shell/zonegame.ts';
 import { parseBlk } from '../formats/anim.ts';
 import type { Blk } from '../formats/anim.ts';
 import type { Ui2D } from '../ui/renderer2d.ts';
 import type { SoundSlot } from '../audio/sfx.ts';
+import { restoreHooks } from '../restore/flag.ts';
 import {
-  CTOR_PEPWAS, CTOR_ZONEWAS, PepWasNode, ZoneWasNode, WasShared, ALL_SOUNDS_2D, ALL_SOUNDS_3D, WAS_FOV, resultOf, checkRecords, prepareWas, applyResult, resultLine, medalText,
+  REC, CTOR_PEPWAS, CTOR_ZONEWAS, PepWasNode, ZoneWasNode, WasShared, ALL_SOUNDS_3D, WAS_FOV, resultOf, checkRecords, prepareWas, applyResult, resultLine, medalText,
 } from './z17was/rules.ts';
 import type { WasSounds } from './z17was/rules.ts';
 
@@ -26,20 +28,25 @@ registerZoneGame('z17WAS', async (ctx) => {
   const rig = (n: string): Blk | null => { const e = archive.find(`anim/${n}.blk`); return e ? parseBlk(archive.read(e)) : null; };
   const { pepNode, node } = prepareWas(world, pep, { SNAK: rig('SNAK'), MFIG: rig('MFIG') }, sh.pe);
   ctx.gr.fov = WAS_FOV;
+  // FUN_0069b337: four `wasfire.par` torches on the WAS record (22), at fixed offsets, always on (gate 2, 1, 1: the game variable 2 is always 1)
+  const fx = await ZoneParticles.create(ctx);
+  if (fx) {
+    const was = records[REC.WAS].m;
+    for (const p of [[-7.769999980926514, 8.5, 6.827000141143799], [7.7870001792907715, 8.5, 6.7789998054504395], [6.880000114440918, 6.5, -8.413999557495117], [-6.880000114440918, 6.5, -8.413999557495117]]) fx.start('wasfire.par', was, p, [-1.5707964, 0, 0], GATE_ON);
+    fx.finish();
+  }
 
-  // sounds: 2D ones through the world's sink (the first play of an id only loads it), 3D ones (Pepper's swings) through GameAudio's positional slots
+  // sounds: 2D ones through the world's sink (the zone's list is loaded by the audio host), 3D ones (Pepper's swings) through GameAudio's positional slots
   const ga = sh.audio.ga;
   const slots3 = new Map<number, SoundSlot>();
   if (ga) {
     for (const id of ALL_SOUNDS_3D) ga.sfx.load3D(id).then((s) => slots3.set(id, s)).catch(() => { /* silent */ });
-    const c = world.camera.c;
-    const f = [c[3] - c[0], c[4] - c[1], c[5] - c[2]], l = Math.hypot(f[0], f[1], f[2]) || 1;
-    ga.sfx.setListener({ x: c[0], y: c[1], z: c[2] }, { x: f[0] / l, y: f[1] / l, z: f[2] / l }, { x: 0, y: 1, z: 0 });
+    // the original's z17WAS never sets the 3D listener: it keeps the pose the previous zone left (audio.md 11.4)
   }
-  for (const id of ALL_SOUNDS_2D) ctx.sfx(id);
   const sounds: WasSounds = {
     play: (id) => ctx.sfx(id),
     play3D: (id, x, y, z) => { const s = slots3.get(id); if (s && ga) ga.sfx.play3D(s, { x, y, z }); },
+    cue: (name, kind) => restoreHooks.cue?.(name, { sfx: (id: number) => ctx.sfx(id), hud, strings: ctx.strings, kind }),   // restored content (option off: unset)
   };
   shared.sounds = sounds;
 
@@ -50,8 +57,8 @@ registerZoneGame('z17WAS', async (ctx) => {
   let bannerDone = false;
 
   const syncHud = () => {
-    hud.leftText = String(node.gems);        // sprintf(DAT_05d4dd20, "%d", p+0x110)
-    hud.rightText = String(node.hits);       // sprintf(DAT_05d4dd44, "%d", p+0x114)
+    hud.leftText = node.gemText;        // sprintf(DAT_05d4dd20, "%d", p+0x110)
+    hud.rightText = node.hitText;       // sprintf(DAT_05d4dd44, "%d", p+0x114)
     hud.centreText = node.timeText;          // sprintf(DAT_05d4dd60, "%02d:%02d", ...)
   };
   syncHud();
@@ -77,7 +84,7 @@ registerZoneGame('z17WAS', async (ctx) => {
     bannerTick() { pep.anim?.advance(1.0); },
     draw2d(ui: Ui2D, _dt: number, mode: number) {
       if (mode === 1) ctx.text(ui, 'ADSGWS06', 320, 200, { maxChars: 28 });
-      else if (mode === 2) ui.text(1, String(node.score), 320, 400, { colour: 0, maxChars: 28 });   // FUN_00439c6f(0, font, "%d", 1, 0, 320, 400, 28)
+      else if (mode === 2) ui.text(1, node.scoreText, 320, 400, { colour: 0, maxChars: 28 });   // FUN_00439c6f(0, font, "%d", 1, 0, 320, 400, 28)
     },
     drawBanner(ui: Ui2D) {
       const s = shared.finalScore;

@@ -1,5 +1,6 @@
 // Streams a software synth through Web Audio: renders small blocks ahead of time into AudioBuffers and schedules them back to back.
-// No AudioWorklet (works everywhere, incl. headless); latency is `ahead` seconds, irrelevant for music and ambience beds.
+// No AudioWorklet (works everywhere, incl. headless). The blocks are scheduled at exact context times, so a caller that knows `lead` (how far
+// the render head is ahead of what is audible) can start something at an exact moment (music.ts: DirectMusic's start after the prepare time).
 export type RenderFn = (L: Float32Array, R: Float32Array, n: number) => void;
 
 export class SynthStream {
@@ -28,9 +29,21 @@ export class SynthStream {
 
   get running(): boolean { return this.timer !== null; }
 
+  /** the first block of a stream that starts now is audible this long from now (seconds) */
+  static readonly START_DELAY = 0.03;
+
+  /**
+   * Seconds the render head (the next frame to be rendered) is ahead of the audible output: the audible position is the head minus this.
+   * For a stream that is not running it is what `start()` would give.
+   */
+  get lead(): number { return this.timer === null ? SynthStream.START_DELAY : Math.max(0, this.nextTime - this.ctx.currentTime); }
+
+  /** while `render` runs: the context time at which the block being rendered becomes audible */
+  get blockStart(): number { return this.nextTime; }
+
   start() {
     if (this.timer !== null) return;
-    this.nextTime = this.ctx.currentTime + 0.03;
+    this.nextTime = this.ctx.currentTime + SynthStream.START_DELAY;
     this.timer = setInterval(() => this.pump(), 20);
     this.pump();
   }

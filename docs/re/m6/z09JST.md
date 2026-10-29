@@ -23,6 +23,7 @@ where that mattered was checked against `LE2.asm.txt` (see 6).
 | `src/zones/z09jst/game.ts` | the `ZoneGame`: HUD, aim marker (FUN_005d2814), the panels, `project`, `markerSegments` |
 | `tools/lib/jst-bot.mjs` | scripted player (`jstKeys`): the keys a player presses in each state |
 | `tools/tests/m6-z09JST.mjs` | node tests (`node tools/test-formats.mjs --only m6-z09JST`) |
+| `tools/lib/m7-z09JST-cover.mjs`, `tools/tests/m7-z09JST-cover.mjs` | the WP-VERIFY coverage test (dt = 0.5, injected states, dead branches, restart; section 10) |
 | `tools/lib/jst-emu.mjs`, `tools/tests/m6-z09JST-emu.mjs` | the **oracle**: the original's duel code executed in the x86 interpreter next to the port (`--only m6-z09JST-emu`) |
 | `tools/steps/m6-z09JST.mjs`, `m6-z09JST-look.mjs` | headless browser runs with real key input (win, loss, results, retry, abort) / screenshots of every phase |
 | shared edits | `src/zones/index.ts`: one import line; `docs/re/m6/progress.md`: the status section |
@@ -77,7 +78,7 @@ where that mattered was checked against `LE2.asm.txt` (see 6).
 | 0x21 | popup (`FUN_005d4070`, by the state the clash went to: 4 / 0xb / 0xc / 0xe) | any button -> 0x22 |
 | 0x22 | player < 3 and dark knight < 3: the next round (spectators back to their start clips, `FUN_005d4860`); player 3: **won**; dark knight 3: **lost** | |
 | 0x23 | the tableau: the knights on the rows of `0x905a80` (won: rows 0..3, lost: 4..7), camera 0xe orbits (angle + 0.009 per tick); the end panel (`FUN_005d4467`) is drawn; the loop is in mode 4 | a button -> result menu |
-| 0xd, 0x15, 0x1c, 0x1d | unreachable in the shipped game (no code sets them); ported for completeness | |
+| 0xd, 0x15, 0x1c, 0x1d | unreachable in the shipped game (no code sets them: section 10 lists every store to `+0x4c`); ported, and compared with the original by injection | |
 
 Reaction states (0xf .. 0x20) run clips of the groups' rows (read from the executable tables) and move the knights apart by `charge / 32` per tick; the thrown / hit knight is the one whose
 group is in mode 0 (the manager's last record runs on its own, the zone code moves it).
@@ -127,11 +128,11 @@ The marker is drawn around the shield of the dark knight (the projection of bone
 * **Aim units**: the marker's offsets are in screen pixels of the original's back buffer (`FUN_004445c0` = D3D `ProcessVertices`); the port uses the 640 x 480 virtual grid of the 2D layer (the original's resolution was configurable: 640 / 800 / 1024 wide, so the tolerance of 6.3 px was relatively tighter at higher resolutions).
 * **Marker position**: `FUN_005d2814` projects the local point (0, 0, 0) with the D3D world matrix that the *last drawn object* of `FUN_00444480` left, i.e. the last attachment of the dark knight, the shield (slot 9, bone 16). The port takes bone 16 of his pose (record matrix applied); the shield mesh's own origin offset is ignored.
 * **Camera modes 5 and 10** read `FUN_0043bc58(anim, 0)`: bone 0 of the pose buffer that the draw (`FUN_004440f0`, identity root `PTR_DAT_008b5830` = `DAT_008b57f0`) left, i.e. in model space; the code writes world x + 64 / 200 over its x, doubles y and uses the matrix translation as the target, so z is the pelvis' model-space z (about 0), not a world coordinate. Reproduced as it is (the camera looks along +z at the flying knight's height); the oracle confirms the arithmetic, the space of the buffer follows from the identity root.
-* **Stick**: the analogue stick path (`DAT_00983848 .. 50`) is not ported (no stick values in the port's input mapper); the keys behave like the original's.
-* **Random numbers**: the original uses C `rand()` (MSVC LCG; the port `MsvcRng`, time seeded) and, for the reaction variant, `ftol(rand * GetTickCount-since-start) & 3` (the port uses the tick count x 33.3 ms); the same distributions, not the same sequence.
+* **Stick**: the analogue stick path of the ride (`DAT_0098384c / 50`, dead zone +-20, `stick / 128 * aimStep`, no dt, read only while no key is held) is ported in `JoustDuel.update(held, pressed, stickX, stickY)` and compared with the original by the coverage test (section 10); the input mapper has no stick, so the `JSTGame` node's `stick` stays (0, 0) (nothing else to do for keyboard play: gaps.md says the stick variables only see the digital +-0x7f).
+* **Random numbers**: the original uses C `rand()` (MSVC LCG at `0x85daf0`) through `FUN_004388ae(range)`; the port's `MsvcRng.range` is **bit-identical** to it for the same seed (9000 draws of the native original, section 10); only the seed differs (time seeded). The reaction variant is `ftol(rand * GetTickCount-since-start) & 3`: the port uses its tick count x 1000 x dt / 30 (ms of simulated time) instead of the wall clock.
 * **Subtitles / speech**: speech lines are started with `ctx.say` (ignored while another line is still speaking, like `FUN_00435a11`); lines that arrive while the end popup is up overlap it as in the original.
 * The HUD is drawn after the popup panel (the original draws it last): while a popup is up the zone game draws the HUD itself on top.
-* The unreachable states 0xd, 0x15, 0x1c, 0x1d are ported but no test reaches them.
+* The unreachable states 0xd, 0x15, 0x1c, 0x1d are ported and are reached by the coverage test (section 10) by writing the state into both nodes.
 * The `SeaAmin` / `seabed` nodes of the set-up are the engine's (the renderer animates the sea itself).
 
 ## 7. Tests
@@ -161,3 +162,62 @@ Scenarios: two wins (charge 40 / 30), a loss, SPACE too early, random key mashin
 ## 9. For the story / other zones
 
 The zone is entered from the castle (z07CSI) at story node 23 and leaves with `story.miniGameExit(true, true)` (node 24) or rewinds to the castle. Variables other zones read: 0x18 (best score, shown by the information center) and 0xcb (trophy 0..3: Pepper's house shows the gold / silver / bronze jousting trophy, `JST_Gold/Silver/Bronze` models of z03PPH).
+
+## 10. Differential test (WP-VERIFY): coverage
+
+`node tools/test-formats.mjs --only m7-z09JST-cover` (about 80 scenarios, 54 000 ticks, 34.5 million checks, about 20 s). It reuses the oracle of section 7 (`JstEmu`, extended in `tools/lib/m7-z09JST-cover.mjs`: `JstCoverEmu`, `runScenario`,
+`buildOracle`) and compares the original's code with the port **every tick**: node fields, aim point, camera, all 30 records' matrices / flags / clips / frames, both managers' modes and clips, every sound / speech / gear / effect call, every variable
+write, the popup / end panel texts and how many panels the original draws. Tolerance 1e-5 relative to max(1, |value|) for floats (ints, flags, clips, calls exactly); worst difference seen 4.8e-7 (the spectators' facing matrices, `Record.setEuler` against the
+engine's matrix builder, 4 ulp), 99.4 % of the float compares bit-identical.
+
+### What the first oracle test did not cover (the gaps) and how they are closed
+
+| gap | closed by |
+|---|---|
+| dt: the original ran with the image's dt = 1 only, the port had `dt = K.ONE` hard-wired | every scenario at **dt = 1 and dt = 0.5**: `DAT_008b1718 = dt`, `DAT_008b171c = 1/dt`, the hosted engine advance multiplies by it (as `FUN_0043b76a` does: `rate * DAT_008b1718 + frame`), `GetTickCount` counts dt x 1000 / 30 ms per tick; the port gets `world.dt`. **Fixed in the port**: `JoustDuel.dt` (set by the `JSTGame` node from `world.dt`), `MfigMan.dt`, the `Flag` / `Anims` nodes use `w.dt`, the movement / camera / aim constants and the variant clock use it. A sensitivity check runs the port at the other dt and must fail |
+| states 0xd, 0x15, 0x1c, 0x1d (gaps.md: "no test") | written into the node of both sides at 7 moments of a round (right after the clash of a glance / hit / hurt, 10 ticks into the reaction, mid ride, during the charge, while the dark knight walks: dt 1 and 0.5): the original's own code runs the state and the rest of the round. Ticks run in them: 0xd 7, 0x15 288, 0x1c 91, 0x1d 321. 0 differences |
+| medals / tournaments | gold, silver, bronze, lost 0:3, lost 2:3 (a planner bot loses `k` rounds first), the "only raised" variables with pre-set values above / below / equal; all four end panels (`FUN_005d4467` cases 0..3) |
+| release speeds, charge dithering | release at 19 / 25 / 35 / 45 / 59.5 (every hoof class, speed cap), pump / rest / pump (`FUN_005d1d1c`'s `clip[0] == 0xd` branch), LEFT held at the end of the bugle (`toggle = held & 1`) |
+| analogue stick | `update(held, pressed, stickX, stickY)` added to the port (it did not read it), compared against the original with random stick values (inside / outside the dead zone, with and without keys) and a stick-only aimed ride |
+| `FUN_005d1b41` (hoofbeats) | function level: 12 speeds (every boundary: 18, 30, 30+ulp, 40, 40+ulp, 60) x frames -2..30 against `JoustDuel.hooves`: 396 calls, 0 differences |
+| restart in place | see below |
+
+### Dead or rare branches (reached by writing a value into both sides; the evidence that play cannot reach them)
+
+* **States 0xd, 0x15, 0x1c, 0x1d**: the stores to the node's `+0x4c` in the whole executable are exactly `0x5ce5cc` (1), `5ce622` (2), `5ce723` (3), `5ce847` (8), `5ce877` (4), `5cead7` (5), `5cec0a` (6), `5cecf7` (7), `5cef12` / `5cef91` (0x1f / 9), `5cf5d5` / `5cf5fc` / `5cf60b` (0xb / 0xc / 0xe), `5cf953 5cf9b9 5cfa1f 5cfa81` (0xf 0x11 0x12 0x13), `5cfd17 5cfd7d 5cfde3 5cfe45` (0x16 0x18 0x19 0x1a), `5cfef8 5d00eb 5d0eee` (0x20), `5d01d2` (0x10), `5d02e5 .. 5d0fa9` (0x1f), `5d066b` (0x14), `5d0857` (0x17), `5d0cf6` (0x1b), `5d1078 5d1098 5d10d2 5d12bd` (0x21 0x22 0x23), `5d4879` (0); `DAT_05d5b0a8` is referenced only by the zone code and the camera. The states 0xa, 0x1e, >= 0x24 are no case at all (the switch falls through to the spectators and the camera; also compared).
+* `5ce987` speed < 0 clamp: the charge starts at 0 and is raised by +1 per press, `speed - speed * 0.0075 * dt` stays >= 0 (dead; written -5 / -0.01). `5ce9af` speed > 60 clamp: reachable (a press every tick: release at 59.5).
+* `5cf81c` precision < 0: state 0xb is entered only with aim^2 < 40, so `ftol(40 - aim^2) >= 0` (dead; written 45); `5cf835` precision 0 -> 1: aim^2 in (39, 40), narrow but reachable (written 39.5).
+* `5ced5a` state 6 `dz <= tz`: the dark knight's z (-79) only slides 15 ticks x 0.12 (= 1.8, also at dt 0.5: 30 x 0.06) towards `horse z + 3.75 = -81.25`, never reaching it (dead; written -82).
+* camera modes 2 and 4: no store of 2 or 4 to `+0x100` (list of stores: 1 9 0xa 0xb 0xc 3 5 6 7 0xf 0xf 0xd 8 0xe 0xe 0): mode 2 is the no-op default, mode 4 (`5f3473`, target = the dark knight's record) the same as mode 3; modes > 0xf and negative go to the default; mode 0 with the spline made (`5f2f60`: frees it) cannot occur because the round reset that sets mode 0 also clears the flag. All written and compared.
+* popup `+0x118`: only 4 / 0xb / 0xc / 0xe are ever stored; 0xd (same lines as 0xe) and every other value (nothing drawn, no panel) written and compared. The result branches of state 0x22 with both sides at >= 3 points (the player's branch wins), 5 and 4 points.
+* `5f3bae` (`FUN_005f3b61` on an already bound manager: the old group's flag 2 is cleared): the constructor binds each manager once, right after `FUN_005f3aef` zeroed it, so dead; compared at function level on both managers (record flags and clips).
+* `5f3ed2` (`FUN_005f3d78`: a manager in mode 0 whose rider clip is a one-shot ends with noWrap 0: the rider holds on its last frame): not reached by any scripted play; reached by writing one-shot rider rows in the glance state 0x20.
+
+Instruction coverage of the original (trace hook): 6467 distinct instructions of the zone / mfigman ranges; per function range the numbers are asserted in the test (`FUNCS`). Everything left unexecuted is not code: the state switch's jump table (`5d1a06..5d1ab5`), the popup / panel
+tables (`5d4448..5d4465`, `5d4688..5d4697`), the camera's (`5f3a50..5f3a8f`) and `int3` padding (`5d27db`, `5d4b52`). **Not run by the oracle** (rendering / engine glue): `FUN_005d2814` (aim marker), `FUN_005d3f30` (HUD), `FUN_005cd33d` (zone loop),
+`FUN_005cdb60` / `FUN_005ce1c6` (attach), `FUN_005d4b60` (models); the marker layout and the HUD-after-popup order stay as noted in section 6 (rendering topics, not tested here).
+
+### Restart in place (a finding, fixed)
+
+A retry / pause-menu restart (exit state 3) does **not** rebuild the node in the original: `FUN_00423532` (called by the attach `FUN_005cdb60` with `DAT_008adc74 = 0`) calls the constructor `FUN_005d1f64` with the existing node, which takes the **else branch**
+(`FUN_004435b0` x 2, `FUN_005f3aef` x 2, points / score / aim step reset, `FUN_005d1e1b`, `FUN_005f3b61` x 2, `FUN_005d4860`) and keeps every node field that neither it nor the round set-up writes (the oracle lists them: `level`, `variant`, `popup`, `rider`, `splineRate`,
+`splineT`, `aimSq`, `bonusSpeed`, `precision`, `roundPts`, `medal`, `step`, `aimStep`, `+0xc0`, parts of the camera vectors). The port rebuilds the whole zone (a fresh `JoustDuel`). Only `level` (`+0x44`) has an effect before it is overwritten: the `Anims` nodes advance the
+spectators' clips while it is 1 .. 3, so after a retry the crowd's idle clips run (frames 0 -> 4 within 120 ticks) until the next round; in a fresh zone they stand still until the first clash. **Fixed**: `rig.ts` `rememberRestart` / `applyRestart` carry these fields over (`createJstGame` calls
+them with `ctx.attempt`; `destroy()` stores them). The test restarts the original after a lost 2:3, a gold and a silver tournament (dt 1 and 0.5) and compares 400 / 763 ticks with the port; without the carried level the first tick already differs (sensitivity check).
+
+### Documentation statements that were wrong or stale
+
+* section 6 "Stick: not ported": ported now (`update(.., stickX, stickY)`); the keyboard never produces a stick value without a key.
+* section 6 "same distributions, not the same sequence": the generator is bit-identical (`MsvcRng` = `0x85daf0` + `FUN_004388ae`), only the seed (time) and the clock of the variant roll differ.
+* section 6 "the unreachable states are ported but no test reaches them": tested (injection).
+* section 3.1: states 0xd 0x15 0x1c 0x1d: confirmed unreachable (list of all stores above).
+* the port's `dt` was fixed to 1 everywhere (the 60 Hz step of the engine would have run this zone at half speed per tick in some places and not in others): now dt-correct, verified at dt 0.5.
+
+The emulator's x87 stack holds doubles (no 80-bit intermediates): results that depend on the extended precision of the original's float10 intermediates (rare, 1 ulp of float32) cannot be separated from the port's double arithmetic by this oracle.
+
+
+## WP-PART-WIRE / WP-MINI (2026-10-29)
+
+* **Emitters** (`FUN_005d1f64`, `createJstGame`): `botexpl01` is started with `FUN_004429e0`, which only returns the invalid handle `0xbabababa` (a stripped debug stub: nothing is shown, every call with that handle is ignored; also in z40aPO). Eight `orsemud1` (matrix = the horse record, offset 0; rotation (-pi/2, 0, 0) / 0 alternating; the second one starts ON, then all eight off): 0..3 on `HORS` (record 12), 4..7 on `DRKH` (record 29). State 8 -> 9 (`FUN_0044ea60(handle, 2, 1, 1)` x 8) switches them on, state 0x1f off (x 8). At the end of every update the eight matrices are rebuilt: `FUN_0043a9e5(DAT_05d5aea8 + 0x40 k, horse record matrix, FUN_0043bc58(horse anim, bone))` with bones 0x17, 0x1b, 0xb, 0xe and handed over with `FUN_00442a00` (`JoustDuel.placeMud`). The bone matrices are those of the LAST DRAW (nothing in the update re-poses a horse): the clip / frame at the start of the tick, identity root.
+* **Verification**: `m6-z09JST-emu` compares every gate and matrix call of the original (171,432 over 15 scenarios, 13.6 M comparisons in all) with the port's; the oracle's pose buffer of the horses is frozen at the start of the tick (`drawBuf` in `tools/lib/jst-emu.mjs`); `m7-z09JST-cover` unchanged (0 diff). Screenshots `tools/steps/m6-z09JST-fx.mjs`.
+* **Not exact / open**: (1) the aim marker is laid out in the 640 x 480 units of the original's 640 x 480 mode (its aim offsets and the 6.3 px radius are raw back-buffer pixels: exact at 640 x 480; the original's other modes (800 / 1024 / 1280) change the relative size; its default mode could not be settled from the code, `Settings` file absent); (2) the marker sits on bone 16 of the dark knight's pose, the original on the origin of the last drawn mesh (the shield attachment): its attachment offset is not known; (3) the HUD is drawn after the round popup (as the original's loop order; unverified against a reference).

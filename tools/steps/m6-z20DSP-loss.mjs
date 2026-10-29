@@ -66,7 +66,11 @@ export default async ({ page, shot, wait, log, key }) => {
   expect('the clock stands still while paused', (await dbg()).clock === c0);
   // the pause page 18: continue / restart / abort -> the last item
   await key('ArrowDown'); await key('ArrowDown'); await wait(200);
-  await key('Enter'); await wait(2500);
+  await key('Enter'); await wait(600);
+  await key('ArrowDown'); await wait(200); await key('Enter');       // the confirmation page (Annuleren / OK): OK
+  // the way back loads the hub (z16PYA): wait for it (a hub zone is much bigger than a mini-game)
+  await page.waitForFunction(() => window.__zone?.info?.archive === 'z16PYA', [], { timeout: 120000 }).catch(() => {});
+  await wait(1000);
   const arch = await page.evaluate(() => window.__zone?.info?.archive);
   const v2 = await vars();
   log('after abort', arch, JSON.stringify(v2));

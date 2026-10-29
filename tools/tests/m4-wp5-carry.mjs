@@ -123,7 +123,7 @@ export default {
       ok(shown >= 10 && shown < 12, `the hand pizzas appear at frame ${shown.toFixed(1)} (10)`);
       ok(gone > 40 && gone < 43, `and go at frame ${gone.toFixed(1)} (> 40)`);
       ok(reach > 0 && hit > 0, `the NPC in reach during the last 5 frames (incomingPizza 2 x${reach}, pizzaHitOn 2 x${hit})`);
-      ok(I.ictx.sounds.some((x) => x.id === SND_PIZZA.HIT), 'Piza_Hit at the end of the hand-over');
+      ok(!I.ictx.sounds.some((x) => x.id === SND_PIZZA.HIT), 'no Piza_Hit at the end of the hand-over (finding V1: the compiled-out emitter start returns 0xbabababa and the original guards the sound on it)');
       ok((w.vars.get(0x63) & 0x18) === 0 && !h0.enabled && !h1.enabled, `bits cleared, both hidden (${hex(w.vars.get(0x63))})`);
       ok(walk.state === ST.IDLE, `back to idle (${hex(walk.state)})`);
       notes.push(`hand-over: shown f${shown.toFixed(1)}, gone f${gone.toFixed(1)}, reach ${reach}, hit ${hit}`);

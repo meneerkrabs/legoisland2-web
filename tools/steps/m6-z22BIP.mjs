@@ -58,7 +58,7 @@ export default async ({ page, shot, wait, log, key }) => {
       await wait(25);
     }
   }
-  await apply(0);
+  if (RUN === 'quick') { await apply(0); }
   if (RUN === 'quick') { await shot('8-quick'); log('quick run done', JSON.stringify(await dbg())); return; }
   // ---- the banner
   let m = await mode();
@@ -66,6 +66,7 @@ export default async ({ page, shot, wait, log, key }) => {
   log('game over', JSON.stringify(end));
   for (let i = 0; i < 40 && m === 2; i++) { await wait(250); m = await mode(); }
   expect('the end banner (mode 4)', m === 4, 'mode ' + m);
+  await apply(0);          // (the keys of the pilot stay down until the banner was seen: the release is an input edge too)
   await wait(800);
   await shot('9-banner');
   const after = await dbg();

@@ -28,8 +28,9 @@ export const ROCKY = {
   STONE_SCALE: 2,
 } as const;
 
-export interface Stone { active: boolean; vx: number; vy: number; vz: number; x: number; y: number; z: number; life: number; ax: number; ay: number; az: number; sx: number; sy: number; sz: number }
-const newStone = (): Stone => ({ active: false, vx: 0, vy: 0, vz: 0, x: 0, y: 0, z: 0, life: 0, ax: 0, ay: 0, az: 0, sx: 0, sy: 0, sz: 0 });
+/** `dax..daz`: the angles the draw (FUN_0070cdba) uses this tick: it draws with `ax..az` and only then adds the spin rates (the port adds them in the update) */
+export interface Stone { active: boolean; vx: number; vy: number; vz: number; x: number; y: number; z: number; life: number; ax: number; ay: number; az: number; sx: number; sy: number; sz: number; dax: number; day: number; daz: number }
+const newStone = (): Stone => ({ active: false, vx: 0, vy: 0, vz: 0, x: 0, y: 0, z: 0, life: 0, ax: 0, ay: 0, az: 0, sx: 0, sy: 0, sz: 0, dax: 0, day: 0, daz: 0 });
 
 export class RockyNode implements BehaviourNode {
   readonly kind = 'Rocky';
@@ -48,32 +49,35 @@ export class RockyNode implements BehaviourNode {
     if (!this.inited) { this.inited = true; rec.anim?.start(3, 0); }
     const pl = w.records[REC.PLANE], walk = run.plane;
     const anim = rec.anim;
-    const d2 = F(F(F(rec.x - pl.x) * F(rec.x - pl.x)) + F(F(rec.y - pl.y) * F(rec.y - pl.y)) + F(F(rec.z - pl.z) * F(rec.z - pl.z)));
+    // `dist` is the original's `local_14`: the plane's squared distance (float32) ... overwritten by the (not squared) distance of every ACTIVE banana in the loop below (a hit
+    // or not), so the next state is chosen from the distance of the last active banana whenever one is in the air
+    let dist = F(F(F(rec.x - pl.x) * F(rec.x - pl.x)) + F(F(rec.y - pl.y) * F(rec.y - pl.y)) + F(F(rec.z - pl.z) * F(rec.z - pl.z)));
     if (this.state !== 3 && walk) {
       for (const bn of walk.bananas) {
         if (!bn.active) continue;
-        const d = Math.hypot(F(bn.x - rec.x), F(bn.y - rec.y), F(bn.z - rec.z));
-        if (d < ROCKY.HIT_R && this.state !== 2) {
+        const dx = F(bn.x - rec.x), dy = F(bn.y - rec.y), dz = F(bn.z - rec.z);
+        dist = F(Math.sqrt(dx * dx + dy * dy + dz * dz));
+        if (dist < ROCKY.HIT_R && this.state !== 2) {
           anim?.start(2, 0);
           this.state = 3;
           walk.score += ROCKY.HIT_SCORE;
         }
       }
     }
-    const next = () => this.pick(rec, d2);
+    const next = () => this.pick(rec, dist);
     switch (this.state) {
-      case 0: if (anim && anim.advance(1) !== 0) this.state = next(); break;
+      case 0: if (anim && anim.advance(1, w.dt) !== 0) this.state = next(); break;
       case 1:
-        if (anim && anim.advance(1) !== 0) this.state = next();
+        if (anim && anim.advance(1, w.dt) !== 0) this.state = next();
         if (anim && ROCKY.THROW_FRAME < anim.frame && !this.thrown) {
           run.sound.at('rmChuck', [rec.x, rec.y, rec.z]);
           this.spawn(run, rec);
           this.thrown = true;
         }
         break;
-      case 2: if (anim && anim.advance(1) !== 0) this.state = next(); break;
+      case 2: if (anim && anim.advance(1, w.dt) !== 0) this.state = next(); break;
       case 3:
-        if (anim && anim.advance(1) !== 0) {
+        if (anim && anim.advance(1, w.dt) !== 0) {
           run.sound.at('rmSmack', [rec.x, rec.y, rec.z]);
           this.state = 0;
           anim.seek(anim.frameCount - 1);
@@ -124,11 +128,13 @@ export class RockyNode implements BehaviourNode {
           walk.score -= PLANE.SPIN_COST;
           if (walk.score < 0) walk.score = 0;
           run.stats.stoneHits++;
+          run.cue?.('bip-stone-hit', [s.x, s.y, s.z]);
         }
       }
       s.x = F(s.x + s.vx); s.y = F(s.y + s.vy); s.z = F(s.z + s.vz);
       s.life = Math.trunc(s.life - dt);
-      if (s.life < 1 || s.y <= 0) s.active = false;
+      if (s.life < 1 || s.y <= 0) { s.active = false; continue; }
+      s.dax = s.ax; s.day = s.ay; s.daz = s.az;          // the draw uses these, then turns the stone
       s.ax = F(s.ax + s.sx); s.ay = F(s.ay + s.sy); s.az = F(s.az + s.sz);
     }
   }
@@ -136,7 +142,7 @@ export class RockyNode implements BehaviourNode {
 
 /** the matrix of a stone for drawing: scale 2, then the spin and the place (FUN_0070cdba) */
 export function stoneMatrix(s: Stone): Float32Array {
-  const r = buildMatrix(s.ax, s.ay, s.az, s.x, s.y, s.z);
+  const r = buildMatrix(s.dax, s.day, s.daz, s.x, s.y, s.z);
   for (const i of [0, 1, 2, 4, 5, 6, 8, 9, 10]) r[i] *= ROCKY.STONE_SCALE;
   return r;
 }

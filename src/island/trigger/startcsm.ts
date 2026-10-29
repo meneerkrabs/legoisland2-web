@@ -17,6 +17,7 @@ import type { Attach } from '../../formats/zonesetup.ts';
 import { ArgView, recIndexOfPtr } from '../args.ts';
 import { tryCtx } from '../ctx.ts';
 import { vehicles } from '../vehicles/common.ts';
+import { ad, sb, ml, fr } from '../../zones/common/f32.ts';
 
 // ----------------------------------------------------------------------------- constants
 
@@ -28,15 +29,15 @@ export const SLOT_FIRED = -20, SLOT_DONE = -30;
 /** 0x892090: waypoint radius scale (the block's radius is in walker units, the comparison in world units) */
 export const RADIUS_SCALE = 8;
 /** 0x7e967699: radius^2 of a trigger without waypoints (never used: it fires at once) */
-export const NO_RADIUS = 1e38;
+export const NO_RADIUS = 9.999999680285692e+37;
 /** Pepper's clip 0x1c (FUN_0043b72b(pepper anim) == 0x1c): an armed trigger waits while it plays */
 export const CLIP_BLOCKS_TRIGGER = 0x1c;
 /** 0x8921f4: added to |half extents|^2 for the portal's proximity radius (node +0x20) */
 export const PORTAL_RADIUS_BIAS = 16;
 /** 0x892590: portal spin per tick about x (0.5 degree) */
-export const PORTAL_SPIN = 0.0087266;
+export const PORTAL_SPIN = 0.008726599626243114;
 /** 0x892220: the portal faces the camera + pi / 2 */
-export const PORTAL_FACE_OFFSET = 1.5708;
+export const PORTAL_FACE_OFFSET = 1.5707963705062866;
 /** 0x892038: the portal ignores the player for its first 30 ticks (node +0x40 counts by dt) */
 export const PORTAL_ARM_TICKS = 30;
 /** emulated .bss of FUN_0051e475: 2 rows x 3 record pointers */
@@ -44,8 +45,9 @@ export const PORTAL_TABLE_VA = 0x05d58688;
 /** FUN_00423xxx record link table (rows of 3 record pointers, count at 0x9da828) used by FUN_004240d1 */
 export const LINK_TABLE_VA = 0x009da7e0, LINK_COUNT_VA = 0x009da828;
 
-const PI = 3.1415927, TWO_PI = 6.2831855;
-export function wrapAngle(a: number) { return a < -PI ? a + TWO_PI : a > PI ? a - TWO_PI : a; }
+const PI = 3.1415927410125732, TWO_PI = 6.2831854820251465;
+/** the original's one-step wrap (every value a float) */
+export function wrapAngle(a: number) { return -PI <= a ? (PI < a ? sb(a, TWO_PI) : a) : ad(a, TWO_PI); }
 
 // ----------------------------------------------------------------------------- shared helpers
 
@@ -146,9 +148,10 @@ export class StartCsmNode implements BehaviourNode {
     this.a = a;
     this.slot = a.slot;
     if (a.waypoints.length) {
-      const r = a.radius * RADIUS_SCALE;
-      this.r2 = r * r;
-      this.r2icon = (r + r) * (r + r);
+      const r = ml(a.radius, RADIUS_SCALE);
+      this.r2 = ml(r, r);
+      const r2 = ad(r, r);
+      this.r2icon = ml(r2, r2);
     } else { this.r2 = NO_RADIUS; this.r2icon = 0; }
   }
 
@@ -170,12 +173,12 @@ export class StartCsmNode implements BehaviourNode {
       else {
         if (!pep) return NODE_NONE;
         this.nearest = -1;
-        let best = 1e38;
+        let best = NO_RADIUS;
         const p = [0, 0, 0];
         for (let i = 0; i < a.waypoints.length; i++) {
           waypoints.nodePos(a.map, a.waypoints[i], p);
-          const dx = p[0] - pep.x, dy = p[1] - pep.y, dz = p[2] - pep.z;
-          const d = dz * dz + dy * dy + dx * dx;
+          const dx = sb(p[0], pep.x), dy = sb(p[1], pep.y), dz = sb(p[2], pep.z);
+          const d = ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz));
           if (d <= best) { this.nearest = i; best = d; }
         }
         if (a.keyMask === 0 && a.icon !== 0 && best < this.r2icon) V.or(VAR_INTERACT_ICONS, a.icon);
@@ -260,16 +263,16 @@ export class PortalNode implements BehaviourNode {
   fired = 0;
   constructor(a: PortalArgs) {
     this.a = a;
-    this.radius2 = a.half[2] * a.half[2] + a.half[1] * a.half[1] + a.half[0] * a.half[0] + PORTAL_RADIUS_BIAS;
+    this.radius2 = ad(ad(ad(ml(a.half[0], a.half[0]), ml(a.half[1], a.half[1])), ml(a.half[2], a.half[2])), PORTAL_RADIUS_BIAS);
   }
   update(w: World, rec: GameRecord, ctrl: Controller): number {
     const a = this.a, V = w.vars;
-    this.age += 1 * w.dt;
-    if (a.spin) rec.rx = wrapAngle(rec.rx + PORTAL_SPIN);
+    this.age = ad(ml(1, fr(w.dt)), this.age);
+    if (a.spin) rec.rx = wrapAngle(ad(rec.rx, PORTAL_SPIN));
     if (a.faceCamera) {
       const c = w.camera.c;
       rec.ry = wrapAngle(rec.ry);
-      rec.ry = Math.atan2(rec.x - c[0], rec.z - c[2]) + PORTAL_FACE_OFFSET;
+      rec.ry = fr(Math.atan2(sb(rec.x, c[0]), sb(rec.z, c[2])) + PORTAL_FACE_OFFSET);   // (the sum of the unrounded atan2 and the constant, rounded once)
     }
     if (a.faceCamera || a.spin) rec.setEuler(rec.rx, rec.ry, rec.rz, rec.x, rec.y, rec.z);
     if (ctrl.distSq < this.radius2) {
@@ -284,7 +287,7 @@ export class PortalNode implements BehaviourNode {
             if (!t) return NODE_NONE;
           }
           const p = t as GameRecord | null;
-          if (p && Math.abs(rec.x - p.x) <= a.half[0] && Math.abs(rec.y - p.y) <= a.half[1] && Math.abs(rec.z - p.z) <= a.half[2]) {
+          if (p && Math.abs(sb(rec.x, p.x)) <= a.half[0] && Math.abs(sb(rec.y, p.y)) <= a.half[1] && Math.abs(sb(rec.z, p.z)) <= a.half[2]) {
             if ((w.input.pressed & a.keyMask) === a.keyMask) {
               if (sel >= 0) V.set(VAR_PORTAL_VEHICLE, sel);
               if (a.keyMask !== 0) V.set(VAR_PEPPER_CONTROL, 0x100);

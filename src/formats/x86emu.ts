@@ -153,7 +153,7 @@ export class Cpu {
   cf = 0; zf = 0; sf = 0; of = 0; df = 0; pfb = 0;
   // x87
   readonly st = new Float64Array(8);
-  top = 0; c0 = 0; c1 = 0; c2 = 0; c3 = 0; cw = 0x27f;
+  top = 0; c0 = 0; c1 = 0; c2 = 0; c3 = 0; cw = ((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.M7_CW !== undefined) ? Number((globalThis as { process?: { env?: Record<string, string | undefined> } }).process!.env!.M7_CW) : 0x27f;
   /** functions replaced by host code (address -> host function); `fallback` gets every call target that `exec` rejects */
   hooks = new Map<number, HostFn>();
   /** observers: called when execution reaches the address, then the original code runs (logging of functions that execute natively) */
@@ -385,14 +385,22 @@ export class Cpu {
       default: return Math.trunc(v);
     }
   }
+  /** precision control (cw bits 8-9 = 0, the 24-bit mode Direct3D 7 sets): every arithmetic result rounds to a 24-bit mantissa; the exponent range stays the extended one */
+  private p24(v: number): number {
+    if (((this.cw >> 8) & 3) !== 0 || v === 0 || !Number.isFinite(v)) return v;
+    const a = Math.abs(v);
+    if (a >= 1.1754943508222875e-38 && a <= 3.4028234663852886e38) return Math.fround(v);
+    const t = v * 536870913, hi = t - (t - v);   // Veltkamp split: the 24 high bits (outside the float range, where fround would saturate)
+    return hi;
+  }
   private farith(op: number, a: number, b: number): number {
     switch (op) {
-      case 0: return a + b;
-      case 1: return a * b;
-      case 4: return a - b;
-      case 5: return b - a;
-      case 6: return a / b;
-      default: return b / a;
+      case 0: return this.p24(a + b);
+      case 1: return this.p24(a * b);
+      case 4: return this.p24(a - b);
+      case 5: return this.p24(b - a);
+      case 6: return this.p24(a / b);
+      default: return this.p24(b / a);
     }
   }
   private x87(d: D) {
@@ -460,7 +468,7 @@ export class Cpu {
         const x = this.st[si], s0 = this.st[T];
         // register forms: st(i) = st(i) op st0, with the Intel meanings of the sub / div variants (DC E0 = fsubr: st0 - st(i) ...)
         const r = reg === 0 ? x + s0 : reg === 1 ? x * s0 : reg === 4 ? s0 - x : reg === 5 ? x - s0 : reg === 6 ? s0 / x : x / s0;
-        this.st[si] = r;
+        this.st[si] = this.p24(r);
         if (op === 0xde) this.fpop();
         return;
       }
@@ -486,7 +494,7 @@ export class Cpu {
           case 0xf2: this.st[T] = Math.tan(this.st[T]); this.fpush(1); this.c2 = 0; return;
           case 0xf3: { const x = this.fpop(); this.st[this.top] = Math.atan2(this.st[this.top], x); return; }
           case 0xf8: case 0xf5: { const a = this.st[T], b = this.st[(T + 1) & 7]; this.st[T] = a % b; this.c2 = 0; return; }
-          case 0xfa: this.st[T] = Math.sqrt(this.st[T]); return;
+          case 0xfa: this.st[T] = this.p24(Math.sqrt(this.st[T])); return;
           case 0xfb: { const v = this.st[T]; this.st[T] = Math.sin(v); this.fpush(Math.cos(v)); this.c2 = 0; return; }
           case 0xfc: this.st[T] = this.fround(this.st[T]); return;
           case 0xfd: this.st[T] = this.st[T] * 2 ** Math.trunc(this.st[(T + 1) & 7]); return;

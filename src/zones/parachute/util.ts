@@ -1,12 +1,15 @@
 // Shared pure helpers of the two parachute mini-games (z38PAR "Parachute", z40aPO "Parachute landing on Ogel"). DOM-free: node tests drive them.
 import type { GameRecord } from '../../game/record.ts';
+import { gameRandom } from '../common/tickrand.ts';
 
 /** 2 pi as the executable has it: the float constant 0x40c90fdb at 0x892094 (6.2831855), used for every angle wrap of the pilot code */
 export const TWO_PI = 6.2831855;
 
-let source: () => number = Math.random;
+// RNG: the C runtime generator (the injectable `source` returns [0, 1); tests script it)
+const defaultSource = (): number => gameRandom();
+let source: () => number = defaultSource;
 /** replace the random source (tests); `f` returns [0, 1) */
-export function setRandomSource(f: (() => number) | null) { source = f ?? Math.random; }
+export function setRandomSource(f: (() => number) | null) { source = f ?? defaultSource; }
 
 /** FUN_004388ae(max): `rand() / 32767 * max` with the CRT's rand() in 0..32767 (0 for max <= 0) */
 export function rand(max: number): number {

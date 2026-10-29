@@ -7,7 +7,9 @@
 //   mode 2  FUN_0045c402 (cutscene frame) -> controllers (world.tick) -> FUN_004636fc (empty) -> FUN_004b908d (HUD, hud.ts updateIsland) -> draw;
 //           then FUN_00423bad (story FSM) and, when var 0x58 changed, the story handler FUN_004b7040 (story.ts); FUN_00423f7b (debug auto-advance) is not ported.
 // Importing this module registers the zone game, its set-up hooks and (through src/island/index.ts) every behaviour constructor of the island.
+import { ZoneParticles } from '../../fx/particles/zone.ts';
 import '../../island/index.ts';
+import { debugAids } from '../../game/debug.ts';
 import { installCtx } from '../../island/ctx.ts';
 import { registerZoneGame, registerZoneSetup } from '../../shell/zonegame.ts';
 import type { ZoneGame, ZoneGameCtx } from '../../shell/zonegame.ts';
@@ -25,6 +27,7 @@ import { loadIslandWalkMaps, startIslandNpcs } from '../../island/npc/index.ts';
 import { startPizzaNodes } from '../../island/pizza/index.ts';
 import { islandRigs, ensureAnim } from '../../island/ambient/common.ts';
 import { vehicles } from '../../island/vehicles/common.ts';
+import { looksOf, applyRosterRecords } from '../../island/vehicles/looks.ts';
 import { saveVehicleEntities, restoreVehicle } from './savevehicle.ts';
 import { IslandContext } from './ctx.ts';
 import { BrickLibrary } from '../../formats/bricks.ts';
@@ -33,6 +36,7 @@ import { storyHandler } from './story.ts';
 import type { StoryEnv, StoryRef } from './story.ts';
 import { arrival, emulatedVehicle } from './arrival.ts';
 import type { Arrival } from './arrival.ts';
+import { restoreHooks } from '../../restore/flag.ts';
 
 const CTX_KEY = 'island';
 /** the island context the set-up hooks created for this world */
@@ -100,6 +104,7 @@ registerZoneSetup('z02LGI', {
   },
   afterSetup(_sh, world, loaded, archive) {
     const ictx = islandOf(world);
+    applyRosterRecords(world, ictx.pe);   // FUN_0051c823 (PepSwitc's constructor): variant words, the decor templates hidden (S11)
     // the set-up's waypoint maps (FUN_004630c0) and the constructors' world work (walkers, ground snap, animations: WP3)
     loadIslandWalkMaps(archive, ictx.setup);
     // the animation instances the island loader gives records 9..66 (FUN_004f645b @0x519c09: SKBD, MFIG, SWFT, RBBT, PTER rigs, clip 1)
@@ -167,14 +172,16 @@ class IslandGame implements ZoneGame {
     this.ref.prev = vars.get(V.FSM_CURRENT_STATE);
     // dev aid (not in the original; kept from the M2 stub): F9 completes the condition of the current story node
     const onKey = (e: KeyboardEvent) => { if (e.code === 'F9') { this.aid = true; e.preventDefault(); } };
-    addEventListener('keydown', onKey);
+    if (debugAids()) addEventListener('keydown', onKey);   // only with the debug option: the original has no such key
     this.offKey = () => removeEventListener('keydown', onKey);
+    restoreHooks.islandStart?.(this);          // restored content (option off: unset)
   }
 
   /** FUN_0045c402: the cutscene frame, before the controllers */
   beforeTick() { this.ctx.cutscene.tick(); }
 
   update(): number | undefined {
+    restoreHooks.islandTick?.(this);           // restored content (option off: unset)
     this.ctx.cutscene.applyCarried();   // WP2: actors a script attached to another (until every carrier node is ported)
     if (this.aid) {
       this.aid = false;
@@ -225,12 +232,19 @@ registerZoneGame('z02LGI', async (ctx) => {
   let messages: Archive | null = null;
   try { messages = await ctx.sh.data.archive('messages'); } catch { /* no texts */ }
   ictx.bind(ctx, messages);
+  // FX_Particles (WP-PART): the zone's `Particle/` effects (src/fx/particles/zone.ts), drawn after the brick effects
+  try { ictx.fx = await ZoneParticles.create(ctx); } catch (e) { console.warn('island particles', e); }
   // FX_Bricks (WP9): the brick library (archives `Bricks` + `BrickMorph`, opened at start-up by the original, FUN_0043421d) and the effects pass
   try {
     const [bricks, morph] = await Promise.all([ctx.sh.data.archive('Bricks'), ctx.sh.data.archive('BrickMorph')]);
     installBrickLibrary(ctx.world, new BrickLibrary(ctx.sh.pe, bricks, morph));
     ctx.gr.effects = (r) => { const fx = islandBrickFx(ctx.world); if (fx) drawBrickFx(r, fx); };
   } catch (e) { console.warn('island bricks', e); }
+  // SwapText.c (FUN_00443810 / FUN_004439f0): the vehicles' looks replace the model's texture table by textures of the SwapText bank (island/vehicles/looks.ts)
+  try {
+    ctx.gr.swapArchive = await ctx.sh.data.archive('SwapText');
+    ctx.gr.swapTextures = (rec, lod) => looksOf(ctx.world)?.textures(rec, lod) ?? null;
+  } catch (e) { console.warn('island swaptext', e); }
   // slots whose script or message file is not in the data are left empty (LGICI05 has no LI/Data/LGICI05.str: the original's text load fails silently)
   const specs = slotSpecs(ictx.setup, ctx.info.archive ?? 'z02LGI').filter((sp) => {
     const have = !!ctx.archive.find(`cutscene/${sp.script}.cut`) && (!messages || !!messages.find(`${sp.area}/Data/${sp.strings}.str`));

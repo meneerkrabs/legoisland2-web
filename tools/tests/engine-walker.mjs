@@ -225,8 +225,8 @@ export default {
       ok(maxStep <= SPEED * 8 * 0.5 + 1e-4, `speed scale 0.5: max step ${maxStep.toFixed(4)}`);
       ok(maxDev <= 0.05 * 8 + 3, `lane 0.05 keeps ${maxDev.toFixed(2)} from the polyline`);
       ok(maxTurn <= TURN * 0.5 + 1e-5, `speed scale halves the turn rate (max ${maxTurn.toFixed(4)})`);
-      s2.flipLane(h); ok(s2.get(h).lane === -0.05, 'flipLane');
-      s2.flipLanes(MAP_PATH); ok(s2.get(h).lane === 0.05, 'flipLanes(map)');
+      s2.flipLane(h); ok(s2.get(h).lane === -Math.fround(0.05), 'flipLane');
+      s2.flipLanes(MAP_PATH); ok(s2.get(h).lane === Math.fround(0.05), 'flipLanes(map)');
     }
 
     // ============================================================ follow / point / heading orders (turn on the spot)
@@ -292,8 +292,8 @@ export default {
       s2.moveToPoint(h2, null);
       ok(s2.step(h2, p2, y2, out) === STEP_ARRIVED, 'moveToPoint(null) stops');
       // --- tuning functions
-      s2.setSpeed(h2, 0.2); ok(s2.get(h2).speed === 0.2, 'setSpeed');
-      s2.setTurnRate(h2, -0.3); ok(s2.get(h2).turnRate === 0.3, 'setTurnRate takes the absolute value');
+      s2.setSpeed(h2, 0.2); ok(s2.get(h2).speed === Math.fround(0.2), 'setSpeed (a float32 field)');
+      s2.setTurnRate(h2, -0.3); ok(s2.get(h2).turnRate === Math.fround(0.3), 'setTurnRate takes the absolute value (a float32 field)');
       s2.setStopDistance(h2, 2); ok(s2.get(h2).stopDist2 === 4, 'setStopDistance squares');
       const h3 = s2.create(MAP_PATH, null, -3);
       ok(h3 > 0 && s2.get(h3).from === 0 && s2.get(h3).to === 0, 'start node -3: from = to = 0');

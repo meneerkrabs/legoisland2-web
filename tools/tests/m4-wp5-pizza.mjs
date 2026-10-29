@@ -71,7 +71,7 @@ export default {
       while (node.held && n++ < 60) tick(I, 1);
       ok(!node.held && Math.abs(p.anim.frame - 42) < 1.5, `released at frame ${p.anim.frame.toFixed(1)} (42)`);
       ok((w.vars.get(T) & 0x100) !== 0, `in-flight bit 0x100 set (${hex(w.vars.get(T))})`);
-      ok(I.ictx.fx.some((f) => f.name === 'throwpizza.par' && f.mode === 2), 'throwpizza.par emits on release');
+      ok(I.ictx.fx.log.some((f) => f.op === 'gate' && f.name === 'throwpizza.par' && f.gate.join() === '2,1,1'), 'throwpizza.par emits on release (gate 2 / 1 / 1)');
       const fwd = [p.m[8], p.m[10]];
       const start = [piz.x, piz.y, piz.z];
       const spin0 = piz.rx;
@@ -131,7 +131,7 @@ export default {
       npc.flags |= 0x40;   // RF_NPC: the generic NPC constructor FUN_00426151 sets it (box collision)
       const s = pizzaSystem(w);
       const piz = s.slots[0].rec, node = s.slots[0];
-      I.ictx.sounds.length = 0; I.ictx.fx.length = 0;
+      I.ictx.sounds.length = 0; I.ictx.fx.clear();
       press(I, 'Space');
       ok(walk.state === ST.THROW, `throw at a target 40 away: state 0x0b (no hand-over beyond 4.8) (${hex(walk.state)})`);
       let n = 0;
@@ -150,7 +150,7 @@ export default {
       ok(dHit < 3, `stopped at the NPC (${dHit.toFixed(2)})`);
       tick(I, 1);
       ok(I.ictx.sounds.some((s) => s.id === SND_PIZZA.HIT && s.pos), 'Piza_Hit at the pizza');
-      ok(I.ictx.fx.some((f) => f.name === 'pizzasplat.par' && f.mode === 2), 'pizzasplat.par emits');
+      ok(I.ictx.fx.log.some((f) => f.op === 'gate' && f.name === 'pizzasplat.par' && f.gate.join() === '2,1,1'), 'pizzasplat.par emits (gate 2 / 1 / 1)');
       ok(!piz.enabled, 'pizza hidden after the splat');
       tick(I, 4);
       ok(w.vars.get(T) === 0 && node.hit === null && pizzaHitOn(w, npc) === 0, `slot free after the count-down (${hex(w.vars.get(T))})`);

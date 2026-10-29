@@ -1,10 +1,12 @@
 // The other behaviour nodes of the tomb: camera (FUN_006ac844 in the draw hook), roaming mummies (FUN_006aa600), key (FUN_006aa070), page (FUN_006a9cc0), rolling boulder
 // (FUN_006a9930), falling pillars (FUN_006a95d5), falling stones (FUN_006a9280), torches (FUN_006a8cf0), spiders (FUN_006a8a40) and rats (FUN_006a8350).
 import { NODE_STOP } from '../../game/controller.ts';
-import type { BehaviourNode } from '../../game/controller.ts';
+import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
-import { NO_GROUND } from '../../game/collision.ts';
+import { GATE_OFF, GATE_ON, NO_HANDLE } from '../../fx/particles/zone.ts';
+import type { ZoneParticles } from '../../fx/particles/zone.ts';
+import { armControllerProbe } from '../../game/probehost.ts';
 import { REC, VAR, BIT, CLIP, SND, MUSIC, f32 } from './consts.ts';
 import { MmpShared, normalise, shown } from './shared.ts';
 
@@ -13,7 +15,7 @@ const fl = (u: number) => new Float32Array(new Uint32Array([u]).buffer)[0];
 /** constants of these nodes (the `.rdata` floats / immediates of the functions named in the comments) */
 export const PK = {
   // camera FUN_006ac844
-  CAM_UP: f32(4.8), CAM_Y: f32(8), CAM_BACK: f32(12), CAM_CHASE_UP: f32(4), CAM_CHASE_Y: f32(6.4), CAM_CHASE_BACK: f32(22.4), CAM_LIFT: f32(6), PIT_Z: f32(-28), PIT_LOOK: fl(0x414f8937), PIT_EYE: f32(2.4), SIDE: f32(4.4),
+  CAM_UP: f32(4.8), CAM_Y: f32(8), CAM_BACK: f32(12), CAM_CHASE_UP: f32(4), CAM_CHASE_Y: f32(6.4), CAM_CHASE_BACK: f32(22.4), CAM_LIFT: f32(6), PIT_Z: f32(-28), PIT_LOOK: fl(0x414f8937), PIT_EYE: f32(2.4), SIDE: 4.4 /* a double constant */,
   // mummies
   MUMMY_Y: fl(0x4091eb85), MUMMY_SPEED: f32(0.072), MUMMY_TURN: f32(0.174532), MUMMY_NEAR: 8, MUMMY_ARRIVE: f32(2.88), WANDER: 8, MUMMY_AWAY_Y: 800, MUMMY_AWAY_Z: -8000,
   // key
@@ -23,13 +25,14 @@ export const PK = {
   // rock
   ROCK_SPEED: f32(0.85), ROCK_END_Z: f32(-22), ROCK_SPIN: f32(0.349064), ROCK_BOUNCE: fl(0x3e75c28f), ROCK_SKIN: f32(4.8), ROCK_RADIUS: f32(0.8),
   // pillars
-  PILLAR_AHEAD: 16, PILLAR_STEP: f32(0.0523596), PILLAR_ANGLE: f32(1.00356),
+  PILLAR_AHEAD: 16, PILLAR_STEP: fl(0x3d567704), PILLAR_ANGLE: fl(0x3f80749f),      // (.rdata 0x892534 / 0x8927e4: the angle is 1.0035589933, one float32 step below f32(1.00356))
   // stones
   STONE_FALL: f32(2.4), STONE_BELOW: 40, STONE_ABOVE: 40, STONE_RANGE_Y: 80, STONE_RANGE_XZ: 64, STONE_HALF: 32, STONE_SPIN: fl(0x40c8809a),
   // spiders
   SPIDER_AHEAD: f32(20),
   // rats
   RAT_NEAR_SQ: f32(10.24), RAT_TURN: f32(0.087266), RAT_WALK: f32(0.12), RAT_RUN: f32(0.2),
+  PI: fl(0x40490fdb), PI_NEG: fl(0xc0490fdb), TWO_PI: fl(0x40c90fdb),
 } as const;
 
 abstract class Node implements BehaviourNode {
@@ -38,7 +41,7 @@ abstract class Node implements BehaviourNode {
   stamp = 0xfffffffe;
   readonly sh: MmpShared;
   constructor(sh: MmpShared) { this.sh = sh; }
-  abstract update(w: World, rec: GameRecord): number;
+  abstract update(w: World, rec: GameRecord, ctrl: Controller): number;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -60,15 +63,16 @@ export class CameraNode extends Node {
   place(w: World) {
     const pep = w.records[REC.PEPPER], c = w.camera.c, vars = w.vars;
     const px = pep.x, py = pep.y, pz = pep.z;
+    // (the camera's eye / target are float32 in the original: every store rounds, the port's camera array holds doubles)
     if ((vars.get(VAR.READY) & BIT.CHASE) === 0) {
-      if ((vars.get(VAR.OPEN) & BIT.CHASE) === 0) { c[4] = py + PK.CAM_UP; c[1] = py + PK.CAM_Y; c[2] = pz - PK.CAM_BACK; }
+      if ((vars.get(VAR.OPEN) & BIT.CHASE) === 0) { c[4] = f32(py + PK.CAM_UP); c[1] = f32(py + PK.CAM_Y); c[2] = f32(pz - PK.CAM_BACK); }
       else {
-        c[4] = py + PK.CAM_CHASE_UP; c[1] = py + PK.CAM_CHASE_Y; c[2] = pz - PK.CAM_CHASE_BACK;
-        if (c[2] < 50 && 27 < c[2]) c[1] += PK.CAM_LIFT;
-        if (pz < PK.PIT_Z) { c[4] = PK.PIT_LOOK; c[1] = c[4] + PK.PIT_EYE; }
+        c[4] = f32(py + PK.CAM_CHASE_UP); c[1] = f32(py + PK.CAM_CHASE_Y); c[2] = f32(pz - PK.CAM_CHASE_BACK);
+        if (c[2] < 50 && 27 < c[2]) c[1] = f32(c[1] + PK.CAM_LIFT);
+        if (pz < PK.PIT_Z) { c[4] = PK.PIT_LOOK; c[1] = f32(c[4] + PK.PIT_EYE); }
       }
       const ax = Math.abs(px);
-      c[3] = ax >= PK.SIDE ? (px <= 0 ? px + PK.SIDE : px - PK.SIDE) : 0;
+      c[3] = ax >= PK.SIDE ? (px <= 0 ? f32(px + PK.SIDE) : f32(px - PK.SIDE)) : 0;
       c[5] = pz;
       c[0] = 0;
     } else { c[0] = 0; c[3] = 0; }
@@ -102,8 +106,8 @@ export class MummyNode extends Node {
         const tx = this.target[0] - mx, tz = this.target[2] - mz;
         const v = normalise([tx, 0, tz]); vx = v[0] * PK.MUMMY_SPEED; vz = v[2] * PK.MUMMY_SPEED;
         if (Math.hypot(tx, tz) < PK.MUMMY_ARRIVE) {
-          this.target[0] = rng.float(PK.WANDER) + this.home[0] - 4;
-          this.target[2] = rng.float(PK.WANDER) + this.home[2] - 4;
+          this.target[0] = f32(f32(rng.float(PK.WANDER) + this.home[0]) - 4);
+          this.target[2] = f32(f32(rng.float(PK.WANDER) + this.home[2]) - 4);
         }
       } else {
         const v = normalise([pep.x - mx, 0, pep.z - mz]); vx = v[0] * PK.MUMMY_SPEED; vz = v[2] * PK.MUMMY_SPEED;
@@ -113,7 +117,7 @@ export class MummyNode extends Node {
       if (vx !== 0 || vz !== 0) {
         const d = normalise([vx, 0, vz]);
         if (fwd[2] * d[2] + fwd[0] * d[0] <= 0.9) {
-          if (right[2] * d[2] + right[0] * d[0] <= 0) rec.ry -= PK.MUMMY_TURN * dt; else rec.ry += PK.MUMMY_TURN * dt;
+          if (right[2] * d[2] + right[0] * d[0] <= 0) rec.ry = f32(rec.ry - PK.MUMMY_TURN * dt); else rec.ry = f32(rec.ry + PK.MUMMY_TURN * dt);
         }
       }
       mx += vx * dt; mz += vz * dt;
@@ -133,6 +137,9 @@ export class KeyNode extends Node {
   readonly kind = 'mmpKey';
   /** +0x18..+0x20: the key's resting place, +0x28: the door is open */
   home = [0, 0, 0]; doorOpen = false;
+  /** +0x24: the handle of symtwin.par (FUN_006aa4b1: matrix = the key's, offset 0, rotation 0, gate off) */
+  fxTwin: number = NO_HANDLE;
+  startFx(fx: ZoneParticles, rec: GameRecord) { this.fxTwin = fx.start('symtwin.par', rec.m, [0, 0, 0], [0, 0, 0], GATE_OFF); }
   init(rec: GameRecord) {
     this.home = [rec.x, rec.y, rec.z];
     rec.y = this.home[1] + PK.KEY_DROP;
@@ -169,7 +176,10 @@ export class KeyNode extends Node {
         snd.play3D('gateOpened', SND.GATE_OPENED, { x: door.x, y: PK.DOOR_TOP, z: door.z });
       }
     }
-    rec.ry += PK.KEY_SPIN * dt;
+    rec.ry = f32(rec.ry + PK.KEY_SPIN * dt);
+    // the twinkle: on while the key is falling / waiting (OPEN or READY bit 0x1000) and its record is shown (record flag 2), else off; then the matrix follows the record
+    if (((vars.get(VAR.READY) & BIT.KEY) === 0 && (vars.get(VAR.OPEN) & BIT.KEY) === 0) || !shown(rs[REC.KEY])) sh.fx?.off(this.fxTwin);
+    else { sh.fx?.on(this.fxTwin); sh.fx?.setMatrix(this.fxTwin, rec.m); }
     rec.setEuler(rec.rx, rec.ry, rec.rz, rec.x, y, rec.z);
     return NODE_STOP;
   }
@@ -183,12 +193,16 @@ export class PageNode extends Node {
   readonly kind = 'mmpPage';
   /** +0x18: the collapse was started */
   started = false;
+  /** +0x1c: the handle of twinkle01.par (FUN_006a9f87: matrix = the page's, offset 0, rotation 0, gate ON) */
+  fxTwinkle: number = NO_HANDLE;
+  startFx(fx: ZoneParticles, rec: GameRecord) { this.fxTwinkle = fx.start('twinkle01.par', rec.m, [0, 0, 0], [0, 0, 0], GATE_ON); }
   init() { this.started = false; }
   update(w: World, rec: GameRecord): number {
     const sh = this.sh, vars = w.vars, snd = sh.sounds, dt = w.dt, rs = sh.records;
     if ((vars.get(VAR.READY) & BIT.PAGE) === 0) {
       if ((rec.ctrl?.distSq ?? 1e9) <= PK.PAGE_REACH) vars.or(VAR.READY, BIT.PAGE);
     } else {
+      sh.fx?.off(this.fxTwinkle);        // FUN_0044ea60(handle, 1, 1, 1) every tick once the page is touched
       const trap = rs[REC.TRAP];
       if (PK.TRAP_TOP <= trap.y) {
         if (!this.started) { this.started = true; vars.or(VAR.OPEN, BIT.CHASE); }
@@ -197,7 +211,8 @@ export class PageNode extends Node {
     if (!shown(rec)) snd.stop3D('pageSpin');
     else {
       snd.play3D('pageSpin', SND.PAGE_SPIN, { x: rec.x, y: rec.y, z: rec.z });
-      rec.ry += PK.KEY_SPIN * dt; rec.rx -= PK.KEY_SPIN * dt;
+      rec.ry = f32(rec.ry + PK.KEY_SPIN * dt); rec.rx = f32(rec.rx - PK.KEY_SPIN * dt);
+      sh.fx?.setMatrix(this.fxTwinkle, rec.m);
       rec.setEuler(rec.rx, rec.ry, rec.rz, rec.x, rec.y, rec.z);
     }
     return NODE_STOP;
@@ -218,7 +233,7 @@ export class RockNode extends Node {
     let x = rec.x, y = rec.y, z = rec.z;
     if (PK.ROCK_END_Z < z) {
       z -= PK.ROCK_SPEED * dt;
-      rec.rx -= PK.ROCK_SPIN * dt;
+      rec.rx = f32(rec.rx - PK.ROCK_SPIN * dt);
       snd.play3D('boulder', SND.BOULDER, { x: rec.x, y: rec.y, z: rec.z });
       if (!this.musicStarted) { snd.music(MUSIC.CHASE); this.musicStarted = true; }
     }
@@ -258,15 +273,15 @@ export class PillarNode extends Node {
           this.state = rec.x <= 0 ? 2 : 1;
           const s = sh.sounds;
           // FUN_006a9540: the column-fall sound on a free one of its four handles
-          const hs = ['colFall3', 'colFall1', 'colFall2', 'colFall0'];
-          const free = hs.find((h) => s.idle3D(h)) ?? hs[0];
+          // (FUN_006a9540 tests DAT_05d5bff0, 05d5bfe8, 05d5bfec in that order; the fourth, 05d5bfe4, is the fallback and is not tested)
+          const free = ['colFall3', 'colFall1', 'colFall2'].find((h) => s.idle3D(h)) ?? 'colFall0';
           s.play3D(free, SND.COLUMN_FALL, { x: rec.x, y: rec.y, z: rec.z });
         }
       } else if (this.state === 1) {
-        rec.rz += PK.PILLAR_STEP * dt;
+        rec.rz = f32(rec.rz + PK.PILLAR_STEP * dt);
         if (PK.PILLAR_ANGLE <= rec.rz) { rec.rz = PK.PILLAR_ANGLE; this.state = 3; }
       } else if (this.state === 2) {
-        rec.rz -= PK.PILLAR_STEP * dt;
+        rec.rz = f32(rec.rz - PK.PILLAR_STEP * dt);
         if (rec.rz <= -PK.PILLAR_ANGLE) { rec.rz = -PK.PILLAR_ANGLE; this.state = 3; }
       }
     }
@@ -285,10 +300,11 @@ export class DebrisNode extends Node {
       rec.flags |= 2;
       y -= PK.STONE_FALL;
       if (y < pep.y - PK.STONE_BELOW) {
-        y = rng.float(PK.STONE_RANGE_Y) + pep.y + PK.STONE_ABOVE;
-        x = rng.float(PK.STONE_RANGE_XZ) + (pep.x - PK.STONE_HALF);
-        z = rng.float(PK.STONE_RANGE_XZ) + (pep.z - PK.STONE_HALF);
-        rec.rz = rng.float(PK.STONE_SPIN);
+        // (the three bases are float32 locals: pep.y + 40, pep.x - 32, pep.z - 32; the random draws come in the order y, x, z)
+        y = f32(rng.float(PK.STONE_RANGE_Y) + f32(pep.y + PK.STONE_ABOVE));
+        x = f32(rng.float(PK.STONE_RANGE_XZ) + f32(pep.x - PK.STONE_HALF));
+        z = f32(rng.float(PK.STONE_RANGE_XZ) + f32(pep.z - PK.STONE_HALF));
+        rec.rz = f32(rng.float(PK.STONE_SPIN));
         respawned = true;
       }
     }
@@ -302,12 +318,14 @@ export class DebrisNode extends Node {
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------
 // torches, spiders, rats
 
-/** FUN_006a8fd8 / FUN_006a8cf0: the torches only make their fire sound. The record names are all `TORC`, so the first of the 12 name tests of the update matches for every torch and they all play
- * the same handle: the sound sits at the torch whose update ran last (the flames of mmpfire.par are not ported: the engine has no particle system) */
+/** FUN_006a8fd8 / FUN_006a8cf0: the torches make their fire sound and burn `mmpfire.par` (started by the constructor: matrix = the torch's, offset 0, rotation 0, gate ON). The record names are all `TORC`, so the
+ * first of the 12 name tests of the update matches for every torch and they all play the same handle: every torch calls it once per tick, the sound sits at the torch whose update ran last */
 export class TorchNode extends Node {
   readonly kind = 'mmpTorch';
+  fxFire: number = NO_HANDLE;
+  startFx(fx: ZoneParticles, rec: GameRecord) { this.fxFire = fx.start('mmpfire.par', rec.m, [0, 0, 0], [0, 0, 0], GATE_ON); }
   update(_w: World, rec: GameRecord): number {
-    this.sh.torchAt = { x: rec.x, y: rec.y, z: rec.z };
+    this.sh.sounds.play3D('torch', SND.TORCH, { x: rec.x, y: rec.y, z: rec.z });
     return NODE_STOP;
   }
 }
@@ -342,7 +360,7 @@ export class RatNode extends Node {
     if (a) { a.start(4, 0); a.seek(this.sh.rng.float(a.frameCount - 2)); }
     this.cycles = Math.trunc(this.sh.rng.float(10));
   }
-  update(w: World, rec: GameRecord): number {
+  update(w: World, rec: GameRecord, ctrl: Controller): number {
     const sh = this.sh, rng = sh.rng, dt = w.dt, a = rec.anim!;
     if (a.advance(1.0, dt) !== 0) {
       this.cycles++;
@@ -353,30 +371,31 @@ export class RatNode extends Node {
     }
     if (this.mode === 0 || this.mode === 2) {
       let x = rec.x, y = rec.y, z = rec.z;
-      const dx = this.home[0] - x, dy = this.home[1] - y, dz = this.home[2] - z;
-      if (dx * dx + dy * dy + dz * dz <= PK.RAT_NEAR_SQ) {
-        if (this.timer <= this.turnFor) { if (this.timer < 20) rec.ry += this.turn; }
+      // (float32 locals: the offset to the home, its squared length, the angle and the difference of the angles, each stored)
+      const dx = f32(this.home[0] - x), dy = f32(this.home[1] - y), dz = f32(this.home[2] - z);
+      if (f32(dz * dz + dy * dy + dx * dx) <= PK.RAT_NEAR_SQ) {
+        if (this.timer <= this.turnFor) { if (this.timer < 20) rec.ry = f32(rec.ry + this.turn); }
         else {
-          this.turn = rng.float(PK.RAT_TURN) - PK.RAT_TURN * 0.5;
-          this.turnFor = rng.float(50) + 20;
-          this.timer = rng.float(20);
+          this.turn = f32(rng.float(PK.RAT_TURN) - PK.RAT_TURN * 0.5);
+          this.turnFor = f32(rng.float(50) + 20);
+          this.timer = f32(rng.float(20));
         }
-        this.timer += dt;
+        this.timer = f32(this.timer + dt);
       } else {
         this.turnFor = -1; this.timer = 0;
-        const ang = Math.atan2(dx, dz);
-        let diff = rec.ry - ang;
-        if (diff < -Math.PI) diff += 2 * Math.PI; else if (diff > Math.PI) diff -= 2 * Math.PI;
-        if (diff <= PK.RAT_TURN) { if (PK.RAT_TURN <= diff) rec.ry = ang; else rec.ry += PK.RAT_TURN * dt; } else rec.ry -= PK.RAT_TURN * dt;
+        const ang = f32(Math.atan2(dx, dz));
+        let diff = f32(rec.ry - ang);
+        if (PK.PI_NEG <= diff) { if (PK.PI < diff) diff = f32(diff - PK.TWO_PI); } else diff = f32(diff + PK.TWO_PI);      // (the float32 constants of .rdata: -pi 0x892098, pi 0x89207c, 2 pi 0x892094)
+        if (diff <= PK.RAT_TURN) { if (PK.RAT_TURN <= diff) rec.ry = ang; else rec.ry = f32(rec.ry + PK.RAT_TURN * dt); } else rec.ry = f32(rec.ry - PK.RAT_TURN * dt);
       }
       rec.setEuler(rec.rx, rec.ry, rec.rz, x, y, z);
       const sp = (this.mode === 0 ? PK.RAT_WALK : PK.RAT_RUN) * dt;
-      x += rec.m[8] * sp; y += rec.m[9] * sp; z += rec.m[10] * sp;
-      // the controller probe (FUN_00427014 (0, 8, 0) / (0, -16, 0), mask 3, flags 0x1053): the ground record's height puts the rat on the floor
-      const g = w.col.terrainHeight(x, y + 8, z, 4);
-      if (g > NO_GROUND && -16 < g - (y + 8)) y = g;
+      x = f32(x + f32(sp * rec.m[8])); y = f32(y + f32(sp * rec.m[9])); z = f32(z + f32(sp * rec.m[10]));
       rec.m[12] = x; rec.m[13] = y; rec.m[14] = z;
     }
+    // the controller probe (FUN_00427014(ctrl, (0, 8, 0), (0, -16, 0), mask 3, flags 0x50), armed at the end of the update in modes 0 / 2): the probe pass of this frame (probehost.ts, between
+    // the update and the pre-render pass) samples the ground record below the rat's new position + (0, 8, 0) and puts its y on the floor (flags 0x1053: follow, write y, ground sample, no sweep)
+    if (this.mode === 0 || this.mode === 2) armControllerProbe(ctrl, [0, 8, 0], [0, -16, 0], 3, 0x50);
     return NODE_STOP;
   }
 }

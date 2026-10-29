@@ -24,13 +24,13 @@ export interface ParHudFrame {
   chuteIcon: number;
   /** the left icon column from the bottom: ring 1, 2, 3 */
   rings: [number, number, number];
-  gauge: { segments: number[]; marker: number };
+  gauge: { segments: number[]; marker: number; value: number };
 }
 
 export class ParHud {
   /** DAT_008b96bc / c0 / c4: the blink counters of the three ring icons (they persist across games in the original) */
   blink: [number, number, number] = [146, 116, 86];
-  frame: ParHudFrame = { text: '0', compass: 14, chuteIcon: 12, rings: [0x92, 0x74, 0x56], gauge: { segments: [], marker: 0 } };
+  frame: ParHudFrame = { text: '0', compass: 14, chuteIcon: 12, rings: [0x92, 0x74, 0x56], gauge: { segments: [], marker: 0, value: 0 } };
 
   /** one call of FUN_00466f50: updates the run's "chute allowed" state (and speaks the hint) as the original does */
   update(run: ParRun, pilotYaw: number, dt = 1): ParHudFrame {
@@ -48,7 +48,7 @@ export class ParHud {
       if (this.blink[i] > HUD_TEX.RING_BLINK_END[i]) this.blink[i] = HUD_TEX.RING_BLINK_START[i];
       const s = run.ring[i];
       if (s === 0) f.rings[i] = HUD_TEX.RING_NORMAL[i];
-      else if (s === 1) { f.rings[i] = ftol(this.blink[i]); this.blink[i] += dt; }
+      else if (s === 1) { f.rings[i] = ftol(this.blink[i]); this.blink[i] = Math.fround(1 * dt + this.blink[i]); }
       else f.rings[i] = HUD_TEX.RING_MISSED[i];
     }
     f.chuteIcon = run.chuteOk ? HUD_TEX.CHUTE_OK : HUD_TEX.CHUTE_NO;
@@ -68,6 +68,7 @@ export class ParHud {
     f.gauge.segments = Array.from({ length: 12 }, (_, i) => (i < 3 ? HUD_TEX.GAUGE_LOW : upper));
     if (local20 > 204) local20 = 204;
     const v80 = 204 - local20;
+    f.gauge.value = v80;   // DAT_05d4e138: not clamped below; FUN_00460214 clamps its ratio to 0..1
     f.gauge.marker = Math.min(1, Math.max(0, v80 / 204));
     return f;
   }

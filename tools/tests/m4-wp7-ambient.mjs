@@ -139,10 +139,10 @@ export default {
       for (const b of MUSIC_BUILDINGS) {
         const r = J.world.records[b.record];
         p.x = r.x + 10; p.z = r.z + 10;
-        tick(J, 1);
+        tick(J, 2);   // the controller distances are one frame old (FUN_0042377a)
         ok(played[played.length - 1] === b.key, `within 40 of ${b.name}: ${b.key} (${played[played.length - 1]})`);
       }
-      p.x = far[0]; p.z = far[2]; tick(J, 1);
+      p.x = far[0]; p.z = far[2]; tick(J, 2);
       ok(played[played.length - 1] === 'Z02LGIT', `away again: Z02LGIT (${played[played.length - 1]})`);
       // a notification switches to the main theme (LGIM), the next one back to LGIT
       const m = J.pepper.ctrl.nodes.find((n) => n.kind === 'Music');
@@ -206,13 +206,14 @@ export default {
       ok(dw.vars.get(vJ) === 0 && Math.abs(st.jail - 1.9) < 0.11, `jail door open (${st.jail.toFixed(2)})`);
       dw.vars.set(D.ictx.switchVar('SWITCH_LGI_PHEL_ROTOR_SPEED'), 5); const r0 = st.rotor; run(10);
       ok(Math.abs(st.rotor - r0 - 5) < 1e-6, `rotor turns 0.5 per tick at speed 5 (${(st.rotor - r0).toFixed(3)})`);
-      // rocket emitters at BRIK's feet (bit 0x20, start bit 0x1000) and the stop bit 0x80
+      // the two rocket01 emitters (era 0: slot 0 / 1) at the feet of record 0x11 (bit 4, start bit 0x1000) and the stop bit 0x80: gates (2, 1, 1) / (1, 1, 1) on the set-up's handles
       const vR = D.ictx.switchVar('SWITCH_LGI_CSM_FX_SWITCH02');
-      D.ictx.fx.length = 0;
-      dw.vars.set(vR, 0x1020); run(1);
-      ok(D.ictx.fx.filter((f) => f.name === 'rocket01.par' && f.mode === 2).length === 2 && dw.vars.get(vR) === 0x20, `rockets on at BRIK (var ${dw.vars.get(vR).toString(16)})`);
-      dw.vars.set(vR, 0xa0); run(1);
-      ok(D.ictx.fx.filter((f) => f.name === 'rocket01.par' && f.mode === 1).length === 2, 'rockets off with 0x80');
+      D.ictx.fx.clear();
+      dw.vars.set(vR, 0x1004); run(1);
+      const gates = (g) => D.ictx.fx.log.filter((f) => f.op === 'gate' && f.name === 'rocket01.par' && f.gate.join() === g).length;
+      ok(gates('2,1,1') === 2 && dw.vars.get(vR) === 0x4, `rockets on (var ${dw.vars.get(vR).toString(16)})`);
+      dw.vars.set(vR, 0x84); run(1);
+      ok(gates('1,1,1') === 2, 'rockets off with 0x80');
       // SWITCH_LGI_CSM_FX_SWITCH11: Papa / Mama / BBT0 / BBT1 non-solid
       dw.vars.set(D.ictx.switchVar('SWITCH_LGI_CSM_FX_SWITCH11'), 1); run(1);
       ok([12, 13, 17, 18].every((i) => dw.records[i].flags & 0x10), 'FX_SWITCH11 = 1: four records non-solid');

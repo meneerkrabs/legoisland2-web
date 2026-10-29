@@ -57,6 +57,12 @@ export class Ball {
   hit: GameRecord | null = null;
   /** +0x48: ticks of the splash */
   count = 0;
+  /** +0x68 (byte): the ground below the ball was found by this tick's step (FUN_005f8a7b); +0x6c .. +0xa7: the five ground points of the shadow (x, y, z each; slot 1 = the middle,
+   *  slots 0 / 2 / 3 / 4 = the four corners 0.8 beside it, y lifted by 0.8). Single floats like the original's; they keep their values while `shadow` is 0 */
+  shadow = 0;
+  /** +0x4c: the handle of the ball's `impact01` emitter (FUN_005f8050); 0xbabababa = none */
+  fxHandle = 0xbabababa;
+  samples = new Float32Array(15);
   constructor(idx: number, rec: GameRecord) { this.idx = idx; this.rec = rec; }
 }
 
@@ -76,26 +82,40 @@ export interface PepperCannon {
 /** Cedric's perches (the node's 9 structs of 0x18 bytes at +0x18) */
 export interface Perch { rec: GameRecord; pos: [number, number, number]; bit: number }
 
+/**
+ * the zone's own versions of the matrix helpers: the game runs the x87 in 24-bit precision (Direct3D 7 leaves it so), every arithmetic result is rounded to a float
+ * mantissa, in the order the code adds ((v.x m + v.y m) + v.z m) + translation (checked bit for bit against FUN_0043ab72 run in the emulator, tools/tests/m7-z10RGB-cover.mjs)
+ */
 /** the rotation part of a record's matrix applied to a vector (FUN_0043abe6) */
 export function rotate(m: ArrayLike<number>, v: ArrayLike<number>, out: number[] = [0, 0, 0]): number[] {
-  out[0] = v[0] * m[0] + v[1] * m[4] + v[2] * m[8];
-  out[1] = v[0] * m[1] + v[1] * m[5] + v[2] * m[9];
-  out[2] = v[0] * m[2] + v[1] * m[6] + v[2] * m[10];
+  const F = Math.fround;
+  for (let k = 0; k < 3; k++) out[k] = F(F(F(F(v[0] * m[k]) + F(v[1] * m[4 + k])) + F(v[2] * m[8 + k])) + 0);
   return out;
 }
-const PI = Math.PI, TWO_PI = 2 * Math.PI;
-/** the zone's angle wrap: -pi .. pi (`if (-pi <= a) { if (pi < a) a -= 2 pi } else a += 2 pi`) */
-export function wrapPi(a: number): number { return -PI <= a ? (PI < a ? a - TWO_PI : a) : a + TWO_PI; }
-/** FUN_00433450: the yaw error of a record (its +0x50) against the direction to `target` (atan2(dx, dz)), wrapped */
-export function yawError(rec: GameRecord, target: ArrayLike<number>): number { return wrapPi(rec.ry - Math.atan2(target[0] - rec.x, target[2] - rec.z)); }
+/** a point of the record's frame in the world (FUN_0043ab72, and the translation row of FUN_0043a9e5) */
+export function toWorld24(m: ArrayLike<number>, v: ArrayLike<number>, out: number[] = [0, 0, 0]): number[] {
+  const F = Math.fround;
+  for (let k = 0; k < 3; k++) out[k] = F(F(F(F(v[0] * m[k]) + F(v[1] * m[4 + k])) + F(v[2] * m[8 + k])) + m[12 + k]);
+  return out;
+}
+const F = Math.fround;
+/** the constants of the wraps are single floats (_DAT_0089207c = 3.1415927, _DAT_00892094 = 6.2831855, _DAT_00892098 = -3.1415927) and the angle is a float variable */
+const PI32 = F(Math.PI), TWO_PI32 = F(2 * Math.PI);
+/** the zone's angle wrap: -pi .. pi (`if (-pi <= a) { if (pi < a) a -= 2 pi } else a += 2 pi`), every store a single float */
+export function wrapPi(a: number): number { a = F(a); return -PI32 <= a ? (PI32 < a ? F(a - TWO_PI32) : a) : F(a + TWO_PI32); }
+/** FUN_00433450: the yaw error of a record (its +0x50) against the direction to `target` (atan2(dx, dz)), wrapped; the differences and the angle are single floats */
+export function yawError(rec: GameRecord, target: ArrayLike<number>): number { return wrapPi(F(rec.ry - F(Math.atan2(F(target[0] - rec.x), F(target[2] - rec.z))))); }
 
 export class RgbState {
   rng: Rng;
   sound: SoundSink = SILENT;
   /** FUN_00439bf8 + FUN_00435a11: speak a line of the zone's table; false while another is playing */
   say: (id: string) => boolean = () => true;
-  /** the particle emitters of the original (not ported: the hook only records what would be started) */
-  fx: (name: string, pos?: ArrayLike<number>) => void = () => { /* */ };
+  /** the particle emitters the zone starts (FUN_005f8050: one `impact01` per ball; the four `dust` emitters of the player's cannons are gated by var 0xfd alone): the
+   *  zone game replaces these two hooks (z10RGB.ts); tests and the headless node runs leave them empty */
+  fx: { ballOn(b: Ball): void; ballOff(b: Ball): void } = { ballOn() { /* */ }, ballOff() { /* */ } };
+  /** restored content (src/restore/features/cues.ts): an event of the zone (`rgb-castle-hit`); null = the original (the zone game sets it) */
+  cue: ((name: string, pos?: ArrayLike<number>) => void) | null = null;
   /** the field of view the camera uses (the original's DAT_0089df2c): 1.0, 0.21 inside a cannon */
   fov = 1;
   /** Cedric's hop table (DAT_00911f78, 9 x 9) */

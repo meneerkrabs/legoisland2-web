@@ -146,9 +146,9 @@ export function prepareBkd(world: World, archive: Archive, scene: ZoneScene, o: 
   const weeds = WEED_START_FRAMES.map(([i]) => records[i]);
   const run: BkdRun = {
     env, state, clock, sound, nodes, ticks: 0,
-    beforeTick() { clock.tick(); hurt.update(); run.ticks++; },
+    beforeTick() { clock.tick(world.dt); hurt.update(); run.ticks++; },
     afterTick() {
-      for (const w of weeds) w.anim?.advance(WEED_RATE);
+      for (const w of weeds) w.anim?.advance(WEED_RATE, world.dt);
       state.tickHud(clock.dt);
     },
     result() { return state.over() ? (state.success() ? 1 : 2) : 0; },

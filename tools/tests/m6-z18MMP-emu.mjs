@@ -2,6 +2,8 @@ import { bootWorld, snapshotFromZone, Z18Bot, KEY } from '../lib/m6-z18MMP-bot.m
 import { createHarness, snapshotWorld, restoreWorld, f32 } from '../lib/m6-z18MMP-emu.mjs';
 import { REC, VAR, PS } from '../../src/zones/z18mmp/consts.ts';
 import { B } from '../../src/game/input.ts';
+import { startMmpEmitters } from '../../src/zones/z18mmp/setup.ts';
+import { loadExe } from '../lib/engine-load.mjs';
 
 // z18MMP, differential test (docs/re/m6/z18MMP.md): the ORIGINAL update functions of the 12 node kinds (FUN_006a4fd0 Pepper, 006aadf6 the symbols, 006aa600 the mummies, 006aa070 key,
 // 006a9cc0 page, 006a9930 boulder, 006a95d5 pillars, 006a9280 stones, 006a8cf0 torches, 006a8a40 spiders, 006a8350 rats, the camera hook 006ac844) run in the x86 emulation over one
@@ -42,6 +44,16 @@ export default {
         idle3D: () => true, music: (k) => log.push(['music', k]), say: (a, b) => log.push(['say', a, b ?? null]),
       };
       G.log = log;
+      // the particle engine: a recorder with the original's handle numbers (start order); gate / matrix calls go to the same log as the sounds
+      const fxStarts = [];
+      const idxOf = (m) => G.rs.findIndex((r) => r.m === m);
+      G.fxStarts = fxStarts;
+      startMmpEmitters({
+        start: (name, m, pos, rot, gate) => { fxStarts.push({ name, rec: idxOf(m), pos: [...pos], rot: [...rot], gate: [...gate] }); return 0x2000 + fxStarts.length - 1; },
+        on: (h) => log.push(['fxgate', h, 2, 1, 1]), off: (h) => log.push(['fxgate', h, 1, 1, 1]),
+        setMatrix: (h, m) => log.push(['fxmat', h, idxOf(m)]), collideWith: () => { /* the oracle does not simulate particles */ },
+      }, G.w, G.sh, G.nodes);
+      log.length = 0;
       const H = createHarness(ctx, G);
       if (o.noGuards) for (const i of REC.GUARD) { G.rs[i].ctrl.nodes = []; G.rs[i].y = 800; G.rs[i].z = -8000; }
       return { G, H };
@@ -101,13 +113,12 @@ export default {
       for (let i = 0xf0; i < 0x100; i++) { checked++; if ((w.vars.a[i] | 0) !== (origVars[i] | 0)) bad(`${label}: variable ${i.toString(16)}: port ${w.vars.a[i].toString(16)}, original ${origVars[i].toString(16)}`); }
       // the camera: eye and target
       for (let i = 0; i < 6; i++) num(mine.camera[i], orig.camera[i], 2e-4, `${label}: camera[${i}]`);
-      // sounds: the torches all play one handle (the last wins): the port plays it once per game tick from the zone game, here the original's last torch call
-      const o = orig.log.slice(), tors = o.filter((e) => e[0] === '3d' && e[1] === 0x18d);
-      const o2 = o.filter((e) => !(e[0] === '3d' && e[1] === 0x18d));
+      // sounds + particle calls (gate / matrix of every emitter, with the handles of the start order): every call of the pass, in order
+      const o2 = orig.log.slice();
       const mineLog = G.log.slice();
-      if (tors.length) { const last = tors[tors.length - 1]; ok(G.sh.torchAt && Math.abs(G.sh.torchAt.x - last[2]) < 1e-3 && Math.abs(G.sh.torchAt.z - last[4]) < 1e-3, `${label}: the last torch position`); }
+      stats.fxCalls = (stats.fxCalls ?? 0) + o2.filter((e) => e[0] === 'fxgate' || e[0] === 'fxmat').length;
       // 3D positions: tolerance
-      const sameLog = (A, Bq) => A.length === Bq.length && A.every((e, i) => e[0] === Bq[i][0] && e[1] === Bq[i][1] && (e[0] !== '3d' || [2, 3, 4].every((q) => Math.abs(e[q] - Bq[i][q]) < 2e-3)) && (e[0] !== 'say' || e[2] === Bq[i][2]));
+      const sameLog = (A, Bq) => A.length === Bq.length && A.every((e, i) => e[0] === Bq[i][0] && e[1] === Bq[i][1] && (e[0] !== 'fxgate' || [2, 3, 4].every((q) => e[q] === Bq[i][q])) && (e[0] !== '3d' || [2, 3, 4].every((q) => Math.abs(e[q] - Bq[i][q]) < 2e-3)) && (e[0] !== 'say' || e[2] === Bq[i][2]) && (e[0] !== 'fxmat' || e[2] === Bq[i][2]));
       checked++;
       if (!sameLog(norm(mineLog), norm(o2))) bad(`${label}: sounds: port ${JSON.stringify(norm(mineLog))} original ${JSON.stringify(norm(o2))}`);
       // random numbers: the same number of draws
@@ -133,6 +144,29 @@ export default {
     };
 
     try {
+      // ---- 0. the constructors' start calls (FUN_00442960 args as pushed by 0x6a8fd8 / 0x6a9f87 / 0x6aa4b1 / 0x6abf47): names from the executable, rotations, gates, parents, order
+      {
+        const pe = loadExe(ctx.dataRoot);
+        const S = make(1), st = S.G.fxStarts, PI = Math.PI;
+        const want = [];
+        for (let n = 0; n < 12; n++) {
+          const sym = REC.SYMBOL[n];
+          want.push({ name: pe.cstr(0x927b50), rec: sym, rot: [0, 0, 0], gate: [1, 1, 1] });
+          want.push({ name: pe.cstr(0x927b5c), rec: sym, rot: [-PI / 2, 0, 0], gate: [1, 1, 1] }, { name: pe.cstr(0x927b64), rec: sym, rot: [-PI / 2, 0, 0], gate: [1, 1, 1] });
+        }
+        want.push({ name: pe.cstr(0x927aa4), rec: REC.KEY, rot: [0, 0, 0], gate: [1, 1, 1] });
+        want.push({ name: pe.cstr(0x927a44), rec: REC.PAGE, rot: [0, 0, 0], gate: [2, 1, 1] });
+        for (const t of REC.TORCH) want.push({ name: pe.cstr(0x92789c), rec: t, rot: [0, 0, 0], gate: [2, 1, 1] });
+        eqv(st.length, want.length, 'number of emitters started');
+        for (let i = 0; i < want.length; i++) {
+          const a = st[i], b = want[i];
+          eqv([a.name.toLowerCase().replace(/\.par$/, ''), a.rec, a.pos, a.rot.map((v) => +v.toFixed(5)), a.gate], [b.name.toLowerCase().replace(/\.par$/, ''), b.rec, [0, 0, 0], b.rot.map((v) => +v.toFixed(5)), b.gate], `start #${i}`);
+        }
+        // the immediates really are in the code: -pi/2 (0xbfc90fdb) in the coffin ctor, nothing else rotated in the others
+        let hasImm = false; for (let a = 0x6abf47; a < 0x6ac040; a++) if (pe.u32(a) === 0xbfc90fdb) hasImm = true;
+        ok(hasImm, 'the coffin ctor pushes -pi/2');
+        for (const [lo, hi] of [[0x6a8fd8, 0x6a9040], [0x6a9f87, 0x6a9ff0], [0x6aa4b1, 0x6aa540]]) for (let a = lo; a < hi; a++) ok(pe.u32(a) !== 0xbfc90fdb && pe.u32(a) !== 0x40490fdb, `no rotation immediate in ${lo.toString(16)}`);
+      }
       // ---- 1. a whole game: every 3rd tick, every tick around the interesting moments (state changes of Pepper, the coffins, the collapse)
       {
         const S = make(2);
@@ -144,6 +178,7 @@ export default {
           return hit;
         };
         playAndCompare(S, new Z18Bot({ mode: 'careless' }), 3, 12000, 'game', win);
+        notes.push(`particle calls compared with the original's: ${stats.fxCalls}`); ok(stats.fxCalls > 1000, 'the original made particle calls in the whole game');
         notes.push(`whole game: ${stats.ticks} ticks compared, ${(stats.msBy / Math.max(1, stats.ticks)).toFixed(1)} ms per original pass; node calls ${JSON.stringify(stats.calls)}`);
       }
       // ---- 1b. a second whole game (the smart bot, another arrangement of the symbols), every 4th tick

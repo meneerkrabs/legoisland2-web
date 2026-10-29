@@ -2,11 +2,12 @@
 // FUN_005ce506); this adds what FUN_005cd33d / FUN_005ce27f / FUN_005d3f30 / FUN_005d2814 / FUN_005d4070 / FUN_005d4467 do around it: set-up of the animations, the HUD
 // (two counters, the score and the charge gauge), the aim marker, the round popups, the end banner and the sounds.
 import type { Ui2D } from '../../ui/renderer2d.ts';
+import { GATE_OFF, GATE_ON, ZoneParticles } from '../../fx/particles/zone.ts';
 import { MODE } from '../../shell/loopmachine.ts';
 import { drawIntroScreen } from '../../shell/helpscreen.ts';
 import type { ScreenLine } from '../../shell/helpscreen.ts';
 import type { ZoneGame, ZoneGameCtx } from '../../shell/zonegame.ts';
-import { Gear, JstGameNode, startDuel } from './rig.ts';
+import { Gear, JstGameNode, startDuel, applyRestart, rememberRestart } from './rig.ts';
 import { JoustDuel } from './duel.ts';
 import { REC, SAY } from './consts.ts';
 import { JoustSound } from './sound.ts';
@@ -40,13 +41,25 @@ export function markerSegments(cx: number, cy: number, s: number): [number, numb
   ];
 }
 
-export function createJstGame(ctx: ZoneGameCtx): ZoneGame {
+export async function createJstGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   const { world, gr, hud, archive } = ctx;
   const recs = world.records;
   const ga = ctx.sh.audio.ga;
   const sound = new JoustSound(ga);
   void sound.load();
   const { duel, node, gear } = startDuel({ world, archive, pe: ctx.sh.pe, sound, say: (a, b) => { ctx.say(a, b ?? null); }, stopSpeech: () => ctx.stopSpeech(), onGear: () => gr.refreshViews() });
+  // FUN_005d1f64: the constructor's emitters: `botexpl01` (FUN_004429e0 = a stub that hands out the invalid handle: nothing to start) and eight `orsemud1` mud clouds at the hooves of the two
+  // horses (parent matrix = the horse's record, offset 0; odd / even ones rotated -pi/2 about x or not; the second one starts ON), every one switched off again at the end of the constructor
+  const fx = await ZoneParticles.create(ctx);
+  if (fx) {
+    const horse = [recs[REC.HORS].m, recs[REC.DRKH].m];
+    const rot: [number, number, number][] = [[-Math.PI / 2, 0, 0], [0, 0, 0], [-Math.PI / 2, 0, 0], [0, 0, 0]];
+    const h: number[] = [];
+    for (let i = 0; i < 8; i++) h.push(fx.start('orsemud1.par', horse[i >> 2], [0, 0, 0], rot[i & 3], i === 1 ? GATE_ON : GATE_OFF));
+    for (const k of h) fx.off(k);
+    duel.host.fx = { gate: (i, on) => (on ? fx.on(h[i]) : fx.off(h[i])), matrix: (i, m) => fx.setMatrix(h[i], m) };
+  }
+  applyRestart(duel, ctx.attempt);                          // the original restarts in place: the spectator level survives
   gr.fov = 1.0;
 
   hud.visible = false;
@@ -100,7 +113,7 @@ export function createJstGame(ctx: ZoneGameCtx): ZoneGame {
     onStart() { playing = true; hud.visible = true; },
     update() {
       // without the attach (a world built without the extraction) the game drives the duel itself
-      if (!node) duel.update(world.input.held, world.input.pressed);
+      if (!node) { duel.dt = world.dt; duel.update(world.input.held, world.input.pressed); }
       syncHud();
       sound.listener(world.camera.c, [world.camera.c[3], world.camera.c[4], world.camera.c[5]]);
       return duel.result || undefined;
@@ -123,6 +136,7 @@ export function createJstGame(ctx: ZoneGameCtx): ZoneGame {
     },
     drawBanner(ui) { finalBanner(ui); },
     destroy() {
+      rememberRestart(duel);
       sound.stopAll();
       gear.restore();
       hud.gauge = null; hud.visible = true; hud.leftText = ''; hud.rightText = ''; hud.centreText = ''; hud.left = { tex: -1, tint: 0xffffffff }; hud.right = { tex: -1, tint: 0xffffffff };

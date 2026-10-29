@@ -1,5 +1,5 @@
 // Entry through the story: start in the pyramid hub z16PYA (the hub the story node of z17WAS follows), F9 completes the hub's story step, the story moves on to z17WAS.
-//   node tools/browse.mjs "http://localhost:5499/?zone=z16PYA&mute=1" tools/steps/m3-z17WAS-entry.mjs --size 1280x800 --out /tmp/m3/z17WAS
+//   node tools/browse.mjs "http://localhost:5499/?zone=z16PYA&mute=1&debug=1" tools/steps/m3-z17WAS-entry.mjs --size 1280x800 --out /tmp/m3/z17WAS
 export default async ({ page, shot, wait, log, key }) => {
   const fail = [];
   const expect = (name, cond, extra = '') => { log(cond ? 'ok  ' : 'FAIL', name, extra); if (!cond) fail.push(name); };

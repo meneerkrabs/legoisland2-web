@@ -3,7 +3,7 @@
 // page shows the 3D figure and its text (FUN_0041cbac); Down / Left at the far view asks whether to leave (mode 5, page 15).
 // Registers the four behaviours of the room by constructor address (the node ports) and the zone game (menu drawing, record visibility, exit mapping).
 import { registerCtor } from '../game/setup.ts';
-import { NODE_CONTINUE, NODE_NONE } from '../game/controller.ts';
+import { NODE_CONTINUE, NODE_NONE, updatePass, prerenderPass } from '../game/controller.ts';
 import type { BehaviourNode } from '../game/controller.ts';
 import type { GameRecord } from '../game/record.ts';
 import { RF_ENABLED } from '../game/record.ts';
@@ -11,7 +11,8 @@ import type { World } from '../game/world.ts';
 import { AnimInstance } from '../game/anim.ts';
 import { registerZoneGame } from '../shell/zonegame.ts';
 import type { ZoneGame, ZoneGameCtx } from '../shell/zonegame.ts';
-import { EXIT } from '../shell/loopmachine.ts';
+import { EXIT, MODE } from '../shell/loopmachine.ts';
+import { B } from '../game/input.ts';
 import { drawMenu, menuLabel, readRowTables } from '../shell/menudraw.ts';
 import type { MenuGfx } from '../shell/menudraw.ts';
 import { keyCodeName } from '../shell/dik.ts';
@@ -20,6 +21,8 @@ import { CAPTION, CHAR_PAGE0, DOOR, EXIT_PAGE, IfcRoom, MODEL_OFFSET, PEPPER_PLA
 import type { IfcHost } from './z04IFC/ifc.ts';
 import { readIfcPages, labelId } from './z04IFC/pages.ts';
 import { drawDialog } from './z04IFC/dialog.ts';
+import { gameRandom } from './common/tickrand.ts';
+import { euler24 } from './common/x87.ts';
 
 /** constructor addresses of the room's four behaviours (the `Map.c` functions the set-up code attaches: FUN_0054ce86) */
 export const IFC_CTOR = { CONTROLLER: 0x54c4a7, PIN: 0x54bc04, CHARACTER: 0x54c9f7, DOOR: 0x54ccae } as const;
@@ -30,6 +33,8 @@ const GV_SELECTED_PIN = 0xfa;
 /** the link between the nodes (made when the set-up attaches the controller) and the zone game (which owns the room) */
 interface Link { room: IfcRoom | null; pagesOfPin: Map<number, number> }
 let link: Link = { room: null, pagesOfPin: new Map() };
+/** the tick in which Esc opens the pause menu: the original's loop top (FUN_00549911 -> FUN_00423170) switches to mode 3 BEFORE the update pass, so that iteration runs no update and no pre-render */
+const escTick = { on: false };
 
 class ControllerNode implements BehaviourNode {
   readonly kind = 'IfcMap';
@@ -39,11 +44,11 @@ class ControllerNode implements BehaviourNode {
   /** FUN_0054bce3 */
   update(w: World, rec: GameRecord): number {
     const room = this.l.room;
-    if (!room) return NODE_NONE;
+    if (!room || escTick.on) return NODE_NONE;
     const r = room.update(w.input.pressed);
     if (r.placePepper) {
       rec.flags |= RF_ENABLED;
-      rec.setEuler(0, PEPPER_PLACE.yaw, 0, PEPPER_PLACE.x, PEPPER_PLACE.y, PEPPER_PLACE.z);
+      rec.m.set(euler24(0, PEPPER_PLACE.yaw, 0, PEPPER_PLACE.x, PEPPER_PLACE.y, PEPPER_PLACE.z));   // FUN_0043a5e4, 24-bit x87
     }
     return NODE_CONTINUE;
   }
@@ -69,7 +74,7 @@ class PinNode implements BehaviourNode {
   /** FUN_0054b982 */
   update(w: World, rec: GameRecord): number {
     const room = this.l.room;
-    if (!room) return NODE_NONE;
+    if (!room || escTick.on) return NODE_NONE;
     const y = room.pinUpdate(rec.index, rec.y);
     if (y !== rec.y) rec.y = y;
     return NODE_CONTINUE;
@@ -80,7 +85,7 @@ class CharacterNode implements BehaviourNode {
   readonly kind = 'IfcChar';
   var = 0; mask = 0; value = 0; stamp = 0xfffffffe;
   /** FUN_0054c90b: the figure's animation runs on, shown or not */
-  update(_w: World, rec: GameRecord): number { rec.anim?.advance(1); return NODE_CONTINUE; }
+  update(_w: World, rec: GameRecord): number { if (escTick.on) return NODE_NONE; rec.anim?.advance(1); return NODE_CONTINUE; }
 }
 
 class DoorNode implements BehaviourNode {
@@ -91,9 +96,9 @@ class DoorNode implements BehaviourNode {
   /** FUN_0054caa1 */
   update(_w: World, rec: GameRecord): number {
     const room = this.l.room;
-    if (!room) return NODE_NONE;
+    if (!room || escTick.on) return NODE_NONE;
     const a = room.doorUpdate();
-    rec.setEuler(0, a * DOOR.DEG, 0, DOOR.X, DOOR.Y, DOOR.Z);
+    rec.m.set(euler24(0, Math.fround(a * DOOR.DEG), 0, DOOR.X, DOOR.Y, DOOR.Z));   // FUN_0043a5e4, 24-bit x87
     return NODE_CONTINUE;
   }
 }
@@ -110,7 +115,7 @@ export function createIfcGame(ctx: ZoneGameCtx): ZoneGame {
   const records = world.records;
   const pages = readIfcPages(sh.pe);
   const msg = (id: string) => sh.msgs.label('!' + id);
-  const rand = (): number => Math.random();
+  const rand = (): number => gameRandom();     // RNG: the C runtime generator (src/zones/common/tickrand.ts)
   const host: IfcHost = {
     play: (id) => world.playSound(id),
     restart: (id) => sh.audio.restart(id),
@@ -194,13 +199,37 @@ export function createIfcGame(ctx: ZoneGameCtx): ZoneGame {
     } else drawMenu(room.menu, common);
   };
 
+  let lastMode: number = MODE.FADE_IN;
+  const beginPass = () => { for (const r of records) { r.savePrev(); r.anim?.beginTick(); } world.camera.savePrev(); };
   const game: ZoneGame = {
     // rooms: no intro, no help, no result banner (configFor in playzone.ts)
     update() {
+      escTick.on = false;
       // FUN_0054c398 (draw hook, state 2): the info menu
       room.afterFrame(sh.input.pressed, sh.pointer);
       syncRecords();
       return undefined;
+    },
+    /**
+     * The passes of the loop (FUN_0054996a) outside mode 2 that the shared runner does not run: mode 7 (the fade in, 16 ticks) runs the UPDATE pass only (FUN_0042226e: the
+     * ambient loops, the pins bob, the figures' clips advance; no pre-render, so the fly-in camera starts with mode 2), mode 5 (the exit question) runs the PRE-RENDER pass
+     * only (FUN_004225c5: the camera hold and Pepper's clock keep going behind the question; the nodes that ran last are the ones that pre-render), before the menu step of
+     * the same iteration (`resultTick`: the question's answer takes effect in the next iteration). `everyTick` gets the mode after the runner's transition, so the mode the
+     * loop iteration started with is remembered here.
+     */
+    everyTick(mode) {
+      const top = lastMode; lastMode = mode;
+      if (top === MODE.FADE_IN) { beginPass(); updatePass(world); syncRecords(); }
+    },
+    resultTick() { beginPass(); world.camera.updateView(); prerenderPass(world); syncRecords(); },
+    /**
+     * Esc before the update pass: the original reads the input at the top of the iteration; with the info menu closed Esc switches to mode 3 there and the iteration runs neither the
+     * update nor the pre-render pass. The runner ticks the world first, so the room's nodes are told to skip that tick (they return "did not run": no pre-render either) and the
+     * pause-blocked state is judged at the top of the tick (the menu flag as the previous iteration left it).
+     */
+    beforeTick() {
+      room.pauseBlocked = room.menuOpen !== 0;
+      escTick.on = (sh.input.pressed & B.ESC) !== 0 && room.menuOpen === 0;
     },
     blockPause: () => room.pauseBlocked,
     dialog: {
@@ -227,6 +256,7 @@ export function createIfcGame(ctx: ZoneGameCtx): ZoneGame {
     debug: () => ({
       state: room.state, cnt: room.cnt, menuOpen: room.menuOpen, exitAsk: room.exitAsk, door: [room.doorState, room.doorAngle], selected: room.selected, caption: room.caption,
       page: room.menu.open ? room.menu.page : -1, character: room.characterRecord(), eye: [...room.eye], target: [...room.target], pins: room.pins.size, var: ctx.vars.get(GV_SELECTED_PIN),
+      pinAngle: room.pins.get(room.selected)?.angle ?? -1,
     }),
     destroy() { link.room = null; },
   };

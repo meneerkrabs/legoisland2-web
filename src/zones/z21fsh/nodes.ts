@@ -8,8 +8,9 @@
 //   rod       0x6f9cdc (draw   0x6f94d4)  the rod: bends with the pull, points at the bobber / fish, draws the line
 //   Fisherman 0x6f937d (update 0x6f9090)  the old man walks to the spot Pepper chose
 // The "draw hooks" of the original (matrix work before the draw call) are done in `prerender` here (the renderer reads the record matrices).
-import { buildMatrix } from '../../formats/matrix.ts';
-import { mul } from '../../render/math.ts';
+import { euler24 } from '../common/x87.ts';
+import { mulGame, transformPointGame } from '../../render/math.ts';
+const f32 = Math.fround;
 import { NODE_CONTINUE, NODE_STOP } from '../../game/controller.ts';
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import { registerCtor } from '../../game/setup.ts';
@@ -20,6 +21,7 @@ import { waypoints } from '../../game/walker.ts';
 import type { StepOut } from '../../game/walker.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import type { Pe } from '../../formats/exe.ts';
+import { restoreHooks } from '../../restore/flag.ts';
 import {
   CTOR, REC, TABLE, SND, BTN, CLIP, ST, CAST, K, MSG, CATCH_LINES, PI, TWO_PI, Fish, Follower, Popups, fishStep, pickBite, newPick, mathRng, randF, randI, normalize,
 } from './rules.ts';
@@ -39,8 +41,8 @@ export interface FshEnv {
   cutsceneStart(slot: number): void; cutsceneActive(): boolean;
   /** FUN_004432c0(DAT_05d5c3dc / 3d8): the music switches to the fight track (true) and back */
   fightMusic(on: boolean): void;
-  /** the splash particle emitter (FUN_00442a00 / 00442a20; not ported: no particle runtime) */
-  splash(x: number, y: number, z: number): void;
+  /** the splash emitter splash01.par (FUN_00442a00 + 00442a20(h, 2, 1, 1) at the landing of the bobber: `on`, the matrix DAT_05d5caf0 = (identity, x, y, z); 00442a20(h, 1, 1, 1) when the reeling starts: `!on`, the position is ignored) */
+  splash(x: number, y: number, z: number, on?: boolean): void;
 }
 export const silentEnv: FshEnv = { play2D() {}, stop2D() {}, play3D() {}, stop3D() {}, say() {}, cutsceneStart() {}, cutsceneActive: () => false, fightMusic() {}, splash() {} };
 
@@ -95,11 +97,22 @@ export const sharedOf = (w: World): FshShared => { let s = SHARED.get(w); if (!s
 export const dropShared = (w: World) => { SHARED.delete(w); };
 
 const identity = (): Float32Array => { const m = new Float32Array(16); m[0] = m[5] = m[10] = m[15] = 1; return m; };
-const euler = (m: Float32Array, rx: number, ry: number, rz: number, x: number, y: number, z: number) => m.set(buildMatrix(rx, ry, rz, x, y, z));
+/** FUN_0043a5e4 with the executable's 24-bit x87 arithmetic (zones/common/x87.ts); the arguments are float32 stack words. The original leaves the record's Euler word (+0x50) alone. */
+const euler = (m: Float32Array, rx: number, ry: number, rz: number, x: number, y: number, z: number) => m.set(euler24(rx, ry, rz, f32(x), f32(y), f32(z)));
 /** the rows of the 3x3 part scaled (the pre-transform FUN_004440d0 / FUN_0043a9e5 with 0.5 on the diagonal: translation untouched) */
 function scaleRows(m: Float32Array, s: number) { for (const i of [0, 1, 2, 4, 5, 6, 8, 9, 10]) m[i] *= s; }
 /** the terrain's height below (x, y + 10, z) (FUN_0043cd62(pos, 10)), NO_GROUND (-1e38) over the water */
-const groundAt = (w: World, x: number, y: number, z: number) => w.col.terrainHeight(x, y, z, K.PROBE);
+const NO_GROUND32 = f32(NO_GROUND);
+/** FUN_0043ab72(out, M, v): v * M + translation, the products summed z, y, x and stored as float32 */
+function xform(m: ArrayLike<number>, x: number, y: number, z: number): [number, number, number] {
+  const o = transformPointGame(m, [x, y, z]);      // 24-bit x87: ((x m0 + y m4) + z m8) + m12, every operation rounded (render/math.ts)
+  return [o[0], o[1], o[2]];
+}
+/** FUN_0043a9e5(out, A, B) = B * A (B applies first): rows 0..2 of B times A's 3x3, B's translation through A plus A's translation; every element a float32 store */
+function mulF32(b: ArrayLike<number>, a: ArrayLike<number>): Float32Array { return mulGame(b, a); }      // 24-bit x87 (render/math.ts)
+/** a x b with the two products of every component rounded before the subtraction (24-bit x87: `fld a1; fmul b2; fld a2; fmul b1; fsubp`) */
+const cross24 = (a: ArrayLike<number>, b: ArrayLike<number>) => [f32(f32(a[1] * b[2]) - f32(a[2] * b[1])), f32(f32(a[2] * b[0]) - f32(a[0] * b[2])), f32(f32(a[0] * b[1]) - f32(a[1] * b[0]))];
+const groundAt = (w: World, x: number, y: number, z: number) => f32(w.col.groundRay(x, f32(y + K.PROBE), z));
 
 abstract class FshNode implements BehaviourNode {
   abstract readonly kind: string;
@@ -167,7 +180,8 @@ export class FishingNode extends FshNode implements FishingView {
     const S = this.S, env = S.env, dt = w.dt, input = w.input;
     const held = input.held;
     const anim = rec.anim;
-    this.counter = Math.trunc(this.counter + 1 * dt);
+    const k1 = f32(1 * dt);        // `_DAT_00892020 * DAT_008b1718`
+    this.counter = Math.trunc(this.counter + k1);
     this.floatRec.hide();
     if (this.state !== ST.CAST && anim) anim.advance(1.0, dt);
     switch (this.state) {
@@ -175,24 +189,25 @@ export class FishingNode extends FshNode implements FishingView {
         if (!env.cutsceneActive()) S.result = 1;
         break;
       case ST.TURN_TO_SPOT:
-        euler(rec.m, 0, this.yaw, 0, this.px, this.py, this.pz); rec.ry = this.yaw;
-        this.yaw = this.yawStep * dt + this.yaw;
-        this.turnLeft -= 1 * dt;
+        euler(rec.m, 0, this.yaw, 0, this.px, this.py, this.pz);
+        this.yaw = f32(f32(this.yawStep * dt) + this.yaw);
+        this.turnLeft = f32(this.turnLeft - k1);
         if (this.turnLeft <= 0) this.state = this.walkFlag === 0 ? ST.TURN_TO_LAKE : ST.WALK_TO_SPOT;
         break;
       case ST.WALK_TO_SPOT: {
-        this.px += 1 * dt * this.stx; this.py += 1 * dt * this.sty; this.pz += 1 * dt * this.stz;
+        const d0 = f32(k1 * this.stx), d1 = f32(k1 * this.sty), d2 = f32(k1 * this.stz);
+        this.px = f32(d0 + this.px); this.py = f32(d1 + this.py); this.pz = f32(d2 + this.pz);
         const h = groundAt(w, this.px, this.py, this.pz);
-        if (h !== NO_GROUND) this.py = h;
-        euler(rec.m, 0, this.yaw, 0, this.px, this.py, this.pz); rec.ry = this.yaw;
-        this.walkLeft -= 1 * dt;
+        if (h !== NO_GROUND32) this.py = h;
+        euler(rec.m, 0, this.yaw, 0, this.px, this.py, this.pz);
+        this.walkLeft = f32(this.walkLeft - k1);
         if (this.walkLeft <= 0) { this.state = ST.TURN_TO_LAKE; this.turnToLake(rec); }
         break;
       }
       case ST.TURN_TO_LAKE:
-        euler(rec.m, 0, this.yaw, 0, this.px, this.py, this.pz); rec.ry = this.yaw;
-        this.yaw = this.yawStep * dt + this.yaw;
-        this.turnLeft -= 1 * dt;
+        euler(rec.m, 0, this.yaw, 0, this.px, this.py, this.pz);
+        this.yaw = f32(f32(this.yawStep * dt) + this.yaw);
+        this.turnLeft = f32(this.turnLeft - k1);
         if (this.turnLeft <= 0) { this.yawStep = 0; anim?.start(CLIP.STAND, 0); this.state = ST.ARRIVED; }
         break;
       case ST.ARRIVED:
@@ -207,9 +222,9 @@ export class FishingNode extends FshNode implements FishingView {
               anim?.start(CLIP.CAST, 0);
               this.state = ST.CAST; this.castRate = 1; this.castFlag = 1; this.sub = CAST.WINDUP;
             }
-          } else if (-K.AIM_LIMIT < this.yawStep) this.yawStep -= K.AIM_STEP;
-        } else if (this.yawStep < K.AIM_LIMIT) this.yawStep += K.AIM_STEP;
-        euler(rec.m, 0, this.yaw + this.yawStep, 0, this.px, this.py, this.pz); rec.ry = this.yaw + this.yawStep;
+          } else if (-K.AIM_LIMIT < this.yawStep) this.yawStep = f32(this.yawStep - K.AIM_STEP);
+        } else if (this.yawStep < K.AIM_LIMIT) this.yawStep = f32(this.yawStep + K.AIM_STEP);
+        euler(rec.m, 0, f32(this.yaw + this.yawStep), 0, this.px, this.py, this.pz);
         break;
       case ST.CAST: this.updateCast(w, rec); break;
       case ST.WAIT: this.updateWait(w, rec); break;
@@ -219,7 +234,7 @@ export class FishingNode extends FshNode implements FishingView {
       case ST.LANDED: this.updateLanded(w, rec); break;
       case ST.SCORE: this.updateScore(w, rec); break;
       case ST.END:
-        this.endTicks = Math.trunc(this.endTicks - 1 * dt);
+        this.endTicks = Math.trunc(this.endTicks - k1);
         if (this.endTicks < 1) {
           this.state = ST.DONE;
           anim?.start(CLIP.IDLE, 0);
@@ -236,34 +251,35 @@ export class FishingNode extends FshNode implements FishingView {
     return NODE_STOP;
   }
 
-  /** the yaw turn to face the lake centre (FUN_006f6e2b case 3's end) */
+  /** the yaw turn to face the lake centre (FUN_006f6e2b case 3's end: float32 stores) */
   private turnToLake(rec: GameRecord) {
     const fx = rec.m[8], fz = rec.m[10];
-    const dx = K.LAKE_CENTRE[0] - rec.x, dz = K.LAKE_CENTRE[2] - rec.z;
-    this.yawTarget = Math.atan2(dx, dz);
-    this.yaw = Math.atan2(fx, fz);
-    if (this.yawTarget < this.yaw) this.yawTarget += TWO_PI;
-    this.yawStep = this.yawTarget - this.yaw;
-    if (PI < this.yawStep) this.yawStep = -(TWO_PI - this.yawStep);
-    const t = Math.abs(this.yawStep / K.TURN_STEP);
-    this.turnLeft = t;
-    this.yawStep = this.yawStep / t;
+    const dx = f32(K.LAKE_CENTRE[0] - rec.m[12]), dz = f32(K.LAKE_CENTRE[2] - rec.m[14]);
+    this.yawTarget = f32(Math.atan2(dx, dz));
+    this.yaw = f32(Math.atan2(fx, fz));
+    if (this.yawTarget < this.yaw) this.yawTarget = f32(this.yawTarget + TWO_PI);
+    this.yawStep = f32(this.yawTarget - this.yaw);
+    if (PI < this.yawStep) this.yawStep = f32(-(TWO_PI - this.yawStep));
+    this.turnLeft = f32(Math.abs(this.yawStep / K.TURN_STEP));
+    this.yawStep = f32(this.yawStep / this.turnLeft);
   }
 
   /** FUN_006f6d71: the camera looks at Pepper (+ height), the eye eases towards the preset's offset in her frame */
   private cameraStep(w: World, rec: GameRecord) {
     const cam = this.S.cam, cc = w.camera.c;
-    cc[3] = rec.m[12]; cc[4] = cam.h + rec.m[13]; cc[5] = rec.m[14];
-    const e = rec.toWorld([cam.x, cam.y, cam.z]);
-    cc[0] = (e[0] - cc[0]) * K.CAM_EASE + cc[0];
-    cc[2] = (e[2] - cc[2]) * K.CAM_EASE + cc[2];
-    cc[1] = (e[1] - cc[1]) * K.CAM_EASE + cc[1];
+    cc[3] = rec.m[12]; cc[4] = f32(cam.h + rec.m[13]); cc[5] = rec.m[14];
+    const m = rec.m;
+    // FUN_0043ab72 (24-bit x87: ((x m0 + y m4) + z m8) + m12, every operation rounded), then the ease: ((e - c) * k) + c
+    const [ex, ey, ez] = xform(m, cam.x, cam.y, cam.z);
+    cc[0] = f32(f32(f32(ex - cc[0]) * K.CAM_EASE) + cc[0]);
+    cc[2] = f32(f32(f32(ez - cc[2]) * K.CAM_EASE) + cc[2]);
+    cc[1] = f32(f32(f32(ey - cc[1]) * K.CAM_EASE) + cc[1]);
   }
 
   // ---------------------------------------------------------------- 7: casting
 
   private updateCast(w: World, rec: GameRecord) {
-    const S = this.S, env = S.env, dt = w.dt, anim = rec.anim;
+    const S = this.S, env = S.env, dt = w.dt, anim = rec.anim, k1 = f32(1 * dt);
     switch (this.sub) {
       case CAST.WINDUP: {
         anim?.advance(this.castRate, dt);
@@ -275,7 +291,7 @@ export class FishingNode extends FshNode implements FishingView {
         break;
       }
       case CAST.CHARGE:
-        this.power = 1 * dt + this.power;
+        this.power = f32(k1 + this.power);
         if (K.POWER_MAX < this.power || (w.input.pressed & BTN.CAST) !== 0) {
           env.stop2D(SND.CAST_STRENGTH);
           this.sub = CAST.THROW;
@@ -287,19 +303,20 @@ export class FishingNode extends FshNode implements FishingView {
         if (!anim) break;
         const r = anim.advance(this.castRate, dt);
         if (r === 2) {
-          anim.seek(anim.frameCount - 1.0);
+          anim.seek(f32(anim.frameCount - 1.0));
           if (this.power <= K.POWER_MAX) {
             if (K.POWER_MIN <= this.power) {
               S.popups.add(MSG.GOOD_CAST, 5, 5, 2, 300, 0x1b8);
               this.sub = CAST.FLIGHT;
               const fx = rec.m[8], fy = rec.m[9], fz = rec.m[10];
               const x = rec.m[12], y = rec.m[13], z = rec.m[14];
-              this.bx = x; this.by = y + K.LAUNCH_LIFT; this.bz = z;
-              this.tx = x + this.power * fx; this.ty = y + this.power * fy; this.tz = z + this.power * fz;
+              this.bx = x; this.by = y; this.bz = z;
+              this.by = f32(this.by + K.LAUNCH_LIFT);
+              this.tx = f32(x + f32(this.power * fx)); this.ty = f32(y + f32(this.power * fy)); this.tz = f32(z + f32(this.power * fz));      // asm 0x6f7813: the product is stored first
               this.ty = 0;
-              const dx = this.tx - this.bx, dy = this.ty - this.by, dz = this.tz - this.bz;
-              this.vx = dx * 0.015625; this.vy = dy * 0.015625; this.vz = dz * 0.015625;
-              this.vy += 1.0;
+              const dx = f32(this.tx - this.bx), dy = f32(this.ty - this.by), dz = f32(this.tz - this.bz);
+              this.vx = f32(dx * K.INV_FLIGHT); this.vy = f32(dy * K.INV_FLIGHT); this.vz = f32(dz * K.INV_FLIGHT);
+              this.vy = f32(this.vy + 1.0);
               this.flight = K.FLIGHT_TICKS;
             } else {
               S.popups.add(MSG.TANGLED, 6, 5, 2, 300, 0x1b8);
@@ -317,18 +334,18 @@ export class FishingNode extends FshNode implements FishingView {
       case CAST.FLIGHT: {
         env.play2D(SND.PEPP_CAST);
         this.drawBobber(w, rec);
-        this.bx += this.vx * dt; this.by += this.vy * dt; this.bz += this.vz * dt;
-        this.vy -= K.GRAVITY * dt;
-        this.flight -= 1 * dt;
+        this.bx = f32(f32(this.vx * dt) + this.bx); this.by = f32(f32(this.vy * dt) + this.by); this.bz = f32(f32(this.vz * dt) + this.bz);
+        this.vy = f32(this.vy - f32(K.GRAVITY * dt));
+        this.flight = f32(this.flight - k1);
         if (this.flight < 0) {
           const h = groundAt(w, this.bx, this.by, this.bz);
-          if (h === NO_GROUND) {
+          if (h === NO_GROUND32) {
             this.castFlag = 0; this.sub = CAST.LANDED;
             anim?.start(CLIP.CAST_THROW, 0);
             this.bite = 0;
             this.lure = K.LURE; this.bobPhase = 0;
             this.by = this.ty;
-            S.splash.on = true; S.splash.x = this.bx; S.splash.y = this.by; S.splash.z = this.bz;
+            // (the ring's place / flag are set by the bobber's draw FUN_006f665b from the next tick on, not here)
             env.splash(this.bx, this.by, this.bz);
             if (randI(S.rng, 10) < 5) env.play3D(SND.SPLASH2, this.bx, this.by, this.bz); else env.play3D(SND.SPLASH1, this.bx, this.by, this.bz);
           } else {
@@ -377,25 +394,27 @@ export class FishingNode extends FshNode implements FishingView {
     }
     if ((held & BTN.DOWN) === 0) {
       env.stop2D(SND.REEL_LOOP);
-      if (0 < this.taut) this.taut -= K.TAUT_DECAY * dt;
+      if (0 < this.taut) this.taut = f32(this.taut - f32(K.TAUT_DECAY * dt));
     } else {
       env.play2D(SND.REEL_LOOP);
       this.state = ST.REEL;
-      env.splash(this.bx, this.by, this.bz);   // FUN_00442a20(emitter, 1, 1, 1): the burst stops
+      env.splash(this.bx, this.by, this.bz, false);   // FUN_00442a20(emitter, 1, 1, 1): the burst stops
       anim?.start(CLIP.CAST_THROW, 0);
     }
   }
 
   /** the bobber is pulled towards Pepper by 0.4 per tick along her forward direction; arrival within 8 */
-  private reelIn(w: World, rec: GameRecord, clip: number): boolean {
+  private reelIn(w: World, rec: GameRecord, clip: number, stopWriggle = true): boolean {
     const dt = w.dt;
-    const k = K.REEL_SPEED * dt;
-    this.bx -= rec.m[8] * k; this.by -= rec.m[9] * k; this.bz -= rec.m[10] * k;
-    const dx = this.bx - rec.x, dy = this.by - rec.y, dz = this.bz - rec.z;
+    const k = f32(K.REEL_SPEED * dt);
+    const m = rec.m;
+    const d0 = f32(m[8] * k), d1 = f32(m[9] * k), d2 = f32(m[10] * k);
+    this.bx = f32(this.bx - d0); this.by = f32(this.by - d1); this.bz = f32(this.bz - d2);
+    const dx = f32(this.bx - m[12]), dy = f32(this.by - m[13]), dz = f32(this.bz - m[14]);
     const d = Math.sqrt(dz * dz + dy * dy + dx * dx);
     if (d < K.ARRIVE_DIST) {
       const env = this.S.env;
-      env.stop2D(SND.REEL_LOOP); env.stop3D(SND.WRIGGLE);
+      env.stop2D(SND.REEL_LOOP); if (stopWriggle) env.stop3D(SND.WRIGGLE);     // state 9 stops both sounds, state 10 only the reel loop
       rec.anim?.start(clip, 0);
       this.state = ST.ARRIVED;
       if (this.bite === 0) this.casts += 1;   // no bite: the cast is given back
@@ -416,8 +435,9 @@ export class FishingNode extends FshNode implements FishingView {
   private updateRetrieve(w: World, rec: GameRecord) {
     this.S.env.play2D(SND.REEL_LOOP);
     this.drawBobber(w, rec);
+    rec.anim?.advance(1.0, w.dt);        // FUN_006f6e2b case 10 advances Pepper's clip a second time this tick (the top of the function did it once)
     this.taut = K.TAUT;
-    this.reelIn(w, rec, CLIP.STAND);
+    this.reelIn(w, rec, CLIP.STAND, false);
   }
 
   // ---------------------------------------------------------------- 11: the fight
@@ -427,7 +447,7 @@ export class FishingNode extends FshNode implements FishingView {
     const fish = this.hooked!;
     this.taut = K.TAUT_FIGHT;
     const h = groundAt(w, fish.x, fish.y, fish.z);
-    if (h !== NO_GROUND || fish.dist < K.LAND_DIST) {
+    if (h !== NO_GROUND32 || fish.dist < K.LAND_DIST) {
       anim?.start(CLIP.PULL, 0);
       this.state = ST.LANDED;
       fish.hooked = false; fish.y = -2; fish.weight = fish.weight0;
@@ -452,7 +472,7 @@ export class FishingNode extends FshNode implements FishingView {
       this.setCamera(K.CAM_B);
     } else if ((held & BTN.DOWN) !== 0) {
       env.play2D(randI(S.rng, 10) < 4 ? SND.FISH_REELIN2 : SND.FISH_REELIN);
-      this.tension = K.TENSION_REEL * dt + this.tension;
+      this.tension = f32(f32(K.TENSION_REEL * dt) + this.tension);
       const r = randI(S.rng, 400);
       if (r < 390) {
         if (r < 380) {
@@ -460,8 +480,8 @@ export class FishingNode extends FshNode implements FishingView {
         } else env.play2D(SND.PEPP_REEL3);
       } else env.play2D(SND.PEPP_REEL4);
     }
-    const relief = (K.TENSION_WEIGHT - fish.weight) * K.TENSION_RELIEF;
-    this.tension -= relief * dt;
+    // asm 0x6f8582: `fst` stores a float copy of (20 - weight) * 0.04 but the register keeps the double: tension = (float)(tension - ((20 - weight) * 0.04) * dt)
+    this.tension = f32(this.tension - f32(f32(f32(K.TENSION_WEIGHT - fish.weight) * K.TENSION_RELIEF) * dt));
     env.play3D(SND.WRIGGLE, rec.m[12], rec.m[13], rec.m[14]);
     const r = randI(S.rng, 100);
     if (r < 99) {
@@ -478,8 +498,9 @@ export class FishingNode extends FshNode implements FishingView {
     this.count += 1;
     this.total = Math.trunc(this.total + fish.weight0 * K.POINTS_PER_KG);
     const w0 = fish.weight0;
-    const txt = `${String(Math.round(w0)).padStart(2)}kg = ${String(Math.round(w0 * K.POINTS_PER_KG)).padStart(2)}pts`;
+    const txt = `${String(Math.round(w0)).padStart(2)}kg = ${String(Math.round(f32(w0 * K.POINTS_PER_KG))).padStart(2)}pts`;
     S.popups.add(txt, 5, 10, 2, 300, 0x1b8, true);
+    restoreHooks.cue?.('fsh-catch', { addPopup: (id: string, count: number, on: number, off: number, x: number, y: number) => S.popups.add(id, count, on, off, x, y) });   // restored content (option off: unset): FSH5 "Mooie vis!"
     this.log.push(`caught ${w0}kg total ${this.total}${fish.bertha ? ' (Bertha)' : ''}`);
     if (!fish.bertha) {
       env.play2D(SND.CATCH_FISH);
@@ -516,43 +537,40 @@ export class FishingNode extends FshNode implements FishingView {
   // ---------------------------------------------------------------- the bobber (FUN_006f665b)
 
   /**
-   * Places the bobber model (FLOT) like FUN_006f665b: in the fight nothing is drawn (the matrix is degenerate), when the line is slack it bobs on the water, when taut it
-   * leans away from Pepper. While it lies in the water (state > 7 or the landed sub-state) the ripple ring is drawn at its place.
+   * Places the bobber model (FLOT) like FUN_006f665b: when the line is slack it bobs on the water, when taut it leans away from the record `rec` it is given (Pepper from the
+   * machine, the ROD record from the rod's hook). While it lies in the water (state > 7 or the landed sub-state) the ripple ring is drawn at its place. The original never calls it
+   * in the fight (its first branch for state 0xb is dead code).
    */
   drawBobber(w: World, rec: GameRecord) {
     const S = this.S, dt = w.dt, f = this.floatRec;
     const m = new Float32Array(16);
-    let draw = true;
-    const sin = Math.sin(this.bobPhase);
+    const sin = f32(Math.sin(this.bobPhase));
     let px = this.bx, py = this.by, pz = this.bz;
     const rows = (r0: number[], r1: number[], r2: number[]) => {
       m[0] = r0[0]; m[1] = r0[1]; m[2] = r0[2]; m[4] = r1[0]; m[5] = r1[1]; m[6] = r1[2]; m[8] = r2[0]; m[9] = r2[1]; m[10] = r2[2];
     };
-    if (this.state === ST.FIGHT) {
-      draw = false;
-    } else if (this.taut <= 0) {
+    if (this.taut <= 0) {
       rows([1, 0, 0], [0, 1, 0], [0, 0, 1]);
       if (this.state === ST.CAST) { /* flight / rod: the bobber itself */ }
       else {
-        this.bobPhase += K.BOB_STEP * dt;
-        if (this.lure <= 0) this.lure = 0; else this.lure -= K.LURE_DECAY * dt;
-        py = this.lure * sin;
+        this.bobPhase = f32(f32(K.BOB_STEP * dt) + this.bobPhase);
+        if (this.lure <= 0) this.lure = 0; else this.lure = f32(this.lure - f32(K.LURE_DECAY * dt));
+        py = f32(this.lure * sin);
       }
     } else {
-      const back = [rec.m[8] * -1, rec.m[9] * -1, rec.m[10] * -1];
-      const k = this.taut * 1.0;
-      const up = [k * back[0] + 0, k * back[1] + 1.0, k * back[2] + 0];
+      const back = [f32(rec.m[8] * -1), f32(rec.m[9] * -1), f32(rec.m[10] * -1)];
+      const up = [f32(f32(this.taut * 1.0 * back[0]) + 0), f32(f32(this.taut * 1.0 * back[1]) + 1.0), f32(f32(this.taut * 1.0 * back[2]) + 0)];
       normalize(up);
-      const b = [up[1] * back[2] - up[2] * back[1], up[2] * back[0] - up[0] * back[2], up[0] * back[1] - up[1] * back[0]];
+      const b = cross24(up, back);
       normalize(b);
-      const c = [b[1] * up[2] - b[2] * up[1], b[2] * up[0] - b[0] * up[2], b[0] * up[1] - b[1] * up[0]];
+      const c = cross24(b, up);
       normalize(c);
       rows(b, up, c);
     }
     m[12] = px; m[13] = py; m[14] = pz; m[15] = 1;
-    if (draw) { scaleRows(m, K.MODEL_SCALE); f.m.set(m); f.show(); } else f.hide();
+    scaleRows(m, K.MODEL_SCALE); f.m.set(m); f.show();
     if (7 < this.state || (this.state === ST.CAST && this.sub === CAST.LANDED)) {
-      S.splash.on = true; S.splash.x = this.bx; S.splash.y = 0.01 + this.by; S.splash.z = this.bz;
+      S.splash.on = true; S.splash.x = this.bx; S.splash.y = f32(K.SPLASH_LIFT + this.by); S.splash.z = this.bz;
     }
   }
 }
@@ -570,35 +588,38 @@ export class FshSwitchNode extends FshNode {
     if (!F) return NODE_CONTINUE;
     S.popups.tick(dt);
     const fb = w.vars.get(0xfb);
-    if (!S.env.cutsceneActive() && (w.input.pressed & BTN.ACTION) !== 0 && fb !== 0 && (F.state > ST.TURN_TO_LAKE || F.state === ST.WALK_IDLE)) {
+    // FUN_006f4b65 (the decompile lists only the variable read; the asm): 1 when the mode variable is 2 and the machine is below state 7 (casting), or when it is 1
+    const allowed = (fb === 2 && F.state < ST.CAST) || fb === 1;
+    if (!S.env.cutsceneActive() && (w.input.pressed & BTN.ACTION) !== 0 && allowed && (F.state > ST.TURN_TO_LAKE || F.state === ST.WALK_IDLE)) {
       rec.anim?.start(CLIP.WALK, 0);
       if (fb === 1) {
         let best = 0;
-        F.px = rec.m[12]; F.py = rec.m[13]; F.pz = rec.m[14];
+        const m = rec.m;
+        F.px = m[12]; F.py = m[13]; F.pz = m[14];
         const sp = S.spots;
-        const d2 = (i: number) => { const s = sp[i]; const dx = s.x - F.px, dy = s.y - F.py, dz = s.z - F.pz; return dz * dz + dy * dy + dx * dx; };
+        // the squared distances are float32 stores (local_c / local_8)
+        const d2 = (i: number) => { const s = sp[i]; const dx = f32(s.x - F.px), dy = f32(s.y - F.py), dz = f32(s.z - F.pz); return f32(f32(f32(dx * dx) + f32(dy * dy)) + f32(dz * dz)); };      // the asm sums x, y, z; 24-bit x87: every operation rounds
         let bd = d2(0);
         for (let i = 1; i < sp.length; i++) { const d = d2(i); if (d < bd) { best = i; bd = d; } }
         const s = sp[best];
         F.sx = s.x; F.sy = s.y; F.sz = s.z;
         F.spotIdx = best; F.spotFlag = true;
-        F.stx = s.x - F.px; F.sty = s.y - F.py; F.stz = s.z - F.pz;
-        F.dist = Math.sqrt(F.stz * F.stz + F.sty * F.sty + F.stx * F.stx);
+        F.stx = f32(s.x - F.px); F.sty = f32(s.y - F.py); F.stz = f32(s.z - F.pz);
+        F.dist = f32(Math.sqrt(f32(f32(f32(F.stx * F.stx) + f32(F.sty * F.sty)) + f32(F.stz * F.stz))));      // the sum is stored as a double after rounding to 24 bits at every operation (24-bit x87), then the CRT's sqrt
         F.state = ST.TURN_TO_SPOT;
-        F.walkLeft = F.dist / K.WALK_STEP;
+        F.walkLeft = f32(F.dist / K.WALK_STEP);
         if (0 < F.walkLeft) {
           F.walkFlag = 1;
-          const k = 1.0 / F.walkLeft;
-          F.stx *= k; F.sty *= k; F.stz *= k;
+          const k = f32(1.0 / F.walkLeft);
+          F.stx = f32(k * F.stx); F.sty = f32(k * F.sty); F.stz = f32(k * F.stz);
         } else F.walkFlag = 0;
-        F.yawTarget = Math.atan2(F.stx, F.stz);
-        F.yaw = Math.atan2(rec.m[8], rec.m[10]);
-        if (F.yawTarget < F.yaw) F.yawTarget += TWO_PI;
-        F.yawStep = F.yawTarget - F.yaw;
-        if (PI < F.yawStep) F.yawStep = -(TWO_PI - F.yawStep);
-        const t = Math.abs(F.yawStep / K.TURN_STEP);
-        F.turnLeft = t;
-        F.yawStep = F.yawStep / t;
+        F.yawTarget = f32(Math.atan2(F.stx, F.stz));
+        F.yaw = f32(Math.atan2(m[8], m[10]));
+        if (F.yawTarget < F.yaw) F.yawTarget = f32(F.yawTarget + TWO_PI);
+        F.yawStep = f32(F.yawTarget - F.yaw);
+        if (PI < F.yawStep) F.yawStep = f32(-(TWO_PI - F.yawStep));
+        F.turnLeft = f32(Math.abs(F.yawStep / K.TURN_STEP));
+        F.yawStep = f32(F.yawStep / F.turnLeft);
         w.vars.set(0xfb, 2);
         if (Number.isNaN(F.stx) || Number.isNaN(F.yaw)) throw new Error('FSwitch: NaN (int3 in the original)');
       } else if (fb === 2) {
@@ -627,11 +648,15 @@ export class BerthaNode extends FshNode {
     const f = new Fish(rec.m);
     f.bertha = true;
     const r = S.rng;
-    f.randomise(r); f.turn = 0.1;
+    // the original's order of the random draws (FUN_006f56d0): x, z, phase, the swim phase rate, the speed, then the unused [0x17] (WP-VERIFY: the port drew the rates first and skipped the last)
     f.weight = f.weight0 = K.BERTHA_WEIGHT;
-    f.x = randF(r, K.SPREAD) + this.follower.pos[0]; f.y = this.follower.pos[1]; f.z = randF(r, K.SPREAD) + this.follower.pos[2];
-    f.phase = randF(r, PI);
+    f.x = f32(randF(r, K.SPREAD) + this.follower.pos[0]); f.y = this.follower.pos[1]; f.z = f32(randF(r, K.SPREAD) + this.follower.pos[2]);
+    f.phase = f32(randF(r, PI));
+    f.phaseRate = f32(randF(r, 8) / 50);
+    f.speed = f32(randF(r, 8) / 50 + f32(0.1));
+    f.turn = f32(0.1);
     if (0 < f.y) f.y = 0;
+    f.unused17 = f32(randF(r, 20));
     f.radiusBase = 8; f.radiusA = 8; f.angle = 0; f.hooked = false; f.biting = false;
     this.fish = f;
     S.bertha = this;
@@ -642,7 +667,10 @@ export class BerthaNode extends FshNode {
     rec.anim?.advance(1.0, w.dt);
     this.follower.tick(w.dt);
     fishStep(this.fish, this.follower, fishEnv(w, S));
-    scaleRows(rec.m, K.MODEL_SCALE);
+    // the draw hook FUN_006f5553 pre-transforms the model by diag(0.5) with a translation of -1 along z (before the record matrix): rows * 0.5, the place moves back by the forward row
+    const m = rec.m, fx = m[8], fy = m[9], fz = m[10];
+    scaleRows(m, K.MODEL_SCALE);
+    m[12] = f32(m[12] - fx); m[13] = f32(m[13] - fy); m[14] = f32(m[14] - fz);
     return NODE_STOP;
   }
 }
@@ -666,8 +694,8 @@ export class ShoalNode extends FshNode {
     for (let i = 0; i < K.FISH; i++) {
       const f = new Fish(identity());
       f.index = i;
-      f.x = randF(r, K.SPREAD) + this.follower.pos[0]; f.y = this.follower.pos[1]; f.z = randF(r, K.SPREAD) + this.follower.pos[2];
-      f.phase = randF(r, PI);
+      f.x = f32(randF(r, K.SPREAD) + this.follower.pos[0]); f.y = this.follower.pos[1]; f.z = f32(randF(r, K.SPREAD) + this.follower.pos[2]);
+      f.phase = f32(randF(r, PI));
       f.weight = i;
       if (f.weight < K.FISH_WEIGHT_MIN) f.weight = 2;
       if (K.FISH_WEIGHT_MAX < f.weight) f.weight = 17;
@@ -675,6 +703,7 @@ export class ShoalNode extends FshNode {
       this.lod.push(K.LOD1 <= f.weight ? (K.LOD2 <= f.weight ? 2 : 1) : 0);
       f.randomise(r);
       if (0 < f.y) f.y = 0;
+      f.unused17 = f32(randF(r, 20));
       f.radiusBase = 8; f.radiusA = 8;
       this.fish.push(f);
     }
@@ -747,7 +776,7 @@ export class RodNode extends FshNode {
   }
   update(): number { return NODE_CONTINUE; }
 
-  /** FUN_006f94d4 */
+  /** FUN_006f94d4 (float32 stores like the original; the bone matrices are the animation engine's) */
   prerender(w: World, rec: GameRecord) {
     const S = this.S, F = S.fishing;
     S.line = null;
@@ -755,26 +784,27 @@ export class RodNode extends FshNode {
     if (S.env.cutsceneActive()) return;
     const st = F.state;
     this.target = st === ST.REEL ? K.ROD_BEND_REEL : st === ST.FIGHT ? K.ROD_BEND_FIGHT : K.ROD_BEND;
-    this.acc = (this.target - this.bend) * K.ROD_SPRING;
-    this.bend += this.vel;
-    this.vel += this.acc;
-    this.vel *= K.ROD_DAMP;
+    this.acc = f32(f32(this.target - this.bend) * K.ROD_SPRING);
+    this.bend = f32(this.bend + this.vel);
+    this.vel = f32(this.vel + this.acc);
+    this.vel = f32(this.vel * K.ROD_DAMP);
     rec.anim?.seek(this.bend);
     const pep = F.rec;
     const pose = pep.anim?.pose(1);
     const hb = K.HAND_BONE;
     const hand = pose && pose.length >= (hb + 1) * 16 ? pose.subarray(hb * 16, hb * 16 + 16) : null;
     const hx = hand ? hand[12] : 0, hy = hand ? hand[13] : 0, hz = hand ? hand[14] : 0;
-    const base = pep.toWorld([hx + K.ROD_BASE[0], hy + K.ROD_BASE[1], hz + K.ROD_BASE[2]]);
+    const base = xform(pep.m, f32(hx + K.ROD_BASE[0]), f32(hy + K.ROD_BASE[1]), f32(hz + K.ROD_BASE[2]));
     if (st < ST.WAIT) {
       if (st === ST.CAST) {
         rec.show();
-        const local = buildMatrix(0, K.ROD_CAST_YAW, 0, K.ROD_CAST_POS[0], K.ROD_CAST_POS[1], K.ROD_CAST_POS[2]);
-        if (hand) { const t = mul(local, hand as Float32Array); rec.m.set(mul(t, pep.m)); } else rec.m.set(pep.m);
+        const local = euler24(0, K.ROD_CAST_ROT[1], 0, K.ROD_CAST_POS[0], K.ROD_CAST_POS[1], K.ROD_CAST_POS[2]);
+        // FUN_0043a9e5(out, A, B) = B * A: rod = (local * hand) * Pepper
+        if (hand) rec.m.set(mulF32(mulF32(local, hand), pep.m)); else rec.m.set(pep.m);
         const tip = this.tip(rec);
         if (F.sub < CAST.FLIGHT) {
           F.bx = tip[0]; F.by = tip[1]; F.bz = tip[2];
-          F.drawBobber(w, pep);
+          F.drawBobber(w, rec);        // FUN_006f665b(Fishing node, the ROD record): its forward row is the taut bobber's lean (not Pepper's)
         } else S.line = { a: tip, b: [F.bx, F.by, F.bz] };
         S.rodTip = tip;
       } else rec.hide();
@@ -786,11 +816,11 @@ export class RodNode extends FshNode {
     else if (F.hooked && !F.hooked.hooked) target = [F.hooked.x, F.hooked.y, F.hooked.z];
     else if (F.hooked) target = [F.hooked.mx, F.hooked.my, F.hooked.mz];
     else target = [F.bx, F.by, F.bz];
-    const b = [base[0] - target[0], base[1] - target[1], base[2] - target[2]];
+    const b = [f32(base[0] - target[0]), f32(base[1] - target[1]), f32(base[2] - target[2])];
     normalize(b);
-    const s = [b[1] * 0 - b[2] * 1, b[2] * 0 - b[0] * 0, b[0] * 1 - b[1] * 0];
+    const s = [f32(b[1] * 0 - b[2] * 1), f32(b[2] * 0 - b[0] * 0), f32(b[0] * 1 - b[1] * 0)];
     normalize(s);
-    const t = [b[1] * s[2] - b[2] * s[1], b[2] * s[0] - b[0] * s[2], b[0] * s[1] - b[1] * s[0]];
+    const t = cross24(b, s);
     normalize(t);
     const m = rec.m;
     m[8] = s[0]; m[9] = s[1]; m[10] = s[2]; m[4] = b[0]; m[5] = b[1]; m[6] = b[2]; m[0] = t[0]; m[1] = t[1]; m[2] = t[2];
@@ -804,8 +834,7 @@ export class RodNode extends FshNode {
   private tip(rec: GameRecord): [number, number, number] {
     const pose = rec.anim?.pose(1);
     const b = pose && pose.length >= 10 * 16 ? pose.subarray(9 * 16, 9 * 16 + 16) : null;
-    const p = rec.toWorld(b ? [b[12], b[13], b[14]] : [0, 0, 0]);
-    return [p[0], p[1], p[2]];
+    return xform(rec.m, b ? b[12] : 0, b ? b[13] : 0, b ? b[14] : 0);
   }
 }
 
@@ -866,7 +895,6 @@ export class FishermanNode extends FshNode {
       default: break;
     }
     euler(rec.m, 0, this.yaw, 0, this.x, this.y, this.z);
-    rec.ry = this.yaw;
     return NODE_STOP;
   }
 }
@@ -895,12 +923,14 @@ export function prepareFsh(w: World, pe: Pe | null, tables?: Tables): FshShared 
   S.spots = [];
   const spotRecs = S.tables?.spots ?? [];
   for (const ri of spotRecs) {
+    // FUN_006f3eec's loop with its float32 stores (asm 0x6f42a8..0x6f4503): the direction to the lake centre is normalised (FUN_0043cec0), the spot is the pole + 4 along it + 4 sideways
     const r = w.records[ri];
-    const d = [K.LAKE_CENTRE[0] - r.x, K.LAKE_CENTRE[1] - r.y, K.LAKE_CENTRE[2] - r.z];
+    const d = [f32(K.LAKE_CENTRE[0] - r.m[12]), f32(K.LAKE_CENTRE[1] - r.m[13]), f32(K.LAKE_CENTRE[2] - r.m[14])];
     normalize(d);
-    let x = r.x, y = r.y, z = r.z;
-    x += d[0] * K.SPOT_STEP; y += d[1] * K.SPOT_STEP; z += d[2] * K.SPOT_STEP;
-    x += (0 * d[1] - 1 * d[2]) * K.SPOT_STEP; y += (0 * d[2] - 0 * d[0]) * K.SPOT_STEP; z += (1 * d[0] - 0 * d[1]) * K.SPOT_STEP;
+    let x = r.m[12], y = r.m[13], z = r.m[14];
+    x = f32(f32(d[0] * K.SPOT_STEP) + x); y = f32(f32(d[1] * K.SPOT_STEP) + y); z = f32(f32(d[2] * K.SPOT_STEP) + z);
+    const sx = f32(f32(0 * d[1] - 1 * d[2]) * K.SPOT_STEP), sy = f32(f32(0 * d[2] - 0 * d[0]) * K.SPOT_STEP), sz = f32(f32(1 * d[0] - 0 * d[1]) * K.SPOT_STEP);
+    x = f32(sx + x); y = f32(sy + y); z = f32(sz + z);
     S.spots.push({ record: ri, x, y, z, dx: d[0], dy: d[1], dz: d[2] });
   }
   const bindAll = (kind: string) => {

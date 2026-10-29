@@ -131,3 +131,32 @@ drawn, the blink (state 4) uses RF_NO_DRAW for 3 frames; random(10) via Math.ran
 * `IslandCtx.scene?` (the zone scene: mesh paths for the MATL parts). Mock: `scene` set; `waypoints.load(archive)` in `loadIsland` (the zone game must load
   the island's waypoint maps: FUN_004630c0; the triggers read PATH node positions).
 * `ctx.shared` keys: `vehicleState` (DAT_009da9f8 hi word, WP6), `holoActive` (DAT_009da844).
+
+## Differential test (WP-VERIFY)
+
+> Status after WP-ISLAND-FIX: every KNOWN DEVIATION named in this section is fixed in the port and the test runs at tolerance 0 without the filters (`docs/re/gaps.md`, "Deviations FIXED by WP-ISLAND-FIX"); the sentences below describe the state when the deviation was found.
+
+All run the original's constructors (`FUN_00423532` attach with the set-up's own argument blocks, in the five eras' set-ups) and update / pre-render / draw hooks natively in the x86 emulation (`IslEmu`, FPU at 24 bit,
+`tools/lib/m7-isl-veh-trig.mjs`) next to the port's nodes in the same world, Pepper scripted (position, `PEPPER_CONTROL`, vehicle kind, buttons, clip, cutscene), dt 1 and 0.5 (second `*-half` file each).
+* `m7-isl-veh-trig` / `-trig-half` (StartCSM trigger + box portal; 1.6 M + 2.4 M checks, 40 triggers + 28 portals over the eras, ~420 scenarios): constructor blocks (radius^2, icon radius, key mask, slot, op ...), per tick
+  all variables, cutscene starts (slot), walker pins (node), the node fields (slot -20 / -30, armed, nearest, portal distance memory, age), the portal records' matrix / Euler / flags (spin, face the camera).
+  Synthetic variants (key mask 0x40, icon 0 -> 2) cover the key branches no shipped trigger has. A 2 % radius change in the port is detected. **No deviation found.** Finding: gates on var 1 (`HSE1` / `HSE3` / `CTRL` /
+  `PLAT` / `SHTL` / `SHP1` portals: `v1/1/1`) never open: var 1 is read-only 0, in the original as in the port (inert).
+* `m7-isl-veh-bldg` / `-bldg-half` (door, swinging part, page, music house; 6.6 M + 7.9 M checks, 51 doors (19 exit), 25 swings, 6 pages, 2 houses): constructor results (door radii / door point / closed + open angle,
+  swing rate / angles), per tick door state / angle, the live part matrices (`FUN_0043ea60` buffers vs `partMatrix`), all record flags, Pepper's record (door push), variables (`0xc` icons, exit var 5, pages 0xa5 / 0xc4 / 0x26),
+  sounds / emitter calls, cutscene starts (page cutscene slot), the music house's bounced matrix at draw time (9,210 draws). Exact. Two kinds of tick are float-noise threshold grazes and are re-synced (first tick only,
+  see `Duel.grazeEnd`): a door test whose squared distance sits within float noise of a radius, and the door push that repeats until Pepper's distance passes sqrt(16) (one 0.1 step more or less). 0 - 1 per session.
+  The swinging parts' angle (float32 accumulation over hundreds of ticks vs the port's doubles) is copied into the port before each tick (the per-tick step is compared strictly).
+  The dead `0x534b89` node is attached natively in the original too (5 attaches): its constructor changes no compared state.
+* `m7-isl-veh-fsm` / `-fsm-half` (LGI_FSM director; 8.0 M + 16.3 M checks, 10 + 20 k ticks): random switch values per tick in the ranges the scripts use (33 sound cues, rotors, INFC windows, PIZ3 timer, rocket pairs, WORM scale,
+  Bill's hands, twinkle, collision, jail door), all variables, sub-object matrices (INFC 1 / 2, JAIL 1, 165 / 3, 157 / 2), WORM, every record's flags, the node block, sounds with positions, emitter gate / matrix calls (the
+  emitter handles of the era functions created in the original's memory by name). Exact; **excluded**: switch 0xfe (FUN_00447ef0 needs the brick library) and the bone-matrix contents of the emitters (pose stand-in).
+  Original quirk not reproduced by the port and never triggered by the data: an emitter handle global the era's set-up did not create (e.g. rocket slots 2..5 in era 0) is 0 in the original, and handle 0 is a valid
+  engine handle (`FUN_0044ea60`: 0 < 0x95): such a switch would gate the engine's first emitter; the port ignores it (FX_NONE).
+* `m7-isl-veh-holo` (hOLO; 2.0 M checks, 8 sessions x 3,900 ticks incl. dt 0.5, 104 activations): the lihol N.str table is the shared input of the original's hosted `FUN_00439bf8` lookup and the port; random streams are
+  consumed in lockstep (checked every tick). Compared: node block, record matrix / Euler / flags (the blink's frustum bit vs `RF_NO_DRAW`), var 0xc6, DAT_009da844, speech calls, camera-hold calls. **KNOWN DEVIATIONS**:
+  (1) `holo-flicker-rate-pepper-motion`: `FUN_0088d666` (0x88d7ee..) decides the flicker rate L (0.3 or 0.5) from the squared distance between Pepper and the hologram's target position (Pepper + 4 x -right + 2 x
+  forward of the camera: about 20 units^2, so L = 0.5 always in play); the port compares Pepper's movement since the previous frame (`prevPep`), i.e. L = 0.3 whenever Pepper stands still. Evidence: t163, original
+  d2 20.000 -> 0.5, port d2 0.00000 -> 0.3 (5,302 ticks over the test). The test forces the port's `prevPep` so both take the original's branch. (2) `holo-say-while-speech-off`: with var 9 (speech) == 0 the original
+  makes no `FUN_00435a11` voice call (0x88db12: it only copies the text and shows the subtitle when var 0 != 0); the port calls `ctx.say(table, id)` (41 times): the shell's `sayFrom` must skip the voice itself
+  (UNCERTAIN: not checked here). Not covered: the speech-queue path (`queued`: the hint is delayed while another line plays) never occurred in the scripts.

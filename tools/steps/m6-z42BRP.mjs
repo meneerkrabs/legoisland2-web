@@ -1,6 +1,6 @@
 // z42BRP "Brickster's palace" in the browser (headless, muted): intro + controls help, the side run up the tower played by a bot (the recorded run, buttons fed to the game's input
 // mapper once per tick through the keyboard path), the second help of the roof, the roof played by the look-ahead bot (three pizzas on Brickster), the end cutscene, the banner
-// with the clock score, the result menu, the outro movie (skipped with a key), the credits and the story step (node 68 in the island); the pause menu in between.
+// with the clock score, the result menu, the outro movie (skipped with a key) and the story step (straight to the island: no credits, gaps.md U2) (node 68 in the island); the pause menu in between.
 //   node tools/browse.mjs "http://localhost:5612/?zone=z42BRP&mute=1" tools/steps/m6-z42BRP.mjs --size 1280x800 --out /tmp/m6-z42BRP
 // Reads `window.__zone.game.debug()`.
 import { PLAN1 } from '../../src/zones/z42BRP/bot-plan.ts';
@@ -22,12 +22,7 @@ export default async ({ page, shot, wait, log, key }) => {
   await key('Enter'); await wait(700);
   expect('help screen (mode 9)', (await dbg()).mode === 9);
   await shot('2-help');
-  await key('Enter');
-  await page.waitForFunction(() => window.__zone.machine.mode === 2 && window.__zone.world.tickCount > 3, null, { timeout: 60000 });
-  s = await dbg();
-  expect('play starts: phase 1, Pepper on the tower', s.g.phase === 1 && s.g.run.hold >= 0, JSON.stringify(s.g.pepper));
-
-  // ---- the bot: the recorded run for the side run, the look-ahead bot on the roof; its buttons go through the input mapper's key path once per tick
+  // ---- the bot (installed before play starts: under load a late hook would miss the first ticks of the recorded run): the recorded run for the side run, the look-ahead bot on the roof; its buttons go through the input mapper's key path once per tick
   await page.evaluate(async (plan) => {
     const z = window.__zone, w = z.world, inp = z.sh.input;
     const bot = await import('/src/zones/z42BRP/bot.ts');
@@ -42,7 +37,7 @@ export default async ({ page, shot, wait, log, key }) => {
       let mask = 0;
       if (!B.off && z.machine.mode === 2) {
         const t = w.tickCount;
-        if (w.vars.get(0xfa) === 1) mask = t >= 16 ? (flat[t - 16] ?? 0) : 0;
+        if (w.vars.get(0xfa) === 1) mask = t >= 16 ? (flat[t - 16] ?? 0) : 0;      // tick 0 = the first tick of play (the world does not tick in the intro / help modes)
         else if (S.endState === 0) {
           B.p2 ??= new bot.Phase2Bot(w, new nodes.ZoneLoop());
           const t0 = performance.now();
@@ -51,11 +46,19 @@ export default async ({ page, shot, wait, log, key }) => {
           B.plans = B.p2.plans;
         }
       }
-      for (const [bit, code] of Object.entries(codes)) inp.setKey(code, (mask & +bit) !== 0);
+      // only drive the keys while the bot plays (mode 2), and release them once when it stops: else the menu's arrow taps of the steps are wiped before they are sampled
+      const driving = !B.off && z.machine.mode === 2;
+      if (driving || B.drove) for (const [bit, code] of Object.entries(codes)) inp.setKey(code, (mask & +bit) !== 0);
+      B.drove = driving;
       B.mask = mask;
       orig();
     };
   }, PLAN1);
+  await key('Enter');
+  await page.waitForFunction(() => window.__zone.machine.mode === 2 && window.__zone.world.tickCount > 3, null, { timeout: 60000 });
+  s = await dbg();
+  expect('play starts: phase 1, Pepper on the tower', s.g.phase === 1 && s.g.run.hold >= 0, JSON.stringify(s.g.pepper));
+
 
   // ---- phase 1: the side run
   const shots = {};
@@ -130,7 +133,7 @@ export default async ({ page, shot, wait, log, key }) => {
   }
   s = await dbg();
   expect('the outro movie played', sawMovie);
-  expect('the credits followed', sawCredits);
+  expect('no credits after the outro (straight to the island, FUN_0081fd64)', !sawCredits);
   expect('the story went on: free roam node 68 in the island', s && s.arch === 'z02LGI' && s.node >= 68, JSON.stringify({ arch: s?.arch, node: s?.node }));
   await shot('17-island');
   log(fail.length ? `FAILED: ${fail.join('; ')}` : 'z42BRP win run passed');

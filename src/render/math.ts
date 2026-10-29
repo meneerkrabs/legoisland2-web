@@ -13,6 +13,38 @@ export function mul(a: Mat4, b: Mat4, out: Mat4 = new Float32Array(16)): Mat4 {
   return out;
 }
 
+/**
+ * FUN_0043a9e5(out, b, a): the game's matrix product `a x b` for row vectors (a is applied first), computed the way the code does it with the x87 in 24-bit precision: every element is
+ * `((a.x * b.x-row) + (a.y * b.y-row)) + (a.z * b.z-row)` (the x87's adds run x, y, z; the decompiler prints the sum the other way round), the translation row adds `b`'s translation last; the last column is (0, 0, 0, 1). `a` / `b`: row-major 4x4.
+ */
+export function mulGame(a: ArrayLike<number>, b: ArrayLike<number>, out: Mat4 = new Float32Array(16)): Mat4 {
+  const fr = Math.fround;
+  for (let r = 0; r < 4; r++) {
+    const a0 = a[r * 4], a1 = a[r * 4 + 1], a2 = a[r * 4 + 2];
+    for (let c = 0; c < 3; c++) {
+      let v = fr(fr(fr(a0 * b[c]) + fr(a1 * b[4 + c])) + fr(a2 * b[8 + c]));
+      if (r === 3) v = fr(v + b[12 + c]);
+      out[r * 4 + c] = v;
+    }
+    out[r * 4 + 3] = r === 3 ? 1 : 0;
+  }
+  return out;
+}
+
+/** FUN_0043ab72(out, M, p): `p` as a point through the row-major matrix `M`: `((p.x * M[0] + p.y * M[4]) + p.z * M[8]) + M[12]` (and the other two columns), every operation rounded to a float (the x87 adds the three products in x, y, z order) */
+export function transformPointGame(m: ArrayLike<number>, p: ArrayLike<number>, out: number[] | Float32Array = [0, 0, 0]): number[] | Float32Array {
+  const fr = Math.fround;
+  for (let c = 0; c < 3; c++) out[c] = fr(fr(fr(fr(p[0] * m[c]) + fr(p[1] * m[4 + c])) + fr(p[2] * m[8 + c])) + m[12 + c]);
+  return out;
+}
+
+/** FUN_0043abe6(out, M, v): `v` as a direction (the rotation rows only, no translation, not renormalised): `(v.x * M[0] + v.y * M[4]) + v.z * M[8]`, every operation rounded */
+export function transformDirGame(m: ArrayLike<number>, v: ArrayLike<number>, out: number[] | Float32Array = [0, 0, 0]): number[] | Float32Array {
+  const fr = Math.fround;
+  for (let c = 0; c < 3; c++) out[c] = fr(fr(fr(v[0] * m[c]) + fr(v[1] * m[4 + c])) + fr(v[2] * m[8 + c]));
+  return out;
+}
+
 export function lookDirLH(eye: number[], f: number[], up = [0, 1, 0]): Mat4 {
   let [zx, zy, zz] = f;
   const zl = Math.hypot(zx, zy, zz) || 1; zx /= zl; zy /= zl; zz /= zl;

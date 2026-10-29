@@ -115,7 +115,7 @@ where the 3D figure shows) and the panel from column -3. The figure (record `pag
 
 ## 6. Known differences / approximations / not ported
 
-* **Figure faces are missing** (the 28 heads render plain yellow, Pepper's shows a smear): the head parts list a second texture, an expression sheet (`textures/text192.wib` for Infomaniak, 16 faces
+* **[Corrected by WP-VERIFY: the faces exist since M4 WP10 (`Model.face`, `FaceSetup`, docs/re/m4/wp10-render.md); the paragraph below is the state at M3.]** Figure faces were missing (the 28 heads rendered plain yellow, Pepper's showed a smear): the head parts list a second texture, an expression sheet (`textures/text192.wib` for Infomaniak, 16 faces
   of 64 x 64), and the original binds the head to its face system (`FUN_0043f1d0(model, slot 4, 5, ..., 1)` in the builder = `BrickMorph`, plus `SwapText.c`: `FUN_00443810` / `FUN_004439f0` choose the
   expression). The shared renderer (`GameRenderer` / `Renderer.texture`) freezes such a sheet on frame 0 and does not do this binding, so the face never appears. Not investigated further (it is shared
   code and affects every talking character: M4).
@@ -151,3 +151,15 @@ where the 3D figure shows) and the panel from column -3. The figure (record `pag
 * `?zone=z04IFC` starts in the room with the story at node 70 (exit completes the node: next zone z50LTC); a realistic entry: any island run, then `__shell.vars.set(5, 4)` (what the `INFC` door does).
 * `window.__zone.game.debug()`: `{ state, cnt, menuOpen, exitAsk, door: [state, angle], selected, caption, page, character, eye, target, pins, var }`; `__zone.game` has no other public surface.
 * Keys: Up / Shift / Enter zoom in, Left / Right pins, Shift / Enter open, Esc back / pause, Down zoom out, Left / Down at the far view asks to leave.
+
+## WP-PART-WIRE (2026-10-29): particles
+
+`FUN_0054e6f6` creates the engine `FUN_00442900("z04IFC")`; the zone's code never starts, gates or moves an effect (no call of `FUN_00442960` / `FUN_0044e920` / `FUN_00442a20` in the region 0x5498f0..0x568fc0 outside the island-era copies of z03PPH). Nothing to wire. Closed.
+
+## WP-MINI (2026-10-29): residuals closed
+
+* **Float32 / 24-bit x87 exactness.** `m5-audit-z04IFC-emu` now runs the original at cw 0x7f (Direct3D leaves single precision) and compares **bit for bit** (tolerance 0, was 2e-5 against a 53-bit oracle): 1,510,883 comparisons, 0 differences, over the scripted walk and three 6000-tick random runs. What had to change: `IfcRoom.camera` rounds every operation of `FUN_0054c00d` to a float (fly-in x = `24 - ((cnt * 0.15) * 8)`, zoom z = `7.2 - ((cnt * 0.065) * 8)` / `((cnt * 0.065) * 8) - 4.8`, turn angle `(float)k * pi / 20`, `sin` / `7.2 - cos` stored as floats), the pin bob is `float(float(sin(angle) * 0.04) + y)` (`FUN_0054b982`), and Pepper's / the door's matrices are `FUN_0043a5e4` in 24-bit (`euler24`, `src/zones/common/x87.ts`; the door's angle is `float(angle * 0.0174532)`). `m3-z04IFC` asserts the factors (0.15, 0.065, 8) instead of their products.
+* **Faces / expression system**: the zone's code never starts the expression machinery: no call of `FUN_00443810` / `FUN_004439f0` (SwapText) or `FUN_0043f2f0` in the zone's code range 0x5498f0..0x568fc0 (the only callers are the shared menu engine's character-page code and other zones); the figures' faces come from `FUN_0043f1d0` in the figure builder (`FUN_0054e760`), which the shared `FaceSetup` of the renderer covers (WP10). Closed.
+* **Order of input and update, modes 7 / 5**: done by the M5 audit (`escTick`, mode 7 = update pass only, mode 5 = pre-render only, before the menu step), see audit-rooms.md.
+* Not ported: `FUN_00423f7b` / F8 (the demo toggle: a debug key of the shared loop code `FUN_004376f9`, read only while `DAT_009dab70 == 0`; never active in a normal run) and the `GetTickCount` time base of the ambient sounds (`rand() * ms % 2000`: nondeterministic by construction; the port uses `performance.now()` and the C runtime generator, `// RNG:`). The interpolation between ticks is the renderer's.
+* Particles: none (see above). Tests: `m5-audit-z04IFC-emu`, `m3-z04IFC` (534), bot `m5-z04IFC`, `m3-z04IFC`.

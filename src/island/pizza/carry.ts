@@ -14,7 +14,8 @@ import { CF_ENABLED, NODE_NONE, NODE_STOP, NODE_CONTINUE } from '../../game/cont
 import type { GameRecord } from '../../game/record.ts';
 import { RF_ENABLED, RF_FRUSTUM } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
-import { buildMatrix } from '../../formats/matrix.ts';
+import { eulerRotation, eulerScaledMatrix, toWorld } from '../../zones/exact.ts';
+import { ad, ml, sb } from '../../zones/common/f32.ts';
 import { registerCtor } from '../../game/setup.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import { ArgView } from '../args.ts';
@@ -48,6 +49,8 @@ export class CarryNode implements BehaviourNode {
   varValue = 0;
   /** +0x2c / +0x30: scale the carrier's matrix by `scale` (FUN_004295cb) */
   scaled = false; scale = 1.0;
+  /** FUN_00429638(ctrl, a, b) as the story handler calls it (records 12 / 13) */
+  storyReset(a: GameRecord | null | 0, b: number) { this.carrier = a || null; this.bone = b; this.timer = 0; this.pushPending = false; }
   /** +0x2e: the push of the release is pending; +0x34: lying time left; +0x38..+0x40: the push */
   pushPending = false; timer = 0; push: [number, number, number] = [0, 0, 0];
 
@@ -69,12 +72,12 @@ export class CarryNode implements BehaviourNode {
     if (this.timer > 0) {
       if (this.pushPending) {
         this.pushPending = false;
-        rec.x += this.push[0]; rec.y += this.push[1]; rec.z += this.push[2];
-        const h = w.col.sweep(rec, [rec.x, rec.y + CARRY.PROBE_UP, rec.z], [0, -CARRY.PROBE_DOWN, 0], CARRY.PROBE_MASK, CARRY.PROBE_RADIUS, CARRY.PROBE_SKIN);
+        rec.x = ad(rec.x, this.push[0]); rec.y = ad(rec.y, this.push[1]); rec.z = ad(rec.z, this.push[2]);
+        const h = w.col.sweep(rec, [rec.x, ad(rec.y, CARRY.PROBE_UP), rec.z], [0, -CARRY.PROBE_DOWN, 0], CARRY.PROBE_MASK, CARRY.PROBE_RADIUS, CARRY.PROBE_SKIN);
         if (h) { rec.x = h.point[0]; rec.y = h.point[1]; rec.z = h.point[2]; }
-        rec.m.set(buildMatrix(HALF_PI_F, 0, 0, rec.x, rec.y, rec.z));   // FUN_0043a4a1(m, pi/2, 0, 0): lying flat
+        eulerRotation(rec.m, HALF_PI_F, 0, 0);   // FUN_0043a4a1(m, pi/2, 0, 0): lying flat (translation untouched)
       }
-      this.timer = this.timer - 1.0 * w.dt;
+      this.timer = sb(this.timer, ml(1.0, w.dt));
       if (this.timer <= 0) { this.timer = 0; rec.flags &= ~RF_ENABLED; }
     }
     return NODE_NONE;
@@ -86,10 +89,10 @@ export class CarryNode implements BehaviourNode {
     const car = this.carrier;
     if (!car) return;
     rec.flags |= RF_ENABLED | RF_FRUSTUM;
-    const cm = this.scaled ? buildMatrix(car.rx, car.ry, car.rz, car.x, car.y, car.z, this.scale, this.scale, this.scale) : car.m;
+    const cm = this.scaled ? eulerScaledMatrix(car.rx, car.ry, car.rz, car.x, car.y, car.z, this.scale, this.scale, this.scale) : car.m;
     if (this.bone < 1) {
       rec.m.set(cm);
-      const p = car.toWorld(this.off);   // FUN_0043ab72(rec + 0x3c, carrier matrix, offset)
+      const p = toWorld(car.m, this.off);   // FUN_0043ab72(rec + 0x3c, carrier matrix, offset)
       rec.x = p[0]; rec.y = p[1]; rec.z = p[2];
     } else placeAtBone(rec, car, this.bone, this.off, cm);
   }
@@ -109,6 +112,14 @@ export function attachCarry(rec: GameRecord, carrier: GameRecord | null, bone: n
   return true;
 }
 
+/** FUN_00429638(ctrl, carrier, bone) alone (the story handler's call, FUN_00429638(ctrl, 0, 0)): carrier, bone, timer and push flag are written, the controller flags stay */
+export function storyResetCarry(rec: GameRecord, carrier: GameRecord | null, bone: number): boolean {
+  const n = carryOf(rec);
+  if (!n) return false;
+  n.carrier = carrier; n.bone = bone; n.timer = 0; n.pushPending = false;
+  return true;
+}
+
 /** FUN_004296a2(ctrl, carrier, ticks): only when `carrier` holds it; ticks > 0: pushed by the carrier's forward * 1.4 and lying there for `ticks` */
 export function releaseCarry(rec: GameRecord, carrier: GameRecord, ticks: number): boolean {
   const n = carryOf(rec);
@@ -116,7 +127,7 @@ export function releaseCarry(rec: GameRecord, carrier: GameRecord, ticks: number
   n.carrier = null; n.bone = 0;
   n.timer = ticks;
   if (ticks > 0) n.pushPending = true;
-  n.push = [carrier.m[8] * CARRY.PUSH, carrier.m[9] * CARRY.PUSH, carrier.m[10] * CARRY.PUSH];
+  n.push = [ml(carrier.m[8], CARRY.PUSH), ml(carrier.m[9], CARRY.PUSH), ml(carrier.m[10], CARRY.PUSH)];
   return true;
 }
 

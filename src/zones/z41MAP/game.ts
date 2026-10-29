@@ -11,6 +11,8 @@ import { prepareWorld, stateOf, snapshot } from './nodes.ts';
 import type { MapState } from './nodes.ts';
 import { SND, ROUNDS } from './rules.ts';
 import './nodes.ts';
+import { restoreHooks } from '../../restore/flag.ts';
+import { gameRandom } from '../common/tickrand.ts';
 
 /** HUD of the original (FUN_0081167c + DrawHUD 0x46055f): colours of the pulsing first wanted topping */
 const GREY = 0x7f7f7f7f, WHITE = 0xffffffff;
@@ -61,10 +63,10 @@ export function syncClones(w: World, S: MapState, c: Clones) {
   const p = S.papa;
   const dough = !!p && p.showDough !== 0 && p.hand[15] !== 0;
   set(c.dough, dough, p?.hand);
-  let z = p ? p.hand[14] - 0.1 : 0;
+  let z = p ? Math.fround(p.hand[14] - Math.fround(0.1)) : 0;
   for (const l of c.layers) {
     if (dough && p && (p.layers & l.bit) !== 0) {
-      z -= l.step;
+      z = Math.fround(z - Math.fround(l.step));
       const m = new Float32Array(p.hand); m[14] = z;
       set(l.rec, true, m);
     } else set(l.rec, false);
@@ -83,7 +85,7 @@ registerZoneGame('z41MAP', (ctx: ZoneGameCtx): ZoneGame => {
   let loading = false;
   if (ga) { loading = true; ga.sfx.load3D(SND.FOOD_MOVE).then((s) => { slot3d = s; }).catch(() => { /* silent */ }).finally(() => { loading = false; }); }
   S.env = {
-    rng: Math.random,
+    rng: gameRandom,     // RNG: the C runtime generator (src/zones/common/tickrand.ts)
     sfx: (id) => ctx.sfx(id),
     say: (id) => { ctx.say(id); },
     flight: (pos) => {
@@ -141,6 +143,7 @@ registerZoneGame('z41MAP', (ctx: ZoneGameCtx): ZoneGame => {
       // FUN_00811790: the speech of the medal (or the two sentences of the failure)
       ctx.stopSpeech();
       const m = S.papa?.medal ?? 0;
+      if (m > 0) restoreHooks.cue?.('map-medal', { sfx: (id: number) => ctx.sfx(id) });   // restored content (option off: unset)
       if (m === 1) ctx.say('OGSGMP03');
       else if (m === 2) ctx.say('OGSGMP02');
       else if (m === 3) ctx.say('OGSGMP01');

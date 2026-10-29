@@ -5,12 +5,10 @@
 //   row2 = ( sz*sx + cz*sy*cx,  sz*sy*cx - cz*sx,  cy*cx ) * sz
 //   row3 = ( px, py, pz, 1 )
 // (as implemented, the scale multiplies the matrix COLUMNS: column j by s_j; FUN_0043a742)
+// Since WP-ISLAND-FIX the products are float32 per operation (the shared exact builders); the formulas above are the same.
+import { eulerMatrix, eulerScaledMatrix } from '../zones/exact.ts';
 export function buildMatrix(rx: number, ry: number, rz: number, px: number, py: number, pz: number, sx = 1, sy = 1, sz = 1): Float32Array {
-  const cx = Math.cos(rx), sxn = Math.sin(rx), cy = Math.cos(ry), syn = Math.sin(ry), cz = Math.cos(rz), szn = Math.sin(rz);
-  const m = new Float32Array(16);
-  m[0] = cz * cy * sx; m[1] = szn * cy * sy; m[2] = -syn * sz;
-  m[4] = (cz * syn * sxn - szn * cx) * sx; m[5] = (cz * cx + szn * syn * sxn) * sy; m[6] = cy * sxn * sz;
-  m[8] = (szn * sxn + cz * syn * cx) * sx; m[9] = (szn * syn * cx - cz * sxn) * sy; m[10] = cy * cx * sz;
-  m[12] = px; m[13] = py; m[14] = pz; m[15] = 1;
-  return m;
+  // WP-ISLAND-FIX: the original runs the x87 at 24-bit precision, every product and sum of FUN_0043a5e4 / FUN_0043a742 is rounded to a float32: the exact builders of zones/exact.ts
+  if (sx === 1 && sy === 1 && sz === 1) { const m = new Float32Array(16); eulerMatrix(m, rx, ry, rz, px, py, pz); return m; }
+  return eulerScaledMatrix(rx, ry, rz, px, py, pz, sx, sy, sz);
 }

@@ -124,8 +124,14 @@ export default async (h) => {
   {
     const inf = await S.rec('INFC'), n = await pathNode(page, 267);    // the door of the Info Center: PATH node 267 (arrival place of FUN_004c2d22 for z04IFC / z05WAB)
     const dx = n[0] - inf.x, dz = n[2] - inf.z, l = Math.hypot(dx, dz);
-    await teleportTo(page, n[0] + dx / l * 20, n[2] + dz / l * 20, n[0], n[2]); await wait(400);
-    await S.hold('ArrowUp', 4200);
+    // the exit door writes the next zone only while Pepper is within 2.08 units of its door point AND the door is open (it opens for ~16 ticks once he is within 12 units, and
+    // a walking Pepper crosses the 2.08 circle in ~5 ticks): a run that arrives a tick early or late misses it, so the walk is repeated from a different distance (a player would too)
+    for (const dist of [20, 17, 23, 14, 26, 18]) {
+      await teleportTo(page, n[0] + dx / l * dist, n[2] + dz / l * dist, n[0], n[2]); await wait(400);
+      await S.hold('ArrowUp', 4200);
+      if (await page.evaluate(() => window.__zone?.info.archive === 'z05WAB' || window.__zone?.sh.vars.get(5) === 5)) break;
+      log('INFC door not reached from', dist, 'units: again');
+    }
   }
   await page.waitForFunction(() => window.__zone && window.__zone.info.archive === 'z05WAB', null, { timeout: 120000 }).catch(() => {});
   s = await page.evaluate(() => ({ arch: window.__zone?.info.archive, node: window.__zone?.sh.vars.get(0x58), mode: window.__zone?.machine.mode }));

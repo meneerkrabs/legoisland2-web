@@ -64,6 +64,7 @@ export default {
     states = new Set();
     let ymax = -1e9, y0 = null;
     const air = () => { states.add(sk.state); if (sk.state === 0x20) { if (y0 === null) y0 = P.y; ymax = Math.max(ymax, P.y); } };
+    for (let w0 = 0; sk.state !== 0x29 && w0 < 200; w0++) tick(I, 1);   // (the push every 50 ticks ignores Alt)
     hold(I, ['AltLeft'], 25, air);
     tick(I, 60, air);
     ok(states.has(0x2a) && states.has(0x20) && states.has(0x21), `Alt: crouch 0x2a -> air 0x20 -> landing 0x21 (states ${[...states].map((s) => s.toString(16))})`);
@@ -80,6 +81,49 @@ export default {
     tick(I, 120);
     ok(P.ctrl.find('SGwalk').state === 0x1b && !board.enabled, 'after the getting-off clip: idle, the board hidden by the walk node');
 
+    // ---------------------------------------------------------------- the tricks of the air (FUN_0048e840 runs on the island too, shared with the park)
+    {
+      const J = loadIsland(ctx, { node: 2 });
+      const Q = J.pepper, V = J.world, k = Q.ctrl.find('skate');
+      tick(J, 20);
+      press(J, 'ControlLeft');
+      tick(J, 150);
+      const jump = (extra, hoverTicks, crouch = 3) => {
+        // Alt: crouch + jump; then in the air the trick keys
+        const sounds0 = J.ictx.sounds.length;
+        const clips = new Set();
+        let prog = 0, crashed = false;
+        let w0 = 0;
+        while (k.state !== 0x29 && w0++ < 200) tick(J, 1);
+        V.input.setKey('AltLeft', true); tick(J, crouch); V.input.setKey('AltLeft', false);
+        let n = 0;
+        while (k.state !== 0x20 && n++ < 100) tick(J, 1);
+        for (const c of extra) V.input.setKey(c, true);
+        tick(J, hoverTicks, () => { clips.add(Q.anim.clip); prog = Math.max(prog, k.progress); if (k.state === 0x23) crashed = true; });
+        for (const c of extra) V.input.setKey(c, false);
+        let m = 0;
+        while (k.state === 0x20 && m++ < 200) tick(J, 1, () => { clips.add(Q.anim.clip); prog = Math.max(prog, k.progress); });
+        tick(J, 3, () => { if (k.state === 0x23) crashed = true; });
+        const trickSnd = J.ictx.sounds.slice(sounds0).filter((s) => s.id === 0x1ab).length;
+        return { clips, prog, crashed, trickSnd };
+      };
+      // (the trick flag DAT_05d58008 is only reset by the park's scoring and by a crash: after one landed stunt on the island no later stunt can crash)
+      const r2 = jump(['Space', 'ArrowLeft', 'ArrowDown'], 60, 45);
+      ok(r2.clips.has(0x68) && r2.prog > 100 && r2.crashed, `Space + Left + Down (rate 8) held through the landing of a full-charge jump on a fresh board: stunt 0x68, progress ${r2.prog.toFixed(0)}, clips ${[...r2.clips].map((c) => c.toString(16))}, crash 0x23 (${r2.crashed})`);
+      tick(J, 120);
+      press(J, 'ControlLeft'); tick(J, 150);
+      ok(k.state === 0x29 || k.state === 0x2d, `rolling before the tricks (state ${k.state.toString(16)})`);
+      const r0 = jump([], 3);
+      ok(!r0.crashed && r0.prog === 0, 'a plain jump: no stunt, no crash');
+      tick(J, 60);
+      const r1 = jump(['Space', 'ArrowLeft'], 4);
+      ok(r1.clips.has(0x67) || r1.clips.has(0x69) || r1.clips.has(0x68), `Space + Left: a stunt clip plays (${[...r1.clips].map((c) => c.toString(16))})`);
+      ok(r1.prog > 0, `the stunt's progress rises (${r1.prog.toFixed(1)})`);
+      ok(r1.trickSnd >= 1, `the island's stunt sound 0x1ab (${r1.trickSnd})`);
+      tick(J, 80);
+      tick(J, 80);
+      ok(finite(Q), 'no NaN after the stunts');
+    }
     // ---------------------------------------------------------------- water ahead throws Pepper off
     {
       const J = loadIsland(ctx, { node: 2 });

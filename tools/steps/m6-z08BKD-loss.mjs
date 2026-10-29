@@ -64,11 +64,16 @@ export default async ({ page, shot, wait, log, key }) => {
   for (let i = 0; i < 60 && (await mode()) === 2; i++) await wait(250);
   await wait(800); await key('Enter'); await wait(800);
   expect('lost again: result menu 19', (await mode()) === 5 && (await menu()).page === 19);
-  // abort: the story is rewound (FUN_00404d14 -> story.rewind): the zone of the rewound node runs next (for this sub-game the node before it is the dive's own entry)
-  await select(2); await press('Enter'); await wait(3500);
-  const after = await page.evaluate(() => ({ arch: __zone.info.archive, node: __zone.sh.vars.get(0x58), mode: __zone.machine.mode, hi: __zone.sh.vars.get(0x2f), trophy: __zone.sh.vars.get(0x3d), done: __zone.sh.vars.get(0x53) }));
-  log('after abort', JSON.stringify(after));
-  expect('abort: the story did not advance (node <= the start node), nothing completed, no trophy', after.node <= v0.node && after.done === 0 && after.trophy === 0, JSON.stringify({ after, v0 }));
-  await wait(800); await shot('l10-after-abort');
+  // abort: FUN_00404d14(&next, false, ...) rewinds the story to the last hub node (story node 18 = this dive, node 17 = the castle z07CSI): the next zone is the castle, with the node
+  // restored to 17. (In this dev entry the castle hub then finds node 17's variable satisfied and the story moves on to the dive again, so the rewind is watched while it happens.)
+  await select(2); await press('Enter');
+  const seen = [];
+  for (let i = 0; i < 40; i++) { await wait(100); seen.push(await page.evaluate(() => ({ arch: __zone.info.archive, node: __zone.sh.vars.get(0x58), cur: __zone.sh.vars.get(0x59), done: __zone.sh.vars.get(0x53), trophy: __zone.sh.vars.get(0x3d) }))); }
+  const rewound = seen.find((s) => s.node === 17 && s.cur === 6);
+  log('after abort', JSON.stringify({ rewound, last: seen[seen.length - 1] }));
+  const after = seen[seen.length - 1];
+  expect('abort: the story is rewound to the castle hub (node 17, zone z07CSI), nothing completed, no trophy', !!rewound && seen.every((s) => s.done === 0 && s.trophy === 0), JSON.stringify({ rewound, v0 }));
+  await wait(3500);
+  void after; await wait(800); await shot('l10-after-abort');
   log(fail.length ? 'FAILED ' + fail.join('; ') : 'ALL OK');
 };

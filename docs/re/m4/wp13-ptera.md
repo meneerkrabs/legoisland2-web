@@ -93,9 +93,27 @@ turns (banked) and dives over the island; no console errors (screenshots looked 
 |---|---|---|
 | `0x53c337` SUPE (SupaStat.c, super-hero taxi) | SUPE | WP14 (`src/island/pizza/supe.ts`) |
 | `0x531d45 / 0x5327b1 / 0x532acc / 0x533ba8` BrickBot.c | BBT*, BBB0, BBG0, BBR0, BBY0 | another worker |
-| `0x4bf329` Human1.c (update `FUN_004beec5`, pre-render `FUN_004bf03e`) | XXX0..2 (all eras, also node 2) | the ctor computes a ballistic launch (per-walker gravity table `DAT_008add08`), the hooks sync a walker clip; purpose not analysed further, WP3's file family, not mode logic: not ported |
-| `0x88d1f6` sgswim (SPLH, draw `FUN_0088cfcb`) | SPLH (all eras) | Pepper's swim splash ring: a pure DRAW hook (scale / place SPLH at Pepper on the sea, var 0xc5 = -1 while swimming, 4 after); the port has no node draw API: not ported |
+| `0x4bf329` Human1.c (update `FUN_004beec5`, pre-render `FUN_004bf03e`) | XXX0..2 (all eras, also node 2) | the ctor computes a ballistic launch (per-walker gravity table `DAT_008add08`), the hooks sync a walker clip; the kids' jump: it plays clip 0x84 and launches the SGMFIG head along the arc: **ported by WP-ISLAND** (`src/island/npc/launch.ts`, gaps S3) |
+| `0x88d1f6` sgswim (SPLH, draw `FUN_0088cfcb`) | SPLH (all eras) | Pepper's swim splash ring: a pure DRAW hook (scale / place SPLH at Pepper on the sea, var 0xc5 = -1 while swimming, 4 after); **ported by WP-ISLAND** (`src/island/vehicles/swimsplash.ts`: the pre-render does the draw hook's work, `RF_NO_DRAW` while not swimming) |
 | `0x4266ca / 0x426915 / 0x426da4` seabed / sky / sea | SEAB, SSKY, SSEA | rendered by `src/render/environment.ts` (WP7) |
 | `0x534b89` building | HSE2, SHP2, PIZB | dead in the original (WP4) |
 
 Nothing else of the era 2-4 rosters is missing; the vehicle modes (boats, helicopters, cars, skateboard: WP6; Ptera / glider: here) are all registered.
+
+## Differential test (WP-VERIFY): Ptera.c against the original's code
+
+> Status after WP-ISLAND-FIX: every KNOWN DEVIATION named in this section is fixed in the port and the test runs at tolerance 0 without the filters (`docs/re/gaps.md`, "Deviations FIXED by WP-ISLAND-FIX"); the sentences below describe the state when the deviation was found.
+
+`tools/tests/m7-isl-veh-ptera.mjs` (+ `pteraSession` in `tools/lib/m7-isl-veh-supe.mjs`): the original's constructor `FUN_004bb1a6`, update `FUN_004b93b0`, pre-render `FUN_004baf1b`, the node
+framework and PepSwitc run natively (x87 in 24-bit precision, `cpu.cw = 0x7f`) next to `PteraNode`; node 52 (eras 3), PTER and GLDR, Pepper beside the parked vehicle with Ctrl. Hosted (not the
+subject): collision / terrain queries (the port's world), the animation instance of PTER (the port's `AnimInstance`, same rig), `FUN_0043b92a` (the "clip about to wrap" test, from the decompile / asm), rand
+(`rand() / 32767 * x`, the same scripted source for both), the cutscene flag. Per tick: both records and Pepper, the node block (`+0x1c .. +0x84`: yaw / pitch rate, keys, bouncing, state, bounce vector,
+speed, ground, pad, propeller, wing phase), clip / frame of PTER and Pepper, all variables, the vehicle globals (pads taken), the camera, the sounds. 9.0 M checks, 4 sessions (dt 1 / 0.5, free-running
+with the shared float-noise guard, sync mode that copies the original's float state before every tick), ~17 s. Visited: 8 boardings (state 3 -> -1), take-off, 700 ticks of random keys per vehicle
+(Left / Right / Up / Down / Space / Alt: 84 bounces, 112 sea bounces, 1886 ticks at the 184 ceiling), 16 landings on free pads (state 1 -> 3, exit node, re-boarding frees the pad), the 1-in-16 glide clip
+4 (2602 ticks), cutscene during the ride, Ctrl away from a pad. **Port = original** apart from:
+* KNOWN DEVIATION `ptera-wrap-pepper` (src/game/swim.ts `wrapWorld`): `FUN_0043363c(vehicle)` also adds the wrap delta to the focus record (Pepper, `DAT_009da5d0 + 0x3c / 0x44`) when the vehicle is not
+  the focus record; the port's `wrapWorld(rec)` moves only the vehicle (and the camera), so on the wrap tick the sea loop (sound 0x125, `FUN_004433f0` at Pepper's position in PepSwitc's pre-render, which
+  runs before the vehicle's pre-render copies the position) is one world length (2 x 1040) away. 14 occurrences in the test, nothing else observable.
+* State 2 stays unreachable (no code sets it); not scripted.
+Not covered: era 4 (node 61, same code), the save / load hooks.

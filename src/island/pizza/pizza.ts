@@ -34,7 +34,12 @@ import { ST, walkHooks } from '../../game/walk.ts';
 import { registerCtor } from '../../game/setup.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import { tryCtx } from '../ctx.ts';
-import { PI_F, TWO_PI_F, cutsceneActive, particles, placeAtBone, sfx, sfxAt, wrapOnce } from './common.ts';
+import { FX_NONE, GATE_OFF, GATE_ON, fxGate, fxMatrix, fxStart, recMatrix, registerFxStart } from '../emitters.ts';
+import { PI_F, TWO_PI_F, cutsceneActive, placeAtBone, sfx, sfxAt, wrapOnce } from './common.ts';
+import { eulerMatrix, normalise3 } from '../../zones/exact.ts';
+import { ad, dv, ml, sb, sq } from '../../zones/common/f32.ts';
+
+const fr = Math.fround;
 
 /** constructor addresses */
 export const CTOR_PIZZA = 0x42887c, CTOR_HAND_PIZZA = 0x42900b;
@@ -48,12 +53,12 @@ export const PIZZA = {
   STEP: 4.0,
   /** 0x8920ec: range of a throw */
   RANGE: 144.0,
-  /** 0x8920f0: spin about x per tick (radians) */
-  SPIN: 0.2,
+  /** 0x8920f0 (0x3e4ccccd): spin about x per tick (radians) */
+  SPIN: 0.20000000298023224,
   /** 0x892028: the NPC segment covers [pos - step, pos + step] (delta = 2 * step) */
   SEG: 2.0,
   /** FUN_00427139(..., mask 3, radius 1.0, skin 0.1, flags 0x108): the deferred wall / ground sweep of a flight step */
-  PROBE_MASK: 3, PROBE_RADIUS: 1.0, PROBE_SKIN: 0.1,
+  PROBE_MASK: 3, PROBE_RADIUS: 1.0, PROBE_SKIN: 0.10000000149011612 /* 0x3dcccccd */,
   /** FUN_00427cbf: the segment against one targetable record (mask 3, radius 1, skin 1) */
   RAY_MASK: 3, RAY_RADIUS: 1.0, RAY_SKIN: 1.0,
   /** FUN_0042796e: search radius^2 (40000 = 200 units), the aim lift (0x8920e0), the distance bands (0x8adf20 / 0x8adf24) with their factors (0.5 / 0.5) */
@@ -61,7 +66,7 @@ export const PIZZA = {
   /** FUN_00427c15 cone (0x3f490f94 = 45 deg) and the hand-over distance^2 (0x8920e4 = 4.8^2) */
   PRELUDE_CONE: 0.7853939533233643, HAND_DIST_SQ: 23.040000915527344,
   /** FUN_00427e02 release cone (0x3e32b884 = 10 deg) */
-  RELEASE_CONE: 0.1745319962501526,
+  RELEASE_CONE: 0.1745319962501526,   // 0x3e32b884
   /** FUN_004277d0 arguments of SGwalk: (start, release) frame of the throw clip: walk / sneak / idle (clip 0x0b), run (clip 0x42) */
   FRAMES_WALK: [14, 42] as const, FRAMES_RUN: [4, 10] as const,
   /** FUN_00428a0a(10, 0x28): the hand-over window of clip 0x0c; the .data defaults DAT_008adf4a = 5, DAT_008adf48 = 30 */
@@ -101,7 +106,7 @@ export function pizzaSystem(w: World): PizzaSystem {
   s.records = w.records;
   for (const rec of w.records) {
     for (const n of rec.ctrl?.nodes ?? []) {
-      if (n instanceof PizzaNode) { n.rec = rec; if (n.slot >= 0 && !s.slots[n.slot]) s.slots[n.slot] = n; }
+      if (n instanceof PizzaNode) { n.rec = rec; n.startFx(w, rec); if (n.slot >= 0 && !s.slots[n.slot]) s.slots[n.slot] = n; }
       else if (n instanceof HandPizzaNode) {
         n.rec = rec;
         if (!s.hand[0]) { s.hand[0] = n; n.primary = true; n.bone = PIZZA.BONE_HAND1; }
@@ -114,6 +119,9 @@ export function pizzaSystem(w: World): PizzaSystem {
   if (c) c.shared.pizza = s;
   return s;
 }
+
+/** the constructors' emitters of every pizza projectile (the particle engine can come after the set-up) */
+registerFxStart((w) => { for (const n of pizzaSystem(w).slots) if (n?.rec) n.startFx(w, n.rec); });
 
 const focusOf = (w: World): GameRecord | null => w.focus;
 
@@ -131,32 +139,33 @@ export function findPizzaTarget(w: World, self: GameRecord, cone: number): Pizza
   for (const r of w.records) {
     const c = r.ctrl;
     if (!r.enabled || !c || (c.flags & CF_TARGETABLE) === 0 || (c.flags & CF_ENABLED) === 0) continue;
-    const dx = r.x - sx, dy = r.y - sy, dz = r.z - sz;
-    const dsq = dz * dz + dy * dy + dx * dx;
+    const dx = sb(r.x, sx), dy = sb(r.y, sy), dz = sb(r.z, sz);
+    const dsq = ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz));    // the asm adds x, y, z (the decompile lists z, y, x)
     if (dsq > bestSq) continue;
-    const bearing = wrapOnce(Math.atan2(dx, dz));
-    self.ry = wrapOnce(self.ry);
-    let diff = Math.abs(self.ry - bearing);
-    if (diff > PI_F) diff = TWO_PI_F - diff;
-    if (dsq < PIZZA.NEAR_SQ) diff *= PIZZA.NEAR_F;
-    else if (dsq < PIZZA.MID_SQ) diff *= PIZZA.MID_F;
-    if (diff <= cone) { best = r; bestSq = dsq; bx = dx; by = dy + PIZZA.AIM_LIFT; bz = dz; }
+    const bearing = wrapOnce(fr(Math.atan2(dx, dz)));
+    self.ry = wrapOnce(fr(self.ry));
+    let diff = fr(Math.abs(sb(self.ry, bearing)));
+    if (PI_F < diff) diff = sb(TWO_PI_F, diff);
+    if (dsq < PIZZA.NEAR_SQ) diff = ml(diff, PIZZA.NEAR_F);
+    else if (dsq < PIZZA.MID_SQ) diff = ml(diff, PIZZA.MID_F);
+    if (diff <= cone) { best = r; bestSq = dsq; bx = dx; by = ad(dy, PIZZA.AIM_LIFT); bz = dz; }
   }
   if (!best) return null;
-  const l = Math.sqrt(bx * bx + by * by + bz * bz);
-  if (l !== 0) { bx /= l; by /= l; bz /= l; }   // FUN_0043cec0
-  return { rec: best, dir: [bx, by, bz], distSq: bestSq };
+  const v = [bx, by, bz];
+  normalise3(v);   // FUN_0043cec0
+  return { rec: best, dir: [v[0], v[1], v[2]], distSq: bestSq };
 }
 
 /** FUN_00427cbf: the segment (from, delta) against every record with a targetable controller (FUN_00441b10, mask 3, radius 1, skin 1); the nearest hit */
 export function rayTargets(w: World, from: readonly number[], delta: readonly number[]): Hit | null {
-  let best: Hit | null = null, bestD = 1e38;
+  let best: Hit | null = null, bestD = fr(1e38);
   for (const r of w.records) {
     const c = r.ctrl;
     if (!c || (c.flags & CF_TARGETABLE) === 0) continue;
     const h = w.col.rayRecord(r, from, delta, PIZZA.RAY_MASK, PIZZA.RAY_RADIUS, PIZZA.RAY_SKIN);
     if (!h) continue;
-    const d = Math.hypot(h.point[0] - from[0], h.point[1] - from[1], h.point[2] - from[2]);
+    const ex = sb(h.point[0], from[0]), ey = sb(h.point[1], from[1]), ez = sb(h.point[2], from[2]);
+    const d = sq(ad(ad(ml(ex, ex), ml(ey, ey)), ml(ez, ez)));
     if (d < bestD) { bestD = d; best = h; }
   }
   return best;
@@ -207,7 +216,7 @@ export function launchPizza(w: World, startFrame: number, releaseFrame: number):
     n.stamp = 0xffffffff; n.target = null;
     w.vars.andNot(V.PIZZAS_THROWN, bestBit);
     n.count = 0; n.hit = null; n.clip = -1;
-    if (n.rec) { particles(w, FX_SPLAT, 1, n.rec); particles(w, FX_THROW, 1, n.rec); }
+    if (n.rec) { n.fxp(w, FX_SPLAT, 1, n.rec); n.fxp(w, FX_THROW, 1, n.rec); }
   }
   return -1;
 }
@@ -267,6 +276,19 @@ export class PizzaNode implements BehaviourNode {
   travelled = 0;
   /** +0x48: in the hand; +0x49: a sweep is pending for the pre-render */
   held = false; probePending = false;
+  /** +0x14 / +0x18: the throwpizza / pizzasplat emitters (FUN_0044e920 in the constructor, bound to the record's matrix, offset 0, no rotation, gate off) */
+  throwH = FX_NONE; splatH = FX_NONE;
+  /** the constructor's FUN_0044e920 x 2 (started when the pizza system binds the nodes to their records) */
+  startFx(w: World, rec: GameRecord) {
+    if (this.throwH === FX_NONE) this.throwH = fxStart(w, FX_THROW, recMatrix(rec), [0, 0, 0], [0, 0, 0], GATE_OFF);
+    if (this.splatH === FX_NONE) this.splatH = fxStart(w, FX_SPLAT, recMatrix(rec), [0, 0, 0], [0, 0, 0], GATE_OFF);
+  }
+  /** FUN_0044ea00(h, rec + 0xc) (mode 0) / FUN_0044ea60(h, 1, 1, 1) (1) / FUN_0044ea60(h, 2, 1, 1) (2) on the throw or splat emitter */
+  fxp(w: World, name: string, mode: number, rec: GameRecord) {
+    this.startFx(w, rec);   // (the particle engine of the zone game can come after the set-up)
+    const h = name === FX_THROW ? this.throwH : this.splatH;
+    if (mode === 0) fxMatrix(w, h, recMatrix(rec)); else fxGate(w, h, mode === 2 ? GATE_ON : GATE_OFF);
+  }
   /** +0x4a: the player's clip when the pizza appeared (-1 = none) */
   clip = -1;
   /** +0x4c: spin angle (x) */
@@ -303,7 +325,7 @@ export class PizzaNode implements BehaviourNode {
     if (this.count === 0) {
       if (!this.held) {
         if (this.hit === null) {
-          this.travelled = PIZZA.STEP * dt + this.travelled;
+          this.travelled = ad(ml(PIZZA.STEP, dt), this.travelled);
           if (this.travelled <= PIZZA.RANGE) this.flightStep(w, rec, x0, y0, z0, true);
           else this.count = 4;
         } else this.count = 5;
@@ -318,11 +340,11 @@ export class PizzaNode implements BehaviourNode {
             this.target = null;
             const t = findPizzaTarget(w, rec, PIZZA.RELEASE_CONE);
             if (t) { this.dir = t.dir; this.target = t.rec; }
-            particles(w, FX_THROW, 0, rec);
+            this.fxp(w, FX_THROW, 0, rec);
             w.vars.or(this.var, this.flightBit);
-            particles(w, FX_THROW, 2, rec);
+            this.fxp(w, FX_THROW, 2, rec);
             this.flightStep(w, rec, x0, y0, z0, false);
-            this.travelled = PIZZA.STEP * dt + this.travelled;
+            this.travelled = ad(ml(PIZZA.STEP, dt), this.travelled);
           }
         } else {
           // the throw clip was interrupted (or a cutscene started): drop the pizza
@@ -337,14 +359,14 @@ export class PizzaNode implements BehaviourNode {
     if (this.count === 1) {
       if (this.var > 2) w.vars.andNot(this.var, this.mask);
       this.count = 0; this.hit = null;
-      particles(w, FX_SPLAT, 1, rec); particles(w, FX_THROW, 1, rec);
+      this.fxp(w, FX_SPLAT, 1, rec); this.fxp(w, FX_THROW, 1, rec);
     } else if (this.count === 4) {
       if (this.var > 2) w.vars.andNot(this.var, this.flightBit);
-      particles(w, FX_SPLAT, 1, rec);
+      this.fxp(w, FX_SPLAT, 1, rec);
       rec.flags &= ~RF_ENABLED;
     } else if (this.count === 5) {
       if (this.var > 2) w.vars.andNot(this.var, this.flightBit);
-      particles(w, FX_SPLAT, 0, rec); particles(w, FX_SPLAT, 2, rec); particles(w, FX_THROW, 1, rec);
+      this.fxp(w, FX_SPLAT, 0, rec); this.fxp(w, FX_SPLAT, 2, rec); this.fxp(w, FX_THROW, 1, rec);
       sfxAt(w, SND_PIZZA.HIT, [rec.x, rec.y, rec.z]);
       rec.flags &= ~RF_ENABLED;
     }
@@ -353,15 +375,16 @@ export class PizzaNode implements BehaviourNode {
 
   /** one step of 4 units with the spin; `test`: the flight steps test the segment [pos - step, pos + step] (the release step does not) */
   private flightStep(w: World, rec: GameRecord, x0: number, y0: number, z0: number, test: boolean) {
-    const k = PIZZA.STEP * w.dt;
-    const sx = k * this.dir[0], sy = k * this.dir[1], sz = k * this.dir[2];
+    const k = ml(PIZZA.STEP, w.dt);
+    const sx = ml(k, this.dir[0]), sy = ml(k, this.dir[1]), sz = ml(k, this.dir[2]);
     rec.rx = this.spin;
-    this.spin = this.spin - PIZZA.SPIN;
-    rec.setEuler(rec.rx, rec.ry, rec.rz, x0 + sx, y0 + sy, z0 + sz);
-    particles(w, FX_THROW, 0, rec);
+    this.spin = sb(this.spin, PIZZA.SPIN);
+    eulerMatrix(rec.m, rec.rx, rec.ry, rec.rz, ad(x0, sx), ad(y0, sy), ad(z0, sz));
+    this.fxp(w, FX_THROW, 0, rec);
     if (!test) return;
-    const from = [x0 - sx, y0 - sy, z0 - sz];
-    const delta = [PIZZA.SEG * w.dt * sx, PIZZA.SEG * w.dt * sy, PIZZA.SEG * w.dt * sz];
+    const from = [sb(x0, sx), sb(y0, sy), sb(z0, sz)];
+    const k2 = ml(PIZZA.SEG, w.dt);
+    const delta = [ml(k2, sx), ml(k2, sy), ml(k2, sz)];
     const h = rayTargets(w, from, delta);
     this.hit = h ? h.rec : null;
     if (!h) {
@@ -428,26 +451,17 @@ export class HandPizzaNode implements BehaviourNode {
       this.frame = Math.trunc(pa?.frame ?? 0);
       if (this.frame < s.handStart) return NODE_NONE;
       rec.flags |= RF_ENABLED;
-      particles(w, FX_THROW, 2, rec);
-      particles(w, FX_THROW, 0, rec);
       if (s.handEnd < this.frame) {
         rec.flags &= ~RF_ENABLED;
         this.done = true;
-        if (this.primary) {
-          sfxAt(w, SND_PIZZA.HIT, [rec.x, rec.y, rec.z]);
-          const a = s.hand[0]?.rec, b = s.hand[1]?.rec;
-          const mid: [number, number, number] = a && b ? [(a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5] : [rec.x, rec.y, rec.z];
-          particles(w, FX_SPLAT, 0, rec, mid);
-          particles(w, FX_SPLAT, 2, rec, mid);
-        }
-        particles(w, FX_THROW, 1, rec);
+        // the original's window end (FUN_00428a5f 0x428b0b) plays Piza_Hit and starts the splat only when the emitter handle param_2[5] != 0xbabababa: FUN_0044ebb0 (pizzasplat.par) returns
+        // 0xbabababa in this build, so nothing is played (V1)
       }
     } else {
       this.done = false;
       rec.flags &= ~RF_ENABLED;
       s.target = null;
       w.vars.andNot(this.var, this.value);
-      if (this.primary) particles(w, FX_SPLAT, 1, rec);
       this.frame = -1;
     }
     return NODE_STOP;
@@ -475,30 +489,30 @@ export class HandPizzaNode implements BehaviourNode {
  * the contact, -1 for none. Ported with the original's slip: the entry test from below uses (b - a).xz * t - base.xz without + a.xz.
  */
 export function segCylinder(a: readonly number[], b: readonly number[], c: readonly number[], r: number, h: number): number {
-  const top = h + c[1];
+  const top = ad(h, c[1]);
   if (a[1] < c[1]) {
     if (b[1] < c[1]) return -1;
-    const t = (top - a[1]) / (b[1] - a[1]);
-    const ex = (b[0] - a[0]) * t - c[0], ez = (b[2] - a[2]) * t - c[2];
-    if (ez * ez + ex * ex < r * r) return t;
+    const t = dv(sb(top, a[1]), sb(b[1], a[1]));
+    const ex = sb(ml(sb(b[0], a[0]), t), c[0]), ez = sb(ml(sb(b[2], a[2]), t), c[2]);
+    if (ad(ml(ez, ez), ml(ex, ex)) < ml(r, r)) return t;
   }
   if (top < a[1]) {
     if (top < b[1]) return -1;
-    const t = (top - a[1]) / (b[1] - a[1]);
-    const ex = ((b[0] - a[0]) * t + a[0]) - c[0], ez = ((b[2] - a[2]) * t + a[2]) - c[2];
-    if (ez * ez + ex * ex < r * r) return t;
+    const t = dv(sb(top, a[1]), sb(b[1], a[1]));
+    const ex = sb(ad(ml(sb(b[0], a[0]), t), a[0]), c[0]), ez = sb(ad(ml(sb(b[2], a[2]), t), a[2]), c[2]);
+    if (ad(ml(ez, ez), ml(ex, ex)) < ml(r, r)) return t;
   }
-  const fx = a[0] - c[0], fz = a[2] - c[2], dx = b[0] - a[0], dz = b[2] - a[2];
-  const aa = dz * dz + dx * dx;
-  const inv = 1 / (2 * aa);
-  let bb = dz * fz + dx * fx; bb = bb + bb;
-  const disc = bb * bb - aa * ((fz * fz + fx * fx) - r * r) * 4;
+  const fx = sb(a[0], c[0]), fz = sb(a[2], c[2]), dx = sb(b[0], a[0]), dz = sb(b[2], a[2]);
+  const aa = ad(ml(dz, dz), ml(dx, dx));
+  const inv = dv(1, ml(2, aa));
+  let bb = ad(ml(dz, fz), ml(dx, fx)); bb = ad(bb, bb);
+  const disc = sb(ml(bb, bb), ml(ml(aa, sb(ad(ml(fz, fz), ml(fx, fx)), ml(r, r))), 4));
   if (disc <= 0) return -1;
-  const sq = Math.sqrt(disc);
-  let t = (-bb - sq) * inv;
-  const t2 = (-bb + sq) * inv;
+  const sqd = sq(disc);
+  let t = ml(sb(-bb, sqd), inv);
+  const t2 = ml(ad(-bb, sqd), inv);
   if (t < 0 || t2 < t) t = t2;
-  const y = (b[1] - a[1]) * t + a[1];
+  const y = ad(ml(sb(b[1], a[1]), t), a[1]);
   return y < c[1] || top < y ? -1 : t;
 }
 
@@ -517,10 +531,10 @@ export function incomingPizza(w: World, npc: GameRecord): { kind: number; height
     const n = s.slots[i], r = n?.rec;
     if (!n || !r || !r.enabled || n.held) continue;
     const px = r.x, py = r.y, pz = r.z;
-    if (Math.abs(nx - px) > PIZZA.INCOMING_BOX || Math.abs(nz - pz) > PIZZA.INCOMING_BOX || Math.abs(ny - py) > PIZZA.INCOMING_BOX) continue;
-    const b = [n.dir[0] * PIZZA.LOOKAHEAD + px, n.dir[1] * PIZZA.LOOKAHEAD + py, n.dir[2] * PIZZA.LOOKAHEAD + pz];
+    if (Math.abs(sb(nx, px)) > PIZZA.INCOMING_BOX || Math.abs(sb(nz, pz)) > PIZZA.INCOMING_BOX || Math.abs(sb(ny, py)) > PIZZA.INCOMING_BOX) continue;
+    const b = [ad(ml(ml(n.dir[0], 10), 4), px), ad(ml(ml(n.dir[1], 10), 4), py), ad(ml(ml(n.dir[2], 10), 4), pz)];
     const t = segCylinder([px, py, pz], b, [nx, ny, nz], PIZZA.CYL_R, PIZZA.CYL_H);
-    if (t >= 0) return { kind: 1, height: (b[1] - py) * t + py };
+    if (t >= 0) return { kind: 1, height: ad(ml(sb(b[1], py), t), py) };
   }
   const h = s.hand[0];
   if (h && h.rec && h.rec.enabled && ctrl) {
@@ -528,13 +542,13 @@ export function incomingPizza(w: World, npc: GameRecord): { kind: number; height
     if (s.handEnd - 5 < h.frame && (thrown & h.mask) !== 0) {
       const P = focusOf(w);
       if (s.target !== npc && P) {
-        const bearing = wrapOnce(Math.atan2(P.x - nx, P.z - nz));
-        let d = Math.abs(npc.ry - bearing);
-        if (d > PI_F) d = TWO_PI_F - d;
+        const bearing = wrapOnce(fr(Math.atan2(sb(P.x, nx), sb(P.z, nz))));
+        let d = fr(Math.abs(sb(npc.ry, bearing)));
+        if (d > PI_F) d = sb(TWO_PI_F, d);
         if (d > PIZZA.FACING) return { kind: 0, height: 0 };
       }
       if ((ctrl.flags & CF_TARGETABLE) !== 0 && ctrl.distSq < h.reachedSq) { h.reached = npc; h.reachedSq = ctrl.distSq; }
-      return { kind: 2, height: (P?.y ?? ny) + PIZZA.HAND_LIFT };
+      return { kind: 2, height: ad(P?.y ?? ny, PIZZA.HAND_LIFT) };
     }
   }
   return { kind: 0, height: 0 };

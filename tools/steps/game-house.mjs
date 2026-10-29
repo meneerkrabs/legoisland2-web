@@ -11,5 +11,5 @@ export default async ({ page, shot, wait, evaluate }) => {
   await hold(['ArrowDown'], 1500); await st('south'); await shot('game-house-south');
   await hold(['ArrowRight'], 2500); await st('east'); await shot('game-house-east');
   await hold(['ArrowUp', 'ArrowLeft'], 2500); await st('diagonal into the corner'); await shot('game-house-corner');
-  await page.keyboard.press('Alt'); await wait(600); await st('Alt: no jump in the house');
+  await page.keyboard.press('Alt', { delay: 70 }); await wait(600); await st('Alt: no jump in the house');
 };

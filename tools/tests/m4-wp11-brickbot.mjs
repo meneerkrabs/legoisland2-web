@@ -117,7 +117,7 @@ export default {
           ok((w.vars.get(0x61) & 0x20001) === 1, `the victim PAPA: |= 1, 0x20000 cleared (${hex(w.vars.get(0x61))})`);
           tick(I, 200);
         }
-        I.ictx.sounds.length = 0; I.ictx.fx.length = 0;
+        I.ictx.sounds.length = 0; I.ictx.fx.clear();
         const t = throwAt(I, bot);
         ok(t >= 0, `${name}: the thrown pizza hits it (after ${t} ticks)`);
         const v = w.vars.get(V);
@@ -125,7 +125,7 @@ export default {
         ok(I.ictx.sounds.some((s) => s.id === BOT_SND.HIT && s.pos), `${name}: Piza_Hit at the bot`);
         tick(I, 2);
         ok(bot.anim.clip === BOT_CLIP.PIZZAHIT && (bot.flags & 0x40) === 0, `${name}: clip BB_PIZZAHIT, no box collision (clip ${hex(bot.anim.clip)})`);
-        ok(I.ictx.fx.some((e) => e.name === 'swirl01.swl' && e.mode === 2), `${name}: swirl01.swl over the head`);
+        ok(I.ictx.fx.log.some((e) => e.op === 'gate' && e.name === 'swirl01.swl' && e.gate.join() === '2,1,1'), `${name}: swirl01.swl over the head`);
         const ref = [bot.x, bot.z];
         tick(I, 60);
         ok(bot.anim.clip === BOT_CLIP.PIZZADAZED && Math.hypot(bot.x - ref[0], bot.z - ref[1]) < 0.5, `${name}: dazed (0x95) and standing still (${hex(bot.anim.clip)})`);
@@ -136,7 +136,7 @@ export default {
         ok(hn.dying === 10 || hn.dying === -1 || hn.scale < 0.9, `${name}: collected when Pepper is within 2 units (dying ${hn.dying})`);
         ok(w.vars.get(NUM_BOT_HEADS) === h0 + 1 && w.vars.get(SCORE) === s0 + 1000, `${name}: NUM_BOT_HEADS + 1, SCORE_LGI + 1000 (${w.vars.get(NUM_BOT_HEADS)}, ${w.vars.get(SCORE)})`);
         ok((w.vars.get(COLORED) & want[name]) !== 0, `${name}: COLORED_BOTHEADS bit ${want[name]} (${hex(w.vars.get(COLORED))})`);
-        ok(I.ictx.sounds.some((s) => s.id === BOT_SND.COLLECT) && I.ictx.fx.some((e) => e.name === 'Explode01.par' && e.mode === 2), `${name}: Collect.wav and Explode01.par`);
+        ok(I.ictx.sounds.some((s) => s.id === BOT_SND.COLLECT) && I.ictx.fx.log.some((e) => e.op === 'gate' && e.name === 'Explode01.par' && e.gate.join() === '2,1,1'), `${name}: Collect.wav and Explode01.par`);
         p.x += 30; p.rebuildYaw();
         tick(I, 8);
         ok(!bot.enabled && (w.vars.get(V) & ~0xf00) === 0x4000, `${name}: shrunk away and hidden, MOVE = 0x4000 (SGMFIG may add its 0x100..0x400 Pepper bits) (${hex(w.vars.get(V))}, enabled ${bot.enabled})`);

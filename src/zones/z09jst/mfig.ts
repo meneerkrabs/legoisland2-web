@@ -18,6 +18,8 @@ export class MfigMan {
   clip: number[] = [];
   /** manager + 8: 1 = the last record follows the master, 0 = it runs on its own */
   mode = 1;
+  /** the frame step of the engine's advance function (FUN_0043b76a multiplies the rate by DAT_008b1718): 1 at 30 Hz, 0.5 at 60 Hz; the duel sets it every tick */
+  dt = 1;
 
   constructor(table: readonly (readonly number[])[], pos: number[], rot: number[]) { this.table = table; this.pos = pos; this.rot = rot; }
 
@@ -65,13 +67,13 @@ export class MfigMan {
   advance(rate: number, noWrap = 0): { t: number; res: number } {
     this.placeMaster();
     const ma = this.master.anim;
-    const mres = ma ? ma.advance(rate) : 0;
+    const mres = ma ? ma.advance(rate, this.dt) : 0;
     const t = ma ? ma.frame : 0;
     this.follow(t);
     const last = this.rider;
     if (this.mode === 0) {
       const la = last.anim;
-      const res = la ? la.advance(rate) : 0;
+      const res = la ? la.advance(rate, this.dt) : 0;
       if (la && res === 2 && !noWrap) la.seek(la.frameCount - 1);
       return { t, res };
     }

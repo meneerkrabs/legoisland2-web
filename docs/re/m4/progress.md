@@ -190,3 +190,12 @@ All WPs are done and integrated; `npx tsc`, `npx vite build` and `node tools/tes
 (30 -> 52), `m4-era3.mjs` (52 -> 68). The live-site failure of the head collection (four heads, three collected) was bot timing on a slow page, not the game: the bot now waits in game
 ticks, taps keys for >= 3 ticks and repeats a missed throw / collect cycle (`collectHead` in `tools/steps/lib-island.mjs`; `THROTTLE=6` still collects all four, with retries).
 Open points are listed in docs/re/engine-m4.md ("Approximations / not ported"). M5: other hubs.
+
+
+## WP-ISLAND (2026-10-29, gaps S1-S12, U2 note)
+
+Done: S1 island skateboard tricks (shared `skateTricks`), S2 vehicle looks on Enter (swap table + SwapText textures + roster, cycler and Enter logic identical to the original in the x86 interpreter), S3 kids' jump node
+(constructor identical to the original's) and swim splash ring, S4 objective vehicle branch, S5 header-only collision objects (the reason the board never lifts Pepper; the original sweep and the port's agree on 900
+random placements), S6 hologram shimmer, S8 / S9 / S11 / S12 checks and fixes, S7 / S10 emitter hooks (BOATPLUME + the inventory in engine-m4.md). Open: S2's type-1 half (minifig outfit / decor model swap, `FUN_00420bb7`),
+S7's wake draw order (needs a node draw API in the renderer), the emitters listed in engine-m4.md (WP-PART-WIRE). U2: settled by the code (no credits after the outro), the fix is in the shell (gaps.md U2).
+New tests: `m4-wp6-looks`, `m4-s5-colshapes`, `m4-s-island`; new bot step `tools/steps/m4-wp-island.mjs`; new oracle helper `tools/lib/col-oracle.mjs` (the original `FUN_00441270` on records you describe).

@@ -4,6 +4,7 @@
 // sides is a difference of the Speedster's own code. docs/re/m6/z20DSP.md section 11.
 import { createCpu } from '../../src/formats/x86emu.ts';
 import { terrain } from '../../src/zones/z20dsp/shared.ts';
+import { TrackSpline } from '../../src/zones/z20dsp/spline.ts';
 import { AnimInstance } from '../../src/game/anim.ts';
 
 export const RB = 0x10000000, HEAP = 0x20000000, STRIDE = 0x68;
@@ -13,7 +14,12 @@ const NATIVE = [0x43a5e4, 0x43a742, 0x43a8bb, 0x43a9e5, 0x43ab72, 0x43b022, 0x43
 
 export function createOracle(pe, w, S) {
   const cpu = createCpu(pe);
+  // Direct3D 7 leaves the x87 in 24-bit precision (docs/re/engine-m1.md 8.1): every arithmetic result rounds to a float; the original runs in that mode (cw 0x7f), the CRT's sin / cos switch to 53 bit themselves
+  cpu.cw = process.env.DSP_CW ? Number(process.env.DSP_CW) : 0x7f;
   const mem = cpu.mem;
+  const f32 = Math.fround;
+  // the oracle's own track object (the nearest() state of FUN_00447550 lives in the object: the port's nodes must not share it with the original's calls)
+  const track = new TrackSpline(S.track.pts);
   const n = w.records.length;
   mem.addRegion({ lo: RB, hi: RB + n * STRIDE + 0x1000, name: 'records' });
   mem.addRegion({ lo: HEAP, hi: HEAP + 0x2000000, name: 'heap' });
@@ -48,6 +54,19 @@ export function createOracle(pe, w, S) {
   const f3 = (p) => [mem.f32(p), mem.f32(p + 4), mem.f32(p + 8)];
   const wf3 = (p, v) => { mem.wf32(p, v[0]); mem.wf32(p + 4, v[1]); mem.wf32(p + 8, v[2]); };
   const H = new Map();
+  /** the collision world is the port's; the original's records live in the emulator's memory: for the duration of a query the port's records take the emulator's matrices / flags (the nodes before the caller in record order moved this tick, the ones after did not) */
+  const swapIn = (fn) => {
+    const saved = [];
+    for (let i = 0; i < n; i++) {
+      const r = w.records[i];
+      if (!r.colObj) continue;
+      const a = recPtr(i);
+      saved.push([r, r.m.slice(), r.flags]);
+      for (let k = 0; k < 16; k++) r.m[k] = mem.f32(a + 0xc + 4 * k);
+      r.flags = (r.flags & ~0xffff) | mem.r16(a + 0x60);
+    }
+    try { return fn(); } finally { for (const [r, m, f] of saved) { r.m.set(m); r.flags = f; } }
+  };
   H.set(0x417575, (c) => { c.eax = vars(c.arg(0) | 0) | 0; });
   H.set(0x417597, (c) => { const i = c.arg(0) | 0; if (i !== 1 && i !== 2) mem.w32(VAR_ARRAY + 4 * i, c.arg(1)); });
   const allocs = [];
@@ -56,30 +75,30 @@ export function createOracle(pe, w, S) {
   H.set(0x4425e0, (c) => { ground = c.arg(0); });
   H.set(0x4425c0, (c) => { c.eax = 0; });
   H.set(0x43ce45, (c) => { const p = f3(c.arg(0)); c.fpush(ground ? terrain(w, p[0], p[1], p[2], c.argf(1)) : -1e38); });
-  H.set(0x4478f0, (c) => { c.fpush(S.track.nearest(f3(c.arg(0)))); });
-  H.set(0x4478d0, (c) => { c.fpush(S.track.nearest(f3(c.arg(0) + 0x3c))); });
+  H.set(0x4478f0, (c) => { c.fpush(track.nearest(f3(c.arg(0)))); });
+  H.set(0x4478d0, (c) => { c.fpush(track.nearest(f3(c.arg(0) + 0x3c))); });
   H.set(0x445680, (c) => {
     const t = c.argf(1), p3 = c.arg(2), p4 = c.arg(3), mode = c.arg(4) | 0;
-    if (mode === 0) wf3(p3, S.track.position(t));
+    if (mode === 0) wf3(p3, track.position(t));
     else {
-      const fr = S.track.frame(t, mode === 2);
+      const fr = track.frame(t, mode === 2);
       wf3(p4, fr.r); mem.wf32(p4 + 12, 0); wf3(p4 + 16, fr.u); mem.wf32(p4 + 28, 0); wf3(p4 + 32, fr.t); mem.wf32(p4 + 44, 0); wf3(p4 + 48, fr.p); mem.wf32(p4 + 60, 1);
       if (mode === 2) wf3(p3, fr.d2);
     }
   });
   H.set(0x441270, (c) => {
-    const hit = w.col.sweep(w.records[recIdx(c.arg(0))], f3(c.arg(1)), f3(c.arg(2)), c.arg(5), c.argf(6), c.argf(7));
+    const hit = swapIn(() => w.col.sweep(w.records[recIdx(c.arg(0))], f3(c.arg(1)), f3(c.arg(2)), c.arg(5), c.argf(6), c.argf(7)));
     if (!hit) { c.eax = 0; return; }
     wf3(c.arg(3), hit.normal); c.eax = recPtr(hit.rec.index);
   });
   H.set(0x441ac0, (c) => {
-    const hit = w.col.probe(w.records[recIdx(c.arg(0))], f3(c.arg(1)), f3(c.arg(2)), c.arg(5));
+    const hit = swapIn(() => w.col.probe(w.records[recIdx(c.arg(0))], f3(c.arg(1)), f3(c.arg(2)), c.arg(5)));
     if (!hit) { c.eax = 0; return; }
     wf3(c.arg(3), hit.normal); c.eax = 1;
   });
   H.set(0x441b10, (c) => {
     const rec = w.records[recIdx(c.arg(0))], s = c.arg(1);
-    const hit = w.col.rayRecord(rec, f3(mem.u32(s)), f3(mem.u32(s + 4)), mem.u32(s + 16), mem.f32(s + 20), mem.f32(s + 24));
+    const hit = swapIn(() => w.col.rayRecord(rec, f3(mem.u32(s)), f3(mem.u32(s + 4)), mem.u32(s + 16), mem.f32(s + 20), mem.f32(s + 24)));
     if (!hit) { c.eax = 0; return; }
     wf3(mem.u32(s + 8), hit.normal); wf3(mem.u32(s + 12), hit.point); c.eax = 1;
   });
@@ -98,8 +117,19 @@ export function createOracle(pe, w, S) {
   for (const [a, nm] of [[0x4435a0, 'play'], [0x4435b0, 'stop'], [0x443600, 'rate'], [0x4433f0, '3d'], [0x4434b0, 'stop3d']]) H.set(a, sound(nm));
   H.set(0x439bf8, (c) => { log.push(`say ${mem.cstr(c.arg(1))}`); c.eax = 0; mem.w32(c.arg(2), 0); });
   H.set(0x435a11, () => {});
-  for (const a of [0x442a00, 0x442a40, 0x442960, 0x438518, 0x6bd2e0, 0x445ba0, 0x85eb80, 0x444550, 0x435c91, 0x442900]) H.set(a, () => {});
-  H.set(0x4388ae, (c) => { c.fpush(0.5); });
+  for (const a of [0x438518, 0x6bd2e0, 0x445ba0, 0x85eb80, 0x444550, 0x435c91, 0x442900]) H.set(a, () => {});
+  // the particle calls are logged (FUN_00442960 start: handles 100 + n; FUN_00442a00 setMatrix; FUN_00442a40 stop): `emitLog`
+  const emitLog = [];
+  const matLabel = (p) => (p >= RB && p < RB + n * STRIDE && (p - RB - 0xc) % STRIDE === 0 ? `rec ${(p - RB - 0xc) / STRIDE}` : `0x${(p >>> 0).toString(16)}`);
+  let nextH = 100;
+  H.set(0x442960, (c) => { const h = nextH++; const fl = (i) => c.argf(i); emitLog.push(`start ${mem.cstr(c.arg(0))} ${matLabel(c.arg(1))} ${[2, 3, 4].map((i) => f32(fl(i))).join(',')} ${[5, 6, 7].map((i) => f32(fl(i))).join(',')} ${[8, 9, 10].map((i) => c.arg(i) & 0xffff).join(',')} -> ${h}`); c.eax = h; });
+  H.set(0x442a00, (c) => { emitLog.push(`setM ${c.arg(0)} ${matLabel(c.arg(1))}`); });
+  H.set(0x442a40, (c) => { emitLog.push(`stop ${c.arg(0)}`); });
+  // FUN_004388ae(max): fild rand(); fdiv 32767.0f; fmul max (24-bit: both operations round); 0 for max <= 0. The draws come from the test's generator and are recorded for the port.
+  const O = { emitLog: [] };
+  O.rngNext = () => 0.5;
+  O.draws = [];
+  H.set(0x4388ae, (c) => { const max = c.argf(0); if (!(max > 0)) { c.fpush(0); return; } const v = O.rngNext(); O.draws.push(v); c.fpush(f32(f32(v) * max)); });
   // FUN_006c0af1 (a rock was hit: its Brickbot reacts) dereferences the record's controller, which is null for the bot record itself (BBBB): a crash in the original, nothing here
   H.set(0x6c0af1, () => {});
   // atan2 (FUN_0085d640(double y, double x)): the CRT's version loads 80-bit constants the interpreter does not model
@@ -127,15 +157,18 @@ export function createOracle(pe, w, S) {
   });
   for (const [a, h] of H) cpu.hooks.set(a, h);
   cpu.call(0x6be930, [0]);
+  cpu.call(0x6bf633, []);                                       // FUN_006bf633: the seven particle emitters (logged)
+  O.emitLog = emitLog;
   const sp = nodes.find((x) => x.ctor === 0x6c6495);
   const node = sp?.node ?? 0;
-  return {
-    cpu, mem, alloc, recPtr, putRecord, log, calls, vars, buf, node, car, H, nodes, shadow,
+  return Object.assign(O, {
+    cpu, mem, alloc, recPtr, putRecord, log, calls, vars, buf, node, car, H, nodes, shadow, track,
     setHeld(h, analog = 0) { mem.w32(0x98383c, h); mem.w32(0x98384c, analog); },
-    update() { cpu.call(0x6c2627, [recPtr(38), this.node]); },
+    update() { cpu.steps = 0; cpu.call(0x6c2627, [recPtr(38), this.node]); },
     /** one pass of the update chain in record order (FUN_0042226e): every node's update (rec, node), the Speedster's included */
-    updateAll() { for (const nd of [...nodes].sort((a, b) => a.rec - b.rec)) cpu.call(nd.update, [recPtr(nd.rec), nd.node]); },
-  };
+    updateAll() { for (const nd of [...nodes].sort((a, b) => a.rec - b.rec)) { cpu.steps = 0; cpu.call(nd.update, [recPtr(nd.rec), nd.node]); } },
+    setVar(i, v) { mem.w32(VAR_ARRAY + 4 * i, v); },
+  });
 }
 
 /** the fields of the Speedster's node compared against the port: [name, offset, kind ('f' float / 'i' int), getter] */

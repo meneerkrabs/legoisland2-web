@@ -15,7 +15,9 @@ import { parseMan } from '../../formats/anim.ts';
 import type { Pe } from '../../formats/exe.ts';
 import { ArgView } from '../args.ts';
 import { tryCtx } from '../ctx.ts';
-import { PI, TWO_PI, wrapPi, ftol, rand, inView, sfxAt, soundOf, recPos, ensureAnim, rebuild, setRot, setScaled, groundSnap } from './common.ts';
+import { PI, TWO_PI, wrapPi, ftol, rand, inView, sfxAt, soundOf, recPos, ensureAnim, rebuild, setRot, setScaled } from './common.ts';
+import { ad, sb, ml, fr, sq, fromBits } from '../../zones/common/f32.ts';
+import { probeSet, nextSeq } from '../npc/globals.ts';
 
 export const CTOR_BUNNY = 0x4b2149, CTOR_BUTTERFLY = 0x4b2d44, CTOR_SWIFT_LEADER = 0x4b31db, CTOR_SWIFT = 0x4b3a92;
 
@@ -41,7 +43,8 @@ export function animalGlobals(w: World): AnimalGlobals {
 const peF32 = (pe: Pe, va: number) => { const b = new DataView(new ArrayBuffer(4)); b.setUint32(0, pe.u32(va), true); return b.getFloat32(0, true); };
 
 /** 0x7e967699 (1e38): "outside the box" of FUN_004b1330 / FUN_004b23dc */
-const FAR = 1e38;
+const FAR = fr(1e38);
+const TENTH = fromBits(0x3dcccccd), F02 = fromBits(0x3e4ccccd), QUARTER = 0.25, BORED_CHANCE = fromBits(0x3f6e147b);
 
 abstract class Node implements BehaviourNode {
   abstract readonly kind: string;
@@ -58,6 +61,7 @@ const BUNNY_SOUND = 0x05d58138;   // handle of sound 0x103 (FUN_004b037e)
 
 export class BunnyNode extends Node {
   readonly kind = 'Bunny';
+  /** attach order: the constructors' world work (heading draw, ground probe) runs in it before the first tick (`startIslandNpcs`) */ readonly seq = nextSeq();
   readonly args: ArgView;
   private inited = false;
   home: [number, number, number] = [0, 0, 0];   // +0x14
@@ -75,35 +79,37 @@ export class BunnyNode extends Node {
   constructor(args: ArgView) {
     super();
     this.args = args;
+    // FUN_004b2149 (float32 per operation): speed = a1 * 8, range = a0 * 8, range^2, (a0 * 8 * 0.5)^2
     const a0 = args.f32(0), a1 = args.f32(4);
-    this.speed = a1 * 8;
-    this.range = a0 * 8; this.range2 = this.range * this.range;
-    const q = a0 * 8 * 0.5; this.quarter2 = q * q;
+    this.speed = ml(a1, 8);
+    this.range = ml(a0, 8); this.range2 = ml(this.range, this.range);
+    const q = ml(ml(a0, 8), 0.5); this.quarter2 = ml(q, q);
   }
 
   /** the constructor FUN_004b2149 (run on the first update) */
-  private init(w: World, rec: GameRecord) {
+  init(w: World, rec: GameRecord) {
+    if (this.inited) return;
     this.inited = true;
     this.home = [rec.x, rec.y, rec.z];
     ensureAnim(w, rec)?.start(2, 0);
-    rec.ry = PI - rand(TWO_PI);
+    rec.ry = sb(PI, rand(TWO_PI));
     const g = animalGlobals(w);
     if (!g.burrows) {
       const c = tryCtx(w);
       g.burrows = [0, 1, 2].map((i) => c ? [peF32(c.pe, BURROWS_VA + i * 12), peF32(c.pe, BURROWS_VA + i * 12 + 4), peF32(c.pe, BURROWS_VA + i * 12 + 8)] as [number, number, number] : [0, -1, 0]);
-      // FUN_0043cd62(burrow, 40.0): the terrain below each burrow (when its y is still the executable's -1)
-      if (g.burrows[0][1] < 0) for (const b of g.burrows) b[1] = w.col.terrainHeight(b[0], b[1], b[2], 40);
+      // `if (_DAT_008d920c < 0)`: y = 0, then FUN_0043cd62(burrow, 40.0): the terrain below each burrow
+      if (g.burrows[0][1] < 0) for (const b of g.burrows) { b[1] = 0; b[1] = w.col.terrainHeight(b[0], 0, b[2], 40); }
     }
     // FUN_00441ac0(rec, pos + (0, 8, 0), (0, -24, 0), mask 3): put the bunny on what lies below it (the probe skips the ground record)
-    const hit = w.col.probe(rec, [rec.x, rec.y + 8, rec.z], [0, -24, 0], 3);
+    const hit = w.col.probe(rec, [rec.x, ad(rec.y, 8), rec.z], [0, -24, 0], 3);
     if (hit) rec.y = hit.point[1];
     // (the constructor does not rebuild the matrix: the placed heading moves the bunny until the first turn)
   }
 
   /** FUN_004b1330: the vector to the home and its squared length (FAR when the signed x / z difference exceeds the range) */
   private homeDelta(rec: GameRecord, d: number[]): number {
-    d[0] = this.home[0] - rec.x; d[1] = this.home[1] - rec.y; d[2] = this.home[2] - rec.z;
-    if (d[0] <= this.range && d[2] <= this.range) return d[2] * d[2] + d[1] * d[1] + d[0] * d[0];
+    d[0] = sb(this.home[0], rec.x); d[1] = sb(this.home[1], rec.y); d[2] = sb(this.home[2], rec.z);
+    if (d[0] <= this.range && d[2] <= this.range) return ad(ad(ml(d[0], d[0]), ml(d[1], d[1])), ml(d[2], d[2]));
     return FAR;
   }
 
@@ -111,21 +117,22 @@ export class BunnyNode extends Node {
   private steer(rec: GameRecord) {
     const d = [0, 0, 0];
     const d2 = this.homeDelta(rec, d);
-    if (d2 <= this.quarter2) rec.ry = (0.1 - rand(0.2)) + rec.ry;
+    if (d2 <= this.quarter2) rec.ry = ad(sb(TENTH, rand(F02)), rec.ry);
     else {
-      const yaw = Math.atan2(d[0], d[2]);
-      const t = wrapPi(yaw - rec.ry);
-      if (Math.abs(t) >= 0.25) rec.ry += t >= 0 ? 0.25 : -0.25; else rec.ry = yaw;
+      const yaw = fr(Math.atan2(d[0], d[2]));
+      let t = sb(yaw, rec.ry);
+      t = wrapPi(t);
+      if (fr(Math.abs(t)) >= QUARTER) rec.ry = t >= 0 ? ad(QUARTER, rec.ry) : sb(rec.ry, QUARTER); else rec.ry = yaw;
+      rec.ry = wrapPi(rec.ry);
     }
-    rec.ry = wrapPi(rec.ry);
     rebuild(rec);
   }
 
-  /** FUN_004b17eb: the next state when the count runs out */
+  /** FUN_004b17eb: the next state when the count runs out; -1 when the (capped) draw equals the current state (nothing is entered, the count stays at -1: the next loop of the clip chooses again: finding D10) */
   private choose(): number {
     if (this.state === 6) { this.state = this.saved; return this.state; }
     if (this.bored < 10) this.bored++;
-    else if (Math.fround(rand(1)) > 0.93) {
+    else if (rand(1) > BORED_CHANCE) {
       this.bored = 0; this.state = 3;
       this.burrow = Math.min(2, ftol(rand(3)));
       return 3;
@@ -133,11 +140,12 @@ export class BunnyNode extends Node {
     let s: number;
     do s = ftol(rand(4)); while (s === this.state);
     if (s > 2) s = 2;
+    if (this.state === s) return -1;
     this.state = s;
     return s;
   }
 
-  /** FUN_004b1712 + FUN_004b1647: enter a state (count, facing, clip) */
+  /** FUN_004b1712 + FUN_004b1647: enter a state (count, facing, clip); -1 matches no case of either switch */
   private enter(w: World, rec: GameRecord, s: number) {
     const g = animalGlobals(w);
     switch (s) {
@@ -147,11 +155,14 @@ export class BunnyNode extends Node {
       case 3: {
         this.count = 100;
         const b = g.burrows![this.burrow];
-        rec.ry = rec.ry - wrapPi(rec.ry - Math.atan2(b[0] - rec.x, b[2] - rec.z));    // FUN_004b15b7 (FUN_00433450)
+        // FUN_004b15b7 -> FUN_00433450(rec, burrow, out): the yaw difference to the burrow, wrapped once
+        const a = fr(Math.atan2(sb(b[0], rec.x), sb(b[2], rec.z)));
+        rec.ry = sb(rec.ry, wrapPi(sb(rec.ry, a)));
         rebuild(rec);
         break;
       }
       case 6: this.count = 0; break;
+      default: return;
     }
     const clip = s === 0 ? 1 : s === 1 ? 3 : s === 6 ? 4 : 2;
     rec.anim?.start(clip, 0);
@@ -180,58 +191,64 @@ export class BunnyNode extends Node {
         else if (this.state === 2) this.steer(rec);
       }
       let v = -1;
+      let px = rec.x, py = rec.y, pz = rec.z;          // local_44 / local_40 / local_3c: the position the step starts from (the cases that rebuild the matrix keep it)
       switch (this.state) {
         case 2: {
           const d = [0, 0, 0];
           const d2 = this.homeDelta(rec, d);
           if (this.range2 < d2) {
-            const yaw = Math.atan2(d[0], d[2]);
-            if (Math.abs(rec.ry - yaw) > 0.1) { rec.ry = yaw; rebuild(rec); }
+            const yaw = fr(Math.atan2(d[0], d[2]));
+            if (TENTH < fr(Math.abs(sb(rec.ry, yaw)))) { rec.ry = yaw; rebuild(rec); }
           }
           v = this.speed;
           break;
         }
         case 3: {
           const b = B[this.burrow];
-          if (Math.abs(b[0] - rec.x) < this.reach && Math.abs(b[2] - rec.z) < this.reach) { this.state = 4; rec.rx = 0.75; rebuild(rec); }
-          v = this.speed * 1.5;
+          px = rec.x; py = rec.y; pz = rec.z;
+          if (fr(Math.abs(sb(b[0], px))) < this.reach && fr(Math.abs(sb(b[2], pz))) < this.reach) { this.state = 4; rec.rx = 0.75; rebuild(rec); }
+          v = ml(this.speed, 1.5);
           break;
         }
         case 4: {
           const b = B[this.burrow];
-          if (2 < b[1] - rec.y) {
+          const dy = sb(b[1], rec.y);
+          if (2 < dy) {
             this.state = 5;
-            rec.ry = wrapPi(rec.ry + PI);
+            rec.ry = wrapPi(ad(rec.ry, PI));
             rec.rx = -0.75;
             let nb: number;
             do { nb = ftol(rand(3)); if (nb > 2) nb = 2; } while (nb === this.burrow);
-            const ox = rec.x - b[0], oy = rec.y - b[1], oz = rec.z - b[2];
+            const ox = sb(rec.x, b[0]), oy = sb(rec.y, b[1]), oz = sb(rec.z, b[2]);
             this.burrow = nb;
             const n = B[nb];
-            rec.setEuler(rec.rx, rec.ry, rec.rz, ox + n[0], oy + n[1], oz + n[2]);
-          }
-          v = this.speed * 1.5;
+            px = ad(ox, n[0]); py = ad(oy, n[1]); pz = ad(oz, n[2]);
+            rec.setEuler(rec.rx, rec.ry, rec.rz, px, py, pz);
+          } else { px = rec.x; py = rec.y; pz = rec.z; }
+          v = ml(this.speed, 1.5);
           break;
         }
         case 5: {
           const b = B[this.burrow];
-          if (b[1] - rec.y < 0) {
+          if (sb(b[1], rec.y) < 0) {
             this.state = 2;
             this.count = ftol(rand(2)) + 2;
             rec.rx = 0;
             rebuild(rec);
           }
+          px = rec.x; py = rec.y; pz = rec.z;
           v = this.speed;
           break;
         }
       }
       if (v > 0) {
-        const k = this.speed * w.dt;
-        rec.x += k * rec.fx; rec.y += k * rec.fy; rec.z += k * rec.fz;
+        // local_44 = pos + speed * dt * forward (the position read BEFORE the case's own matrix rebuild, case 4: the moved burrow position)
+        const k = ml(this.speed, fr(w.dt));
+        rec.x = ad(px, ml(k, rec.m[8])); rec.y = ad(py, ml(k, rec.m[9])); rec.z = ad(pz, ml(k, rec.m[10]));
       }
     }
     // FUN_00427014(ctrl, (0, 8, 0), (0, -16, 0), 3, 0x50): the probe pass keeps a hopping bunny on the ground
-    if (this.state === 2 || this.state === 3) groundSnap(w, rec, 8, -16);
+    if (this.state === 2 || this.state === 3) probeSet(c, [0, 8, 0], [0, -16, 0], 3, 0x50);
     return 1;
   }
 
@@ -252,6 +269,8 @@ export class BunnyNode extends Node {
 /** BFG butterflies share BFG0's place as their home (`memcmp(rec, "BFG", 3)`: `DAT_00983804 + 0x3a54` = record 143) */
 const BFG_HOME = 143;
 
+const F01 = fromBits(0x3dcccccd), F0005 = fromBits(0x3ba3d70a), F08 = fromBits(0x3f4ccccd), FLAP_RATE = fromBits(0x3f2aacda), F004 = fromBits(0x3d23d70a), F002 = fromBits(0x3ca3d70a), F008 = fromBits(0x3da3d70a), NEAR2 = fromBits(0x4023d70a);
+
 export class ButterflyNode extends Node {
   readonly kind = 'Butterfly';
   private inited = false;
@@ -263,15 +282,15 @@ export class ButterflyNode extends Node {
   flapState = 0;           // +0x38
   cnt = 0;                 // +0x3c
   cnt2 = 0;                // +0x40
-  vy = 0.04;               // +0x44 (0x3d23d70a)
+  vy = F004;               // +0x44 (0x3d23d70a)
   off = 0;                 // +0x48
   follow: GameRecord | null = null;   // +0x4c
-  speed = 0.08;            // +0x50 (0x3da3d70a)
+  speed = F008;            // +0x50 (0x3da3d70a)
   shiftT = 0;              // +0x54
   constructor(args: ArgView) {
     super();
     this.arg0 = args.f32(0);
-    this.range = this.arg0 * 8; this.range2 = this.range * this.range;
+    this.range = ml(this.arg0, 8); this.range2 = ml(this.range, this.range);
   }
   private init(w: World, rec: GameRecord) {
     this.inited = true;
@@ -290,72 +309,73 @@ export class ButterflyNode extends Node {
   /** FUN_004b23dc: the vector to the home (or the followed record) and its squared XZ length (FAR outside the signed box) */
   private rel(rec: GameRecord, d: number[]): number {
     const t = this.follow;
-    if (!t) { d[0] = this.home[0] - rec.x; d[1] = this.home[1] - rec.y; d[2] = this.home[2] - rec.z; }
-    else { d[0] = t.x - rec.x; d[1] = t.y - rec.y; d[2] = t.z - rec.z; }
-    if (d[0] <= this.range && d[2] <= this.range) return d[2] * d[2] + d[0] * d[0];
+    if (!t) { d[0] = sb(this.home[0], rec.x); d[1] = sb(this.home[1], rec.y); d[2] = sb(this.home[2], rec.z); }
+    else { d[0] = sb(t.x, rec.x); d[1] = sb(t.y, rec.y); d[2] = sb(t.z, rec.z); }
+    if (d[0] <= this.range && d[2] <= this.range) return ad(ml(d[2], d[2]), ml(d[0], d[0]));
     return FAR;
   }
   /** FUN_004b2539 (the movement runs in the pre-render hook) */
   prerender(w: World, rec: GameRecord, c: Controller) {
+    const dt = fr(w.dt);
     if (!inView(w, rec)) {
       if (this.off > 200) return;
       if (this.off === 200) {
-        this.flapState = 0; this.cnt = 0; this.cnt2 = 0; this.vy = 0.02; this.flap = 1; this.speed = 0.08;
+        this.flapState = 0; this.cnt = 0; this.cnt2 = 0; this.vy = F002; this.flap = 1; this.speed = F008;
         rec.x = this.start[0]; rec.y = this.start[1]; rec.z = this.start[2];
         return;
       }
       this.off++;
     } else this.off = 0;
-    if ((w.input.pressed & 0x40) === 0) this.shiftT += 1 * w.dt;
+    if ((w.input.pressed & 0x40) === 0) this.shiftT = ad(ml(1, dt), this.shiftT);
     else {
-      if (this.shiftT > 4) {
-        if (!this.follow && c.distSq < 64) { this.follow = w.focus; this.speed = 0.2; }
-      } else { this.follow = null; this.speed = rand(1) * 0.1 + 0.005; }
+      if (4 < this.shiftT) {
+        if (!this.follow && c.distSq < 64) { this.follow = w.focus; this.speed = F02; }
+      } else { this.follow = null; this.speed = ad(ml(rand(1), F01), F0005); }
       this.shiftT = 0;
     }
     if (this.flapState === 0) {
-      this.flap -= 0.6667 * w.dt;
+      this.flap = sb(this.flap, ml(FLAP_RATE, dt));
       if (this.flap <= -1) { this.flap = -1; this.flapState = 2; }
     } else if (this.flapState === 2) {
-      this.flap += 0.6667 * w.dt;
-      if (this.flap >= 1) { this.flap = 1; this.flapState = 0; }
+      this.flap = ad(ml(FLAP_RATE, dt), this.flap);
+      if (1 <= this.flap) { this.flap = 1; this.flapState = 0; }
     }
     const d = [0, 0, 0];
     const d2 = this.rel(rec, d);
     if (this.follow) this.off = 0;
     if (d2 <= this.range2) {
-      if (!this.follow || 2.56 <= d2) {
+      if (!this.follow || NEAR2 <= d2) {
         const old = this.cnt; this.cnt++;
-        if (old > 10) {
+        if (10 < old) {
           this.cnt = ftol(rand(10));
-          rec.ry = PI - rand(TWO_PI);
-          if (!this.follow) this.speed = rand(1) * 0.1 + 0.005;
+          rec.ry = sb(PI, rand(TWO_PI));
+          if (!this.follow) this.speed = ad(ml(rand(1), F01), F0005);
         }
       } else {
-        rec.ry = -Math.atan2(d[0], d[2]);
+        rec.ry = -fr(Math.atan2(d[0], d[2]));
         this.cnt = ftol(rand(10));
       }
     } else {
-      rec.ry = Math.atan2(d[0], d[2]);
+      rec.ry = fr(Math.atan2(d[0], d[2]));
       this.cnt = ftol(rand(10));
-      this.speed = rand(1) * 0.1 + 0.2;
+      this.speed = ad(ml(rand(1), F01), F02);
     }
-    const y = rec.y + this.vy;
-    const floor = this.follow ? this.follow.y + 0.8 : this.home[1];
-    if (y < floor) { this.vy = rand(0.1) + 0.1; this.cnt2 = ftol(rand(10)); }
-    else if (floor + 6 < y) { this.vy = -(rand(0.1) + 0.1); this.cnt2 = ftol(rand(10)); }
-    else {
-      const old = this.cnt2; this.cnt2++;
-      if (old > 10) {
-        this.cnt2 = ftol(rand(10));
-        this.vy = 0.1 - rand(0.2);
-        this.vy += this.vy >= 0 ? 0.1 : -0.1;
-      }
-    }
+    let y = ad(rec.y, this.vy);
+    const floor = this.follow ? ad(this.follow.y, F08) : this.home[1];
+    if (floor <= y) {
+      if (y <= ad(floor, 6)) {
+        const old = this.cnt2; this.cnt2++;
+        if (10 < old) {
+          this.cnt2 = ftol(rand(10));
+          this.vy = sb(F01, rand(F02));
+          this.vy = this.vy >= 0 ? ad(this.vy, F01) : sb(this.vy, F01);
+        }
+      } else { this.vy = -ad(rand(F01), F01); this.cnt2 = ftol(rand(10)); }
+    } else { this.vy = ad(rand(F01), F01); this.cnt2 = ftol(rand(10)); }
     const s = this.follow ? 2 : 1.5;
-    setScaled(rec.m, rec.rx, rec.ry, rec.rz, rec.x, y, rec.z, s, s * this.flap, s);
-    const k = this.speed * w.dt;
-    rec.x += k * rec.m[8]; rec.y += k * rec.m[9]; rec.z += k * rec.m[10];
+    setScaled(rec.m, rec.rx, rec.ry, rec.rz, rec.x, y, rec.z, s, ml(s, this.flap), s);
+    const k = ml(this.speed, dt);
+    rec.x = ad(ml(k, rec.m[8]), rec.x); rec.y = ad(ml(k, rec.m[9]), rec.y); rec.z = ad(ml(k, rec.m[10]), rec.z);
   }
   /** FUN_004b2b75: default draw, then the nearest-butterfly globals are reset */
   draw(w: World): number { const g = animalGlobals(w); g.nearestD = FAR; g.nearest = null; return 0; }
@@ -379,21 +399,32 @@ export class BSpline {
     }
     return new BSpline(pts, n);
   }
-  /** FUN_00445660 -> vtable[1] (0x4466f0), position part: u = n t, segment i = trunc(u) (clamped to n-1), points i-1 .. i+2 clamped */
+  /**
+   * FUN_00445660 -> vtable[1] (0x4466f0), position part, operation by operation (x87 at 24 bit): the basis matrix (-1 3 -3 1 / 3 -6 3 0 / -3 0 3 0 / 1 4 1 0) times 1/6 (0x3e2aaaab), u = n * t,
+   * segment i = trunc(u) (the next points are clamped to n - 1, the previous to 0), f = u - i, the four weights from f, f^2, f^3 and the sums in the compiled order (x: (b + d) + c + a; y: (c + b) + d + a; z: (a + c) + b + d).
+   */
   point(t: number, out: number[] = [0, 0, 0]): number[] {
     const n = this.n;
-    const u = n * t;
+    const u = fr(n * fr(t));
     let i = ftol(u);
     const i0 = Math.max(i - 1, 0);
     if (i >= n) i = n - 1;
     const i2 = Math.min(i + 1, n - 1), i3 = Math.min(i + 2, n - 1);
-    const f = u - i, f2 = f * f, f3 = f2 * f;
-    const w0 = (-f3 + 3 * f2 - 3 * f + 1) / 6, w1 = (3 * f3 - 6 * f2 + 4) / 6, w2 = (-3 * f3 + 3 * f2 + 3 * f + 1) / 6, w3 = f3 / 6;
-    const p = this.pts;
-    for (let k = 0; k < 3; k++) out[k] = w0 * p[i0 * 3 + k] + w1 * p[i * 3 + k] + w2 * p[i2 * 3 + k] + w3 * p[i3 * 3 + k];
+    const f = sb(u, i), f2 = ml(f, f), f3 = ml(f2, f);
+    const m = SPLINE_M;
+    const Wa = ad(ad(ad(ml(f, m[9]), ml(f2, m[5])), ml(f3, m[1])), m[13]);
+    const Wd = ad(ad(ad(ml(f, m[11]), ml(f2, m[7])), ml(f3, m[3])), m[15]);
+    const Wb = ad(ad(ad(ml(f, m[8]), ml(f2, m[4])), ml(f3, m[0])), m[12]);
+    const Wc = ad(ad(ad(ml(f, m[10]), ml(f2, m[6])), ml(f3, m[2])), m[14]);
+    const P = this.pts, P0 = i * 3, Pm = i0 * 3, P1 = i2 * 3, P2 = i3 * 3;
+    out[0] = ad(ad(ad(ml(Wb, P[Pm]), ml(Wd, P[P2])), ml(Wc, P[P1])), ml(Wa, P[P0]));
+    out[1] = ad(ad(ad(ml(Wc, P[P1 + 1]), ml(Wb, P[Pm + 1])), ml(Wd, P[P2 + 1])), ml(Wa, P[P0 + 1]));
+    out[2] = ad(ad(ad(ml(Wa, P[P0 + 2]), ml(Wc, P[P1 + 2])), ml(Wb, P[Pm + 2])), ml(Wd, P[P2 + 2]));
     return out;
   }
 }
+/** the spline's basis matrix, every element times 1 / 6 stored as a float32 (0x4466f0 prologue) */
+const SPLINE_M = [-1, 3, -3, 1, 3, -6, 3, 0, -3, 0, 3, 0, 1, 4, 1, 0].map((v) => ml(v, fromBits(0x3e2aaaab)));
 
 /** `\DATA\z02lgi\matanim\bat.man` (0x8d9338) / `swift.man` (0x8d9358) */
 const SPLINE_FILES = ['MatAnim/bat.man', 'MatAnim/swift.man'];
@@ -433,7 +464,7 @@ export class SwiftLeaderNode extends Node {
   private eval(t: number, shift = true) {
     if (!this.spline) return;
     const p = this.spline.point(t);
-    this.target = [p[0] - (shift ? 16 : 0), p[1], p[2]];
+    this.target = [shift ? sb(p[0], 16) : p[0], p[1], p[2]];
   }
   /** FUN_004b2f64 */
   update(w: World, rec: GameRecord): number {
@@ -441,15 +472,15 @@ export class SwiftLeaderNode extends Node {
     sfxAt(w, soundOf(w, SWIFT_SOUND), recPos(rec));
     if (this.mode === 0) {
       if (this.state !== 4 && w.frame === this.stamp) this.state = 4;
-      this.t += this.slow * w.dt;
+      this.t = ad(ml(this.slow, fr(w.dt)), this.t);
     } else {
       if (this.perch < 500) {
-        this.perch += 1 * w.dt;
+        this.perch = ad(ml(1, fr(w.dt)), this.perch);
         if (this.homing === 0) this.state = 1; else this.homing = 0;
         return 2;
       }
       if (this.state === 1) { this.state = 3; this.t = 0; } else this.state = 4;
-      if (0.5 <= this.t && this.t <= 0.6) this.t += this.slow * w.dt; else this.t += this.fast * w.dt;
+      if (0.5 <= this.t && this.t <= fromBits(0x3f19999a)) this.t = ad(ml(this.slow, fr(w.dt)), this.t); else this.t = ad(ml(this.fast, fr(w.dt)), this.t);
     }
     if (1 <= this.t) {
       if (this.mode === 0) this.t = 0;
@@ -462,17 +493,17 @@ export class SwiftLeaderNode extends Node {
   draw(): number { return 1; }
 }
 
-/** FUN_004b336d: turn (yaw and pitch, at most dist * turn * dt) towards `target`; 0 when within `min` (in units / 8) */
+/** FUN_004b336d: turn (yaw and pitch, at most dist * turn * dt) towards `target`; 0 when within `min` (in units / 8). Every operation a float32. */
 function steerTo(w: World, rec: GameRecord, target: readonly number[], min: number, turn: number): number {
-  const dx = target[0] - rec.x, dy = target[1] - rec.y, dz = target[2] - rec.z;
-  const dist = Math.sqrt(dz * dz + dy * dy + dx * dx) * 0.125;
+  const dx = sb(target[0], rec.x), dy = sb(target[1], rec.y), dz = sb(target[2], rec.z);
+  const dist = ml(sq(ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz))), 0.125);
   if (!(min < dist)) return 0;
-  const yaw = Math.atan2(dx, dz);
-  const pitch = Math.atan2(-dy, Math.sqrt(dx * dx + dz * dz));
-  const step = dist * turn * w.dt;
-  const a = wrapPi(yaw - rec.ry), b = wrapPi(pitch - rec.rx);
-  if (step <= Math.abs(a)) rec.ry += a >= 0 ? step : -step; else rec.ry = yaw;
-  if (step <= Math.abs(b)) rec.rx += b >= 0 ? step : -step; else rec.rx = pitch;
+  const yaw = fr(Math.atan2(dx, dz));
+  const pitch = fr(Math.atan2(-dy, sq(ad(ml(dx, dx), ml(dz, dz)))));
+  const step = ml(ml(dist, turn), fr(w.dt));
+  const a = wrapPi(sb(yaw, rec.ry)), b = wrapPi(sb(pitch, rec.rx));
+  if (step <= fr(Math.abs(a))) rec.ry = a >= 0 ? ad(step, rec.ry) : sb(rec.ry, step); else rec.ry = yaw;
+  if (step <= fr(Math.abs(b))) rec.rx = b >= 0 ? ad(step, rec.rx) : sb(rec.rx, step); else rec.rx = pitch;
   setRot(rec.m, rec.rx, rec.ry, rec.rz);
   return 1;
 }
@@ -520,16 +551,12 @@ export class SwiftNode extends Node {
     switch (s) {
       case 0: anim?.start(L.mode === 0 ? L.clipA : L.clipB, 0); break;
       case 1:
-        if (0 <= this.timer) this.timer -= 1 * w.dt;
-        else if (anim && anim.clipData) {
-          // FUN_0043b874(anim, 1.0, 0): advance without wrapping, 2 at the end
-          anim.frame += 1 * w.dt;
-          if (anim.frameCount < anim.frame) { anim.frame = anim.frameCount; anim.seek(0); this.timer = rand(200); }
-        }
+        if (0 <= this.timer) this.timer = sb(this.timer, ml(1, fr(w.dt)));
+        else if (anim && anim.advanceTo(1, w.dt, 0) !== 0) { anim.seek(0); this.timer = rand(200); }     // FUN_0043b874(anim, 1.0, 0): advance without wrapping, 2 at the end
         break;
       case 3:
         anim?.start(L.clipA, 0);
-        rec.rx = 1.5707963705062866;
+        rec.rx = fromBits(0x3fc90fdb);
         setRot(rec.m, rec.rx, rec.ry, rec.rz);
         moving = true;
         this.perched = 0;
@@ -538,11 +565,11 @@ export class SwiftNode extends Node {
         if (steerTo(w, rec, L.target, this.approach, L.turn) === 0) {
           if (this.cnt === 0) {
             this.cnt = 1;
-            this.dpitch = 0.39269909262657166 - rand(0.7853981852531433);
-            this.dyaw = 0.39269909262657166 - rand(0.7853981852531433);
+            this.dpitch = sb(fromBits(0x3ec90fdb), rand(fromBits(0x3f490fdb)));
+            this.dyaw = sb(fromBits(0x3ec90fdb), rand(fromBits(0x3f490fdb)));
           } else {
             const old = this.cnt; this.cnt++;
-            if (old < 20) { rec.rx += this.dpitch; rec.ry += this.dyaw; setRot(rec.m, rec.rx, rec.ry, rec.rz); }
+            if (old < 20) { rec.rx = ad(rec.rx, this.dpitch); rec.ry = ad(rec.ry, this.dyaw); setRot(rec.m, rec.rx, rec.ry, rec.rz); }
           }
         } else this.cnt = 0;
         moving = true;
@@ -550,8 +577,8 @@ export class SwiftNode extends Node {
     }
     if (moving) {
       anim?.advance(2, w.dt);
-      const k = this.speed * w.dt;
-      rec.x += k * rec.fx; rec.y += k * rec.fy; rec.z += k * rec.fz;
+      const k = ml(this.speed, fr(w.dt));
+      rec.x = ad(ml(k, rec.fx), rec.x); rec.y = ad(ml(k, rec.fy), rec.y); rec.z = ad(ml(k, rec.fz), rec.z);
     }
     return 1;
   }

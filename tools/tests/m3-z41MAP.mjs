@@ -120,7 +120,7 @@ export default {
       ok(pep.ctrl.nodes.length === 1 && pep.ctrl.nodes[0].kind === 'Pepper', `Pepper's chain is the zone's own node: ${pep.ctrl.nodes.map((n) => n.kind)}`);
       ok(S.pepper && S.papa && S.mama && S.toppings && S.slug, 'the nodes registered themselves in the zone state');
       ok(['PIZ6', 'PIZ5', 'PIZ4', 'PIZ3', 'PIZ2'].every((n, i) => S.stack[i]?.name === n), 'the pizza stack: PIZ6 .. PIZ2 (array of FUN_008138bd)');
-      ok(MODEL_RECORDS.every((n) => !rec(w, n).enabled), 'the model-holder records are hidden');
+      ok(!rec(w, 'TOPD').enabled && MODEL_RECORDS.filter((n) => n !== 'TOPD').every((n) => rec(w, n).enabled), 'TOPD (drawn by its node hook) is hidden; the other model holders keep the builder flags 2 (drawn at the origin like the original)');
       ok(['PEPP', 'MAMA', 'PAPA', 'CIT1', 'CIT2', 'CIT3', 'CIT4', 'CIT5', 'SLUG'].every((n) => rec(w, n).anim), 'rig instances on the animated records');
       ok(rec(w, 'PEPP').anim.clip === 4 && rec(w, 'PAPA').anim.clip === 10 && rec(w, 'MAMA').anim.clip === 11 && rec(w, 'SLUG').anim.clip === 2, 'start clips (constructors): Pepper 4, Papa 10, mama 11, slug 2');
       // the camera of the constructor: eye = Pepper + (2, 4, -5), look-at = Pepper + (1.5, 2, 8)

@@ -10,6 +10,7 @@ import { BoatNode } from './boat.ts';
 import { HeliNode } from './heli.ts';
 import { CarNode } from './car.ts';
 import { PteraNode } from './ptera.ts';
+import { SwimSplashNode, CTOR_SWIMSPLASH } from './swimsplash.ts';
 
 export const CTOR_WP6 = {
   PEPSWITC: 0x4bbef8, SKATE: 0x43310c, SGVEHIC: 0x4333c2, PTERA_RIDE: 0x4bb582, SGBOAT: 0x430e6c, SGHELI: 0x4325e8, SGCAR: 0x88fb35,
@@ -25,6 +26,9 @@ registerCtor(CTOR_WP6.SGCAR, () => new CarNode());
 /** WP13: FUN_004bb1a6, argument +0 = the home PATH node */
 export const CTOR_PTERA = 0x4bb1a6;
 registerCtor(CTOR_PTERA, (a) => new PteraNode(ArgView.of(a).i32(0)));
+
+/** gaps S3: Pepper's swim splash ring (SPLH) */
+registerCtor(CTOR_SWIMSPLASH, () => new SwimSplashNode());
 
 export { vehicles, VehicleGlobals } from './common.ts';
 export { IslandPepSwitch, VehicleSeat, PteraRide, findFreeSpot } from './pepswitch.ts';

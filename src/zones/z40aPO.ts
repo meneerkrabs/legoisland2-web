@@ -7,12 +7,15 @@ import type { ZoneGame, ZoneGameCtx } from '../shell/zonegame.ts';
 import { medalOf } from '../shell/zonegame.ts';
 import { MODE } from '../shell/loopmachine.ts';
 import { V } from '../game/vars.ts';
+import { B } from '../game/input.ts';
 import type { Archive } from '../formats/archive.ts';
 import type { World } from '../game/world.ts';
 import type { Ui2D } from '../ui/renderer2d.ts';
 import { ApoPilot, ACLIP } from './parachute/apo-pilot.ts';
 import { ApoAsteroids, ApoBots, ApoRockMonsters, ApoWing, ApoSky } from './parachute/apo-props.ts';
 import { apoRun, dropApoRun, APO_SOUNDS } from './parachute/apo-run.ts';
+import { ApoFx } from './parachute/apo-fx.ts';
+import { ZoneParticles } from '../fx/particles/zone.ts';
 import type { ApoRun } from './parachute/apo-run.ts';
 import { ApoHud } from './parachute/apo-hud.ts';
 import { drawGauge } from './parachute/par-hud.ts';
@@ -21,6 +24,8 @@ import type { SoundBackend } from './parachute/sound.ts';
 import { giveAnimations } from './parachute/rigs.ts';
 import { transformPoint } from './parachute/util.ts';
 import { buildMatrix } from '../formats/matrix.ts';
+import { meshParts } from './z27trx/gate.ts';
+import { MAP_PATH, NPC_SPEED, NPC_TURN_RATE, NPC_RADIUS_MIN, NPC_RADIUS_MAX, NPC_RADIUS_LIMIT } from '../game/walker.ts';
 
 /** constructor addresses of the zone (FUN_007d0839's FUN_00423532 calls) */
 export const APO_CTOR = { PILOT: 0x7d53af, WING: 0x7d2fae, ROCKMON: 0x7d2bf2, BOTS: 0x7d2650, ASTEROIDS: 0x7d1778, SKY: 0x7d1429 } as const;
@@ -62,8 +67,12 @@ export function startApoRun(world: World, archive: Archive | null): ApoRun {
   const rec = run.recs.pepp;
   const pilot = rec.ctrl?.find<ApoPilot>('ApoPilot');
   if (!pilot) throw new Error('z40aPO: the pilot node is not attached');
+  // the zone has its own player node (FUN_007d53af is the only behaviour of PEPP): the stub chain of the generic set-up (StubGuard, M1 walk / switch / swim) is dropped
+  if (rec.ctrl) rec.ctrl.nodes = rec.ctrl.nodes.filter((n) => n.kind === 'ApoPilot');
   pilot.init(world, rec);
-  if (run.recs.para) run.recs.para.flags |= 0x10 | 0x8000;
+  // PARA keeps the scene's flags 2 like the original: its collision object is header-only (z38PAR: PARA_Chute.col via FUN_0043f700, found by `headerOnlyColSlots`; z40aPO: solaarwing.col is an
+  // NCOL file), so no sweep finds a polygon in it (tools/tests/m8-para-collision.mjs runs the original's FUN_00441270). 0x8000 = the port's 'zero scale, do not draw' bit
+  if (run.recs.para) run.recs.para.flags |= 0x8000;
   world.vars.set(V.PEPPERSSHADOW, -1);
   world.camera.init(rec);
   return run;
@@ -86,16 +95,48 @@ async function apoGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   const world = ctx.world;
   dropApoRun(world);
   const run = startApoRun(world, ctx.archive);
+  // the emitters in the order of the zone's attaches (the pilot FUN_007d53af first: footsmoke x 2 + T_gold, then the brickbots FUN_007d2650: rocket01 x 8), then FUN_0044e8d0
+  const fxz = await ZoneParticles.create(ctx);
+  if (fxz) {
+    const af = new ApoFx(fxz);
+    run.fx = af;
+    af.pilotCtor(world.records[3] ?? null);
+    af.botsCtor(run.recs.bots);
+    fxz.finish();
+  }
   const sfx = ctx.sh.audio.ga?.sfx ?? null;
   run.sound = new SoundBank(APO_SOUNDS, sfx as unknown as SoundBackend | null);
   void run.sound.load();
   run.say = (id) => ctx.say(id);
   const hud = new ApoHud();
   const pep = run.recs.pepp;
+  // FUN_0043ebe0(SHAD model, 2, DAT_05d5f290, 0): the five vertices of the shadow patch are the points FUN_00442a70 computed (ApoPilot.ground)
+  const shad = run.recs.shad;
+  if (shad) ctx.gr.vertexOverride = (rec) => (rec === shad ? run.shadow : undefined);
+  // FUN_0043ea60(model of SHTL, 1 / 2 / 3): the live matrices of the shuttle's doors and hatch (the pilot turns them in states 0 and 1, the renderer draws their groups with them)
+  const shtl = run.recs.shtl;
+  const pilotNode = pep.ctrl?.find<ApoPilot>('ApoPilot');
+  const parts = shtl ? meshParts(ctx.scene, ctx.archive, shtl) : null;
+  if (shtl && pilotNode && parts && parts.length > 3) {
+    pilotNode.parts = parts.map((m) => m.slice());
+    const live = new Map<number, Float32Array>([[1, pilotNode.parts[1]], [2, pilotNode.parts[2]], [3, pilotNode.parts[3]]]);
+    ctx.gr.partMatrices = (rec) => (rec === shtl ? live : undefined);
+  }
   let result = 0;
   let wasOver = false;
 
   // the intro: FUN_0045c366("z40OGL", "og") + FUN_0045c397(0, "ogl02", "apo01"), started at the top of the loop (FUN_0045c40c(0)); the loop's mode 1 runs the script
+  // FUN_0042207d(PEPP) at the top of the loop: Pepper's walker on PATH (no node) with the NPC tuning; the cutscene registers it (walker paused while the script runs) and its end
+  // unregisters it, restarts Pepper's clip DAT_008ae088 (0x1b: the rig has no clip 27, FUN_0043b6a3 fails and the fall pose plays on) and puts the camera behind him
+  if (pep.ctrl) {
+    const wp = ctx.cutscene.wp;
+    const h = wp.create(MAP_PATH, pep, -3);
+    pep.ctrl.walker = h;
+    if (h) {
+      wp.setSpeed(h, NPC_SPEED); wp.setLane(h, 0.01); wp.setTurnRate(h, NPC_TURN_RATE);
+      wp.setRadiusMin(h, NPC_RADIUS_MIN); wp.setRadiusMax(h, NPC_RADIUS_MAX); wp.setRadiusLimit(h, NPC_RADIUS_LIMIT);
+    }
+  }
   await ctx.cutscene.declare([APO_CUTSCENE]);
   ctx.cutscene.start(APO_CUTSCENE.slot);
 
@@ -104,23 +145,27 @@ async function apoGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
     sfx?.setListener({ x: c[3], y: c[4], z: c[5] }, { x: c[15], y: c[16], z: c[17] }, { x: c[12], y: c[13], z: c[14] });
   };
   const apply = () => {
-    const f = hud.update(run);
+    const f = hud.update(run, world.dt);
     ctx.hud.centreText = f.text;
     ctx.hud.left = { tex: -1, tint: 0xffffffff };
     ctx.hud.right = { tex: f.chuteIcon, tint: 0xffffffff };
-    ctx.hud.column = f.groups.map((tex) => ({ tex, tint: 0xffffffff }));
+    ctx.hud.column = f.groups.map((tex, i) => ({ tex, tint: f.tints[i] }));
   };
 
   return {
     introId: 'OGSGPO12',
     helpControls: 6,
+    /** FUN_007cf929: the update pass (FUN_0042226e) runs in modes 2 and 4: the nodes (rocks, asteroids, the pilot's camera) go on behind the end banner */
+    tickInBanner: true,
+    /** the banner (mode 4) tests the HELD buttons (DAT_0098383c != 0, FUN_007cf929 case 4), like z38PAR */
+    skipBanner() { return (ctx.sh.input.held & ~B.ESC) !== 0; },
     introHold: () => ctx.cutscene.active(),
     /** mode 1 (FUN_007cf929 case 1): the cutscene runs; when it is over the camera settles behind the hanging pilot and the brief shows */
     introTick() {
       run.sound.play('engine');                       // FUN_004435a0(DAT_05d5ee4c) at the top of the loop: the shuttle's engine
+      if (ctx.cutscene.active()) ctx.cutscene.tick();   // FUN_0045c402 (the tick in which the script ends goes on to the settling below, like the loop)
       if (ctx.cutscene.active()) {
-        ctx.cutscene.tick();
-        hud.update(run);                              // FUN_007d0f00 draws the bars
+        hud.update(run, world.dt);                              // FUN_007d0f00 draws the bars
         return;
       }
       // after the script: Pepper is put back at the shuttle (0, 2000, 0) and the camera eases to its place (eye = pilot frame * (16, 13.6, 2.4), 85 % per tick)
@@ -150,7 +195,7 @@ async function apoGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
     },
     bannerTick() {
       const a = pep.anim;
-      if (a && (a.clip === ACLIP.CHEER || a.clip === ACLIP.SAD)) { a.advance(1); a.prevFrame = a.frame; a.prevClip = a.clip; }
+      if (a && (a.clip === ACLIP.CHEER || a.clip === ACLIP.SAD)) { a.advance(1, world.dt); a.prevFrame = a.frame; a.prevClip = a.clip; }
     },
     draw2d(ui: Ui2D, _dt: number, mode: number) {
       if (mode === MODE.INTRO) ctx.cutscene.draw(ui);
@@ -167,7 +212,7 @@ async function apoGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
         : [L('OGSGPO06', 200), L('OGSGPO07', 0x140)];
       ctx.banner(ui, { score: { text: String(Math.trunc(s)), y: 100 }, medal, lines });
     },
-    destroy() { run.sound.stopAll(); ctx.cutscene.abort(); dropApoRun(world); },
+    destroy() { run.sound.stopAll(); ctx.cutscene.abort(); dropApoRun(world); ctx.gr.vertexOverride = null; ctx.gr.partMatrices = null; },
     debug() { return { ...apoSnapshot(world), result, hiscore: ctx.vars.get(APO_VARS.HISCORE), trophy: ctx.vars.get(APO_VARS.TROPHY), cutscene: ctx.cutscene.active(), log: ctx.cutscene.runner.log }; },
   };
 }

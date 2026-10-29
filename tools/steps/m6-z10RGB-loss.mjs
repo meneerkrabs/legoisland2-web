@@ -48,7 +48,7 @@ export default async ({ page, shot, wait, log, key }) => {
       const o = await page.evaluate(() => window.__rgbWalk());
       if (until(o)) { await setHeld(0); return o; }
       await setHeld(o.hold);
-      if (o.tap) { await setHeld(0); await page.keyboard.press('ControlLeft', { delay: 25 }); await wait(150); } else await wait(20);
+      if (o.tap) { await setHeld(0); await page.keyboard.press('ControlLeft', { delay: 70 }); await wait(150); } else await wait(20);
     }
     await setHeld(0);
     return null;

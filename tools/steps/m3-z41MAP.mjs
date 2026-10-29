@@ -72,7 +72,11 @@ export default async ({ page, shot, wait, log, key }) => {
   expect('pause menu page 18 in the game', (await menu()).page === 18, JSON.stringify(await menu()));
   await shot('4-pause');
   for (let i = 0; i < 12 && (await menu()).item !== 4; i++) { await key('ArrowDown'); await wait(170); }
-  await key('Enter');                           // Opnieuw starten
+  await key('Enter');                           // Opnieuw starten (a list item: the confirm page 20 comes first, Annuleren is the default item, OK = item 2: src/shell/menu.ts case 9)
+  await wait(400);
+  expect('restart asks for confirmation (page 20)', (await menu()).page === 20, JSON.stringify(await menu()));
+  for (let i = 0; i < 4 && (await menu()).item !== 2; i++) { await key('ArrowDown'); await wait(200); }
+  await key('Enter');
   await ready('z41MAP', 1);
   s = await dbg();
   expect('restart: a fresh run (attempt 1, round 1, score 0, nobody in the queue yet)', (await page.evaluate(() => window.__zone.ctx.attempt)) === 1 && s.g.papa.level === 0 && s.g.papa.score === 0 && s.g.queue.every((q) => q === 0) && s.tick < before.tick, JSON.stringify({ tick: s.tick, before: before.tick, q: s.g.queue }));

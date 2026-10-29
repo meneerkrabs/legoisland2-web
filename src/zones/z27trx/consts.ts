@@ -70,9 +70,9 @@ export const TREX = {
 /**
  * the buttons of the rex (logical bits of game/input.ts). The code of FUN_00768510 tests `pressed & 0x20` (BUTTON_2, the default key Alt) for the jump (asm 0x768ab6: `and edx, 0x20`) and
  * `pressed & 0x40` (BUTTON_3, Shift) for the roar, while the controls help of TRX.str says `BUTTON_1 Springen` (bit 0x10, the default key Ctrl) for the jump: the original's help text and code
- * disagree (BUTTON_1 is the key the options menu calls "pizza"). The port keeps the code's key and also accepts the one the help names.
+ * disagree (BUTTON_1 is the key the options menu calls "pizza"). The port does what the code does: only bit 0x20 jumps (the differential test m7-z27TRX-emu checks that Ctrl does nothing in both).
  */
-export const BUTTON = { JUMP_CODE: 0x20, JUMP_HELP: 0x10, JUMP: 0x30, ROAR: 0x40 } as const;
+export const BUTTON = { JUMP: 0x20, ROAR: 0x40 } as const;
 
 /** FUN_00768510 / FUN_0076a39b: the run */
 export const RUN = {

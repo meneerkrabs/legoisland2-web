@@ -40,9 +40,9 @@ export class AnimPropNode implements BehaviourNode {
   clip: number;
   private started = false;
   constructor(clip: number) { this.clip = clip; }
-  update(_w: World, rec: GameRecord): number {
+  update(w: World, rec: GameRecord): number {
     if (!this.started) { this.started = true; rec.anim?.start(this.clip, 0); }
-    rec.anim?.advance(1);
+    rec.anim?.advance(1, w.dt);
     return NODE_STOP;
   }
 }

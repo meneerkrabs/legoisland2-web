@@ -11,7 +11,8 @@ import { REC, VAR, CLIP, RECORD_NAMES, K } from './consts.ts';
 import { MmpShared } from './shared.ts';
 import { PepperNode } from './pepper.ts';
 import { CoffinNode } from './coffin.ts';
-import { CameraNode, MummyNode, KeyNode, PageNode, RockNode, PillarNode, SpiderNode, RatNode } from './props.ts';
+import type { ZoneParticles } from '../../fx/particles/zone.ts';
+import { CameraNode, MummyNode, KeyNode, PageNode, RockNode, PillarNode, SpiderNode, RatNode, TorchNode } from './props.ts';
 
 /** the record names the nodes rely on (the builder's table), differences listed */
 export function checkRecords(records: readonly GameRecord[]): string[] {
@@ -106,4 +107,16 @@ export function prepareMmp(world: World, sh: MmpShared, rigs: MmpRigs): MmpNodes
   for (const r of rs) r.savePrev();
   world.camera.savePrev();
   return { pepper, camera, coffins, guards, key, page, rock, pillars, spiders, rats };
+}
+
+/**
+ * The emitters of the constructors, in the order of FUN_006a3861's attach calls (the engine updates its sources in start order): the 12 coffins (symtwin + 2 x mummy02), the key (symtwin),
+ * the page (twinkle01), the 12 torches (mmpfire). `sh.fx` is the engine the nodes' updates drive.
+ */
+export function startMmpEmitters(fx: ZoneParticles, world: World, sh: MmpShared, nodes: MmpNodes) {
+  sh.fx = fx;
+  nodes.coffins.forEach((c, n) => c.startFx(fx, world.records[REC.SYMBOL[n]], world));
+  nodes.key.startFx(fx, world.records[REC.KEY]);
+  nodes.page.startFx(fx, world.records[REC.PAGE]);
+  for (const i of REC.TORCH) (world.records[i].ctrl?.nodes.find((n) => n.kind === 'mmpTorch') as TorchNode | undefined)?.startFx(fx, world.records[i]);
 }

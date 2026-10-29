@@ -84,3 +84,24 @@ three full rescues (rail 105 era 0, the east line 103, rail 97 era 1 without a t
 walks afterwards, he flies back solid; the trigger rules (2 ticks not enough, the reset, the height window, the locomotive within 24: at once, 24 behind the camera).
 Browser: `?zone=z02LGI&node=2&mute=1`, Pepper teleported onto the rail at ROAD 105: he comes, lifts her, flies over the south coast and sets her down beside the
 helipad at (256, 33, 294) (screenshots looked at).
+
+## Differential test (WP-VERIFY): SUPE against the original's code
+
+> Status after WP-ISLAND-FIX: every KNOWN DEVIATION named in this section is fixed in the port and the test runs at tolerance 0 without the filters (`docs/re/gaps.md`, "Deviations FIXED by WP-ISLAND-FIX"); the sentences below describe the state when the deviation was found.
+
+`tools/tests/m7-isl-veh-supe.mjs` (+ `supeSession` in `tools/lib/m7-isl-veh-supe.mjs`): the original's `FUN_0053c337` (constructor), `FUN_0053adc3` (update), steering `FUN_00539eb1`, turn `FUN_0053a7d8`, flight
+`FUN_0053aa8e`, camera `FUN_0053ab93`, carry `FUN_0053ac79`, `FUN_0053a35d` / `a41b` / `a4f7` / `a6c2` and the node framework run natively (x87 24-bit) next to `SupeNode`; the waypoint maps are the ones the
+original's own set-up loaded (route `FUN_00462bd0` / `FUN_00463b49`, node `FUN_00462be9` / `FUN_00462c18` run natively). Scripted inputs: Pepper's place, the surface under her feet (`DAT_009da9ac`), the in-view
+flag of SUPE, the camera, a controller on TRNL, cutscenes. Per tick: SUPE and Pepper records, the node block (state, mode, steering bits, dest / goal / next, speed, zones), both clips / frames, all variables,
+the vehicle globals, the camera, the sounds, record 9's flags. 21 M checks, dt 1 / 0.5, free-running + sync mode, ~27 s. Visited: states 0..0x10 (all 17), patrol over the OTH map, landings at both stations,
+stand and take-off when Pepper leaves, 36 rescues: rail nodes 105 / 99 / 97 (in view, not in view, camera > 1600 away), the east line (103, 96: states 9 / 10 / 0xb), take-off from the station (state 7), a cutscene
+during take-off / swoop and at the arrival (-> state 3), height window, the locomotive roof (surface 10, TRNL controller within 24 -> at once). Deviations:
+* **KNOWN DEVIATION `supe-random-table` (src/island/pizza/supe.ts `randomNode`)**: `FUN_0053a3dd` ends `mov eax, [eax*4 + 0x8eb13c]` (0x53a403): the random index 0..4 selects the OTH node of the table
+  **{14, 15, 21, 41, 46}**; the decompile (`void FUN_0053a3dd`) drops the lookup and the port (and this doc: "a random node 0..4") uses the index itself as the OTH node (first goal 4 against 46 at t0). Every
+  patrol destination and every "next random goal" of state 4 is affected. The test maps the port's random draws through the table so that everything after stays strict.
+* **KNOWN DEVIATION `supe-anim-dt`**: the port calls `anim.advance(1.0)` (default dt = 1) for SUPE's and Pepper's clips in states 0 / 1 / 7 / 8..0x10 and the tail of the update; the original's
+  `FUN_0043b76a` advances by `rate * DAT_008b1718`. At dt = 0.5 the port's clips run twice as fast per game time (original frame 4.5 where the port has 9 at t1290). The test passes the world's dt in the port's calls.
+  Positions are not dt-scaled in the original either (speed 1.6 per tick, 2.4 in the swoop, 0.8 / 1.6 vertical): the port equals it there.
+* Float noise only otherwise: ~3e-5 in matrices, 1e-4 in the camera / carried Pepper at dt 0.5 free-running; two knife-edge turns (the pitch rate `cos(b) / (sin(b) * 15)` with a tiny `b` amplifies float32 noise ~1e-4)
+  are re-synced and counted (`grazes`).
+Doc statements corrected: "a random node 0..4" (it is the table above); "Random numbers: Math.random" is fine (the original: `FUN_004388ae(5.0)` truncated, index into the table).

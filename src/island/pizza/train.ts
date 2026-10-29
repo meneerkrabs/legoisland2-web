@@ -19,13 +19,17 @@ import type { StepOut } from '../../game/walker.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
 import { registerCtor } from '../../game/setup.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
-import { mul } from '../../render/math.ts';
+import { ad, sb, ml, sq, fr } from '../../zones/common/f32.ts';
+import { toWorld } from '../../zones/exact.ts';
 import { ArgView } from '../args.ts';
 import { tryCtx } from '../ctx.ts';
-import { vehicles } from '../vehicles/common.ts';
+import { FX_NONE, GATE_ON, HALF_PI, fxStart, recMatrix, registerFxStart } from '../emitters.ts';
+import { vehicles, mul } from '../vehicles/common.ts';
 import { sfx, sfxAt } from './common.ts';
 
 export const CTOR_TRAIN = 0x53d66c;
+// every locomotive creates its smoke at construction, whatever its gate: started by `finishEmitters` too
+registerFxStart((w) => { for (const r of w.records) for (const n of r.ctrl?.nodes ?? []) if (n instanceof TrainNode) n.startSmoke(w, r); });
 
 /** sound ids: the whistle (Trainwis.wav), the running and the coasting loop (ToyTrain2.wav twice), the bell on Shift while riding (Trainwis) */
 export const SND_TRAIN = { WHISTLE: 0xfc, RUN: 0xf9, COAST: 0x163, BELL: 0xfc } as const;
@@ -68,10 +72,11 @@ function tg(w: World): TrainGlobals {
 
 /** FUN_0053c565(rec, out, side): a platform (record 5 / 6) `side` units to the right of `rec` (else to its left); out = the spot on it */
 export function platformBeside(w: World, rec: GameRecord, out: number[], side: number = TRAIN.SIDE): boolean {
-  const dx = -side * rec.m[0], dy = -side * rec.m[1], dz = -side * rec.m[2];
-  const x = rec.x, y = rec.y + 8, z = rec.z;
+  const dx = ml(-side, rec.m[0]), dy = ml(-side, rec.m[1]), dz = ml(-side, rec.m[2]);
+  const x = rec.x, y = ad(rec.y, 8), z = rec.z;
   for (const s of [1, -1]) {
-    out[0] = x + s * dx; out[1] = y + s * dy; out[2] = z + s * dz;
+    const f = s > 0 ? ad : sb;
+    out[0] = f(x, dx); out[1] = f(y, dy); out[2] = f(z, dz);
     const h = w.col.probe(rec, out, [0, -16, 0], 3);
     if (h && (h.rec === w.records[TRAIN.PLATFORMS[0]] || h.rec === w.records[TRAIN.PLATFORMS[1]])) { out[1] = h.point[1]; return true; }
   }
@@ -80,7 +85,7 @@ export function platformBeside(w: World, rec: GameRecord, out: number[], side: n
 
 /** Pepper stands on a platform: probe from (x, y + 4, z) 8 down hits record 5 or 6 */
 function onPlatform(w: World, P: GameRecord): boolean {
-  const h = w.col.probe(P, [P.x, P.y + TRAIN.PEP_UP, P.z], [0, -TRAIN.PEP_DOWN, 0], 3);
+  const h = w.col.probe(P, [P.x, ad(P.y, TRAIN.PEP_UP), P.z], [0, -TRAIN.PEP_DOWN, 0], 3);
   return !!h && (h.rec === w.records[TRAIN.PLATFORMS[0]] || h.rec === w.records[TRAIN.PLATFORMS[1]]);
 }
 
@@ -101,6 +106,8 @@ export class TrainNode implements BehaviourNode {
   seat: number[] = [TRAIN.SEAT[0], TRAIN.SEAT[1], TRAIN.SEAT[2]]; roll = 0;
   /** +0x3c the coasting sound (else the running one), +0x3d 0 cruise / 1 speeding up / 2 slowing for a station */
   coasting = false; phase = 0;
+  /** the locomotive's trainsmoke01 emitter (+0x18 of the original's node) */
+  smokeH = FX_NONE;
   private out: StepOut = { yaw: 0, dist: 0 };
 
   constructor(args: ArgView, attach?: Attach & { ctrlFlags?: number }) {
@@ -132,19 +139,29 @@ export class TrainNode implements BehaviourNode {
     rec.x = x; rec.y = y; rec.z = z; rec.ry = ry;
     this.routeIdx = TRAIN.ROUTE_START; this.stopTicks = 0; this.lastCode = -1;
     if (this.leader && h) {
-      const d = Math.hypot(x - this.leader.x, y - this.leader.y, z - this.leader.z);
-      waypoints.setStopDistance(h, d * 0.125);   // FUN_004623f0 (walker units)
-    } else if (!this.leader) tryCtx(w)?.particles?.(FX_SMOKE, 2, [x, y, z], rec.index);
+      const dx = sb(x, this.leader.x), dy = sb(y, this.leader.y), dz = sb(z, this.leader.z);
+      const d = sq(ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz)));
+      waypoints.setStopDistance(h, fr(d * 0.125));   // FUN_004623f0 (walker units)
+    }
+    this.startSmoke(w, rec);
+  }
+
+  /** FUN_0044e920 at 0x53d915 (the constructor, locomotive only): the smoke, always on (gate 2 / 1 / 1), bound to the record's matrix. The particle engine of the zone game
+   *  comes after the set-up (this node is initialised by startPizzaNodes): retried every update until it exists. */
+  startSmoke(w: World, rec: GameRecord) {
+    if (this.leaderIdx < 0 && this.smokeH === FX_NONE) this.smokeH = fxStart(w, FX_SMOKE, recMatrix(rec), [0, 10, 7.25], [-HALF_PI, 0, 0], GATE_ON);
   }
 
   update(w: World, rec: GameRecord, ctrl: Controller): number {
     if (!this.inited) this.init(w, rec, ctrl);
+    this.startSmoke(w, rec);
     const g = tg(w), V = vehicles(w);
     const h = ctrl.walker;
     const P = w.focus;
     const loco = !this.leader;
+    const dt = fr(w.dt);
     if (this.stopTicks > 0) {
-      this.stopTicks = this.stopTicks - 1.0 * w.dt;
+      this.stopTicks = sb(this.stopTicks, ml(1.0, dt));
       if (this.stopTicks <= 0) {
         if (loco) { sfxAt(w, SND_TRAIN.WHISTLE, [rec.x, rec.y, rec.z]); this.coasting = false; }
         if (h) waypoints.resume(h);
@@ -158,10 +175,10 @@ export class TrainNode implements BehaviourNode {
       if (!this.riding || this.moving) {
         if (loco && !this.riding) {
           if (this.phase === 2) {
-            g.factor = g.factor - TRAIN.ACCEL;
+            g.factor = sb(g.factor, TRAIN.ACCEL);
             if (g.factor < TRAIN.MIN) { this.stopTicks = TRAIN.STOP_TICKS; if (h) waypoints.pause(h); }
           } else if (this.phase === 1) {
-            g.factor = g.factor + TRAIN.ACCEL;
+            g.factor = ad(g.factor, TRAIN.ACCEL);
             if (g.factor > 1.0) { g.factor = 1.0; this.phase = 0; }
           }
         }
@@ -182,10 +199,10 @@ export class TrainNode implements BehaviourNode {
       }
       rec.ry = yaw;
       // the lean in curves (fast only)
-      const target = g.factor <= TRAIN.ROLL_FROM ? 0 : (yaw - yaw0) * g.factor;
-      if (Math.abs(this.roll - target) >= TRAIN.ROLL_STEP) this.roll = target < this.roll ? this.roll - TRAIN.ROLL_STEP : this.roll + TRAIN.ROLL_STEP;
+      const target = g.factor <= TRAIN.ROLL_FROM ? 0 : ml(sb(yaw, yaw0), g.factor);
+      if (Math.abs(sb(this.roll, target)) >= TRAIN.ROLL_STEP) this.roll = target <= this.roll ? sb(this.roll, TRAIN.ROLL_STEP) : ad(this.roll, TRAIN.ROLL_STEP);
       else this.roll = target;
-      mul(buildMatrix(0, 0, this.roll * TRAIN.ROLL_DRAW, 0, 0, 0), buildMatrix(rec.rx, rec.ry, rec.rz, pos[0], pos[1], pos[2]), rec.m);
+      mul(buildMatrix(0, 0, ml(this.roll, TRAIN.ROLL_DRAW), 0, 0, 0), buildMatrix(rec.rx, rec.ry, rec.rz, pos[0], pos[1], pos[2]), rec.m);
       this.lastCode = code;
       if (this.riding && P) this.ride(w, rec, P, g, h);
     }
@@ -205,33 +222,34 @@ export class TrainNode implements BehaviourNode {
 
   /** the ride part of FUN_0053c6eb: Pepper on the seat, the camera behind the locomotive, the throttle */
   private ride(w: World, rec: GameRecord, P: GameRecord, g: TrainGlobals, h: number) {
+    const dt = fr(w.dt);
     const sx = g.lookRight ? -TRAIN.SEAT[0] : TRAIN.SEAT[0];
-    if (Math.abs(sx - this.seat[0]) >= TRAIN.SEAT_STEP) this.seat[0] += this.seat[0] <= sx ? TRAIN.SEAT_STEP : -TRAIN.SEAT_STEP;
+    if (Math.abs(sb(sx, this.seat[0])) >= TRAIN.SEAT_STEP) this.seat[0] = this.seat[0] <= sx ? ad(this.seat[0], TRAIN.SEAT_STEP) : sb(this.seat[0], TRAIN.SEAT_STEP);
     else this.seat[0] = sx;
     const lean = this.seat[0] >= 0 ? TRAIN.LEAN : -TRAIN.LEAN;
     mul(buildMatrix(0, 0, lean, 0, 0, 0), rec.m, P.m);
-    const p = rec.toWorld(this.seat);
+    const p = toWorld(rec.m, this.seat);
     P.x = p[0]; P.y = p[1]; P.z = p[2];
     P.rx = 0; P.ry = rec.ry; P.rz = 0;
     w.pep.surfaceAtFeet = -1;
     P.anim?.start(TRAIN.CLIP_SIT, 0);
     const c = w.camera.c;
-    c[3] = rec.x; c[5] = rec.z; c[4] = rec.y + TRAIN.CAM_LOOK_UP;
-    const e = rec.toWorld(TRAIN.CAM_EYE);
-    let dx = e[0] - c[0], dy = e[1] - c[1], dz = e[2] - c[2];
-    if (dz * dz + dy * dy + dx * dx > TRAIN.CAM_MIN2) {
-      const k = Math.min(TRAIN.CAM_EASE, 1) * w.dt;
-      dx *= k; dy *= k; dz *= k;
-      c[0] += dx; c[1] += dy; c[2] += dz;
-      const floor = TRAIN.CAM_FLOOR + (P.y + TRAIN.CAM_REF_UP);   // FUN_00422ddc
-      if (c[1] < floor) c[1] = floor; else if (c[1] - floor > TRAIN.CAM_CEIL) c[1] -= TRAIN.CAM_DOWN;
+    c[3] = rec.x; c[5] = rec.z; c[4] = ad(rec.y, TRAIN.CAM_LOOK_UP);
+    const e = toWorld(rec.m, TRAIN.CAM_EYE);
+    let dx = sb(e[0], c[0]), dy = sb(e[1], c[1]), dz = sb(e[2], c[2]);
+    if (ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz)) > TRAIN.CAM_MIN2) {
+      const k = Math.min(TRAIN.CAM_EASE, 1);
+      dx = ml(ml(k, dt), dx); dy = ml(ml(k, dt), dy); dz = ml(ml(k, dt), dz);
+      c[0] = ad(c[0], dx); c[1] = ad(c[1], dy); c[2] = ad(c[2], dz);
+      const floor = ad(TRAIN.CAM_FLOOR, fr(ad(P.y, TRAIN.CAM_REF_UP)));   // FUN_00422ddc
+      if (c[1] < floor) c[1] = floor; else if (sb(c[1], floor) > TRAIN.CAM_CEIL) c[1] = sb(c[1], TRAIN.CAM_DOWN);
     }
     const held = w.input.held;
     if (held & B.LEFT) g.lookRight = true;
     if (held & B.RIGHT) g.lookRight = false;
     if ((held & (B.SPACE | B.UP)) === 0) {
       if ((held & (B.ALT | B.DOWN)) !== 0 && this.moving) {
-        g.factor = g.factor - TRAIN.ACCEL * w.dt;
+        g.factor = sb(g.factor, ml(TRAIN.ACCEL, dt));
         if (g.factor < TRAIN.MIN) {
           g.factor = TRAIN.MIN;
           if (h) waypoints.pause(h);
@@ -245,7 +263,7 @@ export class TrainNode implements BehaviourNode {
         if (h) waypoints.resume(h);
         this.moving = true;
       }
-      g.factor = TRAIN.ACCEL * w.dt + g.factor;
+      g.factor = ad(ml(TRAIN.ACCEL, dt), g.factor);
       if (g.factor > TRAIN.MAX) g.factor = TRAIN.MAX;
     }
   }

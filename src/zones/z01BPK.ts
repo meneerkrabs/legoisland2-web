@@ -45,12 +45,6 @@ registerZoneGame('z01BPK', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   g.swc.onEnd = (score) => finishGame(run, vars, score);
   hud.visible = false;
 
-  const listen = () => {
-    const c = world.camera.c;
-    const f = [c[3] - c[0], c[4] - c[1], c[5] - c[2]], l = Math.hypot(f[0], f[1], f[2]) || 1;
-    ga?.sfx.setListener({ x: c[0], y: c[1], z: c[2] }, { x: f[0] / l, y: f[1] / l, z: f[2] / l }, { x: 0, y: 1, z: 0 });
-  };
-
   const game: ZoneGame = {
     // the park's own loop: kind 1 in the zone table but with a result menu and the mini-game pause (FUN_0048d84c: FUN_0041bd3d(&mode, 0x40, 1)); the brief BPK2 at y 60, no controls help
     config: { hub: false, pauseKind: 1, pauseMask: 0x40, intro: true, help: false, results: true },
@@ -61,7 +55,6 @@ registerZoneGame('z01BPK', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
       spectatorsTick(world, g);
       hud.leftText = run.scoreText;           // DAT_05d4dd20
       hud.centreText = run.clockText;         // DAT_05d4dd60
-      listen();
       return run.result || undefined;
     },
     /** FUN_0048d3d1 with DAT_05d580bc < 1: no points, straight to the result menu */

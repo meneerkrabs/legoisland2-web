@@ -163,6 +163,7 @@ export default {
       // ============================================================ the coffin tables, the score and the game-over check: the ORIGINAL functions in the x86 emulation
       {
         const cpu = createCpu(pe);
+        cpu.cw = process.env.M7_CW ? Number(process.env.M7_CW) : 0x7f;   // the game runs the x87 in 24-bit precision (docs/re/engine-m1.md 8.1)
         const B = 0x30000000;
         cpu.mem.addRegion({ lo: B, hi: B + 0x68 * 140, name: 'records' });
         cpu.mem.w32(0x983804, B);
@@ -231,8 +232,8 @@ export default {
 
       // ============================================================ pure helpers: score, medal, banner lines, the variables
       {
-        eq(scoreOf(60, true), 10000, 'score at 60 s'); eq(scoreOf(120, true), 8003, 'score at 120 s (60 * 33.3 = 1997.99.. in double: 1997)'); eq(scoreOf(121, true), 7969, 'score at 121 s'); eq(scoreOf(180, true), 6005, 'score at 180 s');
-        eq(scoreOf(181, true), 5971, 'score at 181 s'); eq(scoreOf(300, true), 2009, 'score at 300 s'); eq(scoreOf(59, true), 0, 'fewer than 60 seconds: 0 (the unsigned load)'); eq(scoreOf(0, true), 0, 'score at 0 s');
+        eq(scoreOf(60, true), 10000, 'score at 60 s'); eq(scoreOf(120, true), 8002, 'score at 120 s (24-bit x87: 60 * 33.3 rounds to the float32 1998.0: 8002; the oracle above agrees)'); eq(scoreOf(121, true), 7969, 'score at 121 s'); eq(scoreOf(180, true), 6004, 'score at 180 s');
+        eq(scoreOf(181, true), 5971, 'score at 181 s'); eq(scoreOf(300, true), 2008, 'score at 300 s'); eq(scoreOf(59, true), 0, 'fewer than 60 seconds: 0 (the unsigned load)'); eq(scoreOf(0, true), 0, 'score at 0 s');
         eq(scoreOf(200, false), 0, 'lost: 0');
         const med = (won, s) => medalOfScore(won, s);
         eq(med(true, 8003), 3, 'gold'); eq(med(true, 8001), 3, 'gold at 8001'); eq(med(true, 8000), 2, 'silver at 8000'); eq(med(true, 6001), 2, 'silver at 6001'); eq(med(true, 6000), 1, 'bronze at 6000'); eq(med(false, 9000), 0, 'lost: no medal');

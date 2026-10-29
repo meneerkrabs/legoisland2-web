@@ -36,7 +36,7 @@ export default async ({ page, shot, wait, log, key }) => {
   const pb = await near('PBAK', 0, 3);
   await wait(500);
   await shot('ltc-3-near-paul');
-  await page.keyboard.press('Shift');
+  await page.keyboard.press('Shift', { delay: 70 });
   expect('Shift starts the talk (var 0x5e = 0x20)', await until(async () => (await st()).var5e === 0x20, 5000), JSON.stringify(await st()));
   await wait(400);
   d = await dbg();
@@ -51,17 +51,17 @@ export default async ({ page, shot, wait, log, key }) => {
   // ---- Phil Hodgson (3 loops), skipped with a second Shift
   await near('PHIL', 0, 4);
   await wait(400);
-  await page.keyboard.press('Shift');
+  await page.keyboard.press('Shift', { delay: 70 });
   expect('talk with Phil Hodgson', await until(async () => (await st()).var5e === 0x20, 5000));
   await wait(1200);
   expect('he is still talking (3 loops)', (await dbg()).talking.includes('Phil Hodgson'));
-  await page.keyboard.press('Shift');
+  await page.keyboard.press('Shift', { delay: 70 });
   expect('a second Shift ends the talk', await until(async () => (await st()).var5e === 1, 5000), JSON.stringify(await st()));
 
   // ---- Lara Sweeney swaps the sets
   await near('LARA', 0, 3.5);
   await wait(400);
-  await page.keyboard.press('Shift');
+  await page.keyboard.press('Shift', { delay: 70 });
   expect('talk with Lara Sweeney', await until(async () => (await st()).var5e === 0x20, 5000));
   await wait(300);
   await shot('ltc-6-lara');

@@ -66,8 +66,8 @@ export default async ({ page, shot, wait, log, key }) => {
       const x = await dbg();
       if (!x || x.mode !== 2 || x.d.state !== 3) return x;
       const d = x.d;
-      if (d.zone === 'top' && !d.latchL) await page.keyboard.press('ArrowLeft');
-      else if (d.zone === 'bottom' && !d.latchR) await page.keyboard.press('ArrowRight');
+      if (d.zone === 'top' && !d.latchL) await page.keyboard.press('ArrowLeft', { delay: 70 });
+      else if (d.zone === 'bottom' && !d.latchR) await page.keyboard.press('ArrowRight', { delay: 70 });
       for (const [name, c] of [['7-run-slow', d.power > 0.1 && d.power < 0.3], ['8-run-fast', d.power > 0.6 && d.power < 0.75], ['9-full-power', d.power >= 1 && d.bonus]]) {
         if (c && !shots.has(name)) { shots.add(name); await shot(name); }
       }
@@ -117,9 +117,11 @@ export default async ({ page, shot, wait, log, key }) => {
   expect('Esc again resumes (mode 2)', s.mode === 2, String(s.mode));
   await key('Escape'); await wait(500);
   await select(4); await press('Enter');                                    // Opnieuw starten (restart)
+  await press('ArrowDown'); await press('Enter');                           // the confirmation page (Annuleren is the default item): OK
   await until((x) => inZone(x) && x.mode === 1 && x.d.state <= 1, 'restart', 120000);
   s = await dbg();
   expect('restart from the pause menu re-runs the zone: fresh machine, same story node', s.node === 59 && s.d.score === 0 && s.d.time === 1800 && s.d.angle === 0, JSON.stringify(s.d));
+  await wait(2500);                                                         // the loading card / fade of the restarted zone swallows early keys
   await key('Enter'); await wait(300); await key('Enter'); await wait(400);
   await key('ShiftLeft'); await until((x) => x.d.state === 2, 'ready 2b');
   await key('ShiftLeft'); await until((x) => x.d.state === 3, 'running 2b');
@@ -139,6 +141,7 @@ export default async ({ page, shot, wait, log, key }) => {
   await key('Enter'); await wait(300); await key('Enter'); await wait(400);
   await key('Escape'); await wait(500);
   await select(3); await press('Enter');                                    // pause menu: Afbreken (abort, value 1)
+  await press('ArrowDown'); await press('Enter');                           // the confirmation page: OK
   await until((x) => x.arch === 'z02LGI' && x.mode === 2 && x.tick > 5, 'island after the abort', 300000);
   s = await dbg();
   expect('abort leaves for the island and rewinds the story to the hub node 58 (the walk to the centrifuge starts node 59 again)', s.arch === 'z02LGI' && s.node === 58, JSON.stringify({ arch: s.arch, node: s.node }));

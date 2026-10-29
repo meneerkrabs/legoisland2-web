@@ -38,6 +38,7 @@ export class JstEmu {
     this.speechIds = [];
     this.anims = new Map();
     this.poseBuf = new Map();
+    this.drawBuf = new Map();
     const L = this;
     // ---- records
     mem.w32(0x983800, recs.length);
@@ -83,7 +84,7 @@ export class JstEmu {
     H.set(0x4429e0, (c) => { c.eax = 0x100 + em++; });
     H.set(0x442960, (c) => { c.eax = 0x100 + em++; });
     H.set(0x44ea60, (c) => { logf(`fx ${c.arg(0) - 0x100} ${c.arg(1)}`); c.eax = 0; });
-    H.set(0x442a00, (c) => { c.eax = 0; });
+    H.set(0x442a00, (c) => { const p = c.arg(1); logf(`fxm ${c.arg(0) - 0x100} ${Array.from({ length: 16 }, (_, k) => mem.f32(p + 4 * k).toFixed(3)).join(',')}`); c.eax = 0; });
     // sprintf(dest, "%d" / "%5d", value): the popup numbers
     H.set(0x85ac00, (c) => {
       const f = mem.cstr(c.arg(1)), m = /^%(\d*)d$/.exec(f);
@@ -110,7 +111,7 @@ export class JstEmu {
     H.set(0x43b753, (c) => { const a = inst(c); c.fpush(a ? a.frameCount : 0); });
     H.set(0x43b64d, (c) => { const a = inst(c); c.eax = a && a.seek(c.argf(1)) ? 1 : 0; });
     // the pose: FUN_0043ba7a(anim, root) evaluates into the anim's buffer (identity root only: model space), FUN_0043bc22 / 0043bc58 give the buffer / a bone
-    const poseOf = (anim) => {
+    const poseOf = L.poseOf = (anim) => {
       const a = L.anims.get(anim);
       let b = L.poseBuf.get(anim);
       if (!b) { b = L.alloc(64 * 40); L.poseBuf.set(anim, b); }
@@ -120,7 +121,8 @@ export class JstEmu {
     };
     H.set(0x43ba7a, (c) => { poseOf(c.arg(0)); c.eax = L.anims.get(c.arg(0))?.rig.skeleton?.boneCount ?? 0; });
     H.set(0x43bc22, (c) => { c.eax = poseOf(c.arg(0)); });
-    H.set(0x43bc58, (c) => { c.eax = poseOf(c.arg(0)) + c.arg(1) * 0x40; });
+    // the horses' buffers (records 12 / 29) hold the pose of the last DRAW (= the animation state at the start of the tick: `drawBuf`, filled by `tick`); nothing in the update re-poses them
+    H.set(0x43bc58, (c) => { c.eax = (L.drawBuf.get(c.arg(0)) ?? poseOf(c.arg(0))) + c.arg(1) * 0x40; });
     // the camera spline object: FUN_00445340(points, count, 0, 1) copies the points into a path object (the wrapper table of FUN_00445340 is built here, the curve methods run natively)
     H.set(0x445340, (c) => {
       const n = c.arg(1), src = c.arg(0);
@@ -163,6 +165,8 @@ export class JstEmu {
     this.texts = [];
     const mem = this.cpu.mem;
     mem.w32(0x98383c, held); mem.w32(0x983840, pressed);
+    // the draw before this update posed the two horses (identity root) into their buffers
+    for (const i of [12, 29]) { const tok = mem.u32(this.recPtr(i) + 8); if (!tok) continue; const live = this.poseOf(tok); let b = this.drawBuf.get(tok); if (!b) { b = this.alloc(64 * 40); this.drawBuf.set(tok, b); } for (let k = 0; k < 64 * 10; k++) mem.w32(b + 4 * k, mem.r32(live + 4 * k)); }
     this.cpu.steps = 0;
     this.cpu.call(0x5ce506, [this.recPtr(4), this.node], { maxSteps: 5_000_000 });
     for (const i of [5, 6, 7, 8, 9, 10]) this.cpu.call(0x5d3d90, [this.recPtr(i), 0]);

@@ -7,7 +7,7 @@
 //   nodes 15..29: F9 (stub aid: complete the story step) in z07CSI, Enter through the stub mini-games z08BKD / z09JST / z10RGB (banner, Continue)
 //   node 30: the island era 2 (zone id 32): Pepper arrives on the boat at PORS (FUN_004c2d22, PREV_SUBGAME 6), the era intro (LGIBR05) is skipped, she
 //            drives to the dock by the portal (PATH 0x1b5) and gets off with Ctrl -> walking.
-//   node tools/browse.mjs "http://localhost:5491/?zone=z02LGI&node=11&mute=1&hold=1" tools/steps/m4-era1.mjs --size 1280x800 --out /tmp/wp15
+//   node tools/browse.mjs "http://localhost:5491/?zone=z02LGI&node=11&mute=1&debug=1&hold=1" tools/steps/m4-era1.mjs --size 1280x800 --out /tmp/wp15
 // The dev entry (?node=11) is the original's story jump FUN_00404c07 followed by the era-1 reset FUN_004c3226 (bit 1 of AI_STATE_RESET was never set):
 // NUM_PAGES / PAGES_SET / COLORED_BOTHEADS are 0 then, where a real game has 4 / 15 / 15; the bot sets those three for the HUD (cosmetic, logged).
 // Long walks / rides are teleports; the keys do the actions. Env: STOP=<phase> ends after that phase (node11, save, node12, node13, node14, castle);

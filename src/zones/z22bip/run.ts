@@ -48,8 +48,8 @@ export class Crt {
   seed = 1;
   srand(s: number) { this.seed = s >>> 0; }
   rand(): number { this.seed = (Math.imul(this.seed, 0x343fd) + 0x269ec3) >>> 0; return (this.seed >>> 16) & 0x7fff; }
-  /** FUN_004388ae(x): a random number in 0..x (0 for x <= 0), rand() / 32767 * x, returned in the x87's extended precision (callers that store it in a float round it) */
-  float(x: number): number { return x <= 0 ? 0 : (this.rand() / 32767) * x; }
+  /** FUN_004388ae(x): a random number in 0..x (0 for x <= 0), rand() / 32767 * x: the x87 runs in 24-bit precision (control word 0x7f), so the quotient and the product are float32 results (WP-VERIFY) */
+  float(x: number): number { x = Math.fround(x); return x <= 0 ? 0 : Math.fround(Math.fround(this.rand() / 32767) * x); }
 }
 
 export class BipRun {
@@ -72,6 +72,8 @@ export class BipRun {
   randIdx = 0;
   /** DAT_05d5d04c: the banana clock (ticks), DAT_05d5d050: "out of bananas" spoken, DAT_05d5ceb4: "fuel is low" spoken */
   bananaClock = 0; noAmmoSaid = false; lowFuelSaid = false;
+  /** restored content (src/restore/features/cues.ts, popups.ts): an event of the zone (`bip-melon-throw`, `bip-stone-hit`, `bip-lowfuel`, `bip-outoffuel`); null = the original (the zone game sets it only with the option on) */
+  cue: ((name: string, pos?: ArrayLike<number>) => void) | null = null;
   /** DAT_05d5ceb8: the plane is within the river's reach (progress 0.1 .. 0.77): the river's sound is positional */
   riverNear = false;
   /** DAT_05d5d028 (fuel percent), DAT_05d5d048 (bananas), DAT_05d5d03c (score): the HUD's copy of the plane's numbers (FUN_007091f6) */
@@ -80,8 +82,10 @@ export class BipRun {
   crash = { x: 0, y: 0, z: 0, ax: 0, ay: 0, az: 0, headingNow: 0, headingPath: 0 };
   /** records by index, set up by the zone game */
   recs: { plane: GameRecord; johnny: GameRecord; prop: GameRecord } | null = null;
-  /** how many times the leaf particle was asked for (FUN_00442a20; the effect itself is not drawn) */
+  /** how many times the leaf particle was asked for (FUN_00442a20) */
   leafBursts = 0;
+  /** the zone's hook for that call: FUN_00442a20(DAT_05d5cd6c, 2, 1, 1) + FUN_00442a40(DAT_05d5cd6c) (set by the zone game when a particle engine exists) */
+  onLeaf: (() => void) | null = null;
   /** diagnostics */
   stats = { bananasFired: 0, monkeyHits: 0, targetHits: 0, bantHits: 0, fuelCans: 0, bananaPickups: 0, crashes: 0, melonHits: 0, stoneHits: 0 };
   /** the 40 random numbers: srand(1), then FUN_004388ae(0x40204189) - 1.248 (FUN_0070b7b2) */
@@ -101,8 +105,8 @@ export function f32(bits: number): number {
   return b.getFloat32(0);
 }
 
-/** FUN_00435c91: GetTickCount - start in milliseconds, from the tick count (30 ticks per second) */
-export const msClock = (w: { tickCount: number }) => Math.trunc((w.tickCount * 1000) / 30);
+/** FUN_00435c91: GetTickCount - start in milliseconds, from the tick count (a tick lasts dt / 30 s: 33 ms at dt = 1, 16.7 ms at the 60 Hz step of dt = 0.5) */
+export const msClock = (w: { tickCount: number; dt: number }) => Math.trunc((w.tickCount * w.dt * 1000) / 30);
 
 const runs = new WeakMap<World, BipRun>();
 /** the run state of a world (created on first use) */

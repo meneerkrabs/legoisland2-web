@@ -8,12 +8,10 @@
 //   Slug    0x81529f (update 0x814f6e)  the slug that crawls along the front
 //   Planet  0x814b0f (draw   0x814964)  the rotating planet and galaxy in the sky
 // The node's "draw hook" work (placing the record's matrix before the draw) is done at the end of `update`: the renderer reads the record matrices.
-import { buildMatrix } from '../../formats/matrix.ts';
-import { parseBlk } from '../../formats/anim.ts';
+import { parseBlk, sampleBlk } from '../../formats/anim.ts';
 import type { Blk } from '../../formats/anim.ts';
 import type { Archive } from '../../formats/archive.ts';
-import { mul } from '../../render/math.ts';
-import { AnimInstance } from '../../game/anim.ts';
+import { AnimInstance, CLIP_LOOP, POSE_SNAP } from '../../game/anim.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import { registerCtor } from '../../game/setup.ts';
@@ -27,29 +25,52 @@ import {
 /** constructor addresses of the zone (the extraction's attaches, docs/re/zone-setup.md) */
 export const CTOR = { PEPPER: 0x816ba0, PAPA: 0x8132e0, MAMA: 0x81611f, TOPPING: 0x815e1a, SLUG: 0x81529f, PLANET: 0x814b0f, CITIZEN: 0x81483d } as const;
 
-const TWO_PI = 6.2831855, PI = 3.1415927;
+const TWO_PI = Math.fround(2 * Math.PI), PI = Math.fround(Math.PI);
 const f32 = Math.fround;
 
 // ------------------------------------------------------------------------------------------------ matrix helpers of the engine
 
 const identity = (): Float32Array => { const m = new Float32Array(16); m[0] = m[5] = m[10] = m[15] = 1; return m; };
-/** FUN_0043ad29: rotate the columns 0 and 2 (about Y) */
+/** x87 in 24-bit precision (the original's control word 0x7f): every + - * / rounds to float32 */
+const mulf = (a: number, b: number) => f32(a * b), addf = (a: number, b: number) => f32(a + b), subf = (a: number, b: number) => f32(a - b);
+/** FUN_0043ad29: rotate the columns 0 and 2 (about Y), one rounding per operation as the asm does */
 function rotY(m: Float32Array, a: number) {
   const c = f32(Math.cos(a)), s = f32(Math.sin(a));
   const a0 = m[0], a4 = m[4], a8 = m[8];
-  m[0] = s * m[2] + c * m[0]; m[4] = s * m[6] + c * m[4]; m[8] = s * m[10] + c * m[8];
-  m[2] = c * m[2] - s * a0; m[6] = c * m[6] - s * a4; m[10] = c * m[10] - s * a8;
+  m[0] = addf(mulf(s, m[2]), mulf(c, m[0])); m[4] = addf(mulf(s, m[6]), mulf(c, m[4])); m[8] = addf(mulf(s, m[10]), mulf(c, m[8]));
+  m[2] = subf(mulf(c, m[2]), mulf(s, a0)); m[6] = subf(mulf(c, m[6]), mulf(s, a4)); m[10] = subf(mulf(c, m[10]), mulf(s, a8));
 }
 /** FUN_0043af16: rotate the columns 0 and 1 (about Z, opposite sense to the Euler builder) */
 function rotZ(m: Float32Array, a: number) {
   const c = f32(Math.cos(a)), s = f32(Math.sin(a));
   const a0 = m[0], a4 = m[4], a8 = m[8];
-  m[0] = s * m[1] + c * m[0]; m[4] = s * m[5] + c * m[4]; m[8] = s * m[9] + c * m[8];
-  m[1] = c * m[1] - s * a0; m[5] = c * m[5] - s * a4; m[9] = c * m[9] - s * a8;
+  m[0] = addf(mulf(s, m[1]), mulf(c, m[0])); m[4] = addf(mulf(s, m[5]), mulf(c, m[4])); m[8] = addf(mulf(s, m[9]), mulf(c, m[8]));
+  m[1] = subf(mulf(c, m[1]), mulf(s, a0)); m[5] = subf(mulf(c, m[5]), mulf(s, a4)); m[9] = subf(mulf(c, m[9]), mulf(s, a8));
 }
-/** FUN_0043a4a1: the 3x3 part from Euler angles, translation untouched */
+/** FUN_0043a9e5(dst, b, s): dst = s * b for affine 3x4 matrices, ((s0 b0 + s1 b4) + s2 b8) per element, the translation row + b's (asm order, every operation rounded) */
+export function mulA(s: ArrayLike<number>, b: ArrayLike<number>): Float32Array {
+  const o = new Float32Array(16);
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) o[r * 4 + c] = addf(addf(mulf(s[r * 4], b[c]), mulf(s[r * 4 + 1], b[4 + c])), mulf(s[r * 4 + 2], b[8 + c]));
+  for (let c = 0; c < 3; c++) o[12 + c] = addf(addf(addf(mulf(s[12], b[c]), mulf(s[13], b[4 + c])), mulf(s[14], b[8 + c])), b[12 + c]);
+  o[15] = 1;
+  return o;
+}
+/** FUN_0043ab72(out, M, v): v * M with the same operation order as mulA's translation row */
+function toWorldExact(m: ArrayLike<number>, v: ArrayLike<number>): number[] {
+  return [0, 1, 2].map((c) => addf(addf(addf(mulf(v[0], m[c]), mulf(v[1], m[4 + c])), mulf(v[2], m[8 + c])), m[12 + c]));
+}
+/** FUN_0043a4a1 / 0043a5e4: the 3x3 part from Euler angles with the original's float32 operations (cos / sin rounded, every product and sum rounded) */
+function eulerExact(rx: number, ry: number, rz: number): Float32Array {
+  const c1 = f32(Math.cos(rx)), s2 = f32(Math.sin(rx)), c3 = f32(Math.cos(ry)), s4 = f32(Math.sin(ry)), c5 = f32(Math.cos(rz)), s6 = f32(Math.sin(rz));
+  const m = new Float32Array(16);
+  m[0] = mulf(c5, c3); m[1] = mulf(s6, c3); m[2] = -s4;
+  m[4] = subf(mulf(mulf(c5, s4), s2), mulf(s6, c1)); m[5] = addf(mulf(c5, c1), mulf(mulf(s6, s4), s2)); m[6] = mulf(c3, s2);
+  m[8] = addf(mulf(s6, s2), mulf(mulf(c5, s4), c1)); m[9] = subf(mulf(mulf(s6, s4), c1), mulf(c5, s2)); m[10] = mulf(c3, c1);
+  m[15] = 1;
+  return m;
+}
 function setRotation(m: Float32Array, rx: number, ry: number, rz: number) {
-  const t = buildMatrix(rx, ry, rz, 0, 0, 0);
+  const t = eulerExact(rx, ry, rz);
   for (const i of [0, 1, 2, 4, 5, 6, 8, 9, 10]) m[i] = t[i];
 }
 const setPos = (m: Float32Array, x: number, y: number, z: number) => { m[12] = x; m[13] = y; m[14] = z; };
@@ -91,7 +112,7 @@ export interface MapEnv {
   puff(pos: [number, number, number]): void;
 }
 
-/** a small deterministic generator (tests); the game uses Math.random */
+/** a small deterministic generator (tests); the game uses the C runtime generator (`gameRandom`, game.ts) */
 export function lcg(seed: number): () => number {
   let s = seed >>> 0;
   return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
@@ -159,10 +180,17 @@ const recOf = (w: World, name: string): GameRecord | undefined => w.records.find
 /** stands in for the animation of a record that has none (the zone's rigs are bound by `bindRigs`; worlds built by other code, e.g. the stub-walk test, have only Pepper's) */
 const NO_ANIM = { advance: () => 0, frame: 0, clip: 0, frameCount: 0, start: () => false, pose: () => null } as unknown as AnimInstance;
 
+/** the pose of `a`'s rig at (clip, frame), evaluated like AnimInstance.pose (FUN_0043ba7a): null when the clip does not match the skeleton */
+function poseAt(a: AnimInstance, clip: number, frame: number): Float32Array | null {
+  const sk = a.rig.skeleton, c = a.rig.clips[clip];
+  if (!sk || !c || c.boneCount !== sk.boneCount) return null;
+  return sampleBlk(sk, c, frame, (c.flags & CLIP_LOOP) !== 0, undefined, a.noInterp ? 1e9 : POSE_SNAP);
+}
+
 /** FUN_0043b874(anim, rate, 0): advance without loop; clamps at the frame count and returns 2 each tick afterwards (the slug's clips) */
-function advanceClamp(a: AnimInstance, rate: number): number {
+function advanceClamp(a: AnimInstance, rate: number, dt: number): number {
   const n = a.frameCount;
-  a.frame += rate;
+  a.frame += rate * dt;
   if (n < a.frame) { a.frame = n; return 2; }
   return 0;
 }
@@ -190,13 +218,14 @@ export function mapCamera(w: World, rec: GameRecord, mode: number, smooth: boole
   const S = stateOf(w);
   const c = w.camera.c;
   const look = CAM_LOOK[mode] ?? CAM_LOOK[0], eye = CAM_EYE[mode] ?? CAM_EYE[0];
-  c[3] = rec.x + look[0]; c[4] = rec.y + look[1]; c[5] = rec.z + look[2];
-  const e = rec.toWorld(eye);
-  const d2 = (e[0] - c[0]) ** 2 + (e[1] - c[1]) ** 2 + (e[2] - c[2]) ** 2;
+  c[3] = addf(rec.x, look[0]); c[4] = addf(rec.y, look[1]); c[5] = addf(rec.z, look[2]);
+  const e = toWorldExact(rec.m, eye);
+  const dx = subf(e[0], c[0]), dy = subf(e[1], c[1]), dz = subf(e[2], c[2]);
+  const d2 = addf(addf(mulf(dz, dz), mulf(dy, dy)), mulf(dx, dx));
   // DAT_0089df30 (the near plane): 3.0 once the overview eye has settled, 1.0 otherwise
   S.near = mode === 0 && d2 < 0.1 ? 3 : 1;
   if (!smooth) { c[0] = e[0]; c[1] = e[1]; c[2] = e[2]; }
-  else { for (let i = 0; i < 3; i++) c[i] += (e[i] - c[i]) * CAM_EASE; }
+  else { const dd = [dx, dy, dz]; for (let i = 0; i < 3; i++) c[i] = addf(mulf(dd[i], CAM_EASE), c[i]); }
   w.camera.updateView();
 }
 
@@ -251,7 +280,7 @@ export class PepperNode extends MapNode {
         break;
       }
       case 3: {
-        const fin = a ? a.advance(1) : 2;
+        const fin = a ? a.advance(1, w.dt) : 2;
         const frame = a ? Math.trunc(a.frame) : 99;
         const s = this.slot;
         if (16 < frame && s && s.active === 0) {
@@ -265,12 +294,12 @@ export class PepperNode extends MapNode {
       }
       case 4: {
         const frame = a ? Math.trunc(a.frame) : 99;
-        if (frame < 14) a?.advance(1);
+        if (frame < 14) a?.advance(1, w.dt);
         if (pressed & 0x80) this.state = 5;
         break;
       }
       case 5: {
-        const fin = a ? a.advance(1) : 2;
+        const fin = a ? a.advance(1, w.dt) : 2;
         const frame = a ? Math.trunc(a.frame) : 99;
         let dir = 0;
         if (held & 1) dir = -1;
@@ -352,8 +381,8 @@ export class PapaNode extends MapNode {
     }
   }
 
-  private dec(S: MapState) {
-    this.gauge -= GAUGE_DECAY * 1;
+  private dec(S: MapState, dt: number) {
+    this.gauge = subf(this.gauge, mulf(GAUGE_DECAY, dt));
     if (this.gauge < 0) this.gauge = 0;
     S.gauge = this.gauge;
   }
@@ -361,7 +390,7 @@ export class PapaNode extends MapNode {
   tick(w: World, rec: GameRecord) {
     const S = stateOf(w);
     const a = rec.anim ?? NO_ANIM;       // an unprepared world (no rigs bound): the state machine just stalls on the clip events
-    const fin = a.advance(1);
+    const fin = a.advance(1, w.dt);
     const frame = Math.trunc(a.frame);
     if (fin !== 0) S.sfx(SND.PAPA_BOUNCE);
     const bones = a.pose(1);
@@ -370,7 +399,7 @@ export class PapaNode extends MapNode {
       rotZ(off, HAND_ROT_Z);
       setPos(off, HAND_OFFSET[0], HAND_OFFSET[1], HAND_OFFSET[2]);
       const bone = bones.slice(14 * 16, 14 * 16 + 16);
-      this.hand = mul(off, mul(bone, rec.m));
+      this.hand = mulA(off, mulA(bone, rec.m));
     }
     switch (this.state) {
       case 0: this.state = 1; break;
@@ -383,27 +412,27 @@ export class PapaNode extends MapNode {
         break;
       case 2: {
         this.swing = f32(Math.sin(this.angle) * 3);
-        let na = f32(this.speed * w.dt + this.angle);
-        if (-PI <= na) { if (PI < na) na -= TWO_PI; } else na += TWO_PI;
+        let na = addf(mulf(this.speed, w.dt), this.angle);
+        if (-PI <= na) { if (PI < na) na = subf(na, TWO_PI); } else na = addf(na, TWO_PI);
         if ((na < 0 && 0 <= this.angle) || (0 <= na && this.angle < 0)) {
           if ((Math.floor(S.rand(2)) & 1) === 0) { this.state = 3; this.slow = 1; }
         }
         this.angle = na;
         this.x = this.swing;
-        this.dec(S);
+        this.dec(S, w.dt);
         break;
       }
       case 3: {
         this.swing = f32(Math.sin(this.angle) * 0.75);
         let na = this.angle;
         for (let i = 0; i < 4; i++) {
-          na = f32(this.speed * w.dt + na);
-          if (-PI <= na) { if (PI < na) na -= TWO_PI; } else na += TWO_PI;
+          na = addf(mulf(this.speed, w.dt), na);
+          if (-PI <= na) { if (PI < na) na = subf(na, TWO_PI); } else na = addf(na, TWO_PI);
           if ((na < 0 && 0 <= this.angle) || (0 <= na && this.angle < 0)) { this.state = 2; this.slow = 0; break; }
         }
         this.angle = na;
         this.x = this.swing;
-        this.dec(S);
+        this.dec(S, w.dt);
         break;
       }
       case 4: {
@@ -414,7 +443,7 @@ export class PapaNode extends MapNode {
         }
         a.start(13, 0);
         this.state = 5;
-        this.dec(S);
+        this.dec(S, w.dt);
         break;
       }
       case 5:
@@ -422,7 +451,7 @@ export class PapaNode extends MapNode {
           this.state = this.slow !== 0 ? 3 : 2;
           a.start(10, 0);
         }
-        this.dec(S);
+        this.dec(S, w.dt);
         break;
       case 6: {
         let wrong = false;
@@ -499,6 +528,24 @@ function hitWaitingCitizen(w: World): boolean {
   return false;
 }
 
+const F32B = new Float32Array(1), U32B = new Uint32Array(F32B.buffer);
+/**
+ * FUN_00815576 case 2 writes the landed type to `papa + 0x9c + 12 * idx`, clears `+0xa0 + 12 * idx` and compares `+0x98 + 12 * idx` with the type, with no range check on `idx` (the
+ * number of toppings landed this round). The four slots are idx 0..3; a fifth topping that lands before the next round starts (two in the air at once, rapid fire) aliases the node's
+ * score (+0xcc) with the type, the medal word (+0xd0) with 0 and compares the type with the bits of the gauge (+0xc8): WP-VERIFY, reproduced by the differential test.
+ * A sixth one would write beyond the node's 0xd8 bytes (heap): not modelled. Returns whether the landed type is the wanted one.
+ */
+function landOnDough(papa: PapaNode, idx: number, type: number): boolean {
+  if (idx < 4) { papa.landed[idx] = type; papa.pending[idx] = 0; return papa.target[idx] === type; }
+  if (idx === 4) {
+    F32B[0] = papa.gauge;
+    const same = (U32B[0] | 0) === type;
+    papa.score = type; papa.medal = 0;
+    return same;
+  }
+  return false;
+}
+
 /** Mama (constructor 0x81611f): FUN_00815f30 */
 export class MamaNode extends MapNode {
   readonly kind = 'mama';
@@ -516,9 +563,9 @@ export class MamaNode extends MapNode {
   private place(rec: GameRecord) {
     rec.m.set(identity()); rotY(rec.m, 2.3561945); setPos(rec.m, this.pos[0], this.pos[1], this.pos[2]);
   }
-  tick(_w: World, rec: GameRecord) {
+  tick(w: World, rec: GameRecord) {
     const a = rec.anim ?? NO_ANIM;
-    const fin = a.advance(1);
+    const fin = a.advance(1, w.dt);
     switch (this.state) {
       case 0: a.start(11, 0); this.state = 1; break;
       case 1: if (fin === 2) this.state = 0; break;
@@ -535,23 +582,26 @@ export class ToppingNode extends MapNode {
   /** +0x18: 1 once the one-off citizen bonus was paid */
   bonus = 0;
   slots: ToppingSlot[] = Array.from({ length: 10 }, () => new ToppingSlot());
+  /** Pepper's animation (clip, frame) at the end of the previous tick: what the draw pass left in her pose buffer (null before the first tick) */
+  pepperPose: { clip: number; frame: number } | null = null;
 
   init(w: World) { stateOf(w).toppings = this; }
 
   /** FUN_0081543e: where a flying topping is now */
   private flightPos(w: World, s: ToppingSlot): [number, number, number] {
     const S = stateOf(w);
-    s.t = s.t + 1 * w.dt;
+    s.t = addf(mulf(1, w.dt), s.t);
     const papaZ = S.papa?.rec?.z ?? 0;
-    const total = f32((papaZ - s.start[2]) / 0.264);
-    const frac = s.t / total;
-    const toY = 3.04 - s.start[1];
+    const K264 = f32(0.264);
+    const total = f32(subf(papaZ, s.start[2]) / K264);
+    const frac = f32(s.t / total);
+    const toY = subf(f32(3.04), s.start[1]);
     const target = s.dir === -1 ? -3 : s.dir === 1 ? 3 : s.start[0];
-    const x = (target - s.start[0]) * frac + s.start[0];
-    const y = toY * frac + s.start[1];
-    const z = s.t * 0.264 + s.start[2];
-    s.m.set(buildMatrix(s.rot, 0, 0, x, y, z));
-    s.rot += 0.03;
+    const x = addf(mulf(subf(target, s.start[0]), frac), s.start[0]);
+    const y = addf(mulf(toY, frac), s.start[1]);
+    const z = addf(mulf(s.t, K264), s.start[2]);
+    s.m.set(eulerExact(s.rot, 0, 0)); setPos(s.m, x, y, z);
+    s.rot = addf(s.rot, f32(0.03));
     return [x, y, z];
   }
 
@@ -565,10 +615,12 @@ export class ToppingNode extends MapNode {
         case 1: {
           // in Pepper's hand: bone 14 of her rig, shifted by the hand offset
           const prec = pepper.rec!;
-          const bones = prec.anim?.pose(1);
+          // FUN_0043bc58 reads Pepper's pose buffer, which only the draw pass (FUN_004440f0) fills: it holds the pose of the END OF THE PREVIOUS TICK (clip / frame as the draw saw
+          // them), Pepper's own update of this tick has already advanced her clip (WP-VERIFY: found by the differential test); her record matrix is read live
+          const bones = this.pepperPose ? poseAt(prec.anim!, this.pepperPose.clip, this.pepperPose.frame) : prec.anim?.pose(1);
           if (bones) {
             const off = identity(); setPos(off, TOPPING_HAND_OFFSET[0], TOPPING_HAND_OFFSET[1], TOPPING_HAND_OFFSET[2]);
-            s.m.set(mul(mul(off, bones.slice(14 * 16, 14 * 16 + 16)), prec.m));
+            s.m.set(mulA(mulA(off, bones.slice(14 * 16, 14 * 16 + 16)), prec.m));
           }
           s.start = [s.m[12], s.m[13], s.m[14]];
           break;
@@ -597,9 +649,7 @@ export class ToppingNode extends MapNode {
               papa.layers |= s.type;
               S.sfx(HIT_SOUND[s.type] ?? SND.PIZ_CAPS);
               const idx = papa.thrown;
-              papa.landed[idx] = s.type;
-              papa.pending[idx] = 0;
-              if (papa.target[idx] === s.type) { S.sfx(SND.RIGHT_TOP); papa.score += POINTS_MATCH; S.log.push('match'); }
+              if (landOnDough(papa, idx, s.type)) { S.sfx(SND.RIGHT_TOP); papa.score += POINTS_MATCH; S.log.push('match'); }
               else { S.sfx(SND.WRONG_TOP); S.log.push('wrong'); }
               papa.thrown = idx + 1;
               if (papa.thrown === papa.count) {
@@ -645,6 +695,9 @@ export class ToppingNode extends MapNode {
           break;
       }
     }
+    // the draw pass of this tick (after every update) evaluates Pepper's pose: it is what the next tick's in-hand topping reads
+    const pa = pepper.rec?.anim;
+    this.pepperPose = pa ? { clip: pa.clip, frame: pa.frame } : null;
   }
 }
 
@@ -687,10 +740,11 @@ export class CitizenNode extends MapNode {
     this.prog = 0;
     this.from = [...this.p];
     const t = SLOT_POS[to];
-    this.delta = [t[0] - this.p[0], t[1] - this.p[1], t[2] - this.p[2]];
-    const dist = f32(Math.sqrt(this.delta[0] ** 2 + this.delta[1] ** 2 + this.delta[2] ** 2));
-    // FUN_00813f1e: ftol(float(dist / 0.12) + 0.85) (the constant at 0x8927e8)
-    this.steps = Math.trunc(f32(f32(dist / 0.12) + 0.85));
+    this.delta = [subf(t[0], this.p[0]), subf(t[1], this.p[1]), subf(t[2], this.p[2])];
+    const d = this.delta;
+    const dist = f32(Math.sqrt(addf(addf(mulf(d[2], d[2]), mulf(d[1], d[1])), mulf(d[0], d[0]))));
+    // FUN_00813f1e: ftol(float(dist / 0.12f) + 0.85f): the float constants 0x892170 / 0x8927e8 (0.12 as a double would change the step count at the boundaries)
+    this.steps = Math.trunc(addf(f32(f32(dist / f32(0.12))), f32(0.85)));
     this.slot = to;
     this.state = 1;
     const clip = CITIZEN_CLIPS[4];
@@ -714,12 +768,12 @@ export class CitizenNode extends MapNode {
         break;
       }
       case 1: {
-        a?.advance(this.rate);
-        this.prog += 1 * w.dt;
+        a?.advance(this.rate, w.dt);
+        this.prog = addf(mulf(1, w.dt), this.prog);
         if (this.prog <= this.steps) {
-          const f = this.prog / this.steps;
-          this.p = [this.from[0] + this.delta[0] * f, this.from[1] + this.delta[1] * f, this.from[2] + this.delta[2] * f];
-          rec.ry = Math.atan2(-this.delta[0], -this.delta[2]);
+          const f = f32(this.prog / this.steps);
+          this.p = [addf(mulf(this.delta[0], f), this.from[0]), addf(mulf(this.delta[1], f), this.from[1]), addf(mulf(this.delta[2], f), this.from[2])];
+          rec.ry = f32(Math.atan2(-this.delta[0], -this.delta[2]));
           setRotation(rec.m, rec.rx, rec.ry, rec.rz);
         } else if (this.slot === 0) {
           this.state = 6;
@@ -742,7 +796,7 @@ export class CitizenNode extends MapNode {
         break;
       }
       case 2: {
-        a?.advance(this.rate);
+        a?.advance(this.rate, w.dt);
         if (S.hitCitizens !== 0) {
           this.state = 5;
           a?.start(CITIZEN_CLIPS[2], 0);
@@ -763,11 +817,11 @@ export class CitizenNode extends MapNode {
         S.hitCitizens++;
         break;
       case 4:
-        a?.advance(this.rate);
-        this.p[1] += 0.024; this.p[2] += 0.24;
-        rec.rx += 0.1;
+        a?.advance(this.rate, w.dt);
+        this.p[1] = addf(this.p[1], f32(0.024)); this.p[2] = addf(this.p[2], f32(0.24));
+        rec.rx = addf(rec.rx, f32(0.1));
         setRotation(rec.m, rec.rx, rec.ry, rec.rz);
-        if (18.84956 < rec.rx) {
+        if (f32(18.84955596923828) < rec.rx) {
           rec.hide();
           this.state = 0;
           S.slots[this.slot].occ = 0; S.slots[this.slot].rec = null;
@@ -785,7 +839,9 @@ export class CitizenNode extends MapNode {
         } else {
           const hit = S.slots[2].rec;
           if (hit) {
-            rec.ry = Math.atan2(hit.x - this.p[0], hit.z - this.p[2]);
+            // the original reads the record's own position (DAT_00955e24 + 0x3c / 0x44); the port's matrix of CIT4 carries the 2 units of its draw hook, so use the node's logical position
+            const hp = (hit.ctrl?.nodes.find((n) => n.kind === 'citizen') as CitizenNode | undefined)?.p ?? [hit.x, hit.y, hit.z];
+            rec.ry = f32(Math.atan2(subf(hp[0], this.p[0]), subf(hp[2], this.p[2])));
             setRotation(rec.m, rec.rx, rec.ry, rec.rz);
           }
         }
@@ -808,40 +864,53 @@ export class SlugNode extends MapNode {
     rec.anim?.start(2, 0);
   }
 
-  /** FUN_00814bd0: place the slug on its path and turn it along the path (drawn at scale 0.4, FUN_008151c8) */
+  /**
+   * FUN_00814bd0: place the slug on its path and turn it along the path (drawn at scale 0.4, FUN_008151c8). The original keeps every intermediate in float32 and the direction is the
+   * difference of two nearby path points, so the roundings matter (up to 1e-4 relative in the matrix): replayed here step by step (WP-VERIFY).
+   */
   private place(rec: GameRecord) {
-    const p1: [number, number, number] = [f32(Math.sin(this.a1) * 4), 0, f32(Math.sin(this.a2) * 0.1)];
-    const p2: [number, number, number] = [f32(Math.sin(this.a1 + 0.0087266)) * 4, 0, f32(Math.sin(this.a2 + 0.0174532)) * 0.1];
-    let t: [number, number, number] = [p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]];
-    const tl = Math.hypot(...t); if (tl > 0) t = [t[0] / tl, t[1] / tl, t[2] / tl];
-    // right = up x forward, up = (0, 1, 0)
-    let r: [number, number, number] = [t[2], 0, -t[0]];
-    const rl = Math.hypot(...r); if (rl > 0) r = [r[0] / rl, r[1] / rl, r[2] / rl];
+    const K4 = 4, K01 = f32(0.1), C1 = f32(0.0087266), C2 = f32(0.0174532);
+    const a1 = f32(this.a1), a2 = f32(this.a2);
+    // local_cc / local_c4 = (float)(sin * const), local_10 / local_8 the same one step further (the sums a + step are formed in extended precision)
+    const p1x = f32(Math.sin(a1) * K4), p1z = f32(Math.sin(a2) * K01);
+    const p2x = f32(Math.sin(f32(a1 + C1)) * K4), p2z = f32(Math.sin(f32(a2 + C2)) * K01);     // 24-bit x87: the sum is rounded before sin
+    // FUN_0043cec0: len2 = float(x*x + y*y + z*z); k = float(1 / sqrt(len2)); every component = float(k * c)
+    const norm = (v: [number, number, number]) => {
+      const l2 = f32(f32(f32(v[0] * v[0]) + f32(v[1] * v[1])) + f32(v[2] * v[2]));     // asm order x, y, z, every op rounded (24-bit x87)
+      if (l2 === 0) return v;
+      const k = f32(1 / f32(Math.sqrt(l2)));
+      return [f32(k * v[0]), f32(k * v[1]), f32(k * v[2])] as [number, number, number];
+    };
+    const t = norm([f32(p2x - p1x), f32(0 - 0), f32(p2z - p1z)]);
+    // right = up x forward = (fz, 0, -fx), normalised again
+    const r = norm([t[2], 0, -t[0]]);
     const m = rec.m;
     m.set(identity());
     m[0] = r[0]; m[1] = r[1]; m[2] = r[2];
     m[4] = 0; m[5] = 1; m[6] = 0;
     m[8] = t[0]; m[9] = t[1]; m[10] = t[2];
-    // translation: 2 * p1 + (1.1, 0, 1), minus 0.8 along the forward direction
-    const px = p1[0] * 2 + 1.1 - 0.8 * t[0], py = p1[1] * 2 + 0 - 0.8 * t[1], pz = p1[2] * 2 + 1 - 0.8 * t[2];
+    // translation = float(float(-0.8 * forward) + float(2 * p1 + (1.1, 0, 1))), the position of the path point from DAT_00955f20
+    const back = f32(-0.8);
+    const px = f32(f32(back * t[0]) + f32(p1x + p1x + f32(1.1))), py = f32(f32(back * t[1]) + f32(0 + 0 + 0)), pz = f32(f32(back * t[2]) + f32(p1z + p1z + 1));
     for (let i = 0; i < 12; i++) if (i % 4 !== 3) m[i] *= 0.4;
     setPos(m, px, py, pz);
   }
 
-  tick(_w: World, rec: GameRecord) {
+  tick(w: World, rec: GameRecord) {
     const a = rec.anim ?? NO_ANIM;
     switch (this.state) {
       case 0:
-        if (advanceClamp(a, 1) === 2) a.start(2, 0);
-        this.a1 += 0.0087266; this.a2 += 0.0174532;
-        if (TWO_PI < this.a2) { this.a2 -= TWO_PI; this.state = 2; }
-        if (TWO_PI < this.a1) this.a1 -= TWO_PI;
+        if (advanceClamp(a, 1, w.dt) === 2) a.start(2, 0);
+        // the node's path angles are floats (+0x28 / +0x2c): every update is rounded
+        this.a1 = f32(this.a1 + f32(0.0087266)); this.a2 = f32(this.a2 + f32(0.0174532));
+        if (f32(TWO_PI) < this.a2) { this.a2 = f32(this.a2 - f32(TWO_PI)); this.state = 2; }
+        if (f32(TWO_PI) < this.a1) this.a1 = f32(this.a1 - f32(TWO_PI));
         this.place(rec);
         break;
       case 2: a.start(3, 0); this.state = 3; break;
-      case 3: if (advanceClamp(a, 1) === 2) { a.start(2, 0); this.state = 0; } break;
+      case 3: if (advanceClamp(a, 1, w.dt) === 2) { a.start(2, 0); this.state = 0; } break;
       case 4: a.start(2, 0); break;
-      case 5: if (advanceClamp(a, 1) === 2) { a.start(2, 0); this.state = 0; } break;
+      case 5: if (advanceClamp(a, 1, w.dt) === 2) { a.start(2, 0); this.state = 0; } break;
     }
   }
 }
@@ -861,7 +930,7 @@ export class PlanetNode extends MapNode {
       const x = gala.m[12], y = gala.m[13], z = gala.m[14];
       gala.m.set(identity()); rotZ(gala.m, S.planetAngle); setPos(gala.m, x, y, z);
     }
-    S.planetAngle += 0.005;
+    S.planetAngle = addf(S.planetAngle, f32(0.005));
   }
 }
 
@@ -932,7 +1001,9 @@ export function prepareWorld(w: World, archive: Archive): MapState {
   if (pep?.ctrl) pep.ctrl.nodes = pep.ctrl.nodes.filter((n) => n.kind === 'Pepper');
   const plan = recOf(w, 'PLAN');
   if (plan) setPos(plan.m, 25, 10, 30);
-  for (const n of MODEL_RECORDS) recOf(w, n)?.hide();
+  // M5 audit: the builder (FUN_00816ca0) sets flags 2 on the model holders and nothing in the zone hides them, so the original draws them at the origin through the normal record draw
+  // (FUN_00444480: model, flag 2, frustum bit). Only TOPD is not drawn by itself: its node's draw hook (FUN_00815d2b) draws the toppings in the air and returns 1.
+  recOf(w, 'TOPD')?.hide();
   for (const r of w.records) {
     for (const node of r.ctrl?.nodes ?? []) (node as unknown as { ensureInit?(w: World, r: GameRecord): void }).ensureInit?.(w, r);
   }

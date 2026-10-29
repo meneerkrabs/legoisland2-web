@@ -32,9 +32,13 @@ export default {
     ok(im.held === (B.UP | B.RIGHT | B.ALT) && im.pressed === (B.RIGHT | B.ALT), 'WASD alias + Alt: held / pressed masks');
     im.setKey('ArrowUp', false); im.setKey('KeyD', false); im.setKey('AltLeft', false); im.update();
     ok(im.held === 0 && im.pressed === 0, 'all released');
-    // a tap shorter than one tick (down and up between two updates) still counts for one tick
+    // the state is read once per tick (the original's poll): a tap between two ticks is not seen; the test-only switch `latchTaps` keeps the old behaviour
     im.setKey('AltLeft', true); im.setKey('AltLeft', false); im.update();
-    ok(im.held === B.ALT && im.pressed === B.ALT, 'a key tap between two ticks is not lost'); im.update(); ok(im.held === 0, 'and lasts one tick');
+    ok(im.held === 0 && im.pressed === 0, 'a key tap between two ticks is not seen (exact poll)');
+    im.latchTaps = true;
+    im.setKey('AltLeft', true); im.setKey('AltLeft', false); im.update();
+    ok(im.held === B.ALT && im.pressed === B.ALT, 'latchTaps (test-only): the tap counts'); im.update(); ok(im.held === 0, 'and lasts one tick');
+    im.latchTaps = false;
     im.setKey('Escape', true); im.update(); ok(im.held === B.ESC, 'Escape = pause bit');
     im.setKey('Escape', false);
     // --- the velocity model on Pepper's house floor (flat, walls far away)

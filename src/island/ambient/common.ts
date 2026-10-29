@@ -13,26 +13,24 @@ import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { NO_GROUND } from '../../game/collision.ts';
 import { tryCtx } from '../ctx.ts';
+import { rand, setIslandRandom } from '../rng.ts';
 
 /** _DAT_0089207c / _DAT_00892094 (pi, 2 pi as floats) */
 export const PI = 3.1415927410125732, TWO_PI = 6.2831854820251465, HALF_PI = 1.5707963705062866;
 /** the one-step wrap of the original (`if a < -pi a += 2pi; else if a > pi a -= 2pi`) */
-export const wrapPi = (a: number) => (a < -PI ? a + TWO_PI : a > PI ? a - TWO_PI : a);
+export const wrapPi = (a: number) => (a < -PI ? fr(a + TWO_PI) : a > PI ? fr(a - TWO_PI) : a);
 /** __ftol: truncation */
 export const ftol = (x: number) => Math.trunc(x);
 /** float32 rounding (the original keeps node state in floats) */
 export const f32 = Math.fround;
+const fr = Math.fround;
 
 // ------------------------------------------------------------------------------------------------ rand
 
-let source: () => number = Math.random;
-/** tests: a deterministic source in [0, 1) (null = Math.random) */
-export function setAmbientRandom(f: (() => number) | null) { source = f ?? Math.random; }
-/** FUN_004388ae(max): `rand() / 32767 * max` (0 for max <= 0) */
-export function rand(max: number): number {
-  if (max <= 0) return 0;
-  return (Math.floor(source() * 32768) / 32767) * max;
-}
+/** tests: a deterministic source in [0, 1) (null = Math.random): the island's one source (src/island/rng.ts) */
+export const setAmbientRandom = setIslandRandom;
+/** FUN_004388ae(max): `(float)rand() / 32767 * max` in float32 (0 for max <= 0, no draw) */
+export { rand };
 
 // ------------------------------------------------------------------------------------------------ the frustum flag
 
@@ -150,7 +148,7 @@ export function ensureAnim(w: World, rec: GameRecord): AnimInstance | null {
   if (rec.anim) return rec.anim;
   const c = tryCtx(w);
   if (!c) return null;
-  const name = islandRigs(c.pe).get(rec.index);
+  const name = c.rigOf ? c.rigOf(rec.index) : islandRigs(c.pe).get(rec.index);   // M5: a hub context knows its loader's rigs from the emulation
   if (!name) return null;
   let rigs = w.ext.get(blkKey) as Map<string, Blk | null> | undefined;
   if (!rigs) { rigs = new Map(); w.ext.set(blkKey, rigs); }

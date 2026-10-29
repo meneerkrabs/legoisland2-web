@@ -240,7 +240,8 @@ export class CentrifugeSim {
           const p = this.power;
           let next: number;
           if (p >= 0.125) next = p >= 0.5 ? (p >= 0.75 ? 5 : 3) : 1; else next = 0;
-          if (next + 1 !== m.cur) { m.next = next; this.monSet(next, 1); }
+          m.next = next;                                   // +0x13c is written whether or not the range changes (M5 audit, oracle test)
+          if (next + 1 !== m.cur) this.monSet(next, 1);
           break;
         }
         case 1: case 3: case 5: this.monSet(m.next, 1); break;

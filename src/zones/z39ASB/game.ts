@@ -4,10 +4,12 @@
 import { NODE_NONE, NODE_STOP } from '../../game/controller.ts';
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
+import { debugAids } from '../../game/debug.ts';
 import type { World } from '../../game/world.ts';
 import { MODE } from '../../shell/loopmachine.ts';
 import type { ZoneGame, ZoneGameCtx } from '../../shell/zonegame.ts';
 import type { Medal } from '../../shell/helpscreen.ts';
+import { GATE_ON, ZoneParticles } from '../../fx/particles/zone.ts';
 import { AsteroidBelt, MsvcRand, VAR, medalIndex } from './belt.ts';
 import type { BeltEvent } from './belt.ts';
 import { Backdrop } from './backdrop.ts';
@@ -21,6 +23,9 @@ export const ASB_FOV = Math.fround(0.3);
 /** FUN_007b7281: "\data\messages\OG\Data\asb.str" is the zone's message table; the speech ids of FUN_007b63f6 / FUN_007b7f68 / FUN_007b61a4 */
 export const SAY = { INTRO: 'OGSGAB13', HIT: ['OGSGAB06', 'OGSGAB07'], FAIL: 'OGSGAB04', BY_MEDAL: ['OGSGAB03', 'OGSGAB02', 'OGSGAB01'] } as const;
 
+/** FUN_007b780c: the exhaust emitters' offsets on SHUT (0x40828f5c / 0x3fb851ec / 0x3fd33333, float32) */
+export const ASB_EXHAUST: readonly (readonly [number, number, number])[] = [[0, Math.fround(4.08), 0], [Math.fround(1.44), Math.fround(1.65), 0], [-Math.fround(1.44), Math.fround(1.65), 0]];
+
 /** the shuttle behaviour node: its update is FUN_007b82dd; the belt is created by the zone game (the node exists from the set-up, before the game) */
 export class ShuttleNode implements BehaviourNode {
   readonly kind = 'Shuttle';
@@ -30,13 +35,13 @@ export class ShuttleNode implements BehaviourNode {
   ran = 0;
   update(w: World, _rec: GameRecord, _ctrl: Controller): number {
     if (!this.belt) return NODE_NONE;
-    this.belt.update({ held: w.input.held });
+    this.belt.update({ held: w.input.held }, w.dt);
     this.ran++;
     return NODE_STOP;
   }
 }
 
-export function createAsbGame(ctx: ZoneGameCtx): ZoneGame {
+export async function createAsbGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   const { world, gr } = ctx;
   const recs = world.records;
   const shut = recs.find((r) => r.name === 'SHUT');
@@ -56,8 +61,17 @@ export function createAsbGame(ctx: ZoneGameCtx): ZoneGame {
   const belt = new AsteroidBelt({ shut, hull, asteroids }, world.camera.c, new MsvcRand(), ctx.vars, onEvent);
   world.camera.updateView();
   world.camera.savePrev();
+  // FUN_007b780c (first call, DAT_008adc74 == -1): three `rocket01.par` on the SHUT record (record 1, 0x74) at (0, 4.08, 0) / (1.44, 1.65, 0) / (-1.44, 1.65, 0), no rotation, gate (2, 1, 1) = on
+  const fxz = await ZoneParticles.create(ctx);
+  if (fxz) {
+    const hs = ASB_EXHAUST.map((p) => fxz.start('rocket01.par', shut.m, p, [0, 0, 0], GATE_ON));
+    fxz.finish();
+    belt.fxGate = (on) => { for (const h of hs) { if (on) fxz.on(h); else fxz.off(h); } };
+  }
   const node = shut.ctrl?.find<ShuttleNode>('Shuttle') ?? null;
   if (node) node.belt = belt;
+  // FUN_007b63f6 runs ONE update of the shuttle node before the loop (FUN_0042226e(records + 0x68, 1) after the set-up): the first tick of the state machine happens before mode 7
+  if (node) { belt.update({ held: 0 }, world.dt); node.ran++; }
   // the star field: SKY_ record = background.Msh, texture list of its model
   const sky = recs.find((r) => r.name === 'SKY_');
   const texList = sky?.model?.parts?.[0] ? ctx.scene.texLists[sky.model.parts[0].texList] : null;
@@ -71,7 +85,7 @@ export function createAsbGame(ctx: ZoneGameCtx): ZoneGame {
   // test aids like the stub runner's: F9 finishes the course (success path), F10 empties the hull (failure path); both act on the next tick while flying
   let aid: 0 | 1 | 2 = 0;
   const onKey = (e: KeyboardEvent) => { if (e.code === 'F9') { aid = 1; e.preventDefault(); } else if (e.code === 'F10') { aid = 2; e.preventDefault(); } };
-  if (typeof addEventListener === 'function') addEventListener('keydown', onKey);
+  if (typeof addEventListener === 'function' && debugAids()) addEventListener('keydown', onKey);   // only with the debug option: the original has no such keys
 
   const game: ZoneGame & { belt: AsteroidBelt; node: ShuttleNode | null; sound: BeltSound } = {
     belt, node, sound,
@@ -79,9 +93,9 @@ export function createAsbGame(ctx: ZoneGameCtx): ZoneGame {
     helpControls: 4,
     update() {
       // without the attach (a world built without the extraction) the game drives the shuttle itself
-      if (!node) belt.update({ held: world.input.held });
+      if (!node) belt.update({ held: world.input.held }, world.dt);
       if (aid && belt.aid(aid)) aid = 0;
-      sound.tick(belt.state, belt.engine);
+      sound.tick(belt.stateIn, belt.engine);
       return belt.result;
     },
     beforeRender() { sound.frame(world.camera.c); },

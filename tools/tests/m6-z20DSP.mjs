@@ -119,7 +119,7 @@ export default {
         // the argument blocks of FUN_006be930 (stores into DAT_05d5c140.. / 180.. / 198 / 1a0)
         const setup = dwordSet(0x6be930, 0xd10);
         for (const u of [0x42a00000, 0x4099999a, 0x43400000, 0x41c00000, 0x3c8efa03, 0xc1a00000, 0x41400000, 0x41e00000, 0x41a00000, 0xc1400000, 0x3dd67704, 0x40490fdb, 0x42c80000]) ok(setup.has(u), `FUN_006be930 stores ${hex(u)} (${u32f(u)})`);
-        ok(ROCK.ROLL === 80 && ROCK.STAND === 4.8 && ROCK.TRIGGER === 192, 'ROCK constants');
+        ok(ROCK.ROLL === 80 && ROCK.STAND === Math.fround(4.8) && ROCK.TRIGGER === 192, 'ROCK constants');
         ok(SAUCER_ARGS[29].ax === -20 && SAUCER_ARGS[29].az === 12 && SAUCER_ARGS[27].sound === 1 && SAUCER_ARGS[28].ax === 20 && SAUCER_ARGS[28].az === -12 && near(SAUCER_ARGS[27].speed, u32f(0x3dd67704), 1e-6), 'saucer argument blocks');
       }
 
@@ -138,30 +138,34 @@ export default {
         for (let i = 0; i < pts.length; i++) cpu.mem.wf32(P + i * 4, pts[i]);
         cpu.mem.w32(A, 0x892268); cpu.mem.w32(A + 8, n); cpu.mem.w32(A + 0x14, n); cpu.mem.w32(A + 0x18, P);   // vtable of the type-0 curve, count, points
         cpu.hooks.set(0x433d38, (c) => { c.eax = TBL; return 0; });                                              // SDMem2 alloc: the sample table
+        cpu.cw = 0x7f;       // Direct3D 7 leaves the x87 in 24-bit precision (docs/re/engine-m1.md 8.1): every operation rounds to a float; the original is run in that mode and compared bit for bit
         cpu.regs[1] = A; cpu.call(0x447280, []);
-        let maxPos = 0, maxT = 0, maxR = 0, maxU = 0, maxN = 0, maxPlane = 0;
-        for (let k = 0; k < 300; k++) {
-          const t = (k / 299) * 0.999 + 0.0001;
+        const BIG = { maxSteps: 4e9 };
+        let bad = 0, cmp = 0;
+        const eq = (what, a, b) => { cmp++; if (!(a === b || (Number.isNaN(a) && Number.isNaN(b)))) { if (bad++ < 8) failures.push(`spline ${what}: original ${a} port ${b}`); } };
+        let maxN = 0;
+        for (let k = 0; k < 2400; k++) {
+          const t = (k / 2399) * 1.0;                      // 0 .. 1 (the original clamps the point indices at both ends)
           cpu.regs[1] = A; cpu.call(0x446fd0, [OUT, f2u(t)]);
           const q = sp.position(t);
-          for (let i = 0; i < 3; i++) maxPos = Math.max(maxPos, Math.abs(cpu.mem.f32(OUT + i * 4) - q[i]));
+          for (let i = 0; i < 3; i++) eq(`position[${i}] t=${t}`, cpu.mem.f32(OUT + i * 4), q[i]);
           cpu.regs[1] = A; cpu.call(0x4466f0, [OUT, f2u(t)]);
           const fr = sp.frame(t);
-          for (let i = 0; i < 3; i++) { maxR = Math.max(maxR, Math.abs(cpu.mem.f32(OUT + i * 4) - fr.r[i])); maxU = Math.max(maxU, Math.abs(cpu.mem.f32(OUT + 16 + i * 4) - fr.u[i])); maxT = Math.max(maxT, Math.abs(cpu.mem.f32(OUT + 32 + i * 4) - fr.t[i])); }
-          const base = sp.position(t), qpos = [base[0] + 3 * Math.sin(k), base[1] + 2, base[2] + 3 * Math.cos(k)];
+          for (let i = 0; i < 3; i++) { eq(`frame r[${i}] t=${t}`, cpu.mem.f32(OUT + i * 4), fr.r[i]); eq(`frame u[${i}] t=${t}`, cpu.mem.f32(OUT + 16 + i * 4), fr.u[i]); eq(`frame t[${i}] t=${t}`, cpu.mem.f32(OUT + 32 + i * 4), fr.t[i]); eq(`frame p[${i}] t=${t}`, cpu.mem.f32(OUT + 48 + i * 4), fr.p[i]); }
+          cpu.regs[1] = A; cpu.call(0x446af0, [OUT, OUT2, f2u(t)]);
+          const f2 = sp.frame(t, true);
+          for (let i = 0; i < 3; i++) { eq(`frame2 r[${i}] t=${t}`, cpu.mem.f32(OUT + i * 4), f2.r[i]); eq(`frame2 u[${i}] t=${t}`, cpu.mem.f32(OUT + 16 + i * 4), f2.u[i]); eq(`frame2 t[${i}] t=${t}`, cpu.mem.f32(OUT + 32 + i * 4), f2.t[i]); eq(`frame2 p[${i}] t=${t}`, cpu.mem.f32(OUT + 48 + i * 4), f2.p[i]); eq(`frame2 d2[${i}] t=${t}`, cpu.mem.f32(OUT2 + i * 4), f2.d2[i]); }
+          const base = sp.position(t), qpos = [base[0] + 3 * Math.sin(k), base[1] + 2, base[2] + 3 * Math.cos(k)].map(Math.fround);
           for (let i = 0; i < 3; i++) cpu.mem.wf32(POS + i * 4, qpos[i]);
-          cpu.regs[1] = A; cpu.call(0x447550, [POS]);
-          maxN = Math.max(maxN, Math.abs(cpu.mem.f32(A + 0x1c) - sp.nearest(qpos)));
+          if (k % 3 !== 0) continue;
+          cpu.regs[1] = A; cpu.call(0x447550, [POS], BIG);
+          eq(`nearest t=${t}`, cpu.mem.f32(A + 0x1c), sp.nearest(qpos));
+          eq(`nearest state a`, cpu.mem.u32(A + 0x28), sp.nearA); eq(`nearest state b`, cpu.mem.u32(A + 0x2c), sp.nearB); eq(`nearest end flag`, cpu.mem.u32(A + 0x24), sp.nearEnd ? 1 : 0);
         }
-        for (let i = 0; i < n; i += 7) for (let c = 0; c < 4; c++) { const a = cpu.mem.f32(TBL + i * 16 + c * 4), b = sp.planes[i * 4 + c]; maxPlane = Math.max(maxPlane, Math.abs(a - b) / (1 + Math.abs(b))); }
-        ok(maxPos < 0.01 && maxR < 1e-4 && maxU < 1e-4 && maxT < 1e-4, `spline position / frame vs FUN_00446fd0 / 004466f0: ${maxPos} ${maxR} ${maxU} ${maxT}`);
-        ok(maxN < 1e-5 && maxPlane < 1e-5, `nearest (FUN_00447550) and the tangent table (FUN_00447280): ${maxN} ${maxPlane}`);
-        // mode 2: the frame and the second derivative direction at the finish parameter FUN_006c2253 uses
-        cpu.regs[1] = A; cpu.call(0x446af0, [OUT, OUT2, f2u(0.9575)]);
-        const f2 = sp.frame(0.9575, true);
-        ok(near(cpu.mem.f32(OUT + 0x30), f2.p[0], 0.01) && near(cpu.mem.f32(OUT + 0x38), f2.p[2], 0.01), 'frame mode 2: position');
-        const dd = [0, 1, 2].map((i) => cpu.mem.f32(OUT2 + i * 4));
-        ok(Math.hypot(dd[0] - f2.d2[0], dd[2] - f2.d2[2]) < 0.1 || Math.hypot(dd[0] + f2.d2[0], dd[2] + f2.d2[2]) < 0.1, `second derivative direction ${dd.map((v) => v.toFixed(3))} vs ${f2.d2.map((v) => v.toFixed(3))}`);
+        for (let i = 0; i < n; i++) for (let c = 0; c < 4; c++) eq(`plane ${i}.${c}`, cpu.mem.f32(TBL + i * 16 + c * 4), sp.planes[i * 4 + c]);
+        ok(bad === 0, `spline (position, frame, frame + second derivative, nearest, the tangent table) against FUN_00446fd0 / 004466f0 / 00446af0 / 00447550 / 00447280 at cw 0x7f: ${bad} differences in ${cmp} floats`);
+        checked += cmp;
+        const maxPos = 0, maxR = 0, maxU = 0, maxT = 0;
         // ends and clamps
         ok(sp.nearest([pts[0], pts[1], pts[2]]) < 0.002 && sp.nearest([pts[3 * 898], pts[3 * 898 + 1], pts[3 * 898 + 2]]) > 0.99, 'nearest at both ends');
         ok(sp.n === 899 && sp.planes.length === 899 * 4, 'table size');
@@ -351,7 +355,7 @@ export default {
         const t0 = node.turboTimer;
         g.tick(30); ok(node.turbo === 1 && node.turboTimer > t0, 'turbo runs');
         g.tick(40);
-        ok(node.turbo === 0 && w.vars.get(VAR.TURBO) === 0 && node.topSpeed === 0.45 && S.tintRight === 0x7f7f7f, 'turbo ends after 60 ticks: speeds restored, var 0xfa = 0');
+        ok(node.turbo === 0 && w.vars.get(VAR.TURBO) === 0 && node.topSpeed === Math.fround(0.45) && S.tintRight === 0x7f7f7f, 'turbo ends after 60 ticks: speeds restored, var 0xfa = 0');
         // a second brick while no turbo: speech only once per run
         const tb2 = R[REC.TURB[1]]; g.place(tb2.x, tb2.z - 12, 0);
         for (const r of R) if (r.colObj && r !== tb2 && r !== car && r.index > 3 && Math.hypot(r.x - tb2.x, r.z - tb2.z) < 30) r.flags &= ~2;

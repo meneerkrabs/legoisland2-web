@@ -33,7 +33,7 @@ export default async ({ page, shot, wait, log, key }) => {
   expect('entered at the story\'s sub-game (zone table index 21)', v0.sub === 21, JSON.stringify(v0));
   await wait(7000); await shot('w1-cutscene-a');
   await wait(9000); await shot('w1-cutscene-b');
-  for (let i = 0; i < 160 && (await dbg()).cutscene; i++) { await page.keyboard.down('ShiftLeft'); await wait(70); await page.keyboard.up('ShiftLeft'); await wait(70); }   // every press (edge) skips what the running commands wait for
+  for (let i = 0; i < 160 && (await dbg()).cutscene; i++) { await page.keyboard.down('ShiftLeft'); await wait(90); await page.keyboard.up('ShiftLeft'); await wait(450); }   // (the cutscene needs a few ticks to end after a skip: a second press in that window would also leave the brief)   // every press (edge) skips what the running commands wait for
   await wait(700);
   s = await dbg();
   expect('cutscene over, brief (mode 1)', !s.cutscene && s.mode === 1, JSON.stringify({ mode: s.mode }));

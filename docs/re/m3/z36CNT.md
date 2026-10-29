@@ -122,11 +122,17 @@ next = 4 at the start, next = 1 at the time-out. The start state is 7 with next 
 0: 0..0, 1: 0..9, 2: 10..40, 3: 40..51, 4: 51..67, 5: 67..87, 6: 87..98, 7: 98..98, 8: 100..110. Start: range 7 (frame 98; modes 0 / 1 also pin 98). A finished range 0 / 2 / 4 / 6 picks by power
 (< 0.125 -> 0; < 0.5 -> 1; < 0.75 -> 3; else 5; stays when `next + 1 == cur`), a finished range 1 / 3 / 5 continues with `cur + 1`, 7 / 8 never change by themselves (8 runs during the visor clip). The table is read from the executable at run time.
 
-## 8. Placement, motion blur, shadows (`pose.ts`, FUN_007b1a1b)
+## 8. Placement, motion blur, shadows (`pose.ts` `blurCopies`, `armShadows`; `z36CNT.ts` draw hook; FUN_007b1a1b)
 
-TRAI = `buildMatrix(0, -angle, 0, TRAI position)`. With `tilt = power * pi / 2` and `N = ftol(5 * power) + 1` copies: WEIG = (rotZ(-tilt) at its offset from TRAI) x arm, CHAI = (rotZ(+tilt) at its offset) x arm,
-PEPP = (translation (0, -3.2, 1.6)) x CHAI (`0xc04ccccd`, `0x3fcccccd`). Copy `j` (0 = real) uses the arm turned back by `j * 0.2 * power` and is drawn with alpha `70 - ftol(j * 60 / N)` (out of 255; 255 for j = 0) before the real parts.
-The hook also draws two blob shadows of type 2 (the plane silhouette of `Shadow.bob`) through the five points of `FUN_007afe61` (a trapezoid along +x at y 0.8: (1.6, .8, .8), (4, .8, 0), (1.6, .8, -.8), (8, .8, -1.6), (8, .8, 1.6)) transformed by the arm matrix, the second one turned by pi.
+The hook is the TRAI node's draw hook (TRAI = record 18: the draw pass calls it at TRAI's turn, after the records 0..17 and before PEPP). Its loop, instruction for instruction in 24-bit x87 (Direct3D leaves single precision, `src/zones/common/x87.ts`):
+`power` = the float at +0x114, `N0 = ftol(5 * power) + 1`, `a = (0.2 * power) * N0` (float), `tilt = power * 1.5707964`, `N = N0` (1 when `DAT_00987660` is set, but `a` keeps N0), alpha step `60 / N`. The working matrix starts as a copy of TRAI's record matrix (`FUN_0043a5e4(0, -angle, 0, position)`
+of `FUN_007b0c6e`), is turned about y by `a` (`FUN_0043ad29`) and then, before every draw `j = N - 1 .. 0`, by `-(a / N)`: copy j sits j steps back and the REAL copy (j = 0) carries the accumulated float noise. Per iteration: WEIG = (rotZ(-tilt) at its offset from TRAI) x working,
+CHAI = (rotZ(+tilt) at its offset) x working, PEPP = seat translation (0, -3.2, 1.6) x CHAI (all written into the records: the last iteration is what stays); `FUN_0043ebe0(model, 3, &alpha, 0)` sets the alpha of TRAI, CHAI, WEIG **and PEPP** (alpha 255 for j = 0, else `70 - ftol(j * (60 / N))`), then the draw of the three
+machine models only: `FUN_0043f1a0(model object, matrix, part 0, mode)` with mode 1 for j = 0 and **mode 7 (state preset 26, blended, no z test) for the copies**, in the order TRAI, CHAI, WEIG. **Pepper is not drawn by the hook** (only his alpha is set, to 255 by the last iteration): he gets no blur copies and no attachment copies; he is
+drawn as an ordinary record (after TRAI). TRAI / CHAI / WEIG have flags 0 (`FUN_007afbc0`), so they are drawn only here. After the loop the hook draws the two blob shadows of the arm: the five points of `FUN_007afe61` (a trapezoid along +x at y 0.8: (4, .8, 0), (1.6, .8, .8), (1.6, .8, -.8), (8, .8, -1.6), (8, .8, 1.6) in the order of the table at 0x9442b0)
+transformed by the real copy's arm matrix (`FUN_0043ab72`), the second one with the matrix turned by pi, through `FUN_0087dd20(shadow, 2, points)` + `FUN_0043f1a0(shadow, ..., mode 0)` (shadow mode 0; the port used mode 2 before WP-MINI).
+Port: `GameRenderer.drawPart0(record, matrix, alpha | null)` (LOD part 0 at a matrix, mode 1 / preset 26 + alpha, no culling) and the now public `drawShadowPoints`; the TRAI node's `draw` hook calls them in the original's order and the three records stay disabled. The angle / power are interpolated by the render fraction (display only; at 1 the numbers are the original's).
+Verified bit for bit (`m5-audit-z36CNT-emu`, section "placement"): the original hook runs in the x86 interpreter at cw 0x7f with its draw calls recorded; for 120 random angle / power pairs (power 0, 0.2, 1 included) every loop iteration's model order, matrix (16 float bit patterns), mode and alpha, the CHAI / WEIG / PEPP records and the two shadow polygons equal the port's (0 differences).
 
 ## 9. Sounds and speech
 
@@ -162,10 +168,9 @@ gold `LESGCE02` y 200 + `LESGCE03` y 380. The medal shown is the flag + the scor
 
 ## 12. Port notes, differences, open points
 
-* **Not ported / approximated**: the motion-blur copies are drawn right after their record with the unlit alpha preset 13 and z test (the original draws mode 7 = preset 26 without z); only the four records of the machine blur (like the original) but the
-  copies of Pepper also get his attachments. The arm shadows use the generic shadow mesh and ray-less points (the original's polygon call `FUN_0087dd20` is identified as the 5-point blob-shadow drawer by its geometry, not by disassembling it). `DAT_00987660` (the "one copy" switch of the blur) is the port's `camera.vehicle`, false here.
-* TRAI / CHAI / WEIG are hidden by the set-up (flags 0) and drawn by the hook in the original; the port enables them and places them as ordinary records (the real copy is the `j = 0` draw). The player record's walk chain that `setupZone` adds as a stub is removed; the blob shadow
-  of Pepper is switched off with `PEPPERSSHADOW` (var 0xc5 = -1, restored on exit); the fixed camera and the 0.6 rad field of view are set in the zone game (`gr.fov`).
+* **Closed (WP-MINI)**: the motion-blur copies (mode 7 = preset 26 without z, drawn in the hook in the original's order, only TRAI / CHAI / WEIG: Pepper has no copies), the arm shadows (the points go through the original's matrix code, shadow mode 0) and the placement in 24-bit x87 (bit exact, see section 8).
+  TRAI / CHAI / WEIG stay hidden (flags 0) and are drawn only by the hook, as in the original. `DAT_00987660` (the "one copy" switch) is the port's `camera.vehicle`, false here. Not exact: the arm angle / power of a DRAWN frame are interpolated between two ticks (the original draws once per update); the sound is verified by ear only in the muted run.
+* The player record's walk chain that `setupZone` adds as a stub is removed; the blob shadow of Pepper is switched off with `PEPPERSSHADOW` (var 0xc5 = -1, restored on exit); the fixed camera and the 0.6 rad field of view are set in the zone game (`gr.fov`). The visor matrix is `FUN_0043a5e4` (24-bit, `euler24`).
 * The visor's attachment matrix reaches the renderer through `GameRenderer.attachLocal` (slot 5 of Pepper's model); the angle follows the original's counter (0.1 per tick for 9 ticks).
 * Verified only in the muted browser: the sound calls themselves are checked in the node test at the sim level (ids, order, pitch), not by listening.
 * The values `DAT_05d5d474` (streak), `DAT_05d5d47c` (bonus hits) are written but never read in the EXE; the zone has no use for `+0xec` (90.0).
@@ -187,6 +192,11 @@ gold `LESGCE02` y 200 + `LESGCE03` y 380. The medal shown is the flag + the scor
 
 ## Changes to shared files
 
-* `src/game/render.ts`: `GameRenderer.attachLocal` (local transform of an attachment slot), `GameRenderer.ghosts` (translucent copies drawn after their record), `GameRenderer.extraShadows` (blob shadows on given points); `Attach.slot`.
+* `src/game/render.ts`: `GameRenderer.attachLocal` (local transform of an attachment slot); `Attach.slot`. WP-MINI: `GameRenderer.drawPart0` (the direct draw of a node draw hook: LOD part 0 of a record at a matrix, mode 1, or mode 7 = preset 26 with an alpha) and `drawShadowPoints` made public; the M3 fields `ghosts` / `extraShadows` (copies drawn after their record, shadows after all records) are gone: the draw hook of the TRAI node draws copies and shadows at its turn.
+* `src/game/controller.ts` (WP-MINI, with z03PPH): `updatePass` runs the exclusive node / return code 3 like `FUN_0042226e` (see z03PPH.md section 8).
 * `src/shell/hud.ts`: `Hud.gauge` (`HudGauge`, `FUN_00460214`).
 * (`src/render/renderer.ts` already had `setTextureFrame` from another worker; my duplicate was removed.)
+
+## WP-PART-WIRE (2026-10-29): particles
+
+`FUN_007af0d2` creates the engine `FUN_00442900("z36cnt")` and the loop updates it (`FUN_00442930`), but the zone never starts an effect (the archive has no `Particle/` folder). Nothing to wire. Closed. (`rand` default: the C runtime generator, `// RNG:`.)

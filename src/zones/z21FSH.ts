@@ -8,12 +8,16 @@ import type { Ui2D } from '../ui/renderer2d.ts';
 import type { SoundSlot } from '../audio/sfx.ts';
 import { GameRecord } from '../game/record.ts';
 import type { World } from '../game/world.ts';
-import { checkRecords, REC, ST, K, SOUNDS_2D, SOUNDS_3D } from './z21fsh/rules.ts';
+import { checkRecords, REC, ST, K, SOUNDS_2D, SOUNDS_3D, randF } from './z21fsh/rules.ts';
 import { prepareFsh, dropShared } from './z21fsh/nodes.ts';
 import type { FshEnv, FshShared } from './z21fsh/nodes.ts';
 import './z21fsh/nodes.ts';
 import { MODE } from '../shell/loopmachine.ts';
 import { waypoints } from '../game/walker.ts';
+import { ZoneParticles, GATE_OFF } from '../fx/particles/zone.ts';
+import { euler24 } from './common/x87.ts';
+import { installCtx } from '../island/ctx.ts';
+import { makeFshCtx } from './z21fsh/ctx.ts';
 
 /** HUD texture indices of Overlays/Z21FSH (FUN_00705b60): left icon 4 (casts left), right icon 5 (fish caught), the gauge's segments 1 / 2 / 3, markers 6 (cast power) / 7 (tension) */
 const HUD_TEX = { CASTS: 4, FISH: 5, MARKER_POWER: 6, MARKER_TENSION: 7 } as const;
@@ -96,12 +100,28 @@ registerZoneGame('z21FSH', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
       const key = on ? 'Z21Jaws' : 'Z21FSH';
       ga.music.load(key).then((h) => { if (h) ga.music.play(h); }).catch(() => { /* silent */ });
     },
-    splash: () => { /* splash01.par: the particle runtime is not ported; the ring (SPLH) is drawn */ },
+    splash: () => { /* replaced below when the zone has particle data */ },
   };
   S.env = env;
 
+  // ---- the particle emitter of the Fishing node's constructor (FUN_006f8e5a): `splash01.par` on the LAND record's matrix (record 4, +0x1ac of the record array), offset 0, rotation (-pi/2, 0, 0), gate off;
+  //      FUN_0044e8d0 after it. The cast landing (state 7, sub 3) sets the private matrix DAT_05d5caf0 = (identity, bobber x, ty, bobber z) and turns it on, the reeling (state 8 -> 9) off.
+  const fx = await ZoneParticles.create(ctx);
+  if (fx) {
+    const splashMatrix = new Float32Array(16);      // DAT_05d5caf0 (zeroed static memory until the first landing)
+    const h = fx.start('splash01.par', world.records[REC.LAND].m, [0, 0, 0], [-1.5707964, 0, 0], GATE_OFF);
+    fx.finish();
+    env.splash = (x, y, z, on = true) => {
+      if (on) { euler24(0, 0, 0, x, y, z, splashMatrix); fx.setMatrix(h, splashMatrix); fx.on(h); }
+      else fx.off(h);
+    };
+  }
+
   // ---- the fishing line (FUN_004445e0): after the records
   ctx.gr.effects = (r) => { const l = S.line; if (l) r.drawLine(l.a, l.b, [1, 1, 1, 1]); };
+
+  // ---- the engine services of the fisherman's talking node (SGMFIG: the lines FSHMA / FSHMC of fsh.str, the speech player, the cutscene override flag)
+  installCtx(world, makeFshCtx(ctx, fx));
 
   // ---- the way-point map of the zone (FUN_004630c0(1, "W_PATH")); the fisherman's generic node creates its walker in its first update, the port does that now so that the opening
   //      cutscene's actors have theirs (the original's constructors ran inside the set-up)
@@ -131,7 +151,7 @@ registerZoneGame('z21FSH', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
     hud.rightText = `x${F.count}`;
     hud.centreText = String(F.shown);
     if (F.shown < F.total) {
-      F.shown = Math.trunc(F.shown + S.rng.next() * K.SCORE_STEP);
+      F.shown = Math.trunc(Math.fround(F.shown + randF(S.rng, K.SCORE_STEP)));      // FUN_004388ae(20), fild + fadd (24-bit: rounded), __ftol
       if (F.total < F.shown) F.shown = F.total;
     }
     if (st === ST.FIGHT || st === ST.CAST) {
@@ -159,7 +179,7 @@ registerZoneGame('z21FSH', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
       if (mode !== MODE.PLAY && mode !== MODE.PAUSE) return;
       if (F.state === ST.SCORE) drawScorePanel(ctx, ui, F.total);
       else if (!ctx.cutscene.active()) {
-        for (const p of S.popups.shown()) {
+        for (const p of S.popups.drawn) {
           if (p.text !== null) ui.text(1, p.text, p.x, p.y, { colour: 0, maxChars: 0x24 });
           else ctx.text(ui, p.id, p.x, p.y, { maxChars: 0x24 });
         }

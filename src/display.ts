@@ -4,10 +4,12 @@
 //              the 2D layer (menus, intro / help screens, movies) stays a centred 4:3 area and the HUD icons anchor to the screen corners (docs/re/widescreen.md).
 //   skipIntro  skip the start-up movies (the LI2 Mod Manager's "No Intro Videos")
 //   debugMenu  the original's story-checkpoint list in the front end's main menu in place of "Credits" (the Mod Manager's "Debug Mode"), docs/re/mods.md
-// URL parameters override them for one session: `?wide=1|0`, `?intro=0`, `?debug=1`.
+//   restored   the optional mode "Herstelde inhoud" (restored content, docs/re/restore-plan.md; default OFF: with it off the game is exactly the original)
+//   restoredOff the individual restored features (src/restore/flag.ts `RESTORE_FEATURES`) the player switched off again; all on by default
+// URL parameters override them for one session: `?wide=1|0`, `?intro=0`, `?debug=1`, `?restored=1|0`, `?restoredoff=a,b`.
 
 export type DisplayMode = '4:3' | 'wide';
-export interface Prefs { mode: DisplayMode; skipIntro: boolean; debugMenu: boolean }
+export interface Prefs { mode: DisplayMode; skipIntro: boolean; debugMenu: boolean; restored: boolean; restoredOff: string[] }
 const KEY = 'le2-display';
 
 export const ASPECT_ORIGINAL = 4 / 3;
@@ -19,8 +21,8 @@ function storage(): Storage | null {
 export function storedPrefs(): Prefs {
   try {
     const v = JSON.parse(storage()?.getItem(KEY) ?? 'null') as Partial<Prefs> | null;
-    return { mode: v?.mode === 'wide' ? 'wide' : '4:3', skipIntro: v?.skipIntro === true, debugMenu: v?.debugMenu === true };
-  } catch { return { mode: '4:3', skipIntro: false, debugMenu: false }; }
+    return { mode: v?.mode === 'wide' ? 'wide' : '4:3', skipIntro: v?.skipIntro === true, debugMenu: v?.debugMenu === true, restored: v?.restored === true, restoredOff: Array.isArray(v?.restoredOff) ? v.restoredOff.filter((x) => typeof x === 'string') : [] };
+  } catch { return { mode: '4:3', skipIntro: false, debugMenu: false, restored: false, restoredOff: [] }; }
 }
 
 export function storePrefs(p: Partial<Prefs>) {
@@ -34,6 +36,10 @@ export function currentPrefs(search = globalThis.location?.search ?? ''): Prefs 
   if (w === '1' || w === 'wide') p.mode = 'wide'; else if (w === '0' || w === '4:3') p.mode = '4:3';
   if (q.get('intro') === '0') p.skipIntro = true;
   if (q.get('debug') === '1') p.debugMenu = true;
+  const r = q.get('restored');
+  if (r === '1') p.restored = true; else if (r === '0') p.restored = false;
+  const ro = q.get('restoredoff');
+  if (ro !== null) p.restoredOff = ro.split(',').filter((x) => x !== '');
   return p;
 }
 

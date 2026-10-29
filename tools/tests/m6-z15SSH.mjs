@@ -93,7 +93,7 @@ export default {
         ok([0, 1, 3, 4, 5].every((v) => stores.has(v)) && !stores.has(2), `results stored by FUN_00658c16: ${[...stores]}`);
         ok(pf32(0x892748) === 7000 && K.END_Z === 7000, 'the ride ends at z = 7000 (_DAT_00892748)');
         ok(near(pf32(0x892584), K.AIM_STEP, 1e-7) && near(pf32(0x892534), K.WHEEL_K, 1e-7) && near(pf32(0x8922cc), K.ACCEL, 1e-7), 'aim step 0.0349 / wheel 0.0524 / accel 0.005 in .rdata');
-        ok(pf32(0x892090) === 8 && near(pf32(0x8920f0), 0.2, 1e-6) && near(K.MOVE_K, 1.6, 1e-5), 'movement factor 8 * 0.2');
+        ok(pf32(0x892090) === 8 && near(pf32(0x8920f0), 0.2, 1e-6) && pf32(0x8920f0) === K.POINT_TWO, 'movement factor 8 * 0.2');
         ok(pf32(0x892074) === 15 && near(pf32(0x892084), 0.8, 1e-6) && pf32(0x91c728) === 16 && pf32(0x91c72c) === 32 && pf32(0x91c730) === 5, 'ground probe 15 / 0.8, camera 16 / 32 / 5');
         ok(pf32(0x89228c) === 6 && pf32(0x89257c) === 18, 'camera lift 6.0, flinch frame 18');
         ok(near(pf64(0x892770), 0.6, 1e-9) && near(pf64(0x892778), -0.6, 1e-9), 'flinch threshold +-0.6 (doubles)');
@@ -155,7 +155,7 @@ export default {
       // ============================================================ the path code against the original's own code (x86 emulator)
       {
         const sp = PathSpline.fromMan(arch.read(arch.find('matanim/CARBUT.man')));
-        const cpu = createCpu(pe);
+        const cpu = createCpu(pe); cpu.cw = 0x7f;      // the original runs the x87 in 24-bit precision
         const HEAP = 0x30000000;
         cpu.mem.addRegion({ lo: HEAP, hi: HEAP + 0x400000, name: 'heap' });
         let bump = HEAP + 0x1000;
@@ -169,7 +169,7 @@ export default {
         const table = cpu.mem.u32(obj + 4);
         let dt = 0;
         for (let i = 0; i < N; i += 29) for (let k = 0; k < 4; k++) { const e = cpu.mem.f32(table + i * 16 + k * 4); dt = Math.max(dt, Math.abs(e - sp.table[i * 4 + k]) / (1 + Math.abs(e))); }
-        ok(dt < 1e-5, `the plane table equals FUN_00447280's (max relative difference ${dt})`);
+        ok(dt === 0, `the plane table equals FUN_00447280's (max relative difference ${dt})`);
         const out = alloc(0x40);
         let de = 0;
         for (const t of [0, 0.001, 0.02, 0.1234, 0.3333, 0.5, 0.7771, 0.9, 0.999]) {
@@ -181,7 +181,7 @@ export default {
           const d = (x, y) => Math.max(...x.map((v, i) => Math.abs(v - y[i]) / (1 + Math.abs(v))));
           de = Math.max(de, d(E(0x30), f.pos), d(E(0x20), f.fwd), d(E(0), f.right), d(E(0x10), f.up));
         }
-        ok(de < 1e-5, `the curve frame (position, forward, right, up) equals vtable[1] 0x4466f0 (max relative difference ${de})`);
+        ok(de === 0, `the curve frame (position, forward, right, up) equals vtable[1] 0x4466f0 (max relative difference ${de})`);
         let dp = 0, flags = 0;
         for (const p of [[-11, 100, -355], [-60, 90, -190], [-100, 70, 60], [-90, 18, 3900], [-120, -9, 7000], [-140, -12, 8200], [3, 95, -2000], [50, 50, 9000]]) {
           const pp = alloc(12); cpu.mem.wf32(pp, p[0]); cpu.mem.wf32(pp + 4, p[1]); cpu.mem.wf32(pp + 8, p[2]);
@@ -376,15 +376,18 @@ export default {
         ok(a >= 0 && t > 60 && t < 300, `a snake leaps after ${t + 41} ticks`);
         ok(cart.z - R[REC.SNAKE[a]].z < 24 + 2 && cart.z - R[REC.SNAKE[a]].z > 20, `it leaps when the buggy is within 24 (z gap ${(cart.z - R[REC.SNAKE[a]].z).toFixed(1)}, the buggy moved 1.5 since)`);
         ok(R[REC.SNAKE[a]].anim.clip === 2 && g.snd(SND.SNAKE_JUMP).length >= 1, 'attack clip and the jump sound');
-        // the leap homes onto the buggy: the distance falls quickly (dx / frame)
+        // the leap homes onto the buggy by (remaining distance) / ftol(42 - frame) per tick (WP-VERIFY: fsubr [0x89274c] at 0x657cad): slowly at first (the buggy drives away
+        // faster, 1.5 per tick), then it snaps onto the buggy (offset 0 / -2.4 / +2.4) in the last frames
         const d0 = Math.hypot(R[REC.SNAKE[a]].x - cart.x, R[REC.SNAKE[a]].z - cart.z);
         tick(12);
         const d1 = Math.hypot(R[REC.SNAKE[a]].x - cart.x, R[REC.SNAKE[a]].z - cart.z);
-        ok(d1 < d0 * 0.75 && d1 < 15, `the leaping snake closes in: ${d0.toFixed(1)} -> ${d1.toFixed(1)}`);
+        ok(d1 > d0 && d1 < 60, `the leaping snake falls behind at first: ${d0.toFixed(1)} -> ${d1.toFixed(1)}`);
+        let dmin = d1;
         // 45 frames later the gem is gone
         const gems0 = node.gems;
         let m = 0;
-        while (node.states[a] === SN.ATTACK && m++ < 60) tick(1);
+        while (node.states[a] === SN.ATTACK && m++ < 60) { tick(1); dmin = Math.min(dmin, Math.hypot(R[REC.SNAKE[a]].x - cart.x, R[REC.SNAKE[a]].z - cart.z)); }
+        ok(dmin <= 3, `... and lands on the buggy in the last frames (closest ${dmin.toFixed(2)})`);
         ok(m >= 28 && m <= 45, `the attack clip (45 frames) ends ${m + 13} ticks after the leap (frame advance 1 per tick)`);
         ok(node.gems === gems0 - 1 && node.hudGems === gems0 - 1 || node.gems < gems0, `a gem is stolen: ${gems0} -> ${node.gems}`);
         ok(node.states[a] === SN.IDLE && (R[REC.SNAKE[a]].flags & 2) === 0, 'the snake goes back to idle and hides');
@@ -596,13 +599,14 @@ export default {
         const { node, R, cart, S } = g;
         const bot = new SshBot();
         const n = run(g, () => bot.mask(node, cart, R, S.parts));
-        ok(node.result === RESULT.GOLD && node.gems === 20, `WIN (aiming bot): result ${node.result}, gems ${node.gems}, points ${node.score}, score ${node.finalScore}`);
-        ok(node.finalScore === Math.min(10000, 20 * 250 + node.score) && node.score % 50 === 0 && node.score >= 2000, `score ${node.finalScore} = 20 * 250 + ${node.score}`);
-        ok(isWin(node.result) && medalOfResult(node.result) === 3, 'gold');
+        // (the leap's real homing, WP-VERIFY: the bot no longer keeps all 20 gems; it wins a medal)
+        ok(isWin(node.result) && node.gems >= 12, `WIN (aiming bot): result ${node.result}, gems ${node.gems}, points ${node.score}, score ${node.finalScore}`);
+        ok(node.finalScore === Math.min(10000, node.gems * 250 + node.score) && node.score % 50 === 0 && node.score >= 2000, `score ${node.finalScore} = ${node.gems} * 250 + ${node.score}`);
+        ok(isWin(node.result) && medalOfResult(node.result) === finalScore(node.score, node.gems).result - 2, 'the medal follows the gems left');
         notes.push(`WIN (aiming bot): ${n} ticks, ${node.score / 50} hits, score ${node.finalScore}, result ${node.result}`);
         const v = new Map(); const vars = { get: (i) => v.get(i) ?? 0, set: (i, x) => v.set(i, x) };
         applyResult(vars, node.finalScore, node.result);
-        ok(v.get(0x4b) === node.finalScore && v.get(0x93) === 3, 'the variables of the win');
+        ok(v.get(0x4b) === node.finalScore && v.get(0x93) === medalOfResult(node.result), 'the variables of the win');
       }
       // a bot that only mashes Space (no aiming): still gold
       {
@@ -614,14 +618,17 @@ export default {
       // bronze / silver: the bot stops firing at some tick, the snakes steal the rest
       {
         const outs = {};
-        for (const [stop, want] of [[3500, RESULT.NO_GEMS], [4200, RESULT.BRONZE], [4600, RESULT.SILVER], [4800, RESULT.SILVER]]) {
+        let lastGems = -1;
+        for (const [stop, want] of [[3500, RESULT.NO_GEMS], [4200, RESULT.BRONZE], [4600, 0], [4800, 0]]) {
           const g = make({ coco: false });
           const bot = new SshBot();
           run(g, (i) => (i < stop ? bot.mask(g.node, g.cart, g.R, g.S.parts) : 0));
           const r = finalScore(g.node.score, g.node.gems);
           outs[stop] = [g.node.gems, g.node.result, g.node.finalScore];
           ok(g.node.result === r.result && g.node.finalScore === r.score, `the bot stops at ${stop}: gems ${g.node.gems}, result ${g.node.result}, score ${g.node.finalScore}`);
-          ok(g.node.result === want, `the bot stops at ${stop}: result ${g.node.result}, expected ${want} (gems ${g.node.gems})`);
+          if (want) ok(g.node.result === want, `the bot stops at ${stop}: result ${g.node.result}, expected ${want} (gems ${g.node.gems})`);
+          ok(g.node.gems >= lastGems, `the later the bot stops, the more gems are left (${g.node.gems} >= ${lastGems})`);
+          lastGems = g.node.gems;
           if (want === RESULT.NO_GEMS) ok(g.node.gems === 0 && !isWin(g.node.result), 'all gems stolen: lost');
           else ok(isWin(g.node.result) && g.node.finalScore > 2000, 'bronze / silver count as won');
         }

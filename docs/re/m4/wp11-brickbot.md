@@ -67,3 +67,30 @@ type 1, animation set 4 = no catch clips, lane 0.3), Human1 (random walk) last, 
 
 * Nothing to wire beyond the existing `startIslandNpcs(world)` (it now ends with `startBrickBots`). Optional ctx: `particles`, `expression`, `inFrustum`.
 * Pre-existing, not mine: `m4-wp3-npc` fails one check ("back to walking (PEPPER_CONTROL 0x1, mailbox 0x0)") with or without the bot nodes registered.
+
+## Differential test (WP-VERIFY M7b)
+
+`tools/tests/m7-isl-bb-*.mjs` (libs `tools/lib/m7-isl-bb-emu.mjs`, `m7-isl-bb-bunny.mjs`) run the original's BrickBot.c / botPConly.c code (ctors `0x531d45 / 0x5327b1 / 0x532acc / 0x533ba8 / 0x53de63`, update and
+pre-render hooks, SGMFIG / Human1 / MeetPepp / Turn2Pep C of the same chains, walker, animation, collision and the pizza nodes `0x42887c / 0x42900b / 0x429d1b` natively, x87 at 24 bit) next to `src/island/npc/brickbot.ts`
+on the port's island world, on top of the NPC oracle (`docs/re/m4/wp3-npc.md`, "Differential test (WP-VERIFY M7)"). Compared every tick: records (matrix, Euler, flags, clip / frame), controllers, every node block of the bots
+(follower history / clips / gag state, hit state, harass timer, hide state, botPConly), all 319 variables, sounds (incl. `sfx3d` Piza_Hit at the bot, Collect), speech, random draws. Tests (each < ~25 s CPU): `free` (node 7,
+dt 1 / 0.5, Pepper far and chasing, records out of view), `hit` (MOVE states 0x3000 / 0x1000000 / 0x11000 / 0x4000, dazed sequences, collect, shrink; dt 1 / 0.5), `gates` (bit combinations of the chains: harass hands
+leaders over), `pizza` (real throws via Space at bots and NPCs, the hand-over, `FUN_00429183 / 00429556 / 0042477f`), `pconly` (BBT5: run, fall, TBOB), `eras` (nodes 30 / 52 / 61: rosters, talks, era 3 wave gag and
+"no pizza hit"), `npc` (nodes 7 / 30: Human1 stop / wait, gate fuzz), `bunny` (RBT0-4 `0x4b2149`, ambient oracle: free, Shift pokes, five at once, out of view, three sessions). Buildings `0x535e80 / 0x5364a5` are covered
+by `m7-isl-veh-bldg*.mjs` (eras 0-3), `0x4b2d44` / `0x4b3a92` (Butterfly / Swift, not Bunny) by `m7-isl-veh-ambient` / `-swift`.
+
+Deviations found (port-owned `src/island/**`, not edited; neutralised in the harness, each with an evidence run that prints the first difference):
+* **BB1 (BrickBot.c hit gate)**: `FUN_005327b1` has four parameters and writes `+0xc = +0xe = 0` (asm `0x532817 / 0x532820`): the node runs every tick in all eras. The port keeps the attach's gate `MOVE & 0x1000` (eras 1 / 2), so a
+  forced hit (`0x1000000` alone) and the repeated "gone" writes of the original are ignored. Evidence: node 7, BBT2 MOVE = 0x1000000: t5 original clip 149 (0x95 BB_PIZZADAZED, count 4, flags 3), port still clip 280 (0x118 BB_RUN1, flags 67).
+* **BB2 (shrink)**: scale 0x3f666666, `-= 0.2f * dt` in float32 ends at <= 0 on step 9 at dt 0.5 (-1.5e-8), the port (doubles 0.9 / 0.2) on step 10 (+1.1e-16). Evidence: BBT4 collected at dt 0.5, original `+0x22 = -1` one tick earlier.
+  Fix: round scale and decrement with `Math.fround`.
+* **D8 (Human1 hop end)**: the hop arc ends at `_DAT_00892554` = 0x3fc90f94 (1.5707879) and is clamped to it; the port's `HOP_MAX` is 1.5707964 (pi / 2): `hopping` ends one tick later (BBR0 after BBT1 is hit, t74).
+* **D9 (Human1 hop step)**: `0x3e32b884` (0.174531996) * dt in float32: after nine descending steps hop = +1.2e-7 (the original ends on step 10 and restarts the walk clip there), the port's double 0.174532 ends on step 9 (clip 0x118
+  at t83 vs original 0x116). Both are visible as a one-tick shift of the walk clip / height after a hop.
+* **D10 (Bunny choose, `animals.ts` `choose` / `enter`)**: `FUN_004b17eb` returns the new state in eax except when the capped draw equals the current state (state 2, raw draw 3 -> 2): eax is -1 (17 of 60 draws from state 2) and
+  `FUN_004b1712 / 004b1647` match no case: no count, no steer, no clip restart, count stays -1 until the next loop. The port enters state 2 again (count = rand(5), steer, clip 2). Evidence: RBT0 t15, original matrix unrotated, port rotated.
+* Float noise, not a deviation: a hiding bot circles a PATH node (2.4 units) at |pos| ~ 190 (ulp 1.5e-5): the yaw drift of double vs float32 grows as a random walk; the harness re-syncs matrix / Euler of hide-node records before each tick
+  (`syncHideKin`, step results still compared at 1e-5).
+
+Wrong statements of this doc: the hit node's gate ("`MOVE & 0x1000` in eras 1 / 2, always in era 3" in the table above and in the follower text): the original always runs it (BB1). Everything else that was checkable
+(follower types in attach order incl. BBB0's int 0x40800000, the dead spin state 3, hit / collect rules, `0x53229e` outside the hit test, how = 1 / 2 / 3 / -1, botPConly) matches the original tick by tick.

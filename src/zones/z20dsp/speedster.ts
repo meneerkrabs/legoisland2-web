@@ -7,13 +7,14 @@ import { NODE_CONTINUE } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { AnimInstance } from '../../game/anim.ts';
-import { buildMatrix } from '../../formats/matrix.ts';
-import { mul } from '../../render/math.ts';
-import { DspShared, REC, SND, VAR, STATE, terrain } from './shared.ts';
+import { euler24, normalize24, cross24 } from '../common/x87.ts';
+import { mulGame } from '../../render/math.ts';
+import { DspShared, REC, SND, VAR, STATE, terrain, NO_GROUND } from './shared.ts';
 
 export const CTOR_SPEEDSTR = 0x6c6495;
 const f32 = Math.fround;
-const PI = 3.1415927410125732, TWO_PI = 6.2831854820251465;
+const F05 = f32(0.05), F08 = f32(0.8), F033 = f32(0.33), F16 = f32(1.6);
+const PI = 3.1415927410125732, TWO_PI = 6.2831854820251465;      // DAT_0089207c / DAT_00892094 (floats)
 
 /** the buttons of the loop (DAT_0098383c & 0xff): bit 1 LEFT, 2 RIGHT, 4 UP, 8 DOWN, 0x10 CTRL, 0x20 ALT, 0x40 SHIFT */
 export const BTN = { LEFT: 1, RIGHT: 2, UP: 4, DOWN: 8, CTRL: 0x10, ALT: 0x20, SHIFT: 0x40 } as const;
@@ -30,10 +31,10 @@ export const CLOCK_START = 150;
 export const K = {
   /** DAT_00892854 0.033: the force scale of one tick */ FORCE: 0.032999999821186066,
   /** 0x3f800000 + 0x3f800000: the force-to-speed constants of the ctor */
-  GRAVITY_Y: -0.0153125 /* DAT_0089285c */,
+  GRAVITY_Y: f32(-0.0153125) /* DAT_0089285c */,
   PHASE_TICKS: 30 /* +0xf0 (0x41f00000) */,
   WRONG_WAY_TICKS: 90 /* +0xe8 (0x42b40000) */,
-  WRONG_WAY_DOT: -0.33 /* DAT_00892834 */,
+  WRONG_WAY_DOT: f32(-0.33) /* DAT_00892834 */,
   FINISH_T: 0.938 /* double at 0x892840 */,
   START_T: 0.0275 /* double at 0x892848 */,
 } as const;
@@ -75,11 +76,11 @@ export class SpeedsterNode implements BehaviourNode {
   brake = 0; brakeRate = 0.125; brakeMax = 1;
   steer = 0; steerRate = 0.0625; steerMax = 1;
   /** +0x58 spin (whirlwind) active, +0x5c phase, +0x60 timer, +0x64 length 15, +0x68 the vertical kick 0.3 */
-  spin = 0; spinPhase = 0; spinTimer = 0; spinLen = 15; spinKick = 0.30625 /* 0x3e9ccccd */;
+  spin = 0; spinPhase = 0; spinTimer = 0; spinLen = 15; spinKick = f32(0.30625) /* 0x3e9ccccd */;
   /** +0x6c shrunk, +0x70 phase, +0x74 scale, +0x78 target scale 0.5, +0x7c timer, +0x80 / +0x84 / +0x88 shrink / hold / grow ticks (30 / 150 / 30) */
   shrunk = 0; shrinkPhase = 0; scale = 0; scaleMin = 0.5; shrinkTimer = 0; shrinkIn = 30; shrinkHold = 150; shrinkOut = 30;
   /** +0x8c turbo active, +0x90 timer, +0x94 multiplier 1.15, +0x98 length 60 */
-  turbo = 0; turboTimer = 0; turboMul = 1.15; turboLen = 60;
+  turbo = 0; turboTimer = 0; turboMul = f32(1.15); turboLen = 60;
   /** +0x9c heading change running, +0xa0 timer, +0xa4 length, +0xa8 from, +0xac to, +0xb0 total turn */
   turn = 0; turnTimer = 0; turnLen = 0; turnFrom = 0; turnTo = 0; turnDelta = 0;
   /** +0xb4 finish autopilot, +0xb8 timer, +0xbc length (60), +0xc0 gain, +0xc4 / +0xcc target x / z, +0xd0 */
@@ -91,15 +92,15 @@ export class SpeedsterNode implements BehaviourNode {
   /** +0xf4 / +0xf8: the race started flag / ticks since the start (the original keeps it for the replay) */
   started = 0; startedTicks = 0;
   /** +0x240 current top speed, +0x244 current acceleration scale, +0x248 drag, +0x24c force scale, +0x250 normal accel scale, +0x254 brake force, +0x258 forward speed */
-  topSpeed = 0.45; accelScale = 0.5; drag = 0.075; forceScale = 1; accelNormal = 0.5; brakeForce = 0.5; fwdSpeed = 0;
+  topSpeed = f32(0.45); accelScale = 0.5; drag = f32(0.075); forceScale = 1; accelNormal = 0.5; brakeForce = 0.5; fwdSpeed = 0;
   /** +0x25c last acceleration, +0x260 normal top speed, +0x264 lateral slip limit, +0x268 angular damping, +0x26c reverse limit */
-  lastAccel = 0; topNormal = 0.45; slipMax = 0.016666668; angDamp = 0.2; reverseMax = -0.125;
+  lastAccel = 0; topNormal = f32(0.45); slipMax = f32(0.016666668); angDamp = f32(0.2); reverseMax = -0.125;
   /** +0x278 / +0x27c / +0x280 velocity, +0x284 turn rate */
   vx = 0; vy = 0; vz = 0; yawRate = 0;
   /** +0x398 / +0x39c / +0x3a0 ground normal, +0x3a4 on the ground (1 / 0), +0x3a8 suspension bounce, +0x3ac stuck counter, +0x410 turbo speech spoken */
   nx = 0; ny = 1; nz = 0; grounded = 1; bounce = 0; stuck = 0; turboSpoken = 0;
   /** +0x3b0 .. : the three probe points of the body (front, rear, centre) */
-  readonly probes: [number, number, number][] = [[0, 1.6, 3.6], [0, 1.6, -3.6], [0, 1.6, 0]];
+  readonly probes: [number, number, number][] = [[0, f32(1.6), f32(3.6)], [0, f32(1.6), f32(-3.6)], [0, f32(1.6), 0]];
   /** the clip of the driver figure chosen this tick (local_124) */
   clip = 10;
   /** the last tick's hit record name / kind (tests, debug) */
@@ -123,8 +124,8 @@ export class SpeedsterNode implements BehaviourNode {
   bind(w: World, rec: GameRecord) {
     this.rec = rec; this.driver = w.records[REC.MFIG];
     const wheelRecs = [w.records[REC.WEFL], w.records[REC.WEFR], w.records[REC.WEBL], w.records[REC.WEBR]];
-    const at: [number, number, number][] = [[-1.832, 1.088, 3.191], [1.832, 1.088, 3.191], [-1.619, 1.088, -3.292], [1.619, 1.088, -3.292]];   // 0xbfea7efa / 0x3f8b4396 / 0x404c3958, 0xbfcf3b64 / 0xc052b021
-    const att: [number, number, number][] = [[-3.6, 0, 6.4], [3.6, 0, 6.4], [-3.6, 0, -6.4], [3.6, 0, -6.4]];
+    const at: [number, number, number][] = ([[-1.832, 1.088, 3.191], [1.832, 1.088, 3.191], [-1.619, 1.088, -3.292], [1.619, 1.088, -3.292]] as [number, number, number][]).map((r) => r.map(f32) as [number, number, number]);   // 0xbfea7efa / 0x3f8b4396 / 0x404c3958, 0xbfcf3b64 / 0xc052b021
+    const att: [number, number, number][] = ([[-3.6, 0, 6.4], [3.6, 0, 6.4], [-3.6, 0, -6.4], [3.6, 0, -6.4]] as [number, number, number][]).map((r) => r.map(f32) as [number, number, number]);
     this.wheels.length = 0;
     for (const wr of wheelRecs) wr.colObj = null;          // FUN_006c6495: *(wheel record + 0x58) = 0, the wheels do not collide
     for (let k = 0; k < 4; k++) this.wheels.push({ steer: 0, roll: 0, rollSpeed: 0, radius: 0.5, at: at[k], att: att[k], pos: [0, 0, 0], rec: wheelRecs[k] });
@@ -139,8 +140,7 @@ export class SpeedsterNode implements BehaviourNode {
     // FUN_00441ac0(rec, pos, (0, 100, 0), ...): the probe upwards (the ground record is skipped); no hit: normal (0, 1, 0)
     const hit = w.col.probe(rec, [rec.x, rec.y, rec.z], [0, 100, 0], 3);
     let n: [number, number, number] = hit ? [...hit.normal] as [number, number, number] : [0, 1, 0];
-    const l = Math.hypot(n[0], n[1], n[2]) || 1;
-    n = [n[0] / l, n[1] / l, n[2] / l];
+    normalize24(n);
     this.nx = n[0]; this.ny = n[1]; this.nz = n[2];
     this.driver.anim?.start(10, 0);
     this.poseWheels(w);
@@ -153,23 +153,23 @@ export class SpeedsterNode implements BehaviourNode {
   private ramps(buttons: number, analog: number, dt: number) {
     if ((buttons & 1) === 0) {
       if ((buttons & 2) === 0) {
-        const d = this.steerRate * dt * 2;
+        const d = f32(f32(this.steerRate * dt) * 2);
         if (this.steer <= d) this.steer = -d <= this.steer ? 0 : f32(this.steer + d); else this.steer = f32(this.steer - d);
       } else {
-        let v = this.steer + this.steerRate * dt;
+        let v = f32(this.steer + f32(this.steerRate * dt));
         if (this.steerMax < v) v = this.steerMax;
         this.steer = f32(v);
       }
     } else {
-      let v = this.steer - this.steerRate * dt;
+      let v = f32(this.steer - f32(this.steerRate * dt));
       if (v < -this.steerMax) v = -this.steerMax;
       this.steer = f32(v);
     }
     if (analog < -0x20 || analog > 0x20) this.steer = f32((analog << 5) * this.steerMax);
     if ((buttons & 0x24) === 0) this.accel = 0;
-    else { let v = this.accel + this.accelRate * dt; if (this.accelMax < v) v = this.accelMax; this.accel = f32(v); }
+    else { let v = f32(this.accel + f32(this.accelRate * dt)); if (this.accelMax < v) v = this.accelMax; this.accel = f32(v); }
     if ((buttons & 0x18) === 0) this.brake = 0;
-    else { let v = this.brake + this.brakeRate * dt; if (this.brakeMax < v) v = this.brakeMax; this.brake = f32(v); }
+    else { let v = f32(this.brake + f32(this.brakeRate * dt)); if (this.brakeMax < v) v = this.brakeMax; this.brake = f32(v); }
   }
 
   /** FUN_006c583e: the four wheels (roll with the speed at the attach point, steer angle, matrix = wheel-local * car) */
@@ -177,62 +177,66 @@ export class SpeedsterNode implements BehaviourNode {
     const car = this.rec, yaw = car.ry, dt = w.dt;
     if (this.grounded !== 0) {
       for (const wh of this.wheels) {
-        const om = this.yawRate * 0.0625;
+        const om = f32(this.yawRate * 0.0625);
         const lx = wh.att[0], lz = wh.att[2];
         const sin = Math.sin(yaw), cos = Math.cos(yaw);
-        const xo = sin * lz + cos * lx;                 // local_2c
-        const zo = cos * lz + (-sin * lx);              // local_24
-        const vx = -(zo * 0.125 * om) + this.vx;        // local_3c
-        const vz = xo * 0.125 * om + this.vz;           // local_34
-        wh.pos[0] = xo + car.x; wh.pos[1] = 0 + car.y; wh.pos[2] = zo + car.z;
-        const ws = Math.sin(yaw + wh.steer), wc = Math.cos(yaw + wh.steer);
-        const proj = (wc * vz + ws * vx) * 1.0;
-        wh.rollSpeed = f32(proj * 8 * wh.radius);
+        const xo = f32(f32(sin * lz) + f32(cos * lx));                 // local_2c
+        const zo = f32(f32(cos * lz) + (f32(-sin * lx)));              // local_24
+        const vx = f32(-(f32(f32(zo * 0.125) * om)) + this.vx);        // local_3c
+        const vz = f32(f32(f32(xo * 0.125) * om) + this.vz);           // local_34
+        wh.pos[0] = f32(xo + car.x); wh.pos[1] = f32(0 + car.y); wh.pos[2] = f32(zo + car.z);
+        const ws = f32(Math.sin(f32(yaw + wh.steer))), wc = f32(Math.cos(f32(yaw + wh.steer)));
+        const proj = f32(f32(f32(ws * vx) + f32(wc * vz)) * 1.0);
+        wh.rollSpeed = f32(f32(proj * 8) * wh.radius);
       }
     }
     for (const wh of this.wheels) {
-      wh.roll = f32(wh.rollSpeed * dt + wh.roll);
-      const local = buildMatrix(wh.roll, wh.steer, 0, wh.at[0], wh.at[1], wh.at[2]);
-      wh.rec.m.set(mul(local, car.m));
+      wh.roll = f32(f32(wh.rollSpeed * dt) + wh.roll);
+      const local = euler24(wh.roll, wh.steer, 0, wh.at[0], wh.at[1], wh.at[2]);
+      wh.rec.m.set(mulGame(local, car.m));
     }
   }
 
   /** FUN_006c5afb(car, node, clip): the car's matrix from the yaw, tilted onto the ground (FUN_006c5d84), the shrink scale, the driver (FUN_006c61cf) and the bounce decay */
   carMatrix(w: World, clip: number) {
     const car = this.rec;
-    car.m.set(buildMatrix(0, car.ry, 0, car.x, car.y, car.z));
+    car.m.set(euler24(0, car.ry, 0, car.x, car.y, car.z));
     this.tilt(w);
     if (this.shrunk !== 0) {
       const s = this.scale, m = car.m;
       m[0] *= s; m[4] *= s; m[8] *= s; m[1] *= s; m[5] *= s; m[9] *= s; m[2] *= s; m[6] *= s; m[10] *= s;
     }
     this.poseDriver(w, -this.bounce, this.steer, clip);
-    this.bounce = f32(this.bounce - K.GRAVITY_Y * w.dt);
+    this.bounce = f32(this.bounce - f32(K.GRAVITY_Y * w.dt));
     if (this.bounce > 0) this.bounce = 0;
   }
 
-  /** FUN_006c5d84: the matrix rows from the ground under the four attach points (front-left, front-right, rear-left, rear-right) */
+  /**
+   * FUN_006c5d84(matrix, yaw, car, node): the matrix rows from the ground under the four attach points (front-left, front-right, rear-left, rear-right), 24-bit x87:
+   * x = (cos ax + az sin) + car.x, z = ((-sin) ax + az cos) + car.z (sin / cos of the float yaw rounded to floats), y = the terrain (FUN_0043ce45, 4 above) or the car's y;
+   * N = (P3 - P0) x (P2 - P1) normalised, d = (N.x sin + N.y 0) + N.z cos, F = (sin - d N.x, 0 - d N.y, cos - d N.z) normalised, R = N x F; rows R, N, F.
+   */
   private tilt(w: World) {
     const car = this.rec, m = car.m;
-    const sin = Math.sin(car.ry), cos = Math.cos(car.ry);
+    const yaw = f32(car.ry);
+    const sin = f32(Math.sin(yaw)), cos = f32(Math.cos(yaw));
     const P: [number, number, number][] = [];
     for (const wh of this.wheels) {
-      const xo = wh.att[0], zo = wh.att[2];
-      const x = zo * sin + cos * xo + car.x;
-      const z = zo * cos + -sin * xo + car.z;
+      const ax = wh.att[0], az = wh.att[2];
+      const x = f32(f32(f32(cos * ax) + f32(az * sin)) + car.x);
+      const z = f32(f32(f32(-sin * ax) + f32(az * cos)) + car.z);
       let y = terrain(w, x, car.y, z, 4.0);
-      if (y === -1e38) y = car.y;
+      if (y === NO_GROUND) y = car.y;
       P.push([x, y, z]);
     }
-    // v1 = rear right - front left, v2 = rear left - front right; N = v1 x v2
-    const v1 = [P[3][0] - P[0][0], P[3][1] - P[0][1], P[3][2] - P[0][2]];
-    const v2 = [P[2][0] - P[1][0], P[2][1] - P[1][1], P[2][2] - P[1][2]];
-    let n = [v1[1] * v2[2] - v1[2] * v2[1], v1[2] * v2[0] - v1[0] * v2[2], v1[0] * v2[1] - v1[1] * v2[0]];
-    norm(n);
-    const dot = n[2] * cos + n[1] * 0 + n[0] * sin;                // N . F, F = (sin, 0, cos)
-    const f = [sin - dot * n[0], 0 - dot * n[1], cos - dot * n[2]];
-    norm(f);
-    const r = [n[1] * f[2] - n[2] * f[1], n[2] * f[0] - n[0] * f[2], n[0] * f[1] - n[1] * f[0]];
+    const v1 = [f32(P[3][0] - P[0][0]), f32(P[3][1] - P[0][1]), f32(P[3][2] - P[0][2])];
+    const v2 = [f32(P[2][0] - P[1][0]), f32(P[2][1] - P[1][1]), f32(P[2][2] - P[1][2])];
+    const n = [...cross24(v1, v2)];
+    normalize24(n);
+    const dot = f32(f32(f32(n[0] * sin) + f32(n[1] * 0)) + f32(n[2] * cos));
+    const f = [f32(sin - f32(dot * n[0])), f32(0 - f32(dot * n[1])), f32(cos - f32(dot * n[2]))];
+    normalize24(f);
+    const r = cross24(n, f);
     m[0] = r[0]; m[1] = r[1]; m[2] = r[2];
     m[4] = n[0]; m[5] = n[1]; m[6] = n[2];
     m[8] = f[0]; m[9] = f[1]; m[10] = f[2];
@@ -244,7 +248,7 @@ export class SpeedsterNode implements BehaviourNode {
     const d = this.driver, a = d.anim;
     if (a) {
       const cur = a.clip;
-      const seek = () => { const h = (a.frameCount - 1) * 0.5; a.seek(f32(h * steer + h)); };
+      const seek = () => { const h = f32((f32(a.frameCount - 1)) * 0.5); a.seek(f32(f32(h * steer) + h)); };
       if (clip === 10 || clip === cur) {
         if (cur === 10) seek();
         else {
@@ -255,8 +259,8 @@ export class SpeedsterNode implements BehaviourNode {
     }
     d.m.set(this.rec.m);
     if (lean > 0) {
-      const k = lean * 8;
-      d.m[12] += this.rec.m[4] * k; d.m[13] += this.rec.m[5] * k; d.m[14] += this.rec.m[6] * k;
+      const k = f32(lean * 8);
+      d.m[12] += f32(this.rec.m[4] * k); d.m[13] += f32(this.rec.m[5] * k); d.m[14] += f32(this.rec.m[6] * k);
     }
     d.variant = this.rec.variant;
   }
@@ -265,25 +269,25 @@ export class SpeedsterNode implements BehaviourNode {
   private bounceOff(n: [number, number, number]) {
     n[1] = 0;
     norm(n);
-    const k = -((n[2] * this.vz + n[0] * this.vx) * 1.0);
-    this.vx = f32((n[0] + n[0]) * k + this.vx);
-    this.vz = f32((n[2] + n[2]) * k + this.vz);
+    const k = -(f32((f32(f32(n[2] * this.vz) + f32(n[0] * this.vx))) * 1.0));
+    this.vx = f32(f32((f32(n[0] + n[0])) * k) + this.vx);
+    this.vz = f32(f32((f32(n[2] + n[2])) * k) + this.vz);
     this.vx = f32(this.vx * 0.5); this.vz = f32(this.vz * 0.5);
-    this.vx = f32(0.05 * n[0] + this.vx);
-    this.vz = f32(n[2] * 0.05 + this.vz);
+    this.vx = f32(f32(F05 * n[0]) + this.vx);
+    this.vz = f32(f32(n[2] * F05) + this.vz);
     this.yawRate = 0;
   }
 
   /** FUN_006c52d9: the shrink: 30 ticks down to the target scale (a cosine-shaped ease), 150 ticks small, 30 ticks back; returns true while active */
   private shrinkStep(): boolean {
-    this.shrinkTimer = f32(1.0 * 1 + this.shrinkTimer);
+    this.shrinkTimer = f32(f32(1.0 * 1) + this.shrinkTimer);
     const t = this.shrinkTimer, s1 = this.scaleMin;
     let v = NaN;
     switch (this.shrinkPhase) {
       case 0:
         if (t <= this.shrinkIn) {
-          const f = (this.shrinkIn - t) / this.shrinkIn, a = (1 - s1) * f;
-          v = a * 0.5 * Math.sin((f + f) * TWO_PI) + a + s1;
+          const f = f32((f32(this.shrinkIn - t)) / this.shrinkIn), a = f32((f32(1 - s1)) * f);
+          v = f32(f32(f32(f32(a * 0.5) * Math.sin(f32((f32(f + f)) * TWO_PI))) + a) + s1);
         } else { this.shrinkTimer = 0; this.shrinkPhase = 1; v = s1; }
         break;
       case 1:
@@ -292,8 +296,8 @@ export class SpeedsterNode implements BehaviourNode {
         break;
       case 2:
         if (t <= this.shrinkOut) {
-          const f = t / this.shrinkIn, a = (1 - s1) * f;
-          v = a * 0.5 * Math.sin((f + f) * TWO_PI) + a + s1;
+          const f = f32(t / this.shrinkIn), a = f32((f32(1 - s1)) * f);
+          v = f32(f32(f32(f32(a * 0.5) * Math.sin(f32((f32(f + f)) * TWO_PI))) + a) + s1);
         } else { this.shrinkTimer = 0; this.shrinkPhase = 3; v = 1; this.shared.set(VAR.SHRINK, 0); }
         break;
       case 3: this.shrunk = 0; v = 1; break;
@@ -309,16 +313,16 @@ export class SpeedsterNode implements BehaviourNode {
       case 0:
         this.spinTimer = f32(1.0 + this.spinTimer);
         if (this.spinLen <= this.spinTimer) this.spinPhase = 1;
-        this.yawRate = f32((this.spinTimer / this.spinLen) * 0.7853981852531433 * 16);
+        this.yawRate = f32(f32((f32(this.spinTimer / this.spinLen)) * 0.7853981852531433) * 16);
         break;
       case 1:
-        this.yawRate = f32(this.yawRate - this.yawRate * 0.125 * 1.0);
+        this.yawRate = f32(this.yawRate - f32(f32(this.yawRate * 0.125) * 1.0));
         if (this.yawRate < 2.7925119400024414) {
           this.yawRate = 0; this.spinPhase = 2;
           this.turn = 1; this.turnTimer = 0; this.turnLen = 10; this.turnTo = target; this.turnFrom = yaw;
-          let d = this.turnTo - this.turnFrom;
-          while (PI < d) d -= TWO_PI;
-          while (d < PI) d += TWO_PI;   // sic: the second loop tests against +pi (the result is turn + 2 pi)
+          let d = f32(this.turnTo - this.turnFrom);
+          while (PI < d) d = f32(d - TWO_PI);
+          while (d < PI) d = f32(d + TWO_PI);   // sic: the second loop tests against +pi (the result is turn + 2 pi)
           this.turnDelta = f32(d);
         }
         break;
@@ -333,13 +337,13 @@ export class SpeedsterNode implements BehaviourNode {
   /** FUN_006c2253: the finish: heading change towards the track direction + 3 pi / 4 at path position 0.958 (0x3f753f7d), the autopilot (60 ticks) to the point on the track */
   private startFinish() {
     const fr = this.shared.track.frame(0.9580000042915344, true);
-    const target = Math.atan2(fr.d2[0], fr.d2[2]) + 2.356194496154785;   // DAT_0089282c = 3 pi / 4
+    const target = f32(Math.atan2(fr.d2[0], fr.d2[2]) + 2.356194496154785);   // DAT_0089282c = 3 pi / 4
     this.turnTo = target;
     this.turnFrom = this.rec.ry;
-    if (PI < this.turnTo) this.turnTo -= TWO_PI;
-    let d = this.turnTo - this.turnFrom;
-    while (PI < d) d -= TWO_PI;
-    while (d < -PI) d += TWO_PI;
+    if (PI < this.turnTo) this.turnTo = f32(this.turnTo - TWO_PI);
+    let d = f32(this.turnTo - this.turnFrom);
+    while (PI < d) d = f32(d - TWO_PI);
+    while (d < -PI) d = f32(d + TWO_PI);
     this.turnDelta = f32(d);
     this.turnTimer = 0; this.turnLen = 60; this.turn = 1;
     this.autoX = fr.p[0]; this.autoZ = fr.p[2];
@@ -360,8 +364,8 @@ export class SpeedsterNode implements BehaviourNode {
     if (t < best) { this.shared.set(VAR.RECORD, 1); this.shared.set(VAR.BESTTIME, Math.trunc(t)); }
     if (this.shared.get(VAR.TROPHY) < medal) this.shared.set(VAR.TROPHY, medal);
     // the score: 10000 - 3 * ftol(max(0, t - 2100)): the asm subtracts the float 0x45034000 (70 s) before the ftol (the decompile lost it)
-    let over = t - SCORE_BASE; if (over < 0) over = 0;
-    this.shared.score = Math.max(0, 10000 - 3 * Math.trunc(over));
+    let over = f32(t - SCORE_BASE); if (over < 0) over = 0;
+    this.shared.score = Math.max(0, f32(10000 - f32(3 * Math.trunc(over))));
     if (this.shared.get(VAR.HISCORE) < this.shared.score) this.shared.set(VAR.HISCORE, this.shared.score);
     return medal;
   }
@@ -389,7 +393,7 @@ export class SpeedsterNode implements BehaviourNode {
         return this.finishTick(w, clip, true);
       case 2: case 3:
         this.phaseTimer = f32(this.phaseTimer + dt);
-        if (this.phaseLen < this.phaseTimer) { this.phaseTimer = 0; sh.set(VAR.STATE, state + 1); }
+        if (this.phaseLen < this.phaseTimer) { this.phaseTimer = 0; sh.set(VAR.STATE, f32(state + 1)); }
         return this.finishTick(w, clip, true);
       case 4:
         this.phaseTimer = f32(this.phaseTimer + dt);
@@ -427,9 +431,9 @@ export class SpeedsterNode implements BehaviourNode {
     }
     if (this.started !== 0) this.startedTicks = f32(this.startedTicks + dt);
     sh.clock = this.clock;
-    let rem = CLOCK_START - Math.trunc(this.clock / 30);
+    let rem = f32(CLOCK_START - Math.trunc(f32(this.clock / 30)));
     if (rem < 0) rem = 0;
-    sh.clockText = `${Math.trunc(rem / 60)}:${String(rem % 60).padStart(2, '0')}`;
+    sh.clockText = `${Math.trunc(f32(rem / 60))}:${String(rem % 60).padStart(2, '0')}`;
     if (sh.get(VAR.SPIN) === 1) {
       this.spin = 1; sh.set(VAR.SPIN, 2);
       this.vx = 0; this.vy = this.spinKick; this.vz = 0;
@@ -457,7 +461,7 @@ export class SpeedsterNode implements BehaviourNode {
       if (this.turnLen <= this.turnTimer) { this.turn = 0; this.yawRate = 0; }
       else {
         this.turnTimer = f32(this.turnTimer + dt);
-        this.yawRate = f32((this.turnDelta * 16) / this.turnLen);
+        this.yawRate = f32((f32(this.turnDelta * 16)) / this.turnLen);
         buttons = 0;
       }
     }
@@ -467,65 +471,64 @@ export class SpeedsterNode implements BehaviourNode {
       if (this.autoLen <= this.autoTimer) { this.vx = 0; this.vz = 0; this.auto = 0; sh.set(VAR.STATE, STATE.DONE); this._d0 = 0; }
       else {
         const g = this.autoGain;
-        this.vx = f32((this.autoX - rec.x) * 0.125 * g);
-        this.vz = f32((this.autoZ - rec.z) * 0.125 * g);
+        this.vx = f32(f32((f32(this.autoX - rec.x)) * 0.125) * g);
+        this.vz = f32(f32((f32(this.autoZ - rec.z)) * 0.125) * g);
       }
     }
     this.ramps(buttons, analog, dt);
     // ---- the forces along the car's heading (FUN_006c2627 after FUN_006c550f)
     let acc = f32(this.accelScale * this.accel);                 // local_60 = +0x244 * +0x24
     if (this.topSpeed < this.fwdSpeed) acc = this.accelScale;
-    acc = f32((this.topSpeed - this.fwdSpeed) * acc);
+    acc = f32((f32(this.topSpeed - this.fwdSpeed)) * acc);
     let brakeF: number;                                          // local_1c
-    if (0 <= this.fwdSpeed) brakeF = f32(-(this.brake * this.brakeForce));
+    if (0 <= this.fwdSpeed) brakeF = f32(-(f32(this.brake * this.brakeForce)));
     else {
       if (this.reverseMax <= this.fwdSpeed) {
         if (this.auto === 0 && (buttons & 0x24) === 0) brakeF = f32(this.brake * this.brakeForce); else brakeF = 0;
       } else brakeF = this.brakeForce;
-      brakeF = f32((brakeF + brakeF) * (this.reverseMax - this.fwdSpeed));
+      brakeF = f32((f32(brakeF + brakeF)) * (f32(this.reverseMax - this.fwdSpeed)));
     }
-    brakeF = f32(-(this.drag * this.fwdSpeed) + brakeF);
-    const total = f32(e4 * (acc + brakeF) * this.forceScale);    // local_54
+    brakeF = f32(-(f32(this.drag * this.fwdSpeed)) + brakeF);
+    const total = f32(f32(this.forceScale * f32(acc + brakeF)) * e4);       // asm 0x6c3178..: (forceScale * (acc + brake)) * e4    // local_54
     const newFwd = f32(this.fwdSpeed + total);                   // local_f8
     this.lastAccel = f32(total);
     this.fwdSpeed = f32(newFwd);
-    let turnRate = f32(this.steer * 0.7853981316566467);         // local_c8 = steer * pi / 4 (DAT_0089252c)
+    let turnRate = f32(this.steer * 0.7853981852531433);         // local_c8 = steer * pi / 4 (DAT_0089252c)
     this.wheels[0].steer = this.wheels[1].steer = f32(turnRate);   // +0x288 / +0x2cc: the front wheels steer
     // gravity and the slope
     this.vx = f32(this.vx + 0); this.vy = f32(this.vy + K.GRAVITY_Y); this.vz = f32(this.vz + 0);
-    const sinY = Math.sin(yaw), cosY = Math.cos(yaw);
-    const rx = cosY, rz = -sinY;                                 // the right vector (local_c4, local_c0 = 0, local_bc)
+    const rx = f32(Math.cos(yaw)), rz = f32(-Math.sin(yaw));                                 // the right vector (local_c4, local_c0 = 0, local_bc)
     // R x N: the forward direction along the slope
-    const fa = 0 * this.nz - rz * this.ny;
-    const fb = rz * this.nx - rx * this.nz;
-    const fc = rx * this.ny - 0 * this.nx;
+    const fa = f32(f32(0 * this.nz) - f32(rz * this.ny));
+    const fb = f32(f32(rz * this.nx) - f32(rx * this.nz));
+    const fc = f32(f32(rx * this.ny) - f32(0 * this.nx));
     let px = f32(fa * total), py = f32(fb * total), pz = f32(fc * total);       // local_50 / 4c / 48
     if (this.grounded !== 0) {
-      px = f32(-(this.nx * K.GRAVITY_Y) + px); py = f32(-(this.ny * K.GRAVITY_Y) + py); pz = f32(-(this.nz * K.GRAVITY_Y) + pz);
+      px = f32(-(f32(this.nx * K.GRAVITY_Y)) + px); py = f32(-(f32(this.ny * K.GRAVITY_Y)) + py); pz = f32(-(f32(this.nz * K.GRAVITY_Y)) + pz);
     }
     this.vx = f32(px + this.vx); this.vy = f32(py + this.vy); this.vz = f32(pz + this.vz);
     // the side slip is cancelled up to the limit
-    let side = f32(-(rz * this.vz + 0 * this.vy + rx * this.vx));     // local_cc
+    let side = f32(-(f32(f32(f32(rx * this.vx) + f32(0 * this.vy)) + f32(rz * this.vz))));      // asm 0x6c35a0: (rx vx + 0 vy) + rz vz     // local_cc
     if (side !== 0) {
       const lim = this.slipMax;
       if (lim < side) { limited = 1; side = lim; }
       if (side < -lim) { side = -lim; limited = 1; }
-      this.vx = f32(rx * side + this.vx); this.vz = f32(rz * side + this.vz); this.vy = f32(0 * side + this.vy);
+      this.vx = f32(f32(rx * side) + this.vx); this.vz = f32(f32(rz * side) + this.vz); this.vy = f32(f32(0 * side) + this.vy);
     }
     // the push of the whirlwind
     this.vx = f32(sh.push[0] + this.vx); this.vy = f32(sh.push[1] + this.vy); this.vz = f32(sh.push[2] + this.vz);
     sh.push[0] = 0; sh.push[1] = 0; sh.push[2] = 0;
-    let nxp = f32((this.vx * dt + 0) * 8 + oldX);                // local_88
-    let nyp = f32((this.vy * dt + 0) * 8 + oldY);                // local_84 (the +16 for the ray comes after the turn rate)
-    let nzp = f32((this.vz * dt + 0) * 8 + oldZ);                // local_80
+    let nxp = f32(f32((f32(f32(this.vx * dt) + 0)) * 8) + oldX);                // local_88
+    let nyp = f32(f32((f32(f32(this.vy * dt) + 0)) * 8) + oldY);                // local_84 (the +16 for the ray comes after the turn rate)
+    let nzp = f32(f32((f32(f32(this.vz * dt) + 0)) * 8) + oldZ);                // local_80
     // the turn rate
     turnRate = f32(turnRate * 0.25);
     if (newFwd < 0) turnRate = -turnRate;
-    this.yawRate = f32(dt * turnRate + this.yawRate);
-    let newYaw = f32(this.yawRate * dt * 0.0625 + yaw);          // local_128
+    this.yawRate = f32(f32(dt * turnRate) + this.yawRate);
+    let newYaw = f32(f32(f32(this.yawRate * dt) * 0.0625) + yaw);          // local_128
     while (PI < newYaw) newYaw = f32(newYaw - TWO_PI);
     while (newYaw < -PI) newYaw = f32(newYaw + TWO_PI);
-    this.yawRate = f32(this.yawRate - this.yawRate * dt * this.angDamp);
+    this.yawRate = f32(this.yawRate - f32(f32(this.yawRate * dt) * this.angDamp));
     // ---- the ground: a ray down from 16 above the new place against the LAND record
     nyp = f32(nyp + 16.0);
     let groundY = -1e38;                                         // local_fc
@@ -541,12 +544,12 @@ export class SpeedsterNode implements BehaviourNode {
     else { ground = groundY; norm(gn); this.nx = gn[0]; this.ny = gn[1]; this.nz = gn[2]; }
     if (this.grounded === 0) {
       if (nyp <= ground) {
-        this.vy = f32((ground - nyp) * 0.125 + this.vy);
+        this.vy = f32(f32((f32(ground - nyp)) * 0.125) + this.vy);
         nyp = ground; this.grounded = 1;
       }
     } else if (nyp <= ground) {
       nyp = ground;
-      this.vy = f32((ground - ground) * 0.125 + this.vy);
+      this.vy = f32(f32((f32(ground - ground)) * 0.125) + this.vy);
       this.grounded = 1;
     } else this.grounded = 0;
     // ---- the path: where is the car, which way does the track go
@@ -556,9 +559,13 @@ export class SpeedsterNode implements BehaviourNode {
     if (free !== 0) {
       // the two side probes at the track's left / right: terrain walls (hits named LAND) bounce the car back
       const R = tail.r;
-      const from: [number, number, number] = [nxp, nyp + 10, nzp];
-      const left: [number, number, number] = [-2 * R[0], -2 * R[1], -2 * R[2]];
-      const right: [number, number, number] = [2 * R[0], 2 * R[1], 2 * R[2]];
+      const from: [number, number, number] = [nxp, f32(nyp + 10), nzp];
+      const left: [number, number, number] = [f32(-2 * R[0]), f32(-2 * R[1]), f32(-2 * R[2])];
+      const right: [number, number, number] = [f32(2 * R[0]), f32(2 * R[1]), f32(2 * R[2])];
+      if (w.col.debug) {   // FUN_00445ba0 x2 (LE2.c:176990 / 176994; Ontwikkelaarshoek): the two side probes, white (left) and blue (right), each from the probe end to the start point
+        w.col.debug.line('zone', [from[0] + left[0], from[1] + left[1], from[2] + left[2]], from, 0xffffffff, 0xffffffff);
+        w.col.debug.line('zone', [from[0] + right[0], from[1] + right[1], from[2] + right[2]], from, 0xff0000ff, 0xff0000ff);
+      }
       const hl = w.col.sweep(rec, from, left, 3, 2.0, 1.6);
       let nrm: number[] = hl ? hl.normal : [0, 0, 0];
       if (hl && hl.rec.name === 'LAND') { wall = 1; this.vy = 0; }
@@ -566,50 +573,52 @@ export class SpeedsterNode implements BehaviourNode {
       if (hr) nrm = hr.normal;
       if (hr && hr.rec.name === 'LAND') { wall = 2; this.vy = 0; }
       // the wall's tangent in the horizontal plane
-      let tx = -nrm[2], tz = nrm[0];
-      { const l = Math.hypot(tx, tz); if (l !== 0) { tx /= l; tz /= l; } }
+      // (local_b4, local_b0, local_ac) = (-nz, 0, nx), FUN_0043cec0; the right wall flips both
+      const tv = [-nrm[2], 0, nrm[0]];
+      normalize24(tv);
+      let tx = tv[0], tz = tv[2];
       if (wall === 2) { tx = -tx; tz = -tz; }
-      const tHead = Math.atan2(tx, tz);                           // local_268
+      const tHead = f32(Math.atan2(tx, tz));                      // local_268
       if (wall !== 0) {
         free = 0;
         sh.sounds.play(sh.rng.int(2) === 0 ? SND.BUMP1 : SND.BUMP2);
-        const sy = Math.sin(newYaw), cy = Math.cos(newYaw);
-        const dotTF = tz * cy + 0 * 0 + tx * sy;                  // local_2a0
-        const dotTV = tz * this.vz + 0 * this.vy + tx * this.vx;
+        const sy = f32(Math.sin(newYaw)), cy = f32(Math.cos(newYaw));
+        const dotTF = f32(f32(f32(tz * cy) + f32(0 * 0)) + f32(tx * sy));                  // local_2a0
+        const dotTV = f32(f32(f32(tz * this.vz) + f32(0 * this.vy)) + f32(tx * this.vx));
         let target: number, ix: number, iz: number;
         if (wall === 1) {
-          target = dotTV >= 0 ? tHead + 0.19634954631328583 : (tHead + PI) - 0.19634954631328583;
+          target = dotTV >= 0 ? f32(tHead + 0.19634954631328583) : f32((f32(tHead + PI)) - 0.19634954631328583);
           ix = tz; iz = -tx;
         } else {
-          target = dotTV >= 0 ? tHead - 0.19634954631328583 : tHead + PI + 0.19634954631328583;
+          target = dotTV >= 0 ? f32(tHead - 0.19634954631328583) : f32(f32(tHead + PI) + 0.19634954631328583);
           ix = -tz; iz = tx;
         }
         this.turnTimer = 0; this.turnLen = 10; this.turnFrom = rec.ry; this.turnTo = target;
-        let d = target - rec.ry;
-        while (PI < d) d -= TWO_PI;
-        while (d < -PI) d += TWO_PI;
+        let d = f32(target - rec.ry);
+        while (PI < d) d = f32(d - TWO_PI);
+        while (d < -PI) d = f32(d + TWO_PI);
         this.turnDelta = f32(d); this.turn = 1;
-        const k = -(iz * this.vz + 0 * this.vy + ix * this.vx);
-        this.vx = f32((ix + ix) * k + this.vx);
-        this.vz = f32((iz + iz) * k + this.vz);
+        const k = -(f32(f32(f32(iz * this.vz) + f32(0 * this.vy)) + f32(ix * this.vx)));
+        this.vx = f32(f32((f32(ix + ix)) * k) + this.vx);
+        this.vz = f32(f32((f32(iz + iz)) * k) + this.vz);
         let dd = Math.abs(dotTF);
-        if (dd < 0.33) dd = 0.33;
+        if (dd < F033) dd = F033;
         this.vx = f32(this.vx * dd); this.vz = f32(this.vz * dd);
-        this.vx = f32(0.05 * ix + this.vx); this.vz = f32(0.05 * iz + this.vz);
-        if (this.grounded !== 0) this.bounce = -0.153125;
+        this.vx = f32(f32(F05 * ix) + this.vx); this.vz = f32(f32(F05 * iz) + this.vz);
+        if (this.grounded !== 0) this.bounce = f32(-0.153125);
       }
     }
     // ---- the general collision: from the car's middle, then along the front and rear probe lines
-    const start: [number, number, number] = [rec.x, rec.y + 1.6, rec.z];
-    const dmove: [number, number, number] = [nxp - rec.x, nyp - rec.y, nzp - rec.z];
+    const start: [number, number, number] = [rec.x, f32(rec.y + F16), rec.z];
+    const dmove: [number, number, number] = [f32(nxp - rec.x), f32(nyp - rec.y), f32(nzp - rec.z)];
     let hit = w.col.sweep(rec, start, dmove, 3, 1.6, 0.8);
     if (hit && hit.rec.name === 'LAND') hit = null;
     let hitNormal: [number, number, number] = hit ? [hit.normal[0], hit.normal[1], hit.normal[2]] : [0, 0, 0];
     if (!hit) {
       const pr = this.probePoints(newYaw, [nxp, nyp, nzp]);
       const v2 = pr[2];
-      hit = w.col.sweep(rec, v2, [pr[0][0] - v2[0], pr[0][1] - v2[1], pr[0][2] - v2[2]], 3, 1.6, 0.8);
-      if (!hit) hit = w.col.sweep(rec, v2, [pr[1][0] - v2[0], pr[1][1] - v2[1], pr[1][2] - v2[2]], 3, 1.6, 0.8);
+      hit = w.col.sweep(rec, v2, [f32(pr[0][0] - v2[0]), f32(pr[0][1] - v2[1]), f32(pr[0][2] - v2[2])], 3, 1.6, 0.8);
+      if (!hit) hit = w.col.sweep(rec, v2, [f32(pr[1][0] - v2[0]), f32(pr[1][1] - v2[1]), f32(pr[1][2] - v2[2])], 3, 1.6, 0.8);
       if (hit) hitNormal = [hit.normal[0], hit.normal[1], hit.normal[2]];
     }
     let hitKind = 'none';
@@ -637,9 +646,9 @@ export class SpeedsterNode implements BehaviourNode {
             this.turbo = 1; clip = 3;
             if (this.turboSpoken === 0) { this.turboSpoken = 1; sh.say('ADSGDS06'); }
           }
-          const dv = this.topSpeed - this.fwdSpeed;
-          const kf = this.forceScale * dv;
-          this.vx = f32(fa * kf + this.vx); this.vy = f32(fb * kf + this.vy); this.vz = f32(fc * kf + this.vz);
+          const dv = f32(this.topSpeed - this.fwdSpeed);
+          const kf = f32(this.forceScale * dv);
+          this.vx = f32(f32(fa * kf) + this.vx); this.vy = f32(f32(fb * kf) + this.vy); this.vz = f32(f32(fc * kf) + this.vz);
           this.turboTimer = 0;
         }
       } else if (nm === 'COW' /* 'COW\0' = 0x574f43: the records are named COW0..2, so this branch of the original never matches them */) {
@@ -655,7 +664,7 @@ export class SpeedsterNode implements BehaviourNode {
         sh.say('ADSGDS08');
       } else if (nm === 'WHRL') {
         hitKind = 'whirl';
-        this.vx = f32(this.vx * 0.8); this.vz = f32(this.vz * 0.8);
+        this.vx = f32(this.vx * F08); this.vz = f32(this.vz * F08);
         this.rumble(0.5);
       } else if (nm === 'CATI' || nm === 'CACT') {
         if (hr.model !== sh.smashedModel) {
@@ -663,8 +672,9 @@ export class SpeedsterNode implements BehaviourNode {
           sh.sounds.play(SND.CACTUS);
           if (sh.smashedModel) hr.model = sh.smashedModel;
           sh.set(VAR.CACTUS, 1);
+          this.emitStop(6); this.emitSetMatrix(6, hr.m);       // FUN_00442a40 + FUN_00442a00(cactuspop02, the cactus record's matrix)
           clip = 4;
-          this.vx = f32(this.vx * 0.8); this.vz = f32(this.vz * 0.8);
+          this.vx = f32(this.vx * F08); this.vz = f32(this.vz * F08);
           this.rumble(0.5);
         }
       } else {
@@ -691,13 +701,12 @@ export class SpeedsterNode implements BehaviourNode {
         // behind the start line: the car is turned along the track and pushed forward
         const f = sh.track.frame(tCur, true);
         this.turnTimer = 0; this.turnLen = 10; this.turnFrom = rec.ry;
-        this.turnTo = Math.atan2(f.t[0], f.t[2]);
-        let d = this.turnTo - rec.ry;
-        while (PI < d) d -= TWO_PI;
-        while (d < -PI) d += TWO_PI;
+        this.turnTo = f32(Math.atan2(f.t[0], f.t[2]));
+        let d = f32(this.turnTo - rec.ry);
+        while (PI < d) d = f32(d - TWO_PI);
+        while (d < -PI) d = f32(d + TWO_PI);
         this.turnDelta = f32(d); this.turn = 1;
-        this.vx = f32(0.05 * f.t[0]); this.vy = 0.153125; this.vz = f32(0.05 * f.t[2]);
-        newYaw = rec.ry;
+        this.vx = f32(F05 * f.t[0]); this.vy = f32(0.153125); this.vz = f32(F05 * f.t[2]);      // (local_128, the new yaw, stays as computed: only the blocked case resets it to the record's)
       }
       this.stuck = 0;
       state = sh.get(VAR.STATE);
@@ -710,26 +719,22 @@ export class SpeedsterNode implements BehaviourNode {
       }
     }
     // ---- the speed along the heading (the sound, the gauge), the wrong-way counter, the skid dust variables
-    const sy = Math.sin(newYaw), cy = Math.cos(newYaw);
-    const sp = this.vz * cy + this.vx * sy;                      // local_cc
+    const sy = f32(Math.sin(newYaw)), cy = f32(Math.cos(newYaw));
+    const sp = f32(f32(this.vz * cy) + f32(this.vx * sy));                      // local_cc
     this.fwdSpeed = f32(sp);
     if (state === STATE.DONE) sh.sounds.stop(SND.ENGINE);
     else {
-      sh.sounds.rate(SND.ENGINE, Math.trunc(this.fwdSpeed * 44444.44 + 32000.0));
+      sh.sounds.rate(SND.ENGINE, Math.trunc(f32(f32(this.fwdSpeed * 44444.44) + 32000.0)));
       sh.sounds.play(SND.ENGINE);
     }
-    const dotTrack = cy * trackT[2] + 0 * trackT[1] + sy * trackT[0];
+    const dotTrack = f32(f32(f32(cy * trackT[2]) + f32(0 * trackT[1])) + f32(sy * trackT[0]));
     if (K.WRONG_WAY_DOT <= dotTrack) { this.wrongTimer = 0; sh.set(VAR.WRONG_WAY, 0); }
     else if (this.wrongLimit <= this.wrongTimer) sh.set(VAR.WRONG_WAY, 1);
     else this.wrongTimer = f32(this.wrongTimer + dt);
-    if (this.grounded === 0) { sh.set(VAR.DUST, 0); sh.set(VAR.SKID, 0); }
-    else if (limited === 0) {
-      if (sp <= 0.125) { sh.set(VAR.DUST, 0); sh.set(VAR.SKID, 0); }
-      else { sh.set(VAR.DUST, 1); sh.set(VAR.SKID, 0); }
-    } else { sh.set(VAR.DUST, 1); sh.set(VAR.SKID, 1); }
+    this.dustBlock(limited, sp);
     sh.speedMirror = this.fwdSpeed;
-    sh.gauge = this.fwdSpeed >= 0 ? (this.fwdSpeed / this.topNormal) * 0.6666 : 0;
-    sh.delta[0] = nxp - oldX; sh.delta[1] = nyp - oldY; sh.delta[2] = nzp - oldZ;
+    sh.gauge = this.fwdSpeed >= 0 ? f32((f32(this.fwdSpeed / this.topNormal)) * f32(0.6666)) : 0;
+    sh.delta[0] = f32(nxp - oldX); sh.delta[1] = f32(nyp - oldY); sh.delta[2] = f32(nzp - oldZ);
     this.carMatrix(w, clip);
     this.poseWheels(w);
     void oldY; void tail;
@@ -750,15 +755,50 @@ export class SpeedsterNode implements BehaviourNode {
   }
   private carWheels(w: World, clip: number) { this.poseWheels(w); this.carMatrix(w, clip); }
   /** the four ground sample matrices of the skid dust emitters (FUN_0043a5e4 + FUN_0043a9e5 at the top of the update): particles are not ported */
-  private poseGroundSamples() { /* particle emitter placement only */ }
+  private poseGroundSamples() {
+    // FUN_006c2627's first lines: four matrices (identity rotation, the places of the wheels 2, 3, 0, 1 (W[7..9]) with y - 2) times the car's matrix (as it is at the start of the update)
+    const E = this.shared.emit, car = this.rec;
+    // (x, y) of the wheels 2, 3, 0, 1; z of the wheels 2, 3, 2, 3 (the third and fourth call read +0xac / +0xf0 for z: the original's quirk)
+    const W = this.wheels, src = [[2, 2], [3, 3], [0, 2], [1, 3]];
+    for (let i = 0; i < 4; i++) {
+      const p = W[src[i][0]].at, q = W[src[i][1]].at;
+      euler24(0, 0, 0, p[0], f32(p[1] - 2.0), q[2], E.local[i]);
+      mulGame(E.local[i], car.m, E.m[i]);
+    }
+  }
+  /** FUN_00442a00 / FUN_00442a40 of the skid / dust / cactus emitters (the handles are those of FUN_006bf633) */
+  private emitSetMatrix(i: number, m: Float32Array<ArrayBufferLike>) { const f = this.shared.fx, h = this.shared.emit.h[i]; if (f && h !== undefined) f.setMatrix(h, m); }
+  private emitStop(i: number) { const f = this.shared.fx, h = this.shared.emit.h[i]; if (f && h !== undefined) f.stop(h); }
+  /** the dust / skid block at the end of the update (asm 0x6c4f9e..0x6c519e): the vars 0xfd / 0xfc gate the four `problow` emitters (handles 2 .. 5) */
+  private dustBlock(limited: number, sp: number) {
+    const sh = this.shared, E = sh.emit;
+    if (this.grounded === 0) { sh.set(VAR.DUST, 0); sh.set(VAR.SKID, 0); }
+    else if (limited === 0) {
+      if (sp <= 0.125) { sh.set(VAR.DUST, 0); sh.set(VAR.SKID, 0); }
+      else {
+        if (sh.get(VAR.DUST) === 0) {
+          mulGame(E.local[0], this.rec.m, E.m[0]); mulGame(E.local[1], this.rec.m, E.m[1]);
+          this.emitSetMatrix(4, E.m[0]); this.emitSetMatrix(5, E.m[1]);
+        }
+        sh.set(VAR.DUST, 1); sh.set(VAR.SKID, 0);
+      }
+    } else {
+      if (sh.get(VAR.DUST) === 0) {
+        for (let i = 0; i < 4; i++) mulGame(E.local[i], this.rec.m, E.m[i]);
+        for (let i = 0; i < 4; i++) this.emitSetMatrix(2 + i, E.m[i]);
+      }
+      sh.set(VAR.DUST, 1); sh.set(VAR.SKID, 1);
+      for (let i = 0; i < 4; i++) this.emitStop(2 + i);
+    }
+  }
 
   /** FUN_006c2458: the world positions of the three body probes for a heading and a place (scaled by the shrink scale while shrunk) */
   private probePoints(yaw: number, pos: [number, number, number]): [number, number, number][] {
-    const m = buildMatrix(0, yaw, 0, pos[0], pos[1], pos[2]);
+    const m = euler24(0, yaw, 0, pos[0], pos[1], pos[2]);
     const out: [number, number, number][] = [];
     for (const p of this.probes) {
-      const q = this.shrunk === 0 ? p : [p[0] * this.scale, p[1] * this.scale, p[2] * this.scale];
-      out.push([q[0] * m[0] + q[1] * m[4] + q[2] * m[8] + m[12], q[0] * m[1] + q[1] * m[5] + q[2] * m[9] + m[13], q[0] * m[2] + q[1] * m[6] + q[2] * m[10] + m[14]]);
+      const q = this.shrunk === 0 ? p : [f32(p[0] * this.scale), f32(p[1] * this.scale), f32(p[2] * this.scale)];
+      out.push([f32(f32(f32(f32(q[0] * m[0]) + f32(q[1] * m[4])) + f32(q[2] * m[8])) + m[12]), f32(f32(f32(f32(q[0] * m[1]) + f32(q[1] * m[5])) + f32(q[2] * m[9])) + m[13]), f32(f32(f32(f32(q[0] * m[2]) + f32(q[1] * m[6])) + f32(q[2] * m[10])) + m[14])]);
     }
     return out;
   }
@@ -781,9 +821,5 @@ export class SpeedsterNode implements BehaviourNode {
   destroy(): void { /* the sounds stop with the zone */ }
 }
 
-function norm(v: number[]) {
-  const l2 = v[2] * v[2] + v[1] * v[1] + v[0] * v[0];
-  if (l2 !== 0) { const k = 1 / Math.sqrt(l2); v[0] *= k; v[1] *= k; v[2] *= k; }
-  return v;
-}
+const norm = (v: number[]) => { normalize24(v); return v; };
 export { REC, AnimInstance };

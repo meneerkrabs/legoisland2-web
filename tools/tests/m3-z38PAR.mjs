@@ -54,7 +54,7 @@ export default {
     ok(f32(pe, 0x892484) === 2500 && f32(pe, 0x8923d8) === 5000 && PILOT.LAND_FULL.join() === '5000,2500,1000', 'landing points at the middle: 5000 / 2500 / 1000');
     ok(f32(pe, 0x8924cc) === 26 && f32(pe, 0x8924b8) === 19 && f32(pe, 0x892370) === 11, 'ring reach 26 / 19 / 11 (0x8924cc, 0x8924b8, 0x892370)');
     ok(f32(pe, 0x892080) === 4 && f32(pe, 0x8924c8) === 5.5, 'dive window 4 .. 5.5 radians (0x892080 / 0x8924c8)');
-    near(f64(pe, 0x8924a8), PILOT.PITCH_RATE, 1e-12, 'pitch rate 0.07 (double 0x8924a8)');
+    near(f64(pe, 0x8924a8), 0.07, 1e-12, 'pitch rate 0.07 (double 0x8924a8)'); near(PILOT.PITCH_RATE, Math.fround(0.07), 1e-12, 'the node stores it as a float (+0x74)');
     near(f64(pe, 0x8924a0), PILOT.LEAN_LO, 1e-6, 'lean window low (double 0x8924a0)');
     near(f64(pe, 0x892498), PILOT.LEAN_HI, 1e-6, 'lean window high (double 0x892498)');
     near(f64(pe, 0x892490), 0.4, 1e-6, 'fall speed factor 0.4 (double 0x892490)');
@@ -151,8 +151,11 @@ export default {
       ok(G.run.ring[1] === RING_HIT && G.run.score === 1750, `ring 2 flat: +500 (${G.run.score})`);
       // ring 1 missed: below it without passing
       const r1 = G.run.recs.rings[0];
-      G.p.x = r1.x + 200; G.p.z = r1.z; G.p.y = r1.y - 1; step(G);
-      ok(G.run.ring[0] === RING_MISSED, 'below ring 1 without passing: missed (2)');
+      // (a ring is missed once the pilot is more than 8 below it: the compare is with the double -8.0 at 0x8924c0; M5 audit)
+      G.p.x = r1.x + 200; G.p.z = r1.z; G.p.y = r1.y - 7; step(G);
+      ok(G.run.ring[0] === 0, 'less than 8 below ring 1: not missed yet');
+      G.p.y = r1.y - 9; step(G);
+      ok(G.run.ring[0] === RING_MISSED, 'more than 8 below ring 1 without passing: missed (2)');
       // outside the reach / the window: nothing
       const H = fresh(); step(H);
       const q = H.run.recs.rings[2]; H.p.x = q.x + 27; H.p.z = q.z; H.p.y = q.y; step(H);
@@ -163,7 +166,7 @@ export default {
       ok(H.run.ring[2] === RING_HIT, '4 below the ring is inside (> ring - 5)');
       // both upper rings missed: the hint LESGPT13
       const M = fresh(); step(M);
-      M.p.x = 400; M.p.z = 400; M.p.y = M.run.recs.rings[2].y - 3; step(M); M.p.y = M.run.recs.rings[1].y - 3; step(M);
+      M.p.x = 400; M.p.z = 400; M.p.y = M.run.recs.rings[2].y - 9; step(M); M.p.y = M.run.recs.rings[1].y - 9; step(M);
       ok(M.run.ring[2] === RING_MISSED && M.run.ring[1] === RING_MISSED && M.run.spoken.includes('LESGPT13'), 'both upper rings missed: LESGPT13');
     }
 
@@ -290,7 +293,8 @@ export default {
       // birds: figure of eight around (35.784, 29.474)
       for (let i = 0; i < 3; i++) { const b = R.birds[i], d = BIRDS[i]; ok(Math.abs(b.y - d.y) < 1e-3 && Math.abs(b.x - BIRD_CENTRE[0]) <= d.radius + 1e-6 && Math.abs(b.z - BIRD_CENTRE[1]) <= d.radius + 1e-6, `bird ${i + 1} within its radius ${d.radius} at height ${d.y}`); }
       ok(G.run.sound.count('at', 'birdFly1') > 300 && G.run.sound.count('at', 'planeIdle') > 300 && G.run.sound.count('at', 'ambience') > 300, 'positional sounds every tick');
-      ok(G.run.sound.count('at', 'birdCall1') > 100 && G.run.sound.count('at', 'birdCall1') < G.run.sound.count('at', 'birdFly1'), 'the calls are tried with a 50 % chance per tick');
+      // (M7 oracle: FUN_004677a0 pushes 50.0 (0x42480000) for FUN_004388ae and tests `< 1.0`: a call about every 50 ticks per bird, not every other tick)
+      { const n = G.run.sound.count('at', 'birdCall1'), fly = G.run.sound.count('at', 'birdFly1'); ok(n > 0 && n < fly * 0.06, `the calls are tried with a 1 in 50 chance per tick (${n} of ${fly})`); }
       ok(R.pepp.anim && R.birds[0].anim && R.birds[0].anim.clip === 1, 'the birds animate (clip 1)');
       void BIRDS;
     }

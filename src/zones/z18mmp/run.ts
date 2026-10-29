@@ -13,7 +13,7 @@ const ftol = (v: number): number => { const t = Math.trunc(v); return t >= -2147
  */
 export function scoreOf(seconds: number, won: boolean): number {
   const d = seconds - K.SCORE_BASE_SECONDS;
-  const v = ftol((d < 0 ? d >>> 0 : d) * K.SCORE_PER_SECOND);
+  const v = ftol(Math.fround((d < 0 ? d >>> 0 : d) * K.SCORE_PER_SECOND));      // (the x87 runs in 24-bit precision: the product rounds to float32 before the truncation: 30 s -> 999, not 998.99..)
   let s = (K.SCORE_MAX - v) | 0;
   if (s < 0) s = 0;
   if (K.SCORE_MAX < s) s = K.SCORE_MAX;
@@ -39,8 +39,8 @@ export class MmpRun {
     const sh = this.sh;
     if (0 <= sh.danger) sh.danger = Math.fround(sh.danger - Math.fround(K.DANGER_DECAY * dt));
     if (!sh.stopClock) {
-      sh.frac += 1.0 * dt;
-      if (K.SECOND_TICKS < sh.frac) { sh.frac -= K.SECOND_TICKS; sh.seconds++; }
+      sh.frac = Math.fround(1.0 * dt + sh.frac);
+      if (K.SECOND_TICKS < sh.frac) { sh.frac = Math.fround(sh.frac - K.SECOND_TICKS); sh.seconds++; }
     }
   }
 

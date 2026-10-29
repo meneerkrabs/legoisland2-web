@@ -210,6 +210,8 @@ z05WAB / z17WAS have the player at record 0.
 
 ## 6. Stub requirement: the player walks in every zone
 
+> **State of M2 (historic).** 23 of the 30 zones are ported meanwhile (M3, M4, M6); only the six hubs (z07CSI, z13CAI, z14OSD, z16PYA, z23DIP, z40OGL) still run as stubs, and the table lists the stub remarks of M2. The ported zones have their own camera, walls and rules; the `StubGuard` is only used for stubs.
+
 `tools/tests/zonesetup.mjs` loads all 30 zones (`loadZone` = `profileFor` + `setupZone`) and ticks 300 frames with Up held: no exception, no NaN / Infinity in the player, the camera or the
 matrices in any zone. 18 of 30 zones are fine (the player moves, no remark). The others:
 

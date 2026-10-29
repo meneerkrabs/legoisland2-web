@@ -141,12 +141,12 @@ mesh group 23 (text022.tga, the printer paper) per call, **once per group of the
 * **Particles are not drawn**: the four `bolts01.par` emitters on the holes (started with `FUN_00442a20(emitter, 2, 1, 1)` when a bot is whacked) and the `wabswirl.swl` swirl on the Infomaniac
   (started when he is whacked) need a particle renderer, which the engine does not have yet (rendering.md section 8). `botexpl01`, `exclaim01`, `wabinfo01` are in the archive but nothing in the
   zone code starts them.
-* The 3D sounds (miss / hit bot / hit info) are played 2D at full level when the original would play them (position valid, inside the 128 range: always, the camera is about 20 away).
+* The 3D sounds (miss / hit bot / hit info) are played as 3D (`host.play3d`, listener = camera; A3).
 * The percentage line is drawn from `draw2d` every frame instead of being queued by the update; the time strings lag one tick behind the counters exactly like the original's.
 * Pepper's shadow (blob shadow of `GameRenderer`) is drawn as in the other zones; nothing in the original code of this zone suggests otherwise, but it was not compared.
 * `FUN_00460a3d(0x16, 0x14, 0)` (the prompt panel of modes 0 and 4) is the runner's `drawIntroScreen` / `drawBannerScreen`.
-* Random numbers: the original picks `ftol(rand() / 32767 * (GetTickCount() - base)) & 3 / & 7 / % 3`; the port draws uniformly (`Math.random`), tests script them.
-* The hiscore / trophy are written when the banner starts (the original writes them in the draw code of the first banner frame, a tick later).
+* Random numbers: `tickPick(msClock(world), n)` = `ftol(FUN_004388ae(FUN_00435c91())) % n` (`// RNG:` in game.ts; GetTickCount is wall-clock, so the sequence itself is not reproducible).
+* The hiscore / trophy are written in the first banner frame, the tick after the mode switch, like the original.
 * The first 15 ticks (start-up lock) and the first bot at tick 12 mean a bot that comes first is whackable only at the end of its rise, as in the original.
 
 ## 8. Review

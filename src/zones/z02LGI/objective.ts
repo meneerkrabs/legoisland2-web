@@ -17,6 +17,11 @@ export const TALK_NPC_CTOR = 0x426151;
 
 export const OBJ = { NONE: 0, RECORD: 1, PAIR: 2, NODE: 3, NEAREST4: 4 } as const;
 
+/** a dock / helipad of the vehicle tables (DAT_009da9d4 / 9da9e4 / 9da9fc and DAT_009daa18 / 9daa2c / 9daa50: node, map, taken) */
+export interface BerthView { map: number; node: number; taken: boolean }
+/** what the vehicle branch of FUN_00424e37 reads: the high word of DAT_009da9f8 (-1 car, -2 boat, -3 helicopter), the free docks / helipads, FUN_00462be9(map, node) */
+export interface VehicleObjective { kind: number; docks: readonly BerthView[]; pads: readonly BerthView[]; nodePos(map: number, node: number): readonly number[] | null }
+
 /** a target: the position the NPC / hologram turns to (the translation of the matrix FUN_00424e37 returns) */
 export interface ObjectiveTarget { pos: [number, number, number]; record: number }
 
@@ -50,14 +55,31 @@ export class Objective {
 
   /**
    * FUN_00424e37(&out, from): the target. `pepperControl` = var 0x5e; `pathPos(n)` = FUN_00462be9(1, n) (null when the map is not loaded).
-   * The vehicle branch (var 0x5e & 8 with a delivery list in DAT_009da9f8 hi word -2 / -3: the boat / helicopter pickups) is not ported: mode 2 targets the
-   * first record as the original does, the delivery lists give no target (null).
+   * Vehicle branch (`veh`, taken when var 0x5e & 8 and the high word of DAT_009da9f8 is not -1: Pepper is in a boat / helicopter): mode 2 targets the first record (DAT_009da830);
+   * any other mode looks for the nearest free helipad (kind -3) / dock (kind -2) by the squared XZ distance to `from` and then reads FUN_00462be9(1, INDEX), the PATH
+   * node whose number is the berth's index in the table (an original slip: the berth's own node is `Berth.node` of map `Berth.map`, which only the distance loop uses);
+   * with no free berth the index stays -1 and FUN_00462be9 reads the 0x20 bytes before the node array (the debug heap header: three pointers read as floats, about 1e-38,
+   * i.e. the origin; `[0, 0, 0]` here). The branch always yields a target.
    */
-  target(records: readonly GameRecord[], from: GameRecord | null, pepperControl: number, pathPos: (n: number) => readonly number[] | null, deliveryList = -1): ObjectiveTarget | null {
+  target(records: readonly GameRecord[], from: GameRecord | null, pepperControl: number, pathPos: (n: number) => readonly number[] | null, veh?: VehicleObjective | null): ObjectiveTarget | null {
     const at = (i: number): ObjectiveTarget | null => { const r = records[i]; return r ? { pos: [r.x, r.y, r.z], record: i } : null; };
-    if ((pepperControl & 8) !== 0 && deliveryList !== -1) {
+    if ((pepperControl & 8) !== 0 && veh && veh.kind !== -1) {
       if (this.mode === OBJ.PAIR) return at(this.recs[0]);
-      return null;
+      let idx = -1, best = 1e38;
+      const scan = (list: readonly BerthView[]) => {
+        for (let k = 0; k < list.length; k++) {
+          if (list[k].taken) continue;
+          const p = veh.nodePos(list[k].map, list[k].node);
+          if (!p) continue;
+          const dx = p[0] - (from?.x ?? 0), dz = p[2] - (from?.z ?? 0);
+          const d2 = dz * dz + dx * dx;
+          if (d2 < best) { idx = k; best = d2; }
+        }
+      };
+      if (veh.kind === -3) scan(veh.pads);
+      if (veh.kind === -2) scan(veh.docks);
+      const p = idx >= 0 ? pathPos(idx) : null;
+      return { pos: p ? [p[0], p[1], p[2]] : [0, 0, 0], record: -1 };
     }
     switch (this.mode) {
       case OBJ.PAIR: return at(this.recs[1]);

@@ -5,7 +5,7 @@
 //   node 32: Ctrl at the police helicopter PHEL, fly (Space forward, ArrowDown climb) into the air portal PORA (gate node 0x20: S281 |= 2, var 5 = 10)
 //   node 33: z13CAI (Adventure Island, a stub) ... node 51: F9 (stub aid) in every stub zone until the story flies home -> island era 3 (zone id 33),
 //            node 52: Pepper arrives at PORA in the helicopter (FUN_004c2d22, PREV_SUBGAME 10).
-//   node tools/browse.mjs "http://localhost:5490/?zone=z02LGI&node=30&mute=1&hold=1" tools/steps/m4-era2.mjs --size 1280x800 --out /tmp/wp16
+//   node tools/browse.mjs "http://localhost:5490/?zone=z02LGI&node=30&mute=1&debug=1&hold=1" tools/steps/m4-era2.mjs --size 1280x800 --out /tmp/wp16
 // Long walks / flights are teleports (Pepper or her helicopter put near the target, facing it); the keys do the actions.
 // Env: STOP=<phase> ends after that phase (intro, pages, police, heli, stubs); FROM=stubs starts at the stubs (URL ?zone=z13CAI&node=33&mute=1&hold=1);
 //      FROM=castle starts in the castle hub at node 29 (URL ?zone=z07CSI&node=29&mute=1&hold=1) and arrives by boat.
@@ -155,7 +155,7 @@ export default async (h) => {
       if (Date.now() - t0 > 5000) await page.evaluate(() => { const n = __zone.world.records[22]?.ctrl?.nodes.find((x) => x.kind === 'zonewas'); if (n && n.timeLeft > 90) n.timeLeft = 90; });
       if (!d.busy && d.presses === 0 && !d.squash) {
         const k = d.state.findIndex((st, i) => st === 2 && d.hit[i] === 0);
-        if (k >= 0) { await page.keyboard.press(BTN[k], { delay: 25 }); if (d.holder === k) { await wait(70); await page.keyboard.press(BTN[k], { delay: 25 }); } }
+        if (k >= 0) { await page.keyboard.press(BTN[k], { delay: 70 }); if (d.holder === k) { await wait(70); await page.keyboard.press(BTN[k], { delay: 70 }); } }
       }
       await wait(30);
     }

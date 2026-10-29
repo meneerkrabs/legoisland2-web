@@ -1,6 +1,6 @@
 // Walk the whole story through the shell with the stub aid F9 (hubs: complete the node the story waits for; mini-games: finish successfully -> banner ->
 // result menu -> Continue), from "new game" (node 2) to the free roam node 68, including the outro movie and the credits after the Brickster's palace.
-//   node tools/browse.mjs "http://localhost:5499/?start=frontend&mute=1" tools/steps/shell-story.mjs --size 640x480
+//   node tools/browse.mjs "http://localhost:5499/?start=frontend&mute=1&debug=1" tools/steps/shell-story.mjs --size 640x480
 export default async ({ page, shot, wait, log, key }) => {
   const fail = [];
   const expect = (name, cond, extra = '') => { if (!cond) fail.push(name); log(cond ? 'ok  ' : 'FAIL', name, extra); };

@@ -8,7 +8,7 @@
 //   node 58 (S284 == 1): StartCSM on TOWE (PATH 215 INSIDESPACE, no cutscene) -> S284 = 1 -> node 59 = z36CNT (the FSM leaves the island)
 //   node 59 z36CNT (centrifuge: the m3 bot's perfect player) -> node 60 z38PAR (parachute: tools/lib/par-bot.mjs) -> node 61 island era 4 (arrival at SPBT)
 //   node 61 (S284 == 2): StartCSM on TOWE (PATH 216) -> LGI13 (the shuttle) -> node 62 z39ASB
-//   node tools/browse.mjs "http://localhost:5489/?zone=z02LGI&node=52&mute=1&hold=1" tools/steps/m4-era3.mjs --size 1280x800 --out /tmp/wp17
+//   node tools/browse.mjs "http://localhost:5489/?zone=z02LGI&node=52&mute=1&debug=1&hold=1" tools/steps/m4-era3.mjs --size 1280x800 --out /tmp/wp17
 // Long walks are teleports (Pepper put next to the target, facing it); the keys do the actions (walk in, Space throw, Shift skip, Enter in menus).
 // Env: STOP=<phase> ends after that phase (intro, pages, radio, heads, police, tower, cnt, par, era4); FROM=cnt starts in z36CNT (URL ?zone=z36CNT&node=59&mute=1&hold=1),
 //      FROM=radio starts at node 55 (URL ?zone=z02LGI&node=55&mute=1&hold=1), FROM=tower at node 58 (node=58), FROM=asb at z39ASB (zone=z39ASB&node=62), FROM=abort the two aborts (zone=z36CNT&node=59), FROM=end node 68 (node=68), FROM=era4 starts at node 61 (URL ?zone=z02LGI&node=61&mute=1&hold=1).
@@ -235,8 +235,8 @@ export default async (h) => {
     for (;;) {
       const x = await dbg();
       if (!x || x.mode !== 2 || x.d?.state !== 3) break;
-      if (x.d.zone === 'top' && !x.d.latchL) await page.keyboard.press('ArrowLeft');
-      else if (x.d.zone === 'bottom' && !x.d.latchR) await page.keyboard.press('ArrowRight');
+      if (x.d.zone === 'top' && !x.d.latchL) await page.keyboard.press('ArrowLeft', { delay: 70 });
+      else if (x.d.zone === 'bottom' && !x.d.latchR) await page.keyboard.press('ArrowRight', { delay: 70 });
       await wait(8);
     }
     await until((x) => x.mode === 4 || x.mode === 5, 120000);

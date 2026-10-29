@@ -13,6 +13,16 @@ import type { ParRun } from './par-run.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
 import { TWO_PI, ftol, nameStarts, rand, reflect, segmentHitsRecordBox, steerYaw, transformPoint } from './util.ts';
 import type { Vec3 } from './util.ts';
+import { shadowPoints } from './apo-pilot.ts';
+
+/** the node, the records and the locals of the original are 32-bit floats: every store rounds (the x87 computes the expression in extended precision, one rounding per store) */
+const f32 = Math.fround;
+const TWO_PI32 = f32(TWO_PI);
+/** FUN_0085d104 of the sum of squares of the float differences (the locals are floats) */
+const dist3 = (ax: number, ay: number, az: number, b: GameRecord): number => {
+  const dx = f32(ax - b.x), dy = f32(ay - b.y), dz = f32(az - b.z);
+  return f32(Math.sqrt(dz * dz + dy * dy + dx * dx));
+};
 
 /** node +0x30 */
 export const S = { START: 0, FALL: 1, OPENING: 2, GLIDE: 3, LANDING: 4, OVER: 5, BOUNCE: 7 } as const;
@@ -23,14 +33,14 @@ export const CLIP = { POSE: 0, GLIDE: 1, LEAN: 2, FALL: 3, OPEN: 4, LAND: 5, BOU
 export const PILOT = {
   START_ALT: 1360,            // 0x44aa0000: param_3[5] (also DAT_05d57d0c, the gauge's full scale)
   GLIDE_REF: 400,             // 0x43c80000: node +0x18 (the glide speed is fall * y / (1360 + 400))
-  PITCH_STEP: 0.17,           // 0x3e2e147b: node +0x1c
-  WIND_FACTOR: 0.36,          // 0x3eb851ec: node +0x20
+  PITCH_STEP: f32(0.17),      // 0x3e2e147b: node +0x1c
+  WIND_FACTOR: f32(0.36),     // 0x3eb851ec: node +0x20
   RADIUS: [22.8, 11.5, 7.6] as const,   // 0x41b66666 / 0x41380000 / 0x40f33333: landing radius of TAR3 (+0x24), TAR2 (+0x28), TAR1 (+0x2c)
-  CHUTE_FALL: 0.3,            // 0x3e99999a: node +0x48 (fall speed under the chute)
+  CHUTE_FALL: f32(0.3),       // 0x3e99999a: node +0x48 (fall speed under the chute)
   FALL_START: 0.5,            // 0x3f000000: node +0x4c
-  CAM_LERP: 0.85,             // 0x3f59999a: node +0x5c
-  CAM_LIFT: 0.15,             // 0x3e19999a: node +0x70 (times 8: the look-at point is 1.2 above the pilot)
-  PITCH_RATE: 0.07,           // double 0x8924a8: node +0x74 per tick while Up / Down are held
+  CAM_LERP: f32(0.85),        // 0x3f59999a: node +0x5c
+  CAM_LIFT: f32(0.15),        // 0x3e19999a: node +0x70 (times 8: the look-at point is 1.2 above the pilot)
+  PITCH_RATE: f32(0.07),      // double 0x8924a8, stored as a float: node +0x74 per tick while Up / Down are held
   LEAN_LO: 0.6283185,         // double 0x8924a0 (pi / 5)
   LEAN_HI: 2.3561945,         // double 0x892498 (3 pi / 4)
   FALL_BASE: 0.4,             // 0x892118 and double 0x892490
@@ -89,8 +99,9 @@ export class ParPilot implements BehaviourNode {
     const run = parRun(w);
     const R = run.recs, snd = run.sound;
     const held = w.input.held, dt = w.dt;
-    const anim = (rec.anim ?? noAnim) as typeof noAnim & { start(c: number, f?: number): boolean; advance(r: number): number };
+    const anim = (rec.anim ?? noAnim) as typeof noAnim & { start(c: number, f?: number): boolean; advance(r: number, dt?: number): number };
     run.tick++;
+    const clip0 = anim.clip, frame0 = anim.frame;       // the pose the last draw left in the animation's buffer (FUN_0043bc58 at the end of this update)
 
     let ex = rec.x, ey = rec.y, ez = rec.z;
     const px = ex, py = ey, pz = ez;      // local_150 / local_14c / local_148: where the tick started
@@ -100,40 +111,41 @@ export class ParPilot implements BehaviourNode {
 
     this.rings(run, rec, ex, ey, ez);
 
-    const dist = (t: GameRecord) => Math.hypot(ex - t.x, ey - t.y, ez - t.z);
+    const dist = (t: GameRecord) => dist3(ex, ey, ez, t);
     const dTar3 = dist(R.targets[2]), dTar2 = dist(R.targets[1]), dTar1 = dist(R.targets[0]);   // local_cc / local_c4 / local_bc
     // the wind wanders: DAT_05d57d04 += (rand(2) - 1) / 32; the drift is the fall speed times the wind direction times 0.36
-    run.windDir += (rand(2) - 1) / 32;
-    this.windX = this.fall * Math.sin(run.windDir) * PILOT.WIND_FACTOR;
-    this.windZ = this.fall * Math.cos(run.windDir) * PILOT.WIND_FACTOR;
+    run.windDir = f32(run.windDir + f32((rand(2) - 1) / 32));
+    const wm = buildMatrix(0, run.windDir, 0, 0, 0, 0);       // FUN_0043a5e4(local_144, 0, windDir, 0, 0, 0, 0): row 2 = the wind's direction
+    this.windX = f32(f32(this.fall * wm[8]) * PILOT.WIND_FACTOR);
+    this.windZ = f32(f32(this.fall * wm[10]) * PILOT.WIND_FACTOR);
 
     switch (this.state) {
       case S.START: this.state = S.FALL; break;
       case S.FALL: {
         snd.play('windFall');
-        const step = dt * PILOT.PITCH_RATE;
-        if (held & B.UP) { rec.rx += step; if (rec.rx > TWO_PI) rec.rx -= TWO_PI; }
-        if (held & B.DOWN) { rec.rx -= step; if (rec.rx < 0) rec.rx += TWO_PI; }
+        const step = f32(dt * PILOT.PITCH_RATE);
+        if (held & B.UP) { rec.rx = f32(rec.rx + step); if (rec.rx > TWO_PI32) rec.rx = f32(rec.rx - TWO_PI32); }
+        if (held & B.DOWN) { rec.rx = f32(rec.rx - step); if (rec.rx < 0) rec.rx = f32(rec.rx + TWO_PI32); }
         let frame = ftol(anim.frame);
         if (rec.rx <= PILOT.LEAN_LO || rec.rx >= PILOT.LEAN_HI) {
           // flat / head-down: the fall pose
-          if (anim.clip === CLIP.FALL) anim.advance(1);
+          if (anim.clip === CLIP.FALL) anim.advance(1, dt);
           if (anim.clip === CLIP.LEAN) {
             if (frame < 2) anim.start(CLIP.FALL, 0);
-            else { anim.advance(-1); if (anim.frame < 0) anim.start(CLIP.FALL, 0); }
+            else { anim.advance(-1, dt); if (anim.frame < 0) anim.start(CLIP.FALL, 0); }
           }
         } else {
           // leaning forward
-          if (anim.clip === CLIP.FALL) { if (frame < 5 || 0x37 < frame) anim.start(CLIP.LEAN, 0); else anim.advance(1); }
-          if (anim.clip === CLIP.LEAN) { frame = ftol(anim.frame); if (frame < 0xf) anim.advance(1); }
+          if (anim.clip === CLIP.FALL) { if (frame < 5 || 0x37 < frame) anim.start(CLIP.LEAN, 0); else anim.advance(1, dt); }
+          if (anim.clip === CLIP.LEAN) { frame = ftol(anim.frame); if (frame < 0xf) anim.advance(1, dt); }
         }
-        this.fallTarget = Math.abs(Math.sin(rec.rx) * 0.4) + PILOT.FALL_BASE;
-        const glide = Math.sin(2 * rec.rx);
+        this.fallTarget = f32(f32(Math.abs(Math.sin(rec.rx) * 0.4)) + PILOT.FALL_BASE);
+        const glide = f32(Math.sin(2 * rec.rx));
         // the wind sound's pitch follows the fall speed: ftol((fall - 0.4) * 17215 + 9114) Hz
         snd.rate('accel', ftol((this.fallTarget - PILOT.FALL_BASE) * 17215 + 9114));
         snd.play('accel');
-        ex += glide * dt * Math.sin(rec.ry);
-        ez += glide * dt * Math.cos(rec.ry);
+        ex = f32(ex + f32(glide * dt * f32(Math.sin(rec.ry))));      // local_b4 = local_c8 * dt * (FUN_0043ad29(identity, ry) row 2)
+        ez = f32(ez + f32(glide * dt * f32(Math.cos(rec.ry))));
         this.fall = this.fallTarget;
         if (run.height <= 0) {
           // hit the ground without the parachute
@@ -145,7 +157,7 @@ export class ParPilot implements BehaviourNode {
           else snd.play('smack');
           snd.stop('windFall'); snd.stop('windChute');
         } else {
-          ey = ey - this.fall * dt;
+          ey = f32(ey - f32(this.fall * dt));
         }
         if (run.chuteOk && (held & B.SHIFT)) {
           this.state = S.OPENING;
@@ -156,47 +168,49 @@ export class ParPilot implements BehaviourNode {
         break;
       }
       case S.OPENING: {
-        if (rec.rx <= 0 || TWO_PI <= rec.rx) {
+        if (rec.rx <= 0 || TWO_PI32 <= rec.rx) {
           rec.rx = 0;
           run.canopy = 1;
-          const done = anim.advance(1);
+          const done = anim.advance(1, dt);
           if (done !== 0) {
             this.state = S.GLIDE;
             anim.start(CLIP.GLIDE, 0);
-            this.camLerp = 0.35; this.camOff[1] = 0; this.camOff[2] = -2.8;
+            this.camLerp = f32(0.35); this.camOff[1] = 0; this.camOff[2] = f32(-2.8);
           }
-        } else if (Math.PI <= rec.rx || rec.rx <= 0) rec.rx += 0.1 * dt;
-        else rec.rx -= 0.1 * dt;
-        ey = ey - this.fall * dt;
+        } else if (f32(Math.PI) <= rec.rx || rec.rx <= 0) rec.rx = f32(rec.rx + f32(f32(0.1) * dt));
+        else rec.rx = f32(rec.rx - f32(f32(0.1) * dt));
+        ey = f32(ey - f32(this.fall * dt));
         break;
       }
       case S.GLIDE: {
         snd.play('flap');
-        if (anim.clip === CLIP.GLIDE) anim.advance(1);
-        this.fwd = (this.fall * ey) / (PILOT.START_ALT + PILOT.GLIDE_REF);
+        if (anim.clip === CLIP.GLIDE) anim.advance(1, dt);
+        this.fwd = f32((this.fall * ey) / (PILOT.START_ALT + PILOT.GLIDE_REF));
         if (!(held & B.UP)) {
           if (anim.clip === CLIP.PULL) {
-            anim.advance(-1);
+            anim.advance(-1, dt);
             if (ftol(anim.frame) <= 0) anim.start(CLIP.GLIDE, 0);
           }
         } else {
-          ey = (this.fall / 2) * dt + ey;
-          this.fwd *= 4;
+          ey = f32((this.fall / 2) * dt + ey);
+          this.fwd = f32(this.fwd * 4);
           if (anim.clip === CLIP.GLIDE) anim.start(CLIP.PULL, 0);
-          else if (ftol(anim.frame) < 0xf) anim.advance(1);
+          else if (ftol(anim.frame) < 0xf) anim.advance(1, dt);
         }
         const m = rec.m;
-        ex += this.fwd * dt * m[8] * 8;
-        ey = ey - this.fall * dt + this.fwd * dt * m[9] * 8;
-        ez += this.fwd * dt * m[10] * 8;
-        this.landing(run, anim, rec, dTar1, dTar2, dTar3, [px, py, pz]);
+        const b4 = f32(this.fwd * dt * m[8] * 8), b0 = f32(this.fwd * dt * m[9] * 8), b2 = f32(this.fwd * dt * m[10] * 8);
+        ex = f32(ex + b4);
+        ey = f32((ey - this.fall * dt) + b0);
+        ez = f32(ez + b2);
+        const crash = this.landing(run, anim, rec, dTar1, dTar2, dTar3, [px, py, pz]);
+        if (crash) { ex = crash[0]; ey = crash[1]; ez = crash[2]; }     // local_e8 / local_ec / local_e4 are reloaded from the record: the pilot does not move on the tick it crashes
         break;
       }
       case S.LANDING: {
         snd.stop('flap');
-        this.camLerp = 0.03; this.camOff[2] = 12; this.camOff[0] = -12;
+        this.camLerp = f32(0.03); this.camOff[2] = 12; this.camOff[0] = -12;
         if (anim.clip === CLIP.LAND) {
-          const r = anim.advance(1);
+          const r = anim.advance(1, dt);
           if (r === 1 || r === 2) {
             this.state = S.OVER;
             anim.start(run.score < 2000 ? CLIP.SAD : CLIP.CHEER, 0);
@@ -207,15 +221,16 @@ export class ParPilot implements BehaviourNode {
       }
       case S.OVER:
         run.over = true;
+        run.fx?.pilotOver();       // FUN_00442a20(spray01, 1, 1, 1)
         break;
       case S.BOUNCE: {
         const frame = ftol(anim.frame);
         const k = ((60 - frame) >> 3) * dt;
-        ex = rec.x + k * this.bounce[0]; ey = rec.y + k * this.bounce[1]; ez = rec.z + k * this.bounce[2];
+        ex = f32(rec.x + f32(k * this.bounce[0])); ey = f32(rec.y + f32(k * this.bounce[1])); ez = f32(rec.z + f32(k * this.bounce[2]));
         rec.x = ex; rec.y = ey; rec.z = ez;
-        const r = anim.advance(1);
+        const r = anim.advance(1, dt);
         if (r === 1 || r === 2) { this.state = S.FALL; anim.start(CLIP.FALL, 0); }
-        ey = ey - this.fall * dt;
+        ey = f32(ey - f32(this.fall * dt));
         rec.x = ex; rec.y = ey; rec.z = ez;
         const hit = w.col.sweep(rec, [ex, ey, ez], [px - ex, py - ey, pz - ez], 3, 1.2, 1.2);
         if (hit) {
@@ -228,14 +243,14 @@ export class ParPilot implements BehaviourNode {
 
     this.steer(held);
     if (this.state === S.FALL || this.state === S.GLIDE) {
-      rec.ry += this.yawRate * dt;
-      if (rec.ry < 0) rec.ry += TWO_PI;
-      if (TWO_PI < rec.ry) rec.ry -= TWO_PI;
+      rec.ry = f32(rec.ry + f32(this.yawRate * dt));
+      if (rec.ry < 0) rec.ry = f32(rec.ry + TWO_PI32);
+      if (TWO_PI32 < rec.ry) rec.ry = f32(rec.ry - TWO_PI32);
     }
     rec.setEuler(rec.rx, rec.ry, rec.rz, ex, ey, ez);
     ex = rec.x; ey = rec.y; ez = rec.z;
     if (this.state !== S.LANDING && this.state !== 6 && this.state !== S.OVER) {
-      ex += this.windX * dt; ez += this.windZ * dt;
+      ex = f32(ex + f32(this.windX * dt)); ez = f32(ez + f32(this.windZ * dt));
       rec.x = ex; rec.y = ey; rec.z = ez;
     }
     // the ground under the canopy / body (FUN_00442a70 from the canopy record): height above the ground, the blob shadow
@@ -244,9 +259,7 @@ export class ParPilot implements BehaviourNode {
 
     if (this.state === S.FALL || this.state === S.OPENING) this.collide(w, run, rec, [px, py, pz], [ex, ey, ez]);
 
-    if (this.state === S.LANDING || this.state === S.OVER) {
-      // the pilot's own particle emitters are switched off here in the original (not ported)
-    }
+    run.fx?.pilotTail(this.state, rec, clip0, frame0);     // states 4 / 5: the two footsmokes off; else their bone matrices (7 and 5) are refreshed
     this.camera(w, rec, ex, ey, ez);
     run.y = ey;
     return NODE_STOP;
@@ -258,7 +271,7 @@ export class ParPilot implements BehaviourNode {
     for (const i of [2, 1, 0] as const) {
       if (run.ring[i] !== 0) continue;
       const ring = R.rings[i];
-      const d = Math.hypot(ex - ring.x, ey - ring.y, ez - ring.z);
+      const d = dist3(ex, ey, ez, ring);
       const reach = [11, 19, 26][i];
       if (d < reach && ey < ring.y + 4 && ring.y - 5 < ey) {
         if (4 < rec.rx && rec.rx < 5.5) {
@@ -270,7 +283,9 @@ export class ParPilot implements BehaviourNode {
         run.score += PILOT.RING_BONUS[i];
         snd.play('thruRing');
       }
-      if (ey - ring.y < 0 && run.ring[i] === 0) {
+      // a ring is missed once the pilot is more than 8 below it: the compare is against the DOUBLE at 0x8924c0 (= -8.0; the decompile's `(float)_DAT_008924c0 = 0` is a misreading;
+      // M5 audit, oracle test: M3 compared with 0)
+      if (f32(ey - ring.y) < -8 && run.ring[i] === 0) {
         run.ring[i] = RING_MISSED;
         // both upper rings missed: the hint line
         if (i === 1 && run.ring[2] === RING_MISSED) run.speak('LESGPT13');
@@ -279,7 +294,7 @@ export class ParPilot implements BehaviourNode {
   }
 
   /** state 3 (after the move): landing on a revealed target, or touching the ground */
-  private landing(run: ParRun, anim: typeof noAnim & { start(c: number, f?: number): boolean }, rec: GameRecord, d1: number, d2: number, d3: number, prev: Vec3) {
+  private landing(run: ParRun, anim: typeof noAnim & { start(c: number, f?: number): boolean }, rec: GameRecord, d1: number, d2: number, d3: number, prev: Vec3): Vec3 | null {
     const R = run.recs, snd = run.sound, below = run.height < 0;
     const hit = (i: number, d: number) => { // ring i hit, close to its target, and at ground level
       if (run.ring[i] === RING_HIT && d < PILOT.RADIUS[2 - i] && below) {
@@ -290,10 +305,12 @@ export class ParPilot implements BehaviourNode {
       }
     };
     hit(2, d3); hit(1, d2); hit(0, d1);
+    let reload: Vec3 | null = null;
     if (!this.landed) {
       if (below) {
         const w = run.world;
         const ex = rec.x, ey = rec.y, ez = rec.z;
+        reload = [ex, ey, ez];
         const h = w.col.sweep(rec, [ex, ey, ez], [prev[0] - ex, prev[1] - ey, prev[2] - ez], 3, 12, 12);
         if (h) snd.play('landOff'); else snd.play('splash');
         this.crashed = true;
@@ -310,17 +327,23 @@ export class ParPilot implements BehaviourNode {
       snd.play('landOk');
     }
     void R;
+    return reload;
   }
 
   /** the steering ramp (shared with z40aPO, util.ts `steerYaw`) */
   private steer(held: number) { steerYaw(this, held); }
 
-  /** FUN_00442a70 as far as the pilot reads it: the ray from 150 above the canopy record straight down onto the land record; the height + 3.2 is the "ground" */
+  /**
+   * FUN_00442a70(canopy record, land record, 2.0, 0.4, DAT_05d57da8, 0): the centre ray from 150 above the canopy record onto the land record plus the four corner rays of the blob shadow
+   * (`shadowPoints`, shared with z40aPO). The pilot reads the centre height + 3.2 as the "ground" (param_5[4]); the corner rays are cast only because they move the collision hit
+   * cache of the engine (DAT_009dec24 / DAT_009deb78: the next ray starts with the polygon of the last hit): M7 oracle, without them the cached polygon at an edge was another one
+   * (height 0.0 instead of -0.001).
+   */
   private ground(w: World, run: ParRun, _rec: GameRecord, ey: number) {
     const R = run.recs, from = R.para ?? R.pepp;
-    const h = w.col.rayRecord(R.land, [from.x, from.y + 150, from.z], [0, -8000, 0], 3, 0.01, 0);
-    if (h) { run.groundY = h.point[1] + 0.4 * 8; run.groundHit = [h.point[0], h.point[1], h.point[2]]; }
-    run.height = ey - run.groundY;
+    const pts = shadowPoints(w, from, R.land, 2.0, 0.4, run.shadow);
+    if (pts) { run.groundY = pts[4]; run.groundHit = [pts[3], pts[4] - f32(f32(0.4) * 8), pts[5]]; }
+    run.height = f32(ey - run.groundY);
   }
 
   /** the bounce test of states 1 / 2: the sweep (radius 1.2) and the pterodactyl boxes */

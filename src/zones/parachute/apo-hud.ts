@@ -18,31 +18,35 @@ export interface ApoHudFrame {
   text: string;
   /** the left icon column from the bottom: group 3 (750 points), group 2, group 1 */
   groups: [number, number, number];
+  /** the tint of those icons (ARGB): white once a ring of the group was passed, else 0x88888888 (FUN_007d0f00's local_10 / local_24 / local_18) */
+  tints: [number, number, number];
   chuteIcon: number;
-  gauge: { segments: number[]; marker: number };
+  gauge: { segments: number[]; marker: number; value: number };
 }
 
 export class ApoHud {
   /** DAT_0094a0d8 / d4 / d0: the spin counters of group 1 / 2 / 3 (14, 44, 74 initially; they persist across games) */
   spin: [number, number, number] = [14, 44, 74];
-  frame: ApoHudFrame = { text: '0', groups: [0x4a, 0x2c, 0xe], chuteIcon: 12, gauge: { segments: [], marker: 0 } };
+  frame: ApoHudFrame = { text: '0', groups: [0x4a, 0x2c, 0xe], tints: [0x88888888, 0x88888888, 0x88888888], chuteIcon: 12, gauge: { segments: [], marker: 0, value: 0 } };
 
   update(run: ApoRun, dt = 1): ApoHudFrame {
     const f = this.frame;
     f.text = String(ftol(run.score));
     // group g covers rings 5g .. 5g + 4; the slot order is reversed (group 3 is the bottom icon)
-    const icon = [0, 0, 0];
+    const icon = [0, 0, 0], tint = [0x88888888, 0x88888888, 0x88888888];
     for (let g = 0; g < 3; g++) {
       let hit = false;
       for (let i = 5 * g; i < 5 * g + 5; i++) if (run.ring[i] === 1) hit = true;
       if (hit) {
-        this.spin[g] += 1 * dt;
+        tint[g] = 0xffffffff;
+        this.spin[g] = Math.fround(1 * dt + this.spin[g]);   // float counter, += 1 * DAT_008b1718
         if (APO_HUD.SPIN_END[g] < this.spin[g]) this.spin[g] = APO_HUD.SPIN_START[g];
         icon[g] = ftol(this.spin[g]);
       } else if (run.ring[5 * g + 4] === 2) icon[g] = APO_HUD.MISSED[g];
       else icon[g] = APO_HUD.NORMAL[g];
     }
     f.groups = [icon[2], icon[1], icon[0]];
+    f.tints = [tint[2], tint[1], tint[0]];
     f.chuteIcon = run.chuteOk ? APO_HUD.CHUTE_OK : APO_HUD.CHUTE_NO;
     let local = 204 - (run.y / run.startAlt) * 204;
     let upper: number;
@@ -53,7 +57,9 @@ export class ApoHud {
     } else { upper = APO_HUD.GAUGE_HIGH; run.refAlt = run.y; }
     f.gauge.segments = Array.from({ length: 12 }, (_, i) => (i < 3 ? APO_HUD.GAUGE_LOW : upper));
     if (local > 204) local = 204;
-    f.gauge.marker = Math.min(1, Math.max(0, (204 - local) / 204));
+    // DAT_05d4e138 = 204 - local is NOT clamped below (height > refAlt after a bounce gives > 204); the gauge draw FUN_00460214 clamps its ratio to 0..1
+    f.gauge.value = 204 - local;
+    f.gauge.marker = Math.min(1, Math.max(0, f.gauge.value / 204));
     return f;
   }
 }

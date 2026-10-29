@@ -13,7 +13,7 @@ export default async ({ page, shot, wait, log, key }) => {
   const vars = () => page.evaluate(() => ({ hi: __zone.sh.vars.get(200), trophy: __zone.sh.vars.get(0xd5), node: __zone.sh.vars.get(0x58), sub: __zone.sh.vars.get(0x59) }));
   const ready = (arch, m) => page.waitForFunction(([a, m]) => window.__zone && window.__zone.info.archive === a && window.__zone.machine.mode === m && window.__zone.world.tickCount >= 0, [arch, m], { timeout: 300000 });
   const BTN = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'];     // basket k = 0..3
-  const tap = (k) => page.keyboard.press(BTN[k], { delay: 25 });
+  const tap = (k) => page.keyboard.press(BTN[k], { delay: 70 });
 
   /** the bot: whack every snake that is up; double-press the one that holds the gem; for `ms` milliseconds or until the game is over */
   const shots = {};
@@ -66,7 +66,9 @@ export default async ({ page, shot, wait, log, key }) => {
   // let the clock run out quickly
   await page.evaluate(() => { __zone.world.records[22].ctrl.nodes.find((n) => n.kind === 'zonewas').timeLeft = 90; });
   await play(6000);
-  await wait(800);
+  const tB = Date.now();
+  await page.waitForFunction(() => window.__zone.machine.mode === 4, null, { timeout: 60000 }).catch(() => {});      // (not a fixed 800 ms: the ticks per second of the headless page depend on the load, tools/steps/m8-tickrate.mjs)
+  log('banner reached after', Date.now() - tB, 'ms');
   s = await dbg();
   expect('the game ended: banner (mode 4)', (await mode()) === 4 && s.done, JSON.stringify(s));
   log('final', s.finalScore, 'gems', s.gems, 'hits', s.hits);
@@ -74,7 +76,8 @@ export default async ({ page, shot, wait, log, key }) => {
   expect('HISCORE_WAS = the score, TROPHY_WAS = its medal', v1.hi === s.finalScore && v1.trophy === (s.finalScore >= 8501 ? 3 : s.finalScore >= 5001 ? 2 : s.finalScore >= 101 ? 1 : 0), JSON.stringify(v1));
   await shot('6-banner');
   await wait(1500); await shot('6b-banner-later');
-  await key('Enter'); await wait(700);
+  await key('Enter');
+  await page.waitForFunction(() => window.__zone.machine.mode === 5, null, { timeout: 60000 }).catch(() => {});
   const m1 = await menu();
   expect('result menu page 16 (continue / retry)', (await mode()) === 5 && m1.page === 16, JSON.stringify(m1));
   await shot('7-result-menu');

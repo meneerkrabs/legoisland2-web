@@ -8,6 +8,7 @@
 //   pepswitc constructor 0x83ab7b vtable 0x95da00 { update 0x83a9e0, prerender 0x83aa48, destroy 0x83ac19, draw 0x83aa8d }
 //   sounds of the people 0x839560 (27 x FUN_004433b0(sound id) into DAT_05d5f660[])
 import type { Pe } from '../../formats/exe.ts';
+import { f32, subf, mulf, addf, dist32, wrapAngle32, setRotationExact } from '../f32math.ts';
 import { NODE_CONTINUE, NODE_NONE, NODE_STOP } from '../../game/controller.ts';
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import { B } from '../../game/input.ts';
@@ -81,9 +82,9 @@ export function readPersonSounds(pe: Pe): number[] {
 // constants (the .rdata floats of the functions above)
 
 /** 0x8920c0: squared distance beyond which a pushed-back person returns to its place (2.08 units) */
-export const RELEASE_DIST2 = 4.3264;
+export const RELEASE_DIST2 = 4.3264;       // the float 4.3264 (0x8920c0) = 4.326399803161621
 /** 0x8920b8: nearest distance Pepper is allowed to talk from (the person is pushed back by the difference) */
-export const TALK_DISTANCE = 1.28;
+export const TALK_DISTANCE = Math.fround(1.28);
 /** 0x892088: frame of Andy Bray's talk clip after which Pepper reacts */
 export const REACT_FRAME = 32;
 /** 0x8920bc: Pepper falling below this height is put back to where the node was created */
@@ -121,9 +122,13 @@ export class LtcGlobals {
   role = '';
   /** effects of the port (the original starts particles: `TWINKLE01.par` and the `paul01` hand emitters); `start` false = stop */
   onTwinkle?: (rec: GameRecord, start: boolean) => void;
-  onPaul?: (rec: GameRecord, start: boolean) => void;
+  onPaul?: (rec: GameRecord, start: boolean, clip?: number, frame?: number) => void;
+  /** the talking Paul Scully's per-tick refresh of the two hand matrices (bones 14 / 16 of the pose the last draw left: (clip, frame) at the start of the tick) */
+  onPaulTick?: (rec: GameRecord, clip: number, frame: number) => void;
   /** FUN_004433f0(DAT_05d5f660[k], Pepper's position): the minifig's sound by sound-table id */
   playSound?: (id: number) => void;
+  /** FUN_00429e00(Pepper): tilts Pepper's matrix to the ground slope after he turned to the person (the walk node's alignToGround; null in node tests without a walk node) */
+  alignPepper?: (w: World, rec: GameRecord) => void;
   /** the sound ids by index (`readPersonSounds`) */
   sounds: number[] = [];
   /** log of the talks (diagnostics, tests) */
@@ -153,6 +158,8 @@ export class PeopleNode implements BehaviourNode {
   saved: [number, number, number] = [0, 0, 0];
   /** +0x25: ticks of the twinkle effect left */
   twinkle = 0;
+  /** (clip, frame) of the person's animation at the start of this tick's update = the pose the last draw left in the animation's buffer (FUN_0043bc58) */
+  pose0: [number, number] = [0, 0];
 
   constructor(entry: PersonEntry, index: number, g: LtcGlobals) { this.entry = entry; this.index = index; this.g = g; }
 
@@ -161,7 +168,9 @@ export class PeopleNode implements BehaviourNode {
   /** FUN_00839e20 */
   update(w: World, rec: GameRecord, ctrl: Controller): number {
     const g = this.g, e = this.entry;
-    if (this.pushed && ctrl.distSq > RELEASE_DIST2) { rec.y = this.saved[1]; rec.x = this.saved[0]; rec.z = this.saved[2]; }
+    this.pose0 = [rec.anim?.clip ?? 0, rec.anim?.frame ?? 0];
+    const distSq = dist32(rec, w.focus);
+    if (this.pushed && distSq > f32(RELEASE_DIST2)) { rec.y = this.saved[1]; rec.x = this.saved[0]; rec.z = this.saved[2]; }
     if (this.twinkle > 0 && --this.twinkle === 0) g.onTwinkle?.(rec, false);
     const present = e.cond < 0 || e.cond === g.toggle;
     if (!present) {
@@ -180,10 +189,11 @@ export class PeopleNode implements BehaviourNode {
     const shift = (w.input.pressed & B.SHIFT) !== 0;
     if (this.talk <= 0) {
       rec.anim?.advance(1, w.dt);
-      if (shift && !(g.candDist <= ctrl.distSq)) { g.candidate = this; g.candDist = ctrl.distSq; }
+      if (shift && !(g.candDist <= distSq)) { g.candidate = this; g.candDist = distSq; }
       return NODE_CONTINUE;
     }
     if (rec.anim && rec.anim.advance(1, w.dt) !== 0) this.talk--;
+    if (e.type === 1) g.onPaulTick?.(rec, this.pose0[0], this.pose0[1]);
     if (e.type === 2) {
       const p = w.focus;
       if (rec.anim && rec.anim.frame > REACT_FRAME && this.reacted === 0 && p?.anim) { p.anim.start(e.pepperClip, 0); this.reacted = 1; }
@@ -214,22 +224,23 @@ export class PeopleNode implements BehaviourNode {
     const g = this.g, e = this.entry;
     const p = w.focus;
     if (!p) return;
-    let ang = wrapAngle(Math.atan2(p.x - rec.x, p.z - rec.z));
+    let ang = wrapAngle32(f32(Math.atan2(subf(p.x, rec.x), subf(p.z, rec.z))));
     rec.ry = ang;
-    rec.setEuler(0, ang, 0, rec.x, rec.y, rec.z);
+    setRotationExact(rec.m, 0, ang, 0);
     if (!((w.input.pressed & B.SHIFT) !== 0 && g.candidate === this)) return;
     // ---- the talk starts
     w.vars.set(V.PEPPER_CONTROL, PC_TALK);
-    ang = wrapAngle(Math.atan2(rec.x - p.x, rec.z - p.z));
+    const dx = subf(rec.x, p.x), dz = subf(rec.z, p.z);
+    ang = wrapAngle32(f32(Math.atan2(dx, dz)));
     p.ry = ang;
-    p.setEuler(0, ang, 0, p.x, p.y, p.z);
-    const dx = rec.x - p.x, dz = rec.z - p.z;
-    const dist = Math.sqrt(dz * dz + dx * dx);
+    setRotationExact(p.m, 0, ang, 0);
+    g.alignPepper?.(w, p);                      // FUN_00429e00 (0x83a44a), right after the turn
+    const dist = f32(Math.sqrt(addf(addf(mulf(dz, dz), mulf(dx, dx)), 0)));
     if (dist < TALK_DISTANCE) {
-      const over = TALK_DISTANCE - dist;
+      const over = subf(TALK_DISTANCE, dist);
       if (!this.pushed) this.saved = [rec.x, rec.y, rec.z];
       this.pushed = true;
-      rec.x -= rec.fx * over; rec.y -= rec.fy * over; rec.z -= rec.fz * over;
+      rec.x = subf(rec.x, mulf(rec.fx, over)); rec.y = subf(rec.y, mulf(rec.fy, over)); rec.z = subf(rec.z, mulf(rec.fz, over));
     }
     g.letterbox = 1;
     g.name = e.name; g.role = e.role;
@@ -237,7 +248,7 @@ export class PeopleNode implements BehaviourNode {
     p.anim?.start(e.pepperClip, 0);
     this.talk = 1;
     switch (e.type) {
-      case 1: g.onPaul?.(rec, true); break;
+      case 1: g.onPaul?.(rec, true, this.pose0[0], this.pose0[1]); break;
       case 2: this.reacted = 0; p.anim?.start(CLIP_HOLD, 0); break;
       case 3: this.talk = 2; break;
       case 4: this.talk = 3; break;
@@ -281,7 +292,10 @@ export class LtcPepSwitch implements BehaviourNode {
     if (this.g.timer >= 0) this.g.timer -= 1 * w.dt;
   }
 
-  /** the draw hook FUN_0083aa8d (the port's renderer does not call node draw hooks: the zone game calls this after every tick) */
+  /**
+   * the draw hook FUN_0083aa8d: the draw pass calls it (GameRenderer.render -> controller.ts runDrawHooks) for the frames the node ran. The original draws the record itself from here (FUN_00444480) and
+   * returns whatever eax holds (unobservable: at most a second identical default draw); the port returns 0 and lets the renderer draw it once.
+   */
   draw(_w: World, rec: GameRecord, _ctrl: Controller): number {
     if (rec.y < FALL_LIMIT) { rec.x = this.home[0]; rec.y = this.home[1]; rec.z = this.home[2]; this.respawns++; }
     this.g.candDist = CANDIDATE_IDLE;

@@ -4,7 +4,7 @@ import { DlsSynth } from './dm/synth.ts';
 import type { DlsCollection, DlsInstrument } from './dm/dls.ts';
 
 export interface SmfEvent { tick: number; ch: number; kind: 'on' | 'off' | 'cc' | 'prog' | 'bend' | 'tempo'; a: number; b: number }
-export interface Smf { format: number; division: number; events: SmfEvent[]; lengthTicks: number }
+export interface Smf { format: number; division: number; events: SmfEvent[]; lengthTicks: number; /** the latest end-of-track meta event (FF 2F) of any track: the length of the sequence */ endTick: number }
 
 export function parseSmf(d: Uint8Array): Smf {
   const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
@@ -12,7 +12,7 @@ export function parseSmf(d: Uint8Array): Smf {
   const format = dv.getUint16(8), ntracks = dv.getUint16(10), division = dv.getUint16(12);
   if (division & 0x8000) throw new Error('SMPTE time division not supported');
   const events: SmfEvent[] = [];
-  let pos = 14, lengthTicks = 0;
+  let pos = 14, lengthTicks = 0, endTick = 0;
   for (let t = 0; t < ntracks && pos + 8 <= d.length; t++) {
     const id = String.fromCharCode(d[pos], d[pos + 1], d[pos + 2], d[pos + 3]);
     const size = dv.getUint32(pos + 4);
@@ -29,6 +29,7 @@ export function parseSmf(d: Uint8Array): Smf {
         const type = d[p + 1]; p += 2;
         const len = vlq();
         if (type === 0x51 && len === 3) events.push({ tick, ch: 0, kind: 'tempo', a: (d[p] << 16) | (d[p + 1] << 8) | d[p + 2], b: 0 });
+        if (type === 0x2f && tick > endTick) endTick = tick;
         p += len;
         continue;
       }
@@ -46,7 +47,7 @@ export function parseSmf(d: Uint8Array): Smf {
     }
   }
   events.sort((x, y) => x.tick - y.tick);
-  return { format, division, events, lengthTicks };
+  return { format, division, events, lengthTicks, endTick: Math.max(endTick, lengthTicks) };
 }
 
 export interface TimedMidiEvent extends SmfEvent { time: number }
@@ -61,6 +62,8 @@ export function smfTimeline(smf: Smf): { events: TimedMidiEvent[]; length: numbe
     if (e.kind === 'tempo') tempo = e.a;
     out.push({ ...e, time: sec });
   }
+  // the sequence ends at its end-of-track event (the last notes are inside it), not at the last event
+  if (smf.endTick > lastTick) sec += ((smf.endTick - lastTick) * tempo) / (smf.division * 1e6);
   return { events: out, length: sec };
 }
 
@@ -75,8 +78,9 @@ function findInstrument(col: DlsCollection, msb: number, lsb: number, prog: numb
 }
 
 /**
- * Plays one MIDI file through a DLS collection and restarts it when it ends (the game polls the Miles sequence status and calls
- * AIL_start_sequence again), after a short gap. Sample-accurate; `render` adds to L/R.
+ * Plays one MIDI file through a DLS collection and restarts it when it ends: the game polls the Miles sequence status once per frame (FUN_00443230 ->
+ * FUN_00875b16) and calls AIL_start_sequence when it reports DONE, i.e. within a frame of the end of the sequence (`gap` = half a frame on average). The end is the
+ * SMF's end-of-track time; notes still sounding are released at the restart, not cut. Sample-accurate; `render` adds to L/R.
  */
 export class MidiRenderer {
   readonly synth: DlsSynth;
@@ -89,8 +93,8 @@ export class MidiRenderer {
   private collection: DlsCollection | null = null;
   private bank = new Map<number, { msb: number; lsb: number }>();
   loop = true;
-  /** pause between two passes (seconds); the game restarts on a frame tick after the sequence reported DONE */
-  gap = 0.1;
+  /** pause between two passes (seconds): the restart happens on the first frame tick after the sequence reported DONE (0..1/30 s, 1/60 on average) */
+  gap = 1 / 60;
   playing = false;
   gain = 1;
   passes = 0;
@@ -100,13 +104,14 @@ export class MidiRenderer {
     this.synth = new DlsSynth(sampleRate, maxVoices);
   }
 
-  start(smf: Smf, collection: DlsCollection) {
+  /** `delaySec`: FUN_00443230 counts 6 frames before it first starts the sequence */
+  start(smf: Smf, collection: DlsCollection, delaySec = 0) {
     const tl = smfTimeline(smf);
     this.events = tl.events;
     this.length = tl.length;
     this.collection = collection;
     this.idx = 0;
-    this.base = this.frame;
+    this.base = this.frame + Math.round(delaySec * this.sampleRate);
     this.playing = true;
     this.synth.allSoundOff();
     this.bank.clear();
@@ -145,9 +150,9 @@ export class MidiRenderer {
       let stop = this.frame + n;
       if (this.idx < this.events.length) stop = Math.min(stop, this.base + Math.round(this.events[this.idx].time * this.sampleRate));
       else {
-        const endFrame = this.base + Math.round((this.length + 0.5) * this.sampleRate); // let the last notes ring out
+        const endFrame = this.base + Math.round(this.length * this.sampleRate);
         if (here >= endFrame + Math.round(this.gap * this.sampleRate)) {
-          if (this.loop) { this.idx = 0; this.base = here; this.passes++; this.synth.allSoundOff(); continue; }
+          if (this.loop) { this.idx = 0; this.base = here; this.passes++; this.synth.releaseAll(); continue; }
           this.playing = false; continue;
         }
       }

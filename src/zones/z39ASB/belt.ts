@@ -53,6 +53,8 @@ export const ST = {
 
 // ---------------------------------------------------------------------------------------------------------------- constants (address = where the code uses it)
 const f = Math.fround;
+/** the float32 with the given bit pattern (the immediates of the executable) */
+const fb = (h: number) => new Float32Array(new Uint32Array([h]).buffer)[0];
 export const C = {
   /** FUN_007b96a0: the shuttle starts at z = -768 (0xc4400000 pushed to FUN_0043a5e4) */
   START_Z: -768,
@@ -129,19 +131,24 @@ export class EngineModel {
   gyroStopped = false;
   get thrustRate() { return this.spool + 0x5622 - this.drop; }
   get gyroRate() { return this.gyro + 0x5622; }
-  /** FUN_007b6f1f(on) */
-  spoolStep(on: boolean) {
-    if (on) { if (this.spool < 0x5622) this.spool = Math.trunc(this.spool + 245); }
-    else if (this.spool > 0) { this.spool = Math.trunc(this.spool - 245); this.gyroStopped = true; }
+  /**
+   * the pitches the loops were last SET to (FUN_00443600 calls): FUN_007b6f1f sets the thrust to spool + 0x5622 (no drop!), FUN_007b6de3 sets the gyro to gyro + 0x5622 and the thrust
+   * to spool + 0x5622 - drop; only the calls that change a counter set anything (M7 oracle: the port used `thrustRate` every tick, which kept subtracting the drop after the steering stopped)
+   */
+  thrustHz = 0x5622; gyroHz = 0x5622;
+  /** FUN_007b6f1f(on): the counter moves by 245 * DAT_008b1718 (`ftol(counter +- 245 * dt)`: truncated every call, so at dt 0.5 it moves by 122 per call) */
+  spoolStep(on: boolean, dt = 1) {
+    if (on) { if (this.spool < 0x5622) { this.spool = Math.trunc(this.spool + 245 * dt); this.thrustHz = this.spool + 0x5622; } }
+    else if (this.spool > 0) { this.spool = Math.trunc(this.spool - 245 * dt); this.thrustHz = this.spool + 0x5622; this.gyroStopped = true; }
   }
-  /** FUN_007b6de3(moving) */
-  steerStep(moving: boolean) {
+  /** FUN_007b6de3(moving): the gyro moves by 98 * dt, the thrust drop by 270 * dt (up) / 200 * dt (down) */
+  steerStep(moving: boolean, dt = 1) {
     if (moving) {
-      if (this.gyro < 0xb86) this.gyro = Math.trunc(this.gyro + 98);
-      if (this.drop < 0xfd2) this.drop = Math.trunc(this.drop + 270);
+      if (this.gyro < 0xb86) { this.gyro = Math.trunc(this.gyro + 98 * dt); this.gyroHz = this.gyro + 0x5622; }
+      if (this.drop < 0xfd2) { this.drop = Math.trunc(this.drop + 270 * dt); this.thrustHz = this.spool + 0x5622 - this.drop; }
     } else {
-      if (this.gyro > 0) this.gyro = Math.trunc(this.gyro - 98);
-      if (this.drop > 0) this.drop = Math.trunc(this.drop - 200);
+      if (this.gyro > 0) { this.gyro = Math.trunc(this.gyro - 98 * dt); this.gyroHz = this.gyro + 0x5622; }
+      if (this.drop > 0) { this.drop = Math.trunc(this.drop - 200 * dt); this.thrustHz = this.spool + 0x5622 - this.drop; }
     }
   }
 }
@@ -178,6 +185,8 @@ export interface BeltInput {
 }
 
 export class AsteroidBelt {
+  /** the three `rocket01.par` exhaust emitters of the shuttle (FUN_007b780c): the node switches their gate off at the end of the fly-in and on again in the states 3 / 4 / 5 (FUN_00442a20(.., 2 / 1, 1, 1)) */
+  fxGate: ((on: boolean) => void) | null = null;
   readonly recs: BeltRecords;
   /** the camera struct DAT_009da5e8: eye (0..2) and target (3..5) */
   readonly cam: { [i: number]: number };
@@ -196,6 +205,7 @@ export class AsteroidBelt {
   /** +0x294 */ hitTimer = 0;
   /** +0x2a0 / +0x2a4: camera shake offset and velocity */ shakeX = 0; shakeVel = 0;
   /** +0x2a8 / +0x2ac / +0x2b4: tilt accumulators (only the unused draw args of the original read them) */ tiltX = 0; tiltY = 0; tiltA = 0;
+  /** the state of the last update at the time of its switch (FUN_007b82dd's sound calls use it) */ stateIn: number = ST.INTRO;
   /** +0x2c8 */ frame = 0;
   /** +0x2cc: camera offset along z from the shuttle */ camOff: number = C.CAM_START;
   /** +0x2d0: thrust glow 0..1 (steering raises it by 0.05 per tick) */ glow = 0;
@@ -203,7 +213,7 @@ export class AsteroidBelt {
   /** DAT_05d5d524: 0 running, 1 success, 2 failure */ result = 0;
   /** DAT_05d5d528: the final score of a successful run (the banner shows it) */ finalScore = 0;
   /** HUD icons (DAT_05d4e148 + 8 i): tint of the 5 hit icons, slot 4 = the top one turns grey on the first hit */
-  slotTint: number[] = [0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff];
+  slotTint: number[] = [0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xffffff];   // FUN_007b73a8 / FUN_007b70a1: 0x00ffffff (alpha 0: no icon until a hit makes its slot 0xff7f7f7f)
   /** DAT_05d4e0c4: tint of the gauge frame icon (flashes grey / white below 150 hull) */
   frameTint = 0xffffffff;
   /** DAT_05d4e138: gauge value hull / 1000 */
@@ -223,8 +233,8 @@ export class AsteroidBelt {
     for (const [v, val] of SCRATCH_VARS) vars.set(v, val);
     this.layout();
     // camera: eye behind the shuttle, target one unit ahead
-    cam[0] = recs.shut.x; cam[1] = recs.shut.y; cam[2] = recs.shut.z + this.camOff;
-    cam[3] = cam[0]; cam[4] = cam[1]; cam[5] = cam[2] + 1;
+    cam[0] = recs.shut.x; cam[1] = recs.shut.y; cam[2] = f(recs.shut.z + this.camOff);
+    cam[3] = cam[0]; cam[4] = cam[1]; cam[5] = f(cam[2] + 1);
     vars.set(VAR.RESULT, 0);
   }
 
@@ -233,9 +243,9 @@ export class AsteroidBelt {
     const { rng } = this;
     this.recs.asteroids.forEach((a, i) => {
       // (the order of the rand() calls follows the decompile)
-      const rxv = f(rng.range(f(0.034906585)) - f(0.017453292));      // 0x3d0efa03 - 0x3c8efa03: +-1 degree per tick
-      const ryv = f(rng.range(f(0.05235988)) - f(0.026179938));       // 0x3d567704 - 0x3cd67704: +-1.5 degrees
-      const rzv = f(rng.range(f(0.06981317)) - f(0.034906585));       // 0x3d8efa03 - 0x3d0efa03: +-2 degrees
+      const rxv = f(rng.range(fb(0x3d0efa03)) - fb(0x3c8efa03));      // 0x3d0efa03 - 0x3c8efa03: +-1 degree per tick
+      const ryv = f(rng.range(fb(0x3d567704)) - fb(0x3cd67704));       // 0x3d567704 - 0x3cd67704: +-1.5 degrees
+      const rzv = f(rng.range(fb(0x3d8efa03)) - fb(0x3d0efa03));       // 0x3d8efa03 - 0x3d0efa03: +-2 degrees
       let vx = 0, vy = 0;
       if (i % 3 === 0) { vx = f(rng.range(f(0.48)) - f(0.24)); vy = f(rng.range(f(0.4)) - f(0.2)); }   // 0x3ef5c28f - 0x3e75c28f, 0x3ecccccd - 0x3e4ccccd: every third asteroid drifts
       this.ast[i] = { rxv, ryv, rzv, vx, vy };
@@ -247,64 +257,66 @@ export class AsteroidBelt {
     });
   }
 
-  /** FUN_007b82dd: one tick (dt = 1) */
-  update(inp: BeltInput) {
+  /** FUN_007b82dd: one tick; `dt` = DAT_008b1718 (1 at the fixed 30 Hz step, 0.5 at 60 Hz): every per-tick quantity the original multiplies with it is scaled here */
+  update(inp: BeltInput, dt = 1) {
     const { shut, hull: hullRec } = this.recs, cam = this.cam;
     const held = inp.held;
     const axisX = inp.axisX ?? 0, axisY = inp.axisY ?? 0;
     this.started = true;
-    this.frame += 1;
-    shut.z = shut.z + this.speed;                                        // the shuttle always flies on, in every state
+    this.frame = f(1 * dt + this.frame);                                 // +0x2c8 is a float
+    shut.flags |= RF_ENABLED | RF_FRUSTUM;                               // FUN_007b82dd: `SHUT.flags |= 3` right after the frame counter, every tick
+    shut.z = this.speed * dt + shut.z;                                   // the shuttle always flies on, in every state
     const reg = regimeOf(shut.z);
     this.maxSpeed = reg.maxSpeed; this.spacing = reg.spacing;
-    if (this.speed < this.maxSpeed) this.speed = f(this.speed + C.SPEED_STEP);
+    if (this.speed < this.maxSpeed) this.speed = f(C.SPEED_STEP * dt + this.speed);
     if (this.state === ST.FLY || this.state === ST.HIT) this.hitTest(); else this.warn = false;
     if (!this.warn) this.emit({ type: 'warnEnd' });
     let off = this.camOff;
     let steer = 0;                                                       // local_8: 1 while a direction is pressed
+    this.stateIn = this.state;                                           // the state the node's switch ran with (the thrust / gyro sounds follow it, not the state it leaves in)
     switch (this.state) {
       case ST.INTRO:
-        cam[0] = shut.x; cam[1] = shut.y; cam[2] = off + shut.z;
-        off += C.CAM_INTRO_STEP;
-        this.engine.spoolStep(true);
-        if (off > C.CAM_FLY) { this.setState(ST.FLY); off = C.CAM_FLY; }
+        cam[0] = shut.x; cam[1] = shut.y; cam[2] = f(off + shut.z);
+        off = f(C.CAM_INTRO_STEP * dt + off);
+        this.engine.spoolStep(true, dt);
+        if (off > C.CAM_FLY) { this.setState(ST.FLY); off = C.CAM_FLY; shut.flags &= ~RF_ENABLED; this.fxGate?.(false); }      // the switch to flight hides SHUT for this tick (flags &= 0xfffd, the next update sets it again; M7 oracle)
         break;
       case ST.FLY: {
         let hull = this.hull;
         let dx = 0, dy = 0, tx = 0, ty = 0;
         // x: left / right keys at full speed, else the analog stick (|axis| > 0x14) proportionally
-        if (held & 1) { dx = -C.MOVE_SPEED; this.tiltA -= C.TILT_A; tx = C.TILT_X; steer = 1; }
-        else if (held & 2) { dx = C.MOVE_SPEED; this.tiltA += C.TILT_A; tx = -C.TILT_X; steer = 1; }
+        if (held & 1) { dx = -C.MOVE_SPEED; this.tiltA = f(this.tiltA - C.TILT_A); tx = C.TILT_X; steer = 1; }
+        else if (held & 2) { dx = C.MOVE_SPEED; this.tiltA = f(this.tiltA + C.TILT_A); tx = -C.TILT_X; steer = 1; }
         else if (axisX < -C.STICK_DEAD || axisX > C.STICK_DEAD) {
           const k = axisX / C.STICK_SCALE;
-          dx = k * C.MOVE_SPEED; this.tiltA += k * C.TILT_A; tx = -(k * C.TILT_X); steer = 1;
+          dx = f(k * C.MOVE_SPEED); this.tiltA = f(k * C.TILT_A + this.tiltA); tx = f(-(k * C.TILT_X)); steer = 1;       // the float locals / node fields of FUN_007b82dd round every store (M7 oracle: the stick path drifted)
         }
         // y: UP goes DOWN (inverted flight controls: "BUTTON_UP Omlaag gaan" in ASB.str)
         if (held & 4) { dy = -C.MOVE_SPEED; ty = C.TILT_Y; steer = 1; }
         else if (held & 8) { dy = C.MOVE_SPEED; ty = -C.TILT_Y; steer = 1; }
         else if (axisY < -C.STICK_DEAD || axisY > C.STICK_DEAD) {
           const k = axisY / C.STICK_SCALE;
-          dy = k * C.MOVE_SPEED; ty = -(k * C.TILT_Y); steer = 1;
+          dy = f(k * C.MOVE_SPEED); ty = f(-(k * C.TILT_Y)); steer = 1;
         }
-        this.engine.steerStep((held & 15) !== 0);
+        this.engine.steerStep((held & 15) !== 0, dt);
         if ((dx > 0 && shut.x <= C.X_LIMIT) || (dx < 0 && -C.X_LIMIT <= shut.x)) {
-          shut.x = shut.x + dx;
-          hull -= C.MOVE_COST;
+          shut.x = dx * dt + shut.x;
+          hull = f(hull - C.MOVE_COST * dt);
           this.spendHull(hull);
-          this.tiltX += tx;
+          this.tiltX = f(this.tiltX + tx);
         }
         if ((dy > 0 && shut.y <= C.Y_LIMIT) || (dy < 0 && -C.Y_LIMIT <= shut.y)) {
-          shut.y = shut.y + dy;
-          hull -= C.MOVE_COST;
+          shut.y = dy * dt + shut.y;
+          hull = f(hull - C.MOVE_COST * dt);
           this.spendHull(hull);
-          this.tiltY += ty;
+          this.tiltY = f(this.tiltY + ty);
         }
         // (the record's euler decays and the roll accumulators fall back: nobody reads them, see the doc)
-        if (this.tiltA < 0) this.tiltA = f(this.tiltA + f(0.00523596));     // FUN_007b82dd 0x7b8b07..0x7b8b71: only a negative value moves back towards 0
+        if (this.tiltA < 0) this.tiltA = f(f(0.00523596) * dt + this.tiltA);     // FUN_007b82dd 0x7b8b07..0x7b8b71: only a negative value moves back towards 0
         if (hull < 0) { hull = 0; this.setState(ST.EMPTY); }
         shut.setEuler(shut.rx, shut.ry, shut.rz, shut.x, shut.y, shut.z);
         this.hull = hull;
-        cam[0] = shut.x; cam[1] = shut.y; cam[2] = off + shut.z;
+        cam[0] = shut.x; cam[1] = shut.y; cam[2] = f(off + shut.z);
         if (cam[2] > C.FINISH_Z) {
           this.setState(ST.DONE);
           hullRec.flags &= ~RF_FRUSTUM;
@@ -313,11 +325,11 @@ export class AsteroidBelt {
         break;
       }
       case ST.HIT:
-        cam[0] = shut.x; cam[1] = shut.y; cam[2] = off + shut.z;
-        this.hitTimer -= 1;
+        cam[0] = shut.x; cam[1] = shut.y; cam[2] = f(off + shut.z);
+        this.hitTimer = f(this.hitTimer - 1 * dt);
         if (this.hitTimer >= 0) {
           // the camera shakes in x: the offset runs between -0.16 and +0.16 with velocity +-1 per tick (flips at the clamp)
-          this.shakeX += this.shakeVel;
+          this.shakeX = f(this.shakeVel * dt + this.shakeX);
           if (this.shakeX > C.SHAKE_AMP) { this.shakeX = C.SHAKE_AMP; this.shakeVel = -this.shakeVel; }
           else if (this.shakeX < -C.SHAKE_AMP) { this.shakeX = -C.SHAKE_AMP; this.shakeVel = -this.shakeVel; }
           cam[0] += this.shakeX;
@@ -326,32 +338,34 @@ export class AsteroidBelt {
         break;
       case ST.CRASHED:
       case ST.EMPTY:
-        this.engine.spoolStep(false);
-        cam[0] = shut.x; cam[1] = shut.y; cam[2] = off + shut.z;
-        off -= C.CAM_END_STEP;
+        this.engine.spoolStep(false, dt);
+        this.fxGate?.(true);
+        cam[0] = shut.x; cam[1] = shut.y; cam[2] = f(off + shut.z);
+        off = f(off - C.CAM_END_STEP * dt);
         if (off <= C.CAM_END) { this.vars.set(VAR.RESULT, 2); this.setState(ST.END); this.result = 2; this.emit({ type: 'end', result: 2 }); }
         break;
       case ST.DONE:
-        cam[0] = shut.x; cam[1] = shut.y; cam[2] = off + shut.z;
-        off -= C.CAM_END_STEP;
-        this.engine.spoolStep(false);
+        cam[0] = shut.x; cam[1] = shut.y; cam[2] = f(off + shut.z);
+        off = f(off - C.CAM_END_STEP * dt);
+        this.engine.spoolStep(false, dt);
+        this.fxGate?.(true);
         if (off <= C.CAM_END) { this.setState(ST.END); this.vars.set(VAR.RESULT, 1); this.result = 1; this.emit({ type: 'end', result: 1 }); }
         break;
       case ST.END:
-        cam[0] = shut.x; cam[1] = shut.y; cam[2] = off + shut.z;
+        cam[0] = shut.x; cam[1] = shut.y; cam[2] = f(off + shut.z);
         break;
     }
     // thrust glow (+0x2d0) follows the steering with 0.05 per tick
-    if (this.glow < steer) { this.glow = f(this.glow + 0.05); if (this.glow > 1) this.glow = 1; }
-    if (steer < this.glow) { this.glow = f(this.glow - 0.05); if (this.glow < 0) this.glow = 0; }
-    this.engine.spoolStep(this.state !== ST.END);
-    cam[3] = cam[0]; cam[4] = cam[1]; cam[5] = cam[2] + 1;
+    if (this.glow < steer) { this.glow = f(f(0.05) * dt + this.glow); if (this.glow > 1) this.glow = 1; }
+    if (steer < this.glow) { this.glow = f(this.glow - f(0.05) * dt); if (this.glow < 0) this.glow = 0; }
+    this.engine.spoolStep(this.state !== ST.END, dt);
+    cam[3] = cam[0]; cam[4] = cam[1]; cam[5] = f(cam[2] + 1);
     this.camOff = off;
     // HUD values
     this.gauge = this.hull / C.HULL_START;
-    if (this.hull < C.HULL_WARN) this.frameTint = this.hull <= 0 ? 0xff7f7f7f : (Math.trunc(this.hull) & 0x10) === 0 ? 0xff7f7f7f : 0xffffffff;
+    if (this.hull < C.HULL_WARN) this.frameTint = this.hull <= 0 ? 0x7f7f7f : (Math.trunc(this.frame) & 0x10) === 0 ? 0x7f7f7f : 0xffffff;   // the executable's values (alpha 0 as written: 0x7f7f7f / 0xffffff); it flashes with the frame counter +0x2c8, not with the hull
     this.scoreText = String(this.score);
-    this.moveAsteroids();
+    this.moveAsteroids(dt);
     this.applyDrawState();
   }
 
@@ -434,15 +448,15 @@ export class AsteroidBelt {
   }
 
   /** FUN_007b91b9: asteroids inside the window rotate and drift (matrix rebuilt from the euler angles); a passed one is put ahead again until the course end */
-  private moveAsteroids() {
+  private moveAsteroids(dt: number) {
     const ez = this.cam[2];
     this.recs.asteroids.forEach((a, i) => {
-      const dz = a.z - ez;
+      const dz = f(a.z - ez);
       const t = this.ast[i];
       if (C.WIN_NEAR <= dz) {
         if (dz <= C.WIN_FAR) {
-          a.rx = f(a.rx + t.rxv); a.ry = f(a.ry + t.ryv); a.rz = f(a.rz + t.rzv);
-          a.x = a.x + t.vx; a.y = a.y + t.vy;
+          a.rx = f(t.rxv * dt + a.rx); a.ry = f(t.ryv * dt + a.ry); a.rz = f(t.rzv * dt + a.rz);
+          a.x = t.vx * dt + a.x; a.y = t.vy * dt + a.y;
           a.m.set(buildMatrix(a.rx, a.ry, a.rz, a.x, a.y, a.z));
         }
       } else if (this.accZ < C.FINISH_Z) {
@@ -459,8 +473,7 @@ export class AsteroidBelt {
   applyDrawState() {
     const { shut, hull } = this.recs;
     const flying = this.state === ST.FLY || this.state === ST.HIT;
-    // FUN_007b82dd: `shut.flags |= 3` every tick (the draw hook decides what is drawn)
-    shut.flags |= RF_ENABLED | RF_FRUSTUM;
+    // (SHUT's `flags |= 3` is the update's, at its start; the draw hook decides what is drawn)
     if (flying) {
       hull.flags |= RF_ENABLED | RF_FRUSTUM;
       hull.m.set(buildMatrix(hull.rx, hull.ry, hull.rz, shut.x + 0, shut.y + C.HULL_DY, shut.z + C.HULL_DZ, C.HULL_SCALE[0], C.HULL_SCALE[1], C.HULL_SCALE[2]));

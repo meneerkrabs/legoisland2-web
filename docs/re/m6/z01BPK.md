@@ -37,7 +37,7 @@ State byte = Pepper's clip: 0x16 getting on, 0x2d push off, 0x29 rolling, 0x51 /
 * no brake (Down only moves the vertical stick), no automatic push-off timer, `maxSpeed` 0.75 (+0.1 per stunt that ends with its score pending, up to 1.0; crash resets it);
 * jump: `v0 = charge * 20` (charge 0.1 + 0.06 per tick, max 2), `y = v0 t + 1.5 g t^2` with t += 0.1 per tick (a full jump: 27 ticks, 26.7 high); falling off the start platform
   (z <= -25, drop > 2) or moving up above y 9.25 launches with v0 = 30 without a crouch;
-* walls: x +-39.9, z +-24 clamp, the board turns away (0.19635 rad per tick) from the wall it touches (also from record collisions, not from "QPIP"); a second sweep (0.6) stops it;
+* walls: x +-39.9, z +-24 clamp, the board turns away (pi / 16 = 0.19634954 rad per tick, bits 0x3e490fdb) from the wall it touches (also from record collisions, not from "QPIP"); a second sweep (0.6) stops it;
 * half-pipes (records named `QPIP`): `onPipe`, the pipe's normal tilts Pepper's matrix (`alignTo`), in the air above a pipe the board slides along the pipe's right axis by
   `0.25 / forward.y` with a 10 degree per tick spin (`airSpin`), a steep wall (normal.y < 0.6) snaps the up vector to +-z (state machine case 0x20);
 * the camera eases (0.1, in the air 0.8) to (0, 12, -14) in Pepper's frame, target 4 above him, eye clamped to +-37.9 / +-21.9.
@@ -79,8 +79,14 @@ exit state 2 (`miniGameExit(true, true)`: the story advances when the zone is th
 
 ## 4. Differences / approximations
 
-* **The board record is left out of the skateboard's sweeps** (RF_NO_COLLIDE while the node runs): SkBoard.col (384 polygons, flags 0x23) at Pepper's feet would lift him every tick;
-  the original evidently does not (same finding as the island port, UNCERTAIN why).
+* **The board record is not hit by the skateboard's sweeps: SkBoard.col is loaded by the OTHER collision loader** (WP-VERIFY, resolved; was "UNCERTAIN why"). The zone loader (0x4a26df) reads `PEPP_HR.col`,
+  `SkBoard.col` and the other character / part files with `FUN_0043f700`, which reads only the 28 byte header (centre, half extents, radius) and sets the polygon count to 0; only the
+  scenery files (`Pipe3.col`, `SkatePark.col`, fences ...) use the full loader `FUN_0043f370`. `FUN_00441270` case 0 tests `*piVar4 != 0` polygons, so the board (and Pepper, the
+  spectators) can never be hit: the port's old `withoutBoard` flag trick was an accidental equivalent (and wrong for the other records). Now: `src/game/colbounds.ts`
+  (`boundsOnlyColPaths` finds the loader per file from the code, `applyBoundsOnly` swaps the records' objects), called by `prepareBpk`; the node no longer touches the board's flags.
+  Evidence: the differential test (below) sweeps 1129 times from within 3.5 of the board: the original hits it 0 times, 505 times when the board is given the polygons of the full loader
+  (that is the "lifts Pepper every tick" the old note saw; the ground sweep returns the board's bevel at +0.139 above its start and `rec.y = point.y` raises him by 1.3 per tick).
+  The same applies to the island's `SBRD` (src/island/vehicles/skate.ts, gaps.md S5): its zone loader calls `FUN_0043f700` for `SkBoard.col` as well (not changed here).
 * The gamepad (FUN_004376f9 pad values override the key ramp when beyond +-30) is not read.
 * Music starts at zone entry, not after the intro screen (all zones of the port).
 * `FUN_00444370` (record frustum flags), `FUN_00444850` etc. are the generic renderer's. The HUD texts the clock writes besides the score and the time (`DAT_05d4dfec` the stunt
@@ -105,5 +111,44 @@ Shortcuts: `?zone=z01BPK&mute=1` starts story node 1 (zone 1); `window.__zone.ga
 
 ## 6. Open questions
 
-* Whether the original's sweeps really include the board record (see above).
+* (closed) whether the original's sweeps include the board record: they cannot, see section 4.
 * The exact bounds of the camera clamp are from FUN_00490e2e's constants; the original's intro camera before the board is shown (the fixed eye at (0.25, 28, -22)) is as set by FUN_00493506.
+
+## 7. Differential test (WP-VERIFY)
+
+`node tools/test-formats.mjs --only m7-z01BPK-emu` (about 25 s, 12 million float / integer comparisons, 9300 compared ticks + 1560 sweeps + 288 spectator ticks); harness `tools/lib/m7-z01BPK-emu.mjs`.
+The ORIGINAL code runs natively in the x86 emulation: the clock node `FUN_00493dd8` (+ `FUN_00493ba0`, `FUN_00493ecd`, sprintf of the HUD texts), the walk node `FUN_00494190` (+ the camera preset
+`FUN_00422c7e`), the skateboard `FUN_00490e2e` with `FUN_004900d4`, `FUN_0048f66d`, `FUN_0048e840`, `FUN_00490cd2`, `FUN_00490af4`, `FUN_0048fece`, `FUN_0048fdea`, and the collision sweep
+`FUN_00441270` (+ `FUN_00441a90`, `FUN_0043cd62` / `FUN_004425f0` / `FUN_00441b10`, the polygon tests) on collision objects built by the original loaders `FUN_0043f370` / `FUN_0043f700` from
+the archive's `.col` files (which loader a file gets is read from the zone loader's code). Hosted: game variables, animation instances (act on the port's `AnimInstance`: the animation engine is not
+the subject), sound calls (logged), file / heap functions of the loader, the gamepad (none), atan2. The constructors `FUN_00492cc2` / `FUN_00494091` / `FUN_004944f3` initialise the node blocks.
+Every compared tick: the port's state is mirrored into the emulation (records at 0x68 bytes, node blocks at the original's offsets, the globals), the original's chain runs with its own return
+codes (`ran` / stop), the world is restored and the port ticks; compared: which nodes ran, all 56 records (matrix, Euler of Pepper / board, flags), every node field (skate: 29 fields + pipe
+speed / record, clock: 6, walk: 3), trick score / flag, mailbox, surface at the feet, camera, Pepper's and the board's clip / frame, all 319 game variables, the HUD texts, the sound calls in order.
+Scenarios (seeded; all at dt = 1 AND dt = 0.5, the port runs both: the zone code reads `w.dt` everywhere): the walk-in and mount, walk-ins from random places / headings, random riding
+(arrows, crouch jumps, random stunts, teleports onto the half-pipes), every one of the 20 stunts (crouch, jump, stunt held / released at progress 80 / to the landing: pass, crash), the clock and
+the result (36 score / hi-score / trophy combinations, the score counting), 1560 random sweeps against `FUN_00441270`, the spectators of the zone loop (slice of `FUN_0048d8bd` 0x48db56 ..
+0x48dd59), the camera of the set-up (slice of `FUN_00493506`), the stunt name of every clip / the banner / the brief text calls (`FUN_0048d52b`, `FUN_0048d3d1`, `FUN_0048d390`).
+Visited (counted from the state): all skate states 0x16 0x2d 0x29 0x2a 0x2b 0x20 0x21 0x23, 3866 ticks on a half-pipe, 1518 with the pipe's air spin, 54 steep-wall snaps, 17 launches with v0 30, 48 crouch
+jumps, 78 good landings, 3 crashes, all 20 stunt clips, x / z wall clamps, all three spectator branches, all four medals.
+
+Found and fixed in the port (all in z01bpk, all verified by the test):
+* the board record's sweeps (above): `src/game/colbounds.ts` (new), `setup.ts`; `skate.ts` lost `withoutBoard`;
+* two constants were one float32 ulp off the .rdata (`0x8924ec` = 0x3e490fdb = pi / 16, `0x89252c` = 0x3f490fdb = pi / 4; the port had `f32(0.19635)` / `f32(0.785398)`), which flipped the wall-clamp turn once
+  in a while (a tick where the board slid along the wall at exactly x = 39.9) and the walk's turning;
+* the node's arithmetic keeps the original's float32 stores (positions, velocities, jump arc, charge, progress, the camera, `FUN_0043cec0`'s normalisation with its float32 `1 / sqrt`, the pipe
+  alignment): `nx = f32(x + vx)` decides the wall clamp, `f32` matters at equality; the yaw matrix uses `src/formats/matrixf32.ts` (new: `FUN_0043a5e4` stores sin / cos as float32; `buildMatrix` does not);
+* the board record copy no longer writes the Euler angles (the original copies the 12 matrix words only), `trickText` is the original's `"    "` when the stunt score is 0 (`0x8d2428`), the walk /
+  spectators / clock use float32 stores.
+Left (recorded, owner: whoever owns `src/game/collision.ts` / `src/formats/matrix.ts`): the collision sweeps are evaluated in doubles, the original stores float32 at every step: hit points / normals
+differ by up to ~2e-6 relative (measured 1560 sweeps: point 0.29, normal 0.73 of the 5e-6 tolerance), which reaches the half-pipe matrices, `jumpY` and the camera (tolerance 2.5e-5); everything else is
+bit-identical as float32 in these runs (8.5 million float comparisons, 5760 of the Pepper / board matrix elements on pipes differ). Sound 300 (`DAT_05d5802c`, the silent slot) is played by the original at
+every launch off the ground (28 times), the port leaves the call out (nothing audible). The game loop's HUD text `DAT_05d4df1c` (16 blanks when the stunt score is 0) is not drawn.
+The 0x5f clip is never selectable (the stunt table has no entry): confirmed by the 20 clips seen.
+
+
+## WP-PART-WIRE / WP-MINI (2026-10-29)
+
+* **Particles**: `FUN_00493506` only creates the engine (`FUN_00442900("GENERICBITS")`) and starts no emitter; the effects of the shared walker / skateboard code (`pizza`, `boatplume` ...) do not exist in this zone. Nothing to wire.
+* **Collision**: the path-based `src/game/colbounds.ts` call (`applyBoundsOnly`) is gone from `prepareBpk`: the header-only slots of the loader (`FUN_0043f700`: PEPP_HR.col, SkBoard.col, ...) are stripped generically by `setupZone` (`applyHeaderOnlyCols`, slots read from the loader's code). The node tests load the zone with the executable (`tools/lib/bpk-load.mjs` passes `pe`, like the runner). S5 (why the board does not lift Pepper) is closed by it: `m6-z01BPK` 444 checks and `m7-z01BPK-emu` 12.2 M comparisons pass unchanged.
+* **Unchanged**: restart re-enters the zone (equivalent to `FUN_004938e8` in place).

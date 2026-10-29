@@ -76,9 +76,13 @@ export class Archive {
   has(path: string) { return this.byLower.has(path.toLowerCase()); }
   find(path: string) { return this.byLower.get(path.toLowerCase()); }
 
+  /** progress callback of the loaders (the shell's loading card, src/shell/loading.ts: the original's FUN_00443c70 = present of the card at every loaded object), called with the member path; null = none */
+  static onRead: ((path: string) => void) | null = null;
+
   /** Case-insensitive; returns a view into the blob (no copy). */
   read(entry: ArchiveEntry | string): Uint8Array {
     const e = typeof entry === 'string' ? this.find(entry) : entry;
+    Archive.onRead?.(e ? e.path : String(entry));
     if (!e) throw new Error(`${this.name}: no such member ${entry}`);
     return e.data ?? this.bob.subarray(e.offset, e.offset + e.size);
   }

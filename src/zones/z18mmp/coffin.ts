@@ -5,7 +5,9 @@ import { NODE_STOP } from '../../game/controller.ts';
 import type { BehaviourNode } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
-import { REC, VAR, BIT, CLIP, SND, MUSIC, K } from './consts.ts';
+import { GATE_OFF, NO_HANDLE } from '../../fx/particles/zone.ts';
+import type { ZoneParticles } from '../../fx/particles/zone.ts';
+import { REC, VAR, BIT, CLIP, SND, MUSIC, K, f32 } from './consts.ts';
 import { MmpShared } from './shared.ts';
 import { coffinOfMask } from './pepper.ts';
 
@@ -20,6 +22,8 @@ export class CoffinNode implements BehaviourNode {
   /** +0x18: the coffin's bit (1 << n), +0x1c: the bit of its partner (0 = this is the first of a pair), +0x20: n, +0x21: tick counter, +0x22: state, +0x24: squared distance to Pepper */
   bit: number; partner = 0; n: number; counter = 0; state: number = CS.IDLE; dist = 0;
   ticks = 0;
+  /** +0x34: symtwin.par on the symbol, +0x38 / +0x3c: the two mummy02 smoke emitters (FUN_006abf47) */
+  fxTwin: number = NO_HANDLE; fxSmoke: [number, number] = [NO_HANDLE, NO_HANDLE];
 
   constructor(sh: MmpShared, n: number) { this.sh = sh; this.n = n; this.bit = 1 << n; }
 
@@ -29,6 +33,18 @@ export class CoffinNode implements BehaviourNode {
     coff.rx = 0; coff.rz = 0;
     coff.ry = Math.atan2(cs.m[8], cs.m[10]);
     this.partner = 0; this.state = CS.IDLE; this.counter = 0;
+  }
+
+  /**
+   * The constructor's emitters (FUN_006abf47, symbol record = `rec`): symtwin.par (rotation 0) and two mummy02 (rotation -pi/2 about x) on the symbol's matrix, all gate off; the smoke bounces off the
+   * BONE record (FUN_00442a50(handle, record 117)); then FUN_0044ea60(handle, 1, 1, 1) once more for each.
+   */
+  startFx(fx: ZoneParticles, rec: GameRecord, world: { records: readonly GameRecord[] }) {
+    this.fxTwin = fx.start('symtwin.par', rec.m, [0, 0, 0], [0, 0, 0], GATE_OFF);
+    this.fxSmoke = [fx.start('mummy02', rec.m, [0, 0, 0], [-Math.PI / 2, 0, 0], GATE_OFF), fx.start('mummy02', rec.m, [0, 0, 0], [-Math.PI / 2, 0, 0], GATE_OFF)];
+    fx.collideWith(this.fxSmoke[0], world.records[REC.BONE]);
+    fx.collideWith(this.fxSmoke[1], world.records[REC.BONE]);
+    fx.off(this.fxTwin); fx.off(this.fxSmoke[0]); fx.off(this.fxSmoke[1]);
   }
 
   /** FUN_006aadb0: the lid's knock-open sound: the second handle when the first one still plays */
@@ -67,7 +83,7 @@ export class CoffinNode implements BehaviourNode {
       }
       case CS.OPENING: {
         if (sh.puzzleMusicArmed) { snd.music(MUSIC.PUZZLE); sh.puzzleMusicArmed = false; }
-        coff.ry -= K.LID_TURN;
+        coff.ry = f32(coff.ry - K.LID_TURN);
         coff.setEuler(0, coff.ry, 0, coff.x, coff.y, coff.z);
         this.spinSound(coffAt());
         y += K.SYMBOL_RISE * dt;
@@ -105,7 +121,7 @@ export class CoffinNode implements BehaviourNode {
         break;
       }
       case CS.CLOSING: {
-        coff.ry += K.LID_TURN;
+        coff.ry = f32(coff.ry + K.LID_TURN);
         coff.setEuler(0, coff.ry, 0, coff.x, coff.y, coff.z);
         y -= K.SYMBOL_RISE * dt;
         if (--this.counter === 0) {
@@ -138,7 +154,9 @@ export class CoffinNode implements BehaviourNode {
         break;
       }
     }
-    rec.ry += K.SPIN * dt;
+    rec.ry = f32(rec.ry + K.SPIN * dt);
+    const fx = sh.fx;
+    if (fx) { if (this.state === CS.IDLE) fx.off(this.fxTwin); else fx.on(this.fxTwin); fx.setMatrix(this.fxTwin, rec.m); }
     this.trackMummies(w);
     rec.setEuler(rec.rx, rec.ry, rec.rz, x, y, z);
     return NODE_STOP;
@@ -161,6 +179,7 @@ export class CoffinNode implements BehaviourNode {
           m.m[12] += s * m.m[8]; m.m[13] += s * m.m[9]; m.m[14] += s * m.m[10];
           if (r !== 0 || f > 0x1e) {
             ma.start(CLIP.M_STAND, 0);
+            if (sh.fx) { sh.fx.on(this.fxTwin); sh.fx.on(this.fxSmoke[0]); sh.fx.on(this.fxSmoke[1]); }     // the puff of smoke (this node's emitters)
             sh.poof = 90;
             track[i] = 5;
             sh.sounds.play3D('bones', SND.BONES, { x: m.x, y: m.y, z: m.z });
@@ -174,10 +193,12 @@ export class CoffinNode implements BehaviourNode {
             if (track[j] !== 5) continue;
             const mj = rs[REC.MUMMY_OF[j]];
             mj.flags &= ~2;
+            sh.fx?.setMatrix(this.fxSmoke[k], mj.m);
+            sh.fx?.setMatrix(this.fxSmoke[k], mj.m);
             k++;
             sh.poof -= 1.0 * dt;
             if (sh.poof < 45) mj.flags &= ~2;
-            if (sh.poof < 0) track[j] = 6;
+            if (sh.poof < 0) { track[j] = 6; sh.fx?.off(this.fxSmoke[0]); sh.fx?.off(this.fxSmoke[1]); }
             if (k === 2) j = 12;
           }
           break;

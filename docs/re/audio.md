@@ -317,7 +317,7 @@ if handle == NULL: return                    // a failed load is harmless
 IDirectMusic::Activate(TRUE)                  // vtbl +0x24 (called on every play; harmless re-activation of the device)
 IDirectMusicPerformance::PlaySegment(seg, DMUS_SEGF_AFTERPREPARETIME (0x400), 0, 0, NULL)   // +0x10
 ```
-* The flags are **0x400 only** (`DMUS_SEGF_AFTERPREPARETIME`, `dmusici.h` value 1<<10): **no `DMUS_SEGF_SECONDARY`** -> the segment is a **primary segment**: starting it replaces (cuts) the currently playing primary segment right at the start time, **no boundary alignment (not on beat/measure/segment end), no queue, no crossfade**. Start time 0 = "as soon as possible after the prepare time" (tens of milliseconds).
+* The flags are **0x400 only** (`DMUS_SEGF_AFTERPREPARETIME`, `dmusici.h` value 1<<10): **no `DMUS_SEGF_SECONDARY`** -> the segment is a **primary segment**: starting it replaces (cuts) the currently playing primary segment right at the start time, **no boundary alignment (not on beat/measure/segment end), no queue, no crossfade**. Start time 0 + `DMUS_SEGF_AFTERPREPARETIME` = "now + the performance's prepare time": **1000 ms** by default (`IDirectMusicPerformance::GetPrepareTime`; the game never calls `SetPrepareTime`, vtable slot 0x1c is only used on a style, asm 0x87718a). Corrected 2026-10-29: this note used to say "tens of milliseconds"; section 11.1 has the evidence and what the port does. The running primary segment keeps playing until that instant and is cut there.
 * `FUN_00443300` = `FUN_00876fd6` ("stop music / unload zone music"): `Stop(NULL, NULL, 0, 0)` = stop all immediately (no fade), then Release of all loaded segments and collections, counters reset. Called at zone exit and before loading another key in the front end (line 13027, 13052).
 * There is **no fade-out and no segment-end transition**; "music transition" in the game = `Stop` (unload) then `Load(next)` + `Play`, or `Play(otherHandle)` directly (cut).
 * Segment repeat counts come from the `.sgt` `segh` chunk (no `SetRepeats` call in code): measured with a quick RIFF scan of the shipped files (table 7.8): `dwRepeats` 9000 (zone themes), 8000 (`ad1T`), 1000 (`Z02Trom`, `Z41MAP`, `ad2`, `bbotsM`, `ogel`, `radio`, `carn`, `menu`) = effectively infinite; **`Flying` repeats only 10 times** (then silence). Loop region = `mtLoopStart..mtLoopEnd` (`Z05WAB1` 92160..116736, `Z08BKD1` 49152..98304, `Z15SSH` 49152..168960, `Z17WAS2` 36864..73728, `Z42BRP` 6144..104448, `ad1T` 9216..340992, `ad2` 6144..73728; others loop the whole segment from 0). Music time = 768 ticks per quarter note.
@@ -405,6 +405,13 @@ No audio paths / 3D music, no reverb (disabled on the port, 7.1 step 6), no seco
 
 ## 8. Open questions (needs a runtime check or deeper tracing)
 
+**WP-VERIFY pass (2026-10-29, decompile / PE image only, no Miles / DirectMusic runtime available):** 2, 4, 6 and 9 are settled below; 1, 3, 5 (the building anchors), 7 and 8 cannot be settled without a running original and have no effect on the port's output (reasons per item).
+* 2 SETTLED: the five buffers `DAT_05d58644 / 05d58944 / 05d5c4dc / 05d5d2a8 / 05d5ed64` are 4-byte `.bss` globals (image bytes zero) that appear exactly once each in the whole code, as the argument of `FUN_004431e0(name, &buf)` (LE2.asm.txt 0x4bcb55 and the four siblings): nothing ever writes them, so `strncmp(buf, "none" (0x8b1bbc), 4)` never matches and the ambience always takes `FUN_00875918` (the branch the port documents as the normal one); `FUN_00875a26` (no DLS) is unreachable.
+* 4 SETTLED: `FUN_00443370` is `FUN_00876e7f` = `IDirectMusicPerformance::GetNotificationPMsg` (vtable +0x54) followed by `FreePMsg` (+0x44), returning 1 only when a message was fetched. `SetNotificationHandle` is never called (section 5 trace; an `AddNotificationType` call was not searched for separately), so DirectMusic returns S_FALSE and the function returns 0 every time, assuming no other registration: the LGI node's `DAT_05d58640/41`, `+0x68..0x74` branch with `uVar2 != 0` never runs. The port's "queue always empty" is exact.
+* 6 SETTLED (conversation box without speech, `FUN_004249a6`): the box timer at `+0x54` decrements by `1.0 * dt` per tick (`DAT_00892020` = 1.0, `DAT_008b1718` = dt); with the speech option off (var 9 == 0) the box closes as soon as the timer is below 0 (`DAT_0089202c` = 0.0); when it is below 30.0 (`DAT_00892038`) and speech is on it asks `FUN_00435ad3` (speech idle). With the enabled bit `+0x4c & 2` clear the timer is forced to -1.0, otherwise values above 15.0 (`DAT_00892074`) are cut to 15.0 (`0x41700000`) when the box closes through speech. The initial value is set by the caller that opens the box.
+* 9 SETTLED: the three `FUN_0044b040`-style functions (LE2.c:41100-41260) are brick-effect particle movers (`0x160..0x168` = velocity, `FUN_0044d330` / `FUN_0043cec0` normalise), not cutscene sound triggers; their only sound is `FUN_004433f0(id, node + 0xcc)` with the id chosen from `DAT_05d3701c & 0x80000003` (a 4-way pick by a counter). Nothing to do with the CSSND list.
+* 1, 3, 5, 7, 8 remain **unsettled but without effect on the port**: they describe Miles / DirectMusic internals (end-of-stream pause semantics, pan 512 clamp, which buildings anchor the LGI distances, the software-provider max distance, how dead pause wrappers might be reached). A capture of the original running would be needed; the port's choices (documented in sections 5 and 9) stay.
+
 1. Exact end-of-stream semantics: why `FUN_00877360` pauses the stream in the MSS callback, and whether a paused-at-end stream reports `SMP_DONE` (assumed).
 2. What writes `"none"` into the ambience name buffers (`DAT_05d58644`, `DAT_05d58944`, `DAT_05d5c4dc`, `DAT_05d5d2a8`, `DAT_05d5ed64`) and thus selects `FUN_00875a26` (no DLS) vs `FUN_00875918`.
 3. Pan 512 of `SND_CEDRIC_WALK` (clamped how?), and the real left/right handedness of the 3D coordinates vs Miles.
@@ -434,7 +441,7 @@ Counts and semantics that matter for an engine:
 **Speech**: `speechTable[index]` -> `_Data/sounds/speech/Data/<id>.mp3` (MP3-in-WAV); `gain = opt[0x16]/100`; centred; single active speech slot (`SayText` ignored while busy); optional second line B starts when A ends; "finished" = audio ended; no ducking of music/SFX. Subtitle text comes from the `.str` entry whose **number field is the speech index** (-1 = text only); show subtitles iff opt[3], play speech iff opt[2]; while speech plays the dialogue box waits for its end.
 
 **Music (DirectMusic replacement)**
-* API to implement: `loadMusic(key)` (table -> segment + DLS; reset groove to 0), `playMusic(handle)` (hard cut: stop previous primary segment immediately and start the new one from the beginning, no quantisation), `stopAllMusic()` (immediate stop + unload), `setGrooveLevel(int8)`, `setMusicVolume(opt0, fadeScale, mute)`, optional `pollSegmentNotification()`.
+* API to implement: `loadMusic(key)` (table -> segment + DLS; reset groove to 0), `playMusic(handle)` (the new segment replaces the previous primary segment one prepare time, 1000 ms, after the call, from its beginning, no quantisation: 11.1), `stopAllMusic()` (immediate stop + unload), `setGrooveLevel(int8)`, `setMusicVolume(opt0, fadeScale, mute)`, optional `pollSegmentNotification()`.
 * Volume: `dB = 0.22 * opt[0] * fadeScale - 22` (silent at 0 or mute) applied to the whole music bus; fade used only in z28HAT (scale ramp per frame).
 * Segments loop forever except `Flying` (10 repeats); loop region from `.sgt` `segh` (`mtLoopStart/mtLoopEnd` at 768 ticks per quarter): most whole-segment loops, a few with an intro (`Z05WAB1`, `Z08BKD1`, `Z15SSH`, `Z17WAS2`, `Z42BRP`, `ad1T`, `ad2`).
 * DLS reverb of the synth is **off**; the `.dls` named in the table overrides all band references; if the DLS cannot be loaded the GM default bank is used. DirectMusic is an external decoder here: any port must either re-implement the DLS2 synth + style/chord engine or pre-render each `.sgt` at each groove level (`cmnd` tracks: 15 segments have them; levels used: -2, -1, 0 only, `level - 3` for activity levels 1..3, 0 default) to audio loops.
@@ -564,5 +571,104 @@ The game switches the synth's reverb off (7.1 step 6), so none is implemented. P
 * Approximated: pattern and variation choice among equals (random with a seeded generator, original unknown), linear interpolation instead of Microsoft's, no 22.05 kHz band limit, volume / pan of band entries without flags (applied), velocity and CC curves (squared), loudness of the master mix (soft limiter instead of DirectMusic's own gain staging).
 * Missing: the Microsoft GM bank for the few GM-default band entries (silence), the `Z02LGIB` segment (file missing: the game gets NULL too, nothing plays), motifs / secondary segments / templates (the game never uses them; secondary playback and mute tracks are implemented and tested only with synthetic calls),
   `bRepeatMode` of commands, chord-rhythm matching, inversion maps, curves other than CC / pitch bend.
-* Latency: a hard cut takes effect at the next beat boundary of what has been generated plus the stream's 0.3 s buffer (about 0.4 - 0.9 s at the tempi used); the original starts "AFTERPREPARETIME" (tens of ms). Lowering `SynthStream` `ahead` or rendering in an AudioWorklet would shorten it.
+* Latency: see 11.1. The start of a segment is scheduled on the renderer's clock at call time + the prepare time (1000 ms, the original's `AFTERPREPARETIME`), sample accurate (`DmPerformance.play({ atSec })`, `MusicRenderer.playAt`), and what the replaced segment would still have played after that instant is dropped. (Before 2026-10-29: the next generated beat boundary plus the stream's 0.3 s buffer, 0.4 - 0.9 s.)
 * Cost: the synth renders about 20 - 40x faster than real time in node for the densest music with the default settings, on the main thread via `SynthStream` (1024-frame blocks every ~20 ms).
+
+
+---
+
+## 11. WP-AUDIO pass (2026-10-29): when things start, what is loaded, 3D, speech, notifications
+
+What changed in the port compared with sections 1-10, with the evidence. Code: `src/shell/audiohost.ts` (zone sound caches, music moments, listener, speech tick), `src/audio/zonesounds.ts` (generated),
+`src/audio/zonemusic.ts`, `src/audio/listener.ts`, `src/audio/sea.ts`, `src/audio/music.ts` / `dm/sequencer.ts` / `dm/player.ts` (start time, notifications), `src/audio/speech.ts` (state machine).
+Tests: `node tools/test-formats.mjs --only audio-zonesounds,audio-music-sched,audio-sea` (also part of the full run), browser: `tools/audio-moments-all.mjs` (below).
+
+### 11.1 DirectMusic start time: one prepare time, not "tens of milliseconds"
+
+`FUN_00876ec2` (Play): `Activate(TRUE)`, then `PlaySegment(seg, dwFlags = 0x400, i64StartTime = 0 (two zero dwords), ppSegmentState = 0)` (asm 0x876f22-0x876f45: `push 0, 0, 0, 0x400, seg, this; call [vtbl + 0x10]`).
+`0x400` is `DMUS_SEGF_AFTERPREPARETIME` ("resolve time to a time after the prepare time", dmusici.h / MSDN `DMUS_SEGF_FLAGS`). The prepare time of a performance is `GetPrepareTime` = **1000 ms by default**
+(MSDN: "the performance calculates the end time for each call to a track by adding the prepare time to the current time ... the default 1000 ms"; Wine's dmime: `dwPrepareTime = 1000`). The game never changes it: the vtable slot of
+`SetPrepareTime` is 0x1c, and the only `call [reg + 0x1c]` in the whole DirectMusic class (0x876010-0x877340) is `Style::GetMotif` (asm 0x87718a, dead code). So **a segment starts one second after `FUN_004432c0`**, and the primary segment that was
+playing keeps playing until then and is invalidated at that instant (no `DMUS_SEGF_NOINVALIDATE`: notes are cut off and reset at the start time, MSDN). The earlier note "tens of milliseconds" (7.3) was wrong; the work package asked to cut the start
+latency "to tens of ms"; the exact behaviour is a delay of the prepare time, and that is what the port now does (the constant is `DM_PREPARE_TIME_MS` in `src/audio/music.ts`, `MusicEngine.prepareSec`; one line to change if a reference recording ever shows otherwise).
+
+Implementation: `DmPerformance.play(assets, { atSec })` places the start on the performance clock (exact tick, recomputed while the tempo map grows); `MusicRenderer.playAt` additionally drops the events of the old primary segment that are already
+queued and fall at or after that instant; `SynthStream.lead` says how far the render head is ahead of what is audible, so `MusicEngine.play` computes "now + prepare time" on the render clock. Result: the first note of the new segment is on the instant
+(+- one 512-frame block in the test, sample accurate in the renderer), the old segment sounds until it, nothing of the old one sounds after it. Verified by `tools/tests/audio-music-schedule.mjs` (idle start, a cut after generated material, a cut inside
+already queued windows; canned-sequence segments Z08BKD1 -> Z17WAS2 so the comparison is exact). No AudioWorklet was needed: the start is scheduled, not rendered late. `Stop` (`FUN_00443300`, flags 0 = immediately) still takes effect at the next
+generated point (0.1 - 0.4 s): the notes are released, not cut, like the original's note-offs.
+
+### 11.2 Where the original calls Play (A1): per zone
+
+`FUN_004432c0` is called from the zone's loop at exactly one of three moments (LE2.c line of the call in brackets; modes: 7 fade in, 0 init, 1 intro, 9 controls help, 2 play). The port starts each key at its moment (`ZONE_MUSIC` in `src/audio/zonemusic.ts`; the
+runner reports mode changes with `AudioHost.modeChange`, `playzone.ts`); a zone whose port has no intro / help mode starts it when play starts.
+
+| moment | zones (key) |
+|---|---|
+| **init** (zone start; after the load, before the first frame) | z60FRE, z03PPH, z04IFC (`menu`; 61024, 94631, 98831), z07CSI (`Z07CSI`, groove -2 first; 106912), z13CAI (`ad2`; 139466), z14OSD (`ad1T`; 144770), z16PYA (`ad1T`, groove -2; 157768), z23DIP (`ad2`, groove -2; 204361), z40OGL (`ogel`; 244926), z50LTC (`ad2`; 264390) |
+| **leaving the intro** (mode 1 -> 2 or 1 -> 9) | z01BPK (`Z01BPK`; 67567), z13CAI (`ad2` again with groove 0; 139005), z40aPO (`Z40APO`; 238850), z41MAP (`Z41MAP`; 251776), z50LTC (`ad2` again; 264073) |
+| **leaving the controls help** (mode 9 -> 2) | z05WAB (`Z05WAB1`; 104071), z08BKD (`Z08BKD1`; 118236), z10RGB (`z10rgb`; 132604), z15SSH + z20DSP (`z15ssh`; 150157, 174301), z17WAS (`z17was2`; 162498), z21FSH (`Z21FSH`; 188342), z22BIP (`carn`; 194550), z27TRX (`Flying`; 212791), z28HAT (`z28HAT`; 220929), z38PAR + z39ASB (`Z38PAR`; 57316, 232273), z42BRP (`Z42BRP`, groove -1; 256834) |
+| by the zone's own code | z02LGI (Music node: building / story logic, 78558-78831), z18MMP (`Hotep` at mode 9 -> 2 and the puzzle's events: 165552, 168377, 168695, 169272), z21FSH `Z21Jaws` (190705), z05WAB again when the game ends (103970: `FUN_004432c0(DAT_05d5881c)` restarts the segment), z42BRP groove 0 at the second help |
+| no music | z09JST, z36CNT (no `FUN_00443290` in their code) |
+
+(z13CAI and z50LTC play twice: once at init and again when the intro is left, from the start of the segment.) `gaps.md` listed z50LTC as "no music": its zone function `FUN_008399da` loads `ad2` and plays it (264390), so the table above has it.
+The five ambience beds (`FUN_004431e0`, start at init): z02LGI `LGIBirds` (the Music node), z07CSI `Castle`, z21FSH `Fishing`, z27TRX `TRex` (missing in the port; the host starts it), z39ASB `Asteroid` (the zone's game starts it).
+Verification in the browser (headless, muted; `tools/audio-moments-all.mjs` drives every zone through its loop modes and compares the host's and the music engine's logs with this table): see the result lines in `docs/re/gaps.md` A1.
+
+### 11.3 What each zone loads (A2)
+
+The SoundClass caches hold only the sounds of the current zone: the zone switch resets them (2.1) and each zone's **sound-setup function** (the 28 callers of `FUN_004359d5`, plus `FUN_00708640` of z22BIP) loads its list with straight-line
+`push id; call FUN_00443580 (2D) / FUN_004433b0 (3D)` code before the zone loop runs, so every sound plays the first time. `tools/gen/gen-zonesounds.py` (run from `decomp-le2` with its venv) scans those functions in `LE2.asm.txt` and writes
+`src/audio/zonesounds.ts`: 30 zone lists (934 loads; duplicates kept: a sound loaded n times has n slots), plus the loads of `FUN_004b0240` (menu clicks, every zone loop through `FUN_0041b40e`), `FUN_004b0b37` + `FUN_004b0f16` (Pepper walking: the
+`SGwalk` constructor `FUN_0042f470`, registered in z02LGI, z03PPH, z07CSI, z10RGB, z14OSD, z16PYA, z21FSH, z23DIP, z40OGL, z50LTC), `SGBoat` (`FUN_00430e6c`: z02LGI, z07CSI) and `Ptera` (`FUN_004bb1a6`: z02LGI, z13CAI). The z60FRE list is what the menu code loads
+after the movies (`FUN_0053e7c0`, `FUN_004b0240`, `FUN_004b0b37`, line 13045) plus the zone function's own 3D load of `SND_SILENCE`.
+`AudioHost.enterZone(zone)` (awaited by `runPlayZone` before the loop starts) loads the list, the class sets the zone registers and its music key(s); `world.sfx.play(id)` / `playAt(id, pos)` find their slot; a zone's own loader that runs later finds the decoded
+files cached. A sound the list does not hold (a bug in the list or a sound the original would load lazily) is loaded on demand and its play waits for the load instead of being dropped (`AudioHost.missed` lists them; empty in every zone entry of the browser run).
+`tools/tests/audio-zonesounds.mjs` re-scans the executable's bytes (`push imm; call` inside each function range) and compares with the table (30 zone lists + 4 sets: identical), checks the 200-slot caches, that every id of the port's footstep code, of
+the seven zones' own `SOUNDS_2D/3D` lists and of the 15 zones' `SND` tables is a sound the original's zone loads (A10: z41MAP, z17WAS, z39ASB included: no mismatch).
+Not in the lists (loaded by object constructors with ids from the object's data): `Sound3d` (`FUN_00538779`, 3D, id = first argument), `SGMFIG` (`FUN_00426151`, 2D, id = argument at +0x18), the cutscene action `FUN_0045f702` (3D, first use). The island loads the first two from its
+placed nodes when the zone game is bound (`IslandContext.loadObjectSounds`); the hubs must do the same for their `Sound3d` / `SGMFIG` nodes (`AudioHost.loadExtra`). The mini-game zones that load their own slots keep doing so (the decoded files are already cached).
+z50LTC, z17WAS and z03PPH used to "prime" their sounds by playing them (the first play was dropped): that is removed (it would now play them).
+
+### 11.4 3D audio (A3)
+
+* **Listener** = the camera block `DAT_009da5e8` (eye c[0..2], up c[12..14], front c[15..17]), set once per frame by the zone's camera function (`FUN_004434d0`, 28 call sites; the function holding a site sits right before the loop of its zone). Position is the camera *target*
+  (`&DAT_009da5f4`, the player) in **z38PAR, z08BKD, z27TRX**; **z01BPK, z03PPH, z04IFC, z17WAS, z21FSH never set it** (the SoundClass listener is not reset by a zone switch, so they hear 3D sounds from the pose the previous zone left; the port's own listener lines in z01BPK and z17WAS were removed (2026-10-29), so all five keep the previous zone's pose exactly like the original).
+* **Handedness** resolved: the camera basis (`camera.ts updateView`: right = (fz, 0, -fx)) is left-handed with +X to the right when facing +Z; Web Audio is right-handed (facing -Z): negating Z of positions, front and up gives the same left / right (checked: `forward' x up'` = +X).
+* **Sea loop** (`SND_LGI_SEA`, 0x125): `FUN_004bb67d` (PepSwitc pre-render) ends with `FUN_004433f0(DAT_05d5812c, (x', seaLevel, z'))` every frame: x / z are Pepper's, pushed out of the square |x|,|z| < 400 to its nearest side (the larger |coordinate| decides, a tie moves z).
+  `src/audio/sea.ts`; `tools/tests/audio-sea.mjs` compares the closed form with a mechanical transcription of all the decompile's branches on 484 points. Wired in `src/island/vehicles/pepswitch.ts` (`prerender`).
+* z50LTC's person sounds are 3D sounds played at Pepper's position when the talk starts (`z50LTC.ts`), z05WAB's three 3D sounds already used `play3D` (the doc line "played 2D" was stale).
+* `FUN_00443590 / FUN_004433c0` ("idle?") analysed: returns 0 when the slot has a handle (even a finished one-shot until the next housekeeping), else `status(3D handle #15) != DONE` (2D version) / `status(garbage pointer)` (3D version): for a slot without a handle the result is 1 ("free")
+  as long as 3D handle #15 (used only when 15 other 3D voices play) has never finished: the port's `isIdle` (= no voice) is the same except in that case. The callers (z18MMP's `FUN_006a9540` / `006aad6a` / `006aadb0` voice pools, z27TRX 214350) use it as "free slot" in a chain. Not reproduced: what Miles reports for a never-used 3D handle is not in the binary.
+* Pan 512 of `SND_CEDRIC_WALK` is moot: no zone loads that sound (only `CSSND_CEDRIC_WALK`, 3D).
+
+### 11.5 Speech and sound-effect plumbing (A4)
+
+* Speech state machine (`speech.ts`): `say` = `FUN_00435a11` (ignored while a request exists), `tick(dt)` = `FUN_00435a5e` once per loop frame (`AudioHost.frame(camera, world.dt)`, a 30 Hz timer fills in for loops that do not call it: the front end): the warm-up counter `_DAT_009dab5c` adds `dt` while <= 5.0 (6 frames)
+  **and is never reset**, so only the very first request of a session waits 6 frames; then `FUN_004436d0` (A start, A finished and B not started -> B start, both finished -> close). `idle` = `FUN_00435ad3` = state is not 1 or 2: idle between a request and its first tick, and during the first request's delay.
+* The speech-volume slider of the options menu says speech line 8 as a preview (`FUN_0041b9b1` case 6, `FUN_00435a11(8, -1)`): `AudioHost.setVolumes` does it when the speech value changes.
+* **Swim stroke**: the original has it: `FUN_0088c740` (the swim node) plays `SND_PEPP_SWIM` (0x127, a one-shot, 2D) while the clip frame is 18..20 after each advance (`src/game/swim.ts`). Not a loop.
+* Cutscene sound effects: scanning every `.cut` / `.txt` of the archives for `CSM_SFXn` switches finds them only in z02LGI (`lgi03/04/09/13`), z07CSI (`csi01..09`, own table like the island's `0x8d9460`: the hub work package) and `ogl01psx` (PSX): the scripts of z21FSH ADV04/11,
+  z28HAT ADV08/09, z40aPO ogl02 and z42BRP BRP01 use no sound switches, so there is nothing to trace there (their sounds are in the zone lists above).
+
+### 11.6 Ambience, notifications, fade, volumes (A5, A8, A9, A10)
+
+* **Ambience beds** (A5): the sequence is DONE at its end-of-track (the SMF's last `FF 2F`, not the last note) and the game restarts it from the next frame poll (`FUN_00443230` -> `FUN_00875b16`): `MidiRenderer` now ends a pass at the end-of-track time, restarts after `gap` = 1/60 s (half a frame on average) and releases (does not cut) the notes at the restart;
+  it used to wait the last note + 0.5 s + 0.1 s. The first start waits 6 frames (`_DAT_009e06e4` counts to 5.0). XMIDI conversion keeping the EOT is an assumption (a restart at the last note would differ by 0.1 - 1.2 s); what writes "none" into the name buffers and the `AIL_file_size` literal-path bug stay open (both
+  load the same `.mid`).
+* **Segment notifications** (A8): the registered `GUID_NOTIFICATION_SEGMENT` queue is polled by `FUN_00443370` (`GetNotificationPMsg` + `FreePMsg`, one message per call). Messages (MSDN `DMUS_NOTIFICATION_SEG*`): SEGSTART when a segment starts, SEGLOOP at every loop wrap, SEGABORT when the primary segment is stopped or replaced, SEGEND at its natural end
+  (SEGALMOSTEND, end minus prepare time, is only produced by segments that end: `Flying`, not polled by anyone). The island's Music node is built for exactly this: its 120-frame refractory timer ignores the echo of its own plays (abort + start one prepare time = 30 frames later) and reacts to the next loop notification by toggling `Z02LGIT` <-> `Z02LGIM`
+  (the long main theme with the groove levels; headless run: `Z02LGIT` asked at 1.58 s, the second loop notification at 88.99 s -> groove -2, `Z02LGIM` asked at 89.04 s, abort / start echoes 90.06 / 90.08). `MusicEngine.pollNotification()`; `IslandContext.musicNotified()` (it was undefined, so the island never left `Z02LGIT`). The queue filling without `SetNotificationHandle` is the documented use (the handle only signals) and the only reading under which `Z02LGIM` is ever heard.
+* **Fade / mute**: `FUN_00873e26` (zone reset) also sets the fade scale back to 1.0 (`GameAudio.resetZone`); mute (`FUN_00873e00`) keeps the segments running at -200 dB. Volume formula `-22 + 0.22 * opt[0] * fade` dB: `tools/tests/audio-zonesounds.mjs` checks 100 / 80 / 50 / 1 / 0, the fade scale and mute against the literal `(int)(v * 22 - 2200)` of asm 0x876aa4.
+* **Volumes** (A9): music slider -> DirectMusic master volume only; SFX slider -> every sample `floor(tableVol * opt1 / 100)` and the ambience sequence (`GameAudio.setSfxVolume`); speech slider -> fixed when a line starts. Nothing in the pause menu, the loop modes or speech changes a level (`grep` of every `setVolumes`, `setFade`, `setMute` caller:
+  the options menu, z28HAT's fade, the island's mute only).
+* **A6 items decided by the data** (nothing to change): all 365 commands of the shipped segments have `bRepeatMode` 0 (random: what the port does) or 223 (uninitialised, 38 of them: no valid mode); every chord's `inversionPoints` is `0xffffffff` / `0xffffff`, all 6288 style parts have `invertUpper` 127 / `invertLower` 0 and all 97 222 notes `inversionId` 0: no inversion map can act; the pattern
+  rhythm masks are `1` on measure 0 and the segments have one chord, so rhythm matching cannot change a choice. Pattern / variation randomness among equals, the synth (interpolation, 22.05 kHz, gain staging) and the GM bank stay as in 10.8.
+
+### 11.7 Not exact / open after this pass
+
+* Start delay 1000 ms is the documented default of the DirectMusic performance; a recording of the original would be the only proof (the game's own `GetPrepareTime` is not callable from the binary analysis).
+* Segment notifications follow the documented message set; the exact moment dmime posts them (at the start time, or one latency earlier) and whether a replaced segment sends SEGABORT or SEGEND is not in the binary.
+* The Miles status of a never-used 3D handle, ambience end = EOT (assumption above).
+* Constructor-loaded sounds with data ids (`Sound3d`, `SGMFIG`, the cutscene action) are loaded when the zone game is bound / on first use, not as part of the generated lists; the hubs need to add theirs.
+* Not touched: the building-distance timing of the island's Music node (it measures the current frame, the original the controller distance of the previous frame; island work package), z07CSI's SFX-switch table (hub work package).

@@ -140,19 +140,19 @@ only while the record moves (`out.dist > 0.0001`); y comes from the SGMFIG probe
 
 ## Approximations and differences
 
-* The cutscene reward of a customer advances only while no cutscene runs (the original freezes the AI during cutscenes).
-* Human1's hop lowering branch requests a probe with an uninitialised segment in the original; the port uses the rising branch's (0, -16, 0).
+* (WP-ISLAND, gaps S8) The cutscene reward of a customer advances exactly when the original's update pass runs the node: the pass skips controllers whose flag 2 is clear and the cutscene manager clears it for its actors (the old `!cutsceneActive()` guard is gone).
+* (WP-ISLAND) Human1's hop lowering branch requests its probe with the uninitialised segment of the original: three times the stack fill 0xcccccccc as a float (-1.0737418e8).
 * `FUN_0043b874` (advance without loop, Turn2Pep B hold) and the face (`FUN_0043f2f0`) are local helpers / an optional ctx service; record flag 1
   (in view) is `ctx.inFrustum` when the zone game provides it, else "in view".
 * Sound of an NPC called from behind: `ctx.sfx(arg +0x18)` when > 0 (the original loads a handle with `FUN_00443580` and plays it when its status is 2).
-* `DAT_0089df30` (written 4 / restored by the conversation) and the `DAT_009da648` matrix copy are not ported (no reader in the NPC code).
+* `DAT_0089df30` (written 4.0 at the start of a conversation, restored to `DAT_0089df50` = 4.0 in 32-bit colour: the zone's near plane is 4 already) has no effect; `DAT_009da648` (a matrix copy) has no reader in the whole executable: nothing to port (WP-ISLAND, gaps S8).
 * Random numbers (`FUN_004388ae`) use `Math.random`.
 
 ## Open / for the lead
 
 * Wire: `import 'src/island/npc/index.ts'` (via `src/island/index.ts`), after `setupZone` call `loadIslandWalkMaps(archive, profile.island)` and
   `startIslandNpcs(world)`; implement `ctx.say(table, id, id2?)`, and optionally `ctx.inFrustum`, `ctx.expression`, `ctx.cameraHold`.
-* Groups (`FUN_0042407f`, callers 0x520204 / 0x524952 / 0x527ec5 / 0x52cba0) are not set by any ported node: `npcGroup(w, a, b, c)` is exported.
+* Groups (`FUN_0042407f`, 8 call sites: 5 in `FUN_0052cba0` (era 0 / 4), 1 each in the functions at 0x520204 / 0x524952 / 0x527ec5) are registered from the emulated set-up's calls by `registerNpcGroups` (WP5; at most 6 like the original); test `m4-s-island` checks the counts per era.
 * BrickBot.c is not ported (era 1 node 7: 13 + 10 + 9 + 3 attaches). Inventory for whoever takes it:
   `FUN_00531d45` (0xc0-byte node, vtable 0x8eaa90: update `0x530e80`, pre-render `0x531286`, draw returns 1, destroy `0x531e67`): a follower: `+0x94`
   = the leader record (argument +0x00), `+0x14` = distance (argument +0x04 * 8), `+0x18` = type (argument +0x08, < 1: 0, 1, 2 in turn from
@@ -162,3 +162,15 @@ only while the record moves (`out.dist > 0.0001`); y comes from the SGMFIG probe
   pre-render `0x532557`, destroy `0x532909`): particles `Explode01.par` / `swirl01.swl`, walker ignore flags, argument +0x00 = a var it or-s 0x20000
   into. `FUN_00532acc` (vtable 0x8eaac8: update `0x532939`, destroy `0x532b81`, + `0x532a93`), `FUN_00533ba8` (vtable 0x8eaae0: update `0x532bb1`
   (378 lines: walker routes, `FUN_0051dc50`), pre-render `0x533ac2`, destroy `0x533cf4`). WP5's `pizzaHitOn` (`FUN_00429556`) is their pizza test.
+
+## Differential test (WP-VERIFY M7)
+
+`tools/tests/m7-isl-npc-emu.mjs` + `m7-isl-npc-human.mjs` (lib `tools/lib/m7-isl-npc-emu.mjs`): the original's constructors, node passes (FUN_0042226e / 00427233 / 004225c5 /
+0042271b), SGGen interaction code, walker (FUN_004614d5 ..), animation functions, collision (.col loader, sweep / probe / terrain ray) run natively in the x86 emulation (x87 at 24-bit
+precision) on the port's island world (node 2); Pepper is scripted. Per tick compared: matrices (1e-5 relative; observed max 1.8e-7), Euler, record flags, clip / frame, controller flags /
+ran bits / distance / probe result, node fields, all 319 variables, NPC globals, camera, speech / sound / cutscene calls, random draws. ~13 M checks: free walk dt 1 and 0.5 (42 records),
+talk / cutscene / call-from-behind scenarios, Pepper in the way of walkers, gate-bit fuzz. Not covered: pizza reactions, BrickBot, Bunny / butterflies / swifts, buildings.
+Deviations (port-owned `src/island/**`, not edited): D1 `startIslandNpcs` inits by record index, original in attach order (CLIK / PETE ground height swap); D2 probe timer starts -1, original
+sets 32.0 (FUN_00427014) so the first throttled probe runs at once; D3 controller +0x14 bit 0x10 never cleared (the draw pass zeroes the word); D4 Human1 update returns 0 on the
+`res == -1 && count == 1` path (0x4be7f8), port 1; D5 Euler yaw outside +-PI not normalised by the step; D6 cone constants 1.0472 / 1.39626 vs float32 0x3f860a63 (1.04719198) /
+0x3fb2b884 (1.39625597); D7 faceEachOther lacks FUN_00429e00 (slope alignment of Pepper after the turn). D2 / D3 / D6 / D7 are neutralised in the harness (documented in the lib).

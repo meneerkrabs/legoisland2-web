@@ -86,3 +86,18 @@ export function modePreset(mode: number): number {
     default: return 3;
   }
 }
+
+// ------------------------------------------------------------------------------------------------ the viewport's depth range
+// The game's three IDirect3DDevice7::SetViewport calls (vtable +0x34; in FUN_0040a43f, FUN_0040acb0 and FUN_0040bdd1: the device creation paths) pass a D3DVIEWPORT7 whose dvMinZ and dvMaxZ are both 0.0
+// (the struct is {x 0, y 0, width, height, 0, 0}). Direct3D 7 does not take a degenerate range literally: the Windows runtime uses max(dvMaxZ, dvMinZ + 0.001) as the far end (the
+// constant Wine derived from tests against native Windows: dlls/ddraw/tests/ddraw7.c "Test degenerate viewport z ranges", wined3d_viewport_get_z_range). So the depth values the game's
+// triangles write span [0, 0.001], not [0, 1]: ordering stays right, the depth buffer's resolution is a thousandth of what a 0..1 range gives (the clear value stays 1.0: the Clear call of the frame start passes z = 1.0).
+/** dvMinZ / dvMaxZ the game passes */
+export const VIEWPORT_Z_PASSED = { min: 0, max: 0 } as const;
+/** the range Direct3D 7 actually maps NDC z (0..1) onto for a given dvMinZ / dvMaxZ */
+export function d3dZRange(minZ: number, maxZ: number): [number, number] {
+  const f = Math.fround;
+  return [f(minZ), f(Math.max(f(maxZ), f(f(minZ) + f(0.001))))];
+}
+/** the range of the game's viewport: [0, 0.001] */
+export const GAME_Z_RANGE = d3dZRange(VIEWPORT_Z_PASSED.min, VIEWPORT_Z_PASSED.max);

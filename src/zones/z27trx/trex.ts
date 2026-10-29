@@ -16,13 +16,17 @@ import type { EggNode, SlogNode } from './props.ts';
 
 type Vec3 = [number, number, number];
 const NO_GROUND_LIMIT = -1;
+/** the original's x87 runs in 24-bit mode and every node field is a float: every store / operation below rounds to a float32 (the differential test's parallel run replays the original's accumulations) */
+const F = Math.fround;
+/** _DAT_008920cc = 0.1f: the force of the trexfeet emitter is the speed times this */
+const FEET_FORCE = Math.fround(0.1);
 
 export function medalOf(score: number, t: { gold: number; silver: number; bronze: number } = { gold: SCORE.GOLD, silver: SCORE.SILVER, bronze: SCORE.BRONZE }): 0 | 1 | 2 | 3 {
   return score > t.gold ? 3 : score > t.silver ? 2 : score > t.bronze ? 1 : 0;
 }
 /** FUN_0076a39b's score: 10000 - (5 * max(0, ftol(clock - 5400)) + 250 * hits), at least 0. The clock term is never positive (the clock counts down from 5400): the time costs nothing. */
 export function scoreOf(clock: number, hits: number): number {
-  let t = Math.trunc(clock - SCORE.CLOCK_REF) * SCORE.CLOCK_FACTOR;
+  let t = Math.trunc(F(clock - SCORE.CLOCK_REF)) * SCORE.CLOCK_FACTOR;
   if (t < 0) t = 0;
   const s = SCORE.MAX - (t + hits * SCORE.HIT_COST);
   return s < 0 ? 0 : s;
@@ -36,9 +40,9 @@ export class TrexNode implements BehaviourNode {
   /** the rider record (+0x38) */
   rider!: GameRecord;
   /** +0x14 / +0x18 / +0x24: minimum speed, maximum speed, speed step */
-  minSpeed: number = TREX.MIN_SPEED; maxSpeed: number = TREX.MAX_SPEED; accel: number = TREX.ACCEL;
+  minSpeed: number = F(TREX.MIN_SPEED); maxSpeed: number = F(TREX.MAX_SPEED); accel: number = F(TREX.ACCEL);
   /** +0x28: lane smoothing of this tick */
-  laneRate: number = TREX.LANE_RATE0;
+  laneRate: number = F(TREX.LANE_RATE0);
   /** +0x2c: the x of the middle lane (the record's x) */
   baseX = 16;
   /** +0x3c: the clock in ticks (counts down) */
@@ -48,7 +52,7 @@ export class TrexNode implements BehaviourNode {
   /** +0x58: crashed (a crash clip is playing, no steering); +0x5c: standing in fire */
   stunned = false; burning = false;
   /** +0x60: speed (units per tick) */
-  speed: number = TREX.MIN_SPEED;
+  speed: number = F(TREX.MIN_SPEED);
   /** +0x64: the buttons held at the previous tick */
   prevHeld = 0;
   /** +0x68: the camera's z (never goes back); +0x6c: the rex's z */
@@ -63,6 +67,8 @@ export class TrexNode implements BehaviourNode {
   rumbleOn = false; rumbleT = 0; rumbleS = 0;
   /** +0xd4: toggled by a roar (unused); +0xd8: the bridge line was spoken; +0xdc: footstep state */
   roarToggle = 0; bridgeSpoken = false; stepState = 0;
+  /** +0xc4: the trexfeet emitter's matrix has to be set again (FUN_00442a00 after the gate went on) */
+  feetDirty = false;
   /** the world's tick counter of the last update (diagnostics) */
   ticks = 0;
 
@@ -71,10 +77,10 @@ export class TrexNode implements BehaviourNode {
     const run = this.run;
     this.baseX = rec.x; this.z = rec.z; this.camZ = rec.z;
     this.clock = TREX.CLOCK; run.clock = TREX.CLOCK; run.timeout = false;
-    this.speed = this.minSpeed; this.laneRate = TREX.LANE_RATE0;
+    this.speed = this.minSpeed; this.laneRate = F(TREX.LANE_RATE0);
     this.jumping = false; this.stunned = false; this.burning = false; this.prevHeld = 0;
     this.offset = 0; this.lane = 0; this.prevLane = 0; this.blink = 0; this.blinkT = 0; this.hits = 0;
-    this.rumbleOn = false; this.rumbleT = 0; this.rumbleS = 0; this.roarToggle = 0; this.bridgeSpoken = false; this.stepState = 0;
+    this.rumbleOn = false; this.rumbleT = 0; this.rumbleS = 0; this.roarToggle = 0; this.bridgeSpoken = false; this.stepState = 0; this.feetDirty = false;
     run.hitsText = '0'; run.hudDim = false; run.arrivalCamera = false; run.arrivalFog = false; run.score = 0;
     rec.anim?.start(CLIP.WAIT, 0);
     this.mirror(rec);
@@ -113,6 +119,7 @@ export class TrexNode implements BehaviourNode {
         const medal = this.finish(w, run.score);
         run.sound.play(SND.VICTORY);
         anim.start(this.endClip[medal], 0);
+        run.fx.feetOff();                       // FUN_0076a39b: FUN_00442a20(feet, 1, 1, 1)
       }
     }
     switch (phase) {
@@ -163,14 +170,15 @@ export class TrexNode implements BehaviourNode {
     this.prevHeld = w.input.held;
     w.vars.set(VAR.PHASE, PHASE.RUN);
     rec.anim?.start(CLIP.RUN, 0);
+    this.run.fx.feetOn(); this.run.fx.feetMatrix();       // FUN_00769cb0: gate (2, 1, 1), then the record's matrix (twice)
   }
 
   // ------------------------------------------------------------------------------------------------------------------- phase 4 (FUN_00768510)
 
   private runTick(w: World, rec: GameRecord) {
     const run = this.run, snd = run.sound, dt = w.dt, anim = rec.anim!;
-    const dtc = 1.0 * dt;
-    this.clock -= dtc;
+    const dtc = F(1.0 * dt);
+    this.clock = F(this.clock - dtc);
     if (this.clock < 0) { this.clock = 0; run.timeout = true; }
     run.clock = this.clock;
     this.rumbleTick(dt);
@@ -181,12 +189,12 @@ export class TrexNode implements BehaviourNode {
     const oldOffset = this.offset;
     let animRate: number;
     if (!this.stunned) {
-      this.z += this.speed * dt;
-      animRate = this.speed / this.maxSpeed;
-      if (held & B.RIGHT) { this.speed += this.accel; if (this.maxSpeed < this.speed) this.speed = this.maxSpeed; }
-      if (held & B.LEFT) { this.speed -= this.accel * RUN.BRAKE_FACTOR; if (this.speed < this.minSpeed) this.speed = this.minSpeed; }
-      const frac = 0.5 * ((this.speed - this.minSpeed) / (this.maxSpeed - this.minSpeed));
-      this.laneRate = (1 - frac) * RUN.LANE_SMOOTH;
+      this.z = F(F(this.speed * dt) + this.z);
+      animRate = F(this.speed / this.maxSpeed);
+      if (held & B.RIGHT) { this.speed = F(this.speed + this.accel); if (this.maxSpeed < this.speed) this.speed = this.maxSpeed; }
+      if (held & B.LEFT) { this.speed = F(this.speed - F(this.accel * RUN.BRAKE_FACTOR)); if (this.speed < this.minSpeed) this.speed = this.minSpeed; }
+      const frac = F(0.5 * F(F(this.speed - this.minSpeed) / F(this.maxSpeed - this.minSpeed)));
+      this.laneRate = F(F(1 - frac) * F(RUN.LANE_SMOOTH));
       if ((newly & B.UP) && -1 < this.lane) { this.prevLane = this.lane; this.lane -= 1; }
       if ((newly & B.DOWN) && this.lane < 1) { this.prevLane = this.lane; this.lane += 1; }
       if (newly & BUTTON.ROAR) {
@@ -194,14 +202,15 @@ export class TrexNode implements BehaviourNode {
         if (anim.clip === CLIP.RUN) { clipReq = CLIP.ROAR; this.roar(); this.roarToggle ^= 1; } else this.roar();
       }
     } else animRate = 1.0;
+    run.fx.feetForce(Math.fround(this.speed * FEET_FORCE));     // FUN_0044ebd0(feet, 0, speed * 0.1)
     // the lane offset follows the lane
-    const target = this.lane * RUN.LANE_WIDTH;
-    const step = this.laneRate * RUN.LANE_STEP * dt;
-    if (this.offset < target) this.offset = Math.min(target, step + this.offset);
-    if (target < this.offset) this.offset = Math.max(target, this.offset - step);
-    const p: Vec3 = [this.baseX + this.offset, 0, this.z];
-    let g = groundAt(w, p[0], 0, p[2]);
-    if (g < RUN.MIN_Y) g = RUN.MIN_Y;
+    const target = F(this.lane * RUN.LANE_WIDTH);
+    const step = F(F(this.laneRate * RUN.LANE_STEP) * dt);
+    if (this.offset < target) this.offset = Math.min(target, F(step + this.offset));
+    if (target < this.offset) this.offset = Math.max(target, F(this.offset - step));
+    const p: Vec3 = [F(this.baseX + this.offset), 0, this.z];
+    let g = F(groundAt(w, p[0], 0, p[2]));
+    if (g < F(RUN.MIN_Y)) g = F(RUN.MIN_Y);
     p[1] = g;
     // the bridge: a ray 32 up from the ground; its hit is the new height; the waterfall plays while the zone has a bridge
     const bridge = run.bridge;
@@ -215,7 +224,8 @@ export class TrexNode implements BehaviourNode {
     }
     // the jump
     if (!this.stunned && (newly & BUTTON.JUMP) && !this.jumping) {
-      this.jumping = true; this.jumpBase = p[1]; this.jumpV = TREX.JUMP_V; this.jumpG = TREX.JUMP_G; this.jumpTime = 0;
+      this.jumping = true; this.jumpBase = p[1]; this.jumpV = F(TREX.JUMP_V); this.jumpG = F(TREX.JUMP_G); this.jumpTime = 0;
+      run.fx.feetOff();
       snd.play(run.rng.int(2) ? SND.SHOUT2 : SND.SHOUT1);
       snd.play(run.rng.int(2) ? SND.JUMP2 : SND.JUMP1);
       snd.stop(SND.BREATHE);
@@ -226,18 +236,19 @@ export class TrexNode implements BehaviourNode {
     }
     if (!snd.playing(SND.CATCHBREATH) && !snd.playing(SND.BREATHE)) snd.play(SND.BREATHE);
     if (this.jumping) {
-      const t = this.jumpTime * RUN.JUMP_T;
-      this.jumpY = this.jumpG * t * t * 0.5 + this.jumpV * t + this.jumpBase;
+      const t = F(this.jumpTime * F(RUN.JUMP_T));
+      this.jumpY = F(F(F(F(F(this.jumpG * t) * t) * 0.5) + F(this.jumpV * t)) + this.jumpBase);
       if (p[1] <= this.jumpY) p[1] = this.jumpY;
       else {
         if (!this.stunned) { clipReq = CLIP.LAND; snd.play(SND.LANDGRAVEL); }
+        this.feetDirty = true; run.fx.feetOn();
         this.jumping = false;
       }
-      this.jumpTime += dtc;
+      this.jumpTime = F(this.jumpTime + dtc);
     }
     // the blink after a crash: the rex and the rider are hidden / shown every two ticks
     if (this.blink === 1) {
-      this.blinkT -= dtc;
+      this.blinkT = F(this.blinkT - dtc);
       if (0 <= this.blinkT) {
         if (RUN.BLINK_EPS <= this.blinkT) this.setShown(rec, (Math.trunc(this.blinkT) & 2) !== 0);
         else this.setShown(rec, true);
@@ -258,16 +269,17 @@ export class TrexNode implements BehaviourNode {
           case CLIP.CRASH_BOULDER: case CLIP.CRASH_EGG: case CLIP.CRASH_ROCK: case CLIP.CRASH_LOG_A: case CLIP.CRASH_LOG_B:
             // the crash is over: carried 24 on, back to minimum speed, blinking
             this.stunned = false;
-            this.z += RUN.RECOVER_Z;
-            p[0] = this.baseX + this.offset; p[2] = this.z;
-            p[1] = groundAt(w, p[0], p[1], p[2]);     // FUN_0043ce45 from the height of this tick (+ 4); no clamp here
+            this.z = F(this.z + F(RUN.RECOVER_Z));
+            p[0] = F(this.baseX + this.offset); p[2] = this.z;
+            p[1] = F(groundAt(w, p[0], p[1], p[2]));     // FUN_0043ce45 from the height of this tick (+ 4); no clamp here
             this.speed = this.minSpeed;
             this.blink = 1; this.blinkT = RUN.BLINK_TICKS;
+            this.feetDirty = true; run.fx.feetOn();
             break;
           case CLIP.ROAR: case CLIP.LAND: clipReq = CLIP.RUN; break;
           case CLIP.BURN: case CLIP.BURN2:
             this.speed = this.minSpeed;
-            if (!this.burning) { /* the fire is out: back to the run clip */ } else clipReq = CLIP.BURN2;
+            if (!this.burning) { this.feetDirty = true; run.fx.feetOn(); } else clipReq = CLIP.BURN2;     // the fire is out: back to the run clip
             break;
           case CLIP.AIR: clipReq = CLIP.FALL_STOP; break;
           case CLIP.FALL_STOP: clipReq = CLIP.FALL_STOP; break;
@@ -278,8 +290,11 @@ export class TrexNode implements BehaviourNode {
         if (clipReq !== cur) anim.start(clipReq, 0);
       }
     } else anim.start(clipReq, 0);
-    this.footsteps(rec);
+    this.footsteps(rec, dt);
     rec.x = p[0]; rec.y = p[1]; rec.z = p[2];
+    // (the original writes the record's position fields and the matrix is built from them before the draw: the emitter keeps the record's live matrix)
+    if (this.feetDirty) { run.fx.feetMatrix(); this.feetDirty = false; }
+    run.fx.feetMatrix();
   }
   private setShown(rec: GameRecord, on: boolean) {
     if (on) { rec.flags |= RF_ENABLED; this.rider.flags |= RF_ENABLED; } else { rec.flags &= ~RF_ENABLED; this.rider.flags &= ~RF_ENABLED; }
@@ -319,6 +334,7 @@ export class TrexNode implements BehaviourNode {
       }
     }
     const name = nameOf(target);
+    if (name !== 'LAND') run.fx.feetOff();       // FUN_007692a1: anything but the ground puts the trexfeet emitter out (gate 1 / 1 / 1)
     switch (name) {
       case 'ROCK': case 'STP2': case 'VOLC': case 'STMP':
         run.speak(MSG.ROCK);
@@ -355,6 +371,7 @@ export class TrexNode implements BehaviourNode {
     if (!hit || this.blink !== 0) { this.burning = false; return hit ? hit.rec : null; }
     const target = hit.rec;
     const name = nameOf(target);
+    if (name !== 'LAND') run.fx.feetOff();       // FUN_007698cf: as the forward probe
     let ret: GameRecord | null = target;
     switch (name) {
       case 'BURN':
@@ -362,6 +379,7 @@ export class TrexNode implements BehaviourNode {
           this.burning = true; out.clip = CLIP.BURN; this.speed = this.minSpeed;
           this.rumbleStart(RUMBLE.BURN); this.hits++;
           snd.play(SND.JUMP1);
+          run.fx.feetOff();
         }
         break;
       case 'SLOG': {
@@ -388,14 +406,14 @@ export class TrexNode implements BehaviourNode {
 
   // ------------------------------------------------------------------------------------------------------------------- footsteps (FUN_00769b26)
 
-  private footsteps(rec: GameRecord) {
+  private footsteps(rec: GameRecord, dt: number) {
     const anim = rec.anim!;
     const clip = anim.clip;
     if (clip !== CLIP.ROAR && clip !== CLIP.RUN) return;
     const f = Math.trunc(anim.frame);
     if (this.jumping || this.burning) return;
     const snd = this.run.sound;
-    const nearEnd = () => anim.frameCount < 1.0 + 1.0 + anim.frame;     // FUN_0043b92a(anim, 1.0)
+    const nearEnd = () => anim.frameCount < 1.0 * dt + 1.0 + anim.frame;     // FUN_0043b92a(anim, 1.0): rate * DAT_008b1718 + 1.0 + frame
     switch (this.stepState) {
       case 0: if (1 < f) { snd.play(SND.FS1); this.stepState = 1; } break;
       case 1: if (11 < f) { snd.play(SND.FS2); this.stepState = 2; } break;
@@ -412,11 +430,11 @@ export class TrexNode implements BehaviourNode {
     const run = this.run, dt = w.dt;
     if (!run.timeout) {
       // the autopilot: maximum speed down the middle lane to the camp
-      this.z += this.maxSpeed * dt;
+      this.z = F(F(this.maxSpeed * dt) + this.z);
       rec.x = this.baseX; rec.z = this.z;
       rec.y = groundAt(w, rec.x, rec.y, rec.z);
       rec.anim?.advance(1.0, dt);
-      this.footsteps(rec);
+      this.footsteps(rec, dt);
       return;
     }
     // the clock ran out: the rex shows and slows down (the probe of the original is handed an uninitialised position and never hits anything)
@@ -424,24 +442,25 @@ export class TrexNode implements BehaviourNode {
     let x: number, y: number;
     if (!this.jumping) {
       if (0 < this.speed) {
-        this.speed -= RUN.COAST_DECEL * dt;
+        this.speed = F(this.speed - F(F(RUN.COAST_DECEL) * dt));
         if (this.speed < 0) this.speed = 0;
         x = rec.x; y = rec.y;
-        this.z += this.speed * dt;
+        this.z = F(F(this.speed * dt) + this.z);
       } else { x = rec.x; y = rec.y; }
+      run.fx.feetForce(Math.fround(this.speed * FEET_FORCE));
     } else {
-      x = this.baseX + this.offset;
+      x = F(this.baseX + this.offset);
       let g = groundAt(w, x, 0, this.z);
-      const t = this.jumpTime * RUN.JUMP_T;
-      this.jumpY = this.jumpG * t * t * 0.5 + this.jumpV * t + this.jumpBase;
+      const t = F(this.jumpTime * F(RUN.JUMP_T));
+      this.jumpY = F(F(F(F(F(this.jumpG * t) * t) * 0.5) + F(this.jumpV * t)) + this.jumpBase);
       if (g <= this.jumpY) {
         g = this.jumpY;
         const out = { clip: 0 };
         const hit = this.probeUp(w, rec, [x, g, this.z], out);
-        if (!hit) this.jumpTime += 1 * dt;
-      } else this.jumping = false;
+        if (!hit) this.jumpTime = F(F(1 * dt) + this.jumpTime);
+      } else { this.jumping = false; run.fx.feetMatrix(); run.fx.feetOn(); }
       y = g;
-      this.z += this.speed * dt;
+      this.z = F(F(this.speed * dt) + this.z);
     }
     rec.x = x; rec.y = y; rec.z = this.z;
   }
@@ -458,6 +477,7 @@ export class TrexNode implements BehaviourNode {
         case CLIP.CHEER_GOLD: anim.start(CLIP.CHEER_GOLD2, 0); w.vars.set(VAR.PHASE, PHASE.OVER); break;
         default: break;
       }
+      this.run.fx.feetOff();
     }
   }
 
@@ -479,11 +499,11 @@ export class TrexNode implements BehaviourNode {
   sideCamera(w: World, _rec?: GameRecord) {
     const c = w.camera.c;
     if (this.camZ < this.z) this.camZ = this.z;
-    const ez = this.camZ + CAM.AHEAD_Z;
+    const ez = F(this.camZ + CAM.AHEAD_Z);
     c[2] = ez;
-    c[0] = this.baseX + CAM.SIDE_X;
+    c[0] = F(this.baseX + CAM.SIDE_X);
     c[1] = CAM.EYE_Y;
-    c[3] = this.baseX + this.offset;
+    c[3] = F(this.baseX + this.offset);
     c[5] = ez;
     const g = groundAt(w, c[3], c[4], c[5]);
     if (NO_GROUND_LIMIT < g) c[4] = g;

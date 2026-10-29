@@ -1,9 +1,10 @@
 // Browser-side drawing of one game frame: interpolated chase camera, records in record order (LOD, textures, sky / sea specials), CPU-skinned
 // animated characters with their attachments, and Pepper's blob shadow (docs/re/rendering.md sections 3, 7, 9). Reads the world, never changes it
 // (the only exception: the camera's wall push is evaluated on the interpolated camera by temporarily writing it into `world.camera.c`).
-import { Renderer, SkyState, SeaState, SKY_MODE, SEA_MODE, SEABED_MODE, SEA_EDGE_MODE, DEFAULT_FOV, cameraFromFog, defaultLights, projection, selectLod } from '../render/index.ts';
-import type { MeshGpu, TexGpu, CameraSetup, LightSet, DrawOpts } from '../render/index.ts';
-import { lookDirLH, mul, transformPoint } from '../render/math.ts';
+import { Renderer, SkyState, SeaState, GAME_TICK, SKY_MODE, SEA_MODE, SEABED_MODE, SEA_EDGE_MODE, DEFAULT_FOV, cameraFromFog, defaultLights, projection, selectLod } from '../render/index.ts';
+import type { MeshGpu, TexGpu, CameraSetup, LightSet, DrawOpts, BatchGpu } from '../render/index.ts';
+import { viewPlaneMesh, viewPlaneTexturedMesh, VIEWPLANE_TEX_PRESET, VIEWPLANE_TEX_STEP } from '../render/viewplane.ts';
+import { lookDirLH, mul, mulGame, transformPoint } from '../render/math.ts';
 import type { Archive } from '../formats/archive.ts';
 import type { ZoneScene, Model, FaceSetup } from '../formats/exe.ts';
 import type { ZoneRenderParams } from '../formats/zoneparams.ts';
@@ -14,9 +15,17 @@ import type { Loaded } from './setup.ts';
 import type { GameRecord } from './record.ts';
 import { RF_ENABLED, RF_NO_DRAW } from './record.ts';
 import { V } from './vars.ts';
+import { pickFogCall } from './fogphases.ts';
+import { runDrawHooks } from './controller.ts';
+import { blobShadowPoints, markerPoints, markerVisible, shadowGate, SHADOW_HANDLED, SHADOW_RAY_LENGTH, SHADOW_RAY_MASK, SHADOW_RAY_RADIUS } from './shadow.ts';
+import type { ShadowRay } from './shadow.ts';
 import { activeEntries } from '../formats/zonesetup.ts';
 
-interface Part { meshPath: string | null; texList: number[]; lod: number; mesh?: MeshGpu | null }
+/**
+ * one LOD part of a model (the 0x14-byte part record: mesh +8, texture list +0xc, mode +0x10): `mode` is the draw mode FUN_00444550(record, partMask, mode) sets (default 0;
+ * `slot` = the part's index, the bit of the part mask), `shiny` = FUN_004446c0 switched its mesh to vertex format 0x2c2
+ */
+interface Part { meshPath: string | null; texList: number[]; lod: number; mesh?: MeshGpu | null; slot: number; mode: number; shiny?: boolean }
 interface Attach { bone: number; slot: number; parts: Part[] }
 /** a skinned mesh of one record that is re-posed every frame */
 interface Dyn { gpu: MeshGpu; sv: Svwl; pos: Float32Array; nrm: Float32Array }
@@ -25,7 +34,6 @@ interface RecView {
   parts: Part[];
   attach: Attach[];
   kind?: 'sky' | 'sea';
-  mode: number;
   /** bind-pose bone matrices for attachments when the record has no running animation */
   bindBones?: Float32Array | null;
   dyn: Map<MeshGpu, Dyn | null>;
@@ -41,15 +49,20 @@ const FACE_WIB_SCALE: readonly [number, number] = [4, 4];
 /** DAT_00981190 / DAT_00981194: UV offset of expression n of a 4x4 face atlas (type 0, FUN_0087e038 -> FUN_0087e0cf): ((n & 3) / 4, -(n >> 2) / 4) */
 const faceAtlasOffset = (n: number): readonly [number, number] => [(n & 3) * 0.25, -(n >> 2) * 0.25];
 
+/** the texture the debug option's textured view plane uses per zone when no `viewPlaneTexture` is given: NOT from the code (FUN_0087f854 is never called); z10RGB's only animated sheet (62, 15 frames), z22BIP's only tileable texture (3, wrap flags 7) */
+const VIEWPLANE_TEXTURE_DEFAULT: Record<string, number> = { z10RGB: 62, z22BIP: 3 };
+
 /** distance within which animated records are posed every frame (others show the bind pose) */
 const POSE_RANGE = 150;
-const SHADOW_TYPE = 4;
-/** FUN_00444940: controller flags (+0xc) that give a record a blob shadow, and the squared range to the camera (_DAT_008921ec = 6400) */
-const SHADOW_CTRL_FLAGS = 0x50, SHADOW_RANGE2 = 6400;
+/** SWITCH_GME_PEPPSMARKER (var 0xc6): Pepper's flashing marker (FUN_00444ef0) */
+const VAR_PEPP_MARKER = 0xc6;
 /** SWITCH_GME_PEPP_IN_VEHICLE */
 const VAR_PEPP_IN_VEHICLE = 0xa9;
 
 export interface FrameInfo { eye: [number, number, number]; target: [number, number, number]; camDist: number; draws: number; triangles: number }
+
+/** the motion-blur copies of z36CNT (FUN_007b1a1b: FUN_0043f180(model, 0, 7), draw mode 7 = state preset 26, modulated colour + alpha, blended, WITHOUT z test: modePreset(7)); M5 audit */
+const GHOST_PRESET = 26;
 
 export class GameRenderer {
   readonly renderer: Renderer;
@@ -60,10 +73,6 @@ export class GameRenderer {
   slider = 50;
   /** per record: local transform of an attachment slot (the model's `FUN_0043e910(model, slot, matrix)`: z36CNT's helmet visor), applied before the bone matrix */
   attachLocal = new Map<GameRecord, Map<number, Float32Array>>();
-  /** translucent copies drawn right after their record (z36CNT's motion blur, FUN_007b1a1b: mode 7 + FUN_0043ebe0 alpha): world matrix and alpha 0..1 */
-  ghosts = new Map<GameRecord, { m: Float32Array; alpha: number }[]>();
-  /** extra blob shadows with caller-given corner points (z36CNT: FUN_007b1a1b -> FUN_0087dd20(shadow, type, 5 points)): `pts` = 5 x (x, y, z) in the Shadow.msh vertex order (corner, centre, corner, corner, corner) */
-  extraShadows: { type: number; pts: number[] }[] = [];
   /** the camera zoom DAT_0089df2c (FUN_0040cd1a), the vertical field of view in radians (default 1.0); zones with a fixed camera (z17WAS 0.4) set it */
   fov = DEFAULT_FOV;
   /** distance within which animated records are posed every frame (default POSE_RANGE 150; a zone whose characters are seen from further away, z15SSH's snakes, raises it) */
@@ -74,12 +83,40 @@ export class GameRenderer {
   backdrop: ((r: Renderer, eye: [number, number, number], fwd: [number, number, number]) => void) | null = null;
   /** the effects pass after the records (FUN_00442930: the brick batches of FX_Bricks, then the particles): the island draws its brick effects here (src/fx/bricks/draw.ts) */
   effects: ((r: Renderer, eye: [number, number, number]) => void) | null = null;
+  /** the particle draw pass (src/fx/particles/draw.ts), after `effects` (FUN_00442930 draws the particles last) */
+  particles: ((r: Renderer, viewProj: Float32Array | number[]) => void) | null = null;
   info: FrameInfo = { eye: [0, 0, 0], target: [0, 0, 0], camDist: 0, draws: 0, triangles: 0 };
   /**
    * live sub-object (MATL) matrices of a record (doors, swinging parts, rotors: the island's src/island/trigger/parts.ts `partOverrides`): every group of the
    * record's mesh whose GTOM index has an entry is drawn with that matrix instead of the static one. Set by the zone game; null = static matrices only.
    */
   partMatrices: ((rec: GameRecord) => ReadonlyMap<number, Float32Array> | undefined) | null = null;
+  /**
+   * live vertex positions of a record's first mesh (FUN_0043ebe0(model, 2, points, 0) = FUN_0088350d mode 2: vertex i := point i, world space): z40aPO's SHAD shadow patch.
+   * The function returns the 3 * n floats (n = the mesh's vertex count) or undefined for the static mesh. Set by the zone game; null = none.
+   */
+  vertexOverride: ((rec: GameRecord) => Float32Array | undefined) | null = null;
+  /**
+   * model-texture swaps (SwapText.c FUN_00443810 / FUN_004439f0: the island's vehicle looks, `src/island/vehicles/looks.ts`): for a record and the model's LOD part `lod`
+   * the SwapText bank texture (`swapArchive`, `text<N>.tga`) of every mesh group that replaces the model's own texture; undefined / null = the model's own textures.
+   */
+  swapTextures: ((rec: GameRecord, lod: number) => readonly number[] | null | undefined) | null = null;
+  swapArchive: Archive | null = null;
+  /**
+   * extra draws of a record's part-0 mesh with live vertex positions (world space) at the record's own matrix, after all records and before the effects (FUN_005f90f7, z10RGB: for every
+   * flying ball FUN_0043ebe0(CSHD model, 2, 5 ground points, 0) + FUN_00444480(CSHD) draws the ball's shadow patch). The zone game refills the list every frame (a function) or leaves it empty.
+   */
+  meshDraws: (() => { rec: GameRecord; verts: Float32Array }[]) | null = null;
+  /** debug option only (src/devcorner): the debug-draw queue, lines and boxes drawn at the end of the frame; null = nothing (always null without the debug option) */
+  debugDraw: ((r: Renderer, eye: [number, number, number], viewProj: Float32Array | number[]) => void) | null = null;
+  /**
+   * Ontwikkelaarshoek (debug only, src/devcorner/camera-lod.ts), all null = the default play: `lodHook` replaces the part (LOD) choice of a record that has no flag-forced part (FUN_00443f90's adaptive
+   * branch, DAT_009e56b8 / DAT_009e56bc; `dist` = distance to the eye, `parts` = the part count, returns the part index or null = the normal `selectLod`); `farHook` maps the frame's far clip
+   * (DAT_0089df34, the adaptive detail moves it by +-50) to the one used for the projection and the culling.
+   */
+  lodHook: ((rec: GameRecord, parts: readonly { lod: number }[], dist: number, zoom: number) => number | null) | null = null;
+  farHook: ((far: number) => number) | null = null;
+  private liveVerts = new WeakMap<MeshGpu, MeshGpu>();
   /** the six clip planes (a, b, c, d; inside when a x + b y + c z + d >= 0) of the last drawn frame, null before the first frame */
   private planes: Float32Array | null = null;
   private views: RecView[] = [];
@@ -103,7 +140,20 @@ export class GameRenderer {
     this.renderer = renderer; this.data = data; this.archive = archive; this.scene = scene; this.loaded = loaded;
     this.fog = fog; this.lights = lights ?? defaultLights(); this.shadowArchive = shadowArchive;
     this.sky = new SkyState(loaded.profile.zone === 'z02LGI');
+    renderer.resetLighting();   // a zone's meshes are loaded afresh: their mode 0 lighting happens again at the first draw
     this.buildViews();
+    // the draw hooks FUN_005f7709 / FUN_0070fc64 (constructors 0x5f77ad / 0x70fd0b) draw the view plane around their record
+    for (const a of loaded.setup?.attaches ?? []) {
+      if (a.record < 0) continue;
+      if (a.ctor === 0x5f77ad) this.viewPlanes.set(a.record, { y: 0, after: false });
+      else if (a.ctor === 0x70fd0b) this.viewPlanes.set(a.record, { y: -106, after: true });
+      else if (a.ctor === 0x426f55 && a.argWords && a.argWords.length >= 2) {
+        const f = (u: number) => new Float32Array(new Uint32Array([u >>> 0]).buffer)[0];
+        this.flow.set(a.record, { dv: f(a.argWords[0]), du: f(a.argWords[1]), var: a.var, mask: a.mask, value: a.value });
+      }
+    }
+    // FUN_00444850 (the zone's shadow set-up, called once from its loop function) also initialises the two variables of Pepper's shadow: var 0xc6 = 0 (no marker), var 0xc5 = 4 (type)
+    if (loaded.setup?.shadow) { loaded.world.vars.set(VAR_PEPP_MARKER, 0); loaded.world.vars.set(V.PEPPERSSHADOW, 4); }
     if (shadowArchive) {
       const raw = renderer.mesh(shadowArchive, 'Shadow.msh');
       if (raw) this.shadowMesh = renderer.uploadMesh({ ...raw.msh });
@@ -114,6 +164,17 @@ export class GameRenderer {
    * Zones whose code calls SetupFog (FUN_00442d90) more than once: `extractRenderParams` lists the calls in address order and the first one is the default; the call
    * that runs last wins in the original (Pepper's house: the loop function's third call, near 1 / far 100..500, after the set-up function's own). Moves call `index` to the front.
    */
+  /** the loop's mode (loopmachine.ts MODE, set by the shell each frame): 7 = fade-in, decides which SetupFog call is in effect (fogphases.ts); undefined = play */
+  loopMode: number | undefined;
+  /** the zone was started again after a restart (exit state 3): its first fade-in shows the restart fog */
+  restarted = false;
+  /** the SetupFog call in effect now: the play call from the end of the first fade-in on, before it the set-up helper's (or, after a restart, the restart) call */
+  private currentFog() {
+    const r = pickFogCall(this.loaded.profile.zone, this.fog?.fog, { loopMode: this.loopMode, playedYet: this.playedYet, restarted: this.restarted });
+    this.playedYet = r.playedYet;
+    return r.call;
+  }
+  private playedYet = false;
   useFogCall(index: number) {
     const f = this.fog?.fog;
     if (f && f[index] && index > 0) { const [x] = f.splice(index, 1); f.unshift(x); }
@@ -146,32 +207,101 @@ export class GameRenderer {
   private buildViews() {
     const sc = this.scene;
     const seenSpecial = new Set<string>();
-    const mkParts = (m: Model): Part[] => m.parts.filter(Boolean).map((p) => ({ meshPath: sc.meshPaths[p.mesh] ?? null, texList: sc.texLists[p.texList] ?? [], lod: p.lod }));
+    const mkParts = (m: Model, mode = 0): Part[] => m.parts.map((p, slot) => p ? ({ meshPath: sc.meshPaths[p.mesh] ?? null, texList: sc.texLists[p.texList] ?? [], lod: p.lod, slot, mode }) : null).filter((p): p is Part => !!p);
     this.views = [];
     for (const rec of this.loaded.world.records) {
       if (!rec.model) continue;
-      const parts = mkParts(rec.model);
-      if (!parts.length) continue;
-      const attach: Attach[] = [];
-      for (const at of rec.model.attach) if (at) attach.push({ bone: at.bone, slot: at.slot, parts: mkParts(at.child) });
       // SSKY / SSEA are unit shapes re-placed every frame; only the first record of each special name has the behaviour (like the viewer)
       const special = ['SEAB', 'SSEA', 'SEAE', 'SSKY'].includes(rec.name) && !seenSpecial.has(rec.name);
       if (special) seenSpecial.add(rec.name);
       const kind = special && rec.name === 'SSKY' ? 'sky' : special && rec.name === 'SSEA' ? 'sea' : undefined;
-      const mode = !special ? 0 : rec.name === 'SSKY' ? SKY_MODE : rec.name === 'SSEA' ? SEA_MODE : rec.name === 'SEAB' ? SEABED_MODE : SEA_EDGE_MODE;
+      // the modes the behaviours' set-up code gives their records (FUN_00444550(record, 0xff, mode): seabed.c FUN_004266ca / FUN_00426915 / FUN_00426da4, the island's FUN_004b4907 for the foam)
+      const mode0 = !special ? 0 : rec.name === 'SSKY' ? SKY_MODE : rec.name === 'SSEA' ? SEA_MODE : rec.name === 'SEAB' ? SEABED_MODE : SEA_EDGE_MODE;
+      const parts = mkParts(rec.model, mode0);
+      if (!parts.length) continue;
+      const attach: Attach[] = [];
+      for (const at of rec.model.attach) if (at) attach.push({ bone: at.bone, slot: at.slot, parts: mkParts(at.child) });
       const sc3 = Math.max(Math.abs(rec.scale[0]), Math.abs(rec.scale[1]), Math.abs(rec.scale[2]));
-      this.views.push({ rec, parts, attach, kind, mode, dyn: new Map(), radius: 5, scale: sc3, face: rec.model.face });
+      this.views.push({ rec, parts, attach, kind, dyn: new Map(), radius: 5, scale: sc3, face: rec.model.face });
     }
-    // the render modes the zone's set-up code assigns (FUN_00444550(record, partMask, mode), extracted by src/formats/zonesetup.ts): translucent props, holograms, ...
+    // the render modes and the specular switch the zone's set-up code assigns (FUN_00444550(record, partMask, mode), FUN_004446c0(record, 1); extracted by src/formats/zonesetup.ts or
+    // read from the emulated set-up: translucent props, holograms, shiny vehicles ...), then the calls the zone's code made at run time (`setPartMode`, `setShiny`)
     const setup = this.loaded.setup;
     if (setup) {
-      const byIndex = new Map(this.views.map((v) => [v.rec.index, v]));
-      for (const e of activeEntries(setup.modes, (v) => this.loaded.world.vars.get(v))) {
-        const rv = e.record >= 0 ? byIndex.get(e.record) : undefined;
-        if (rv && !rv.kind) rv.mode = e.mode;
+      const vars = (v: number) => this.loaded.world.vars.get(v);
+      for (const e of activeEntries(setup.modes, vars)) if (e.record >= 0) this.applyPartMode(e.record, e.partMask, e.mode, false);
+      for (const e of activeEntries(setup.shiny ?? [], vars)) if (e.record >= 0) this.applyShiny(e.record, e.on, false);
+      // the nodes' constructors ran while the set-up attached them: their calls come after the set-up's own
+      for (const e of activeEntries(setup.ctorModes ?? [], vars)) if (e.record >= 0) this.applyPartMode(e.record, e.partMask, e.mode, false);
+      for (const e of activeEntries(setup.ctorShiny ?? [], vars)) if (e.record >= 0) this.applyShiny(e.record, e.on, false);
+    }
+    for (const c of this.runtimeCalls) { if (c.kind === 'mode') this.applyPartMode(c.record, c.mask, c.mode, false); else this.applyShiny(c.record, c.on, false); }
+  }
+
+  /** the calls of the zone's run-time code to FUN_00444550 / FUN_004446c0, replayed when the views are rebuilt (`refreshViews`) */
+  private runtimeCalls: ({ kind: 'mode'; record: number; mask: number; mode: number } | { kind: 'shiny'; record: number; on: boolean })[] = [];
+  /**
+   * The record views in draw order, with the draw hooks that draw OTHER records inside their own turn (`BehaviourNode.drawSeq`, e.g. the boat's FUN_00430c59: wake WAKR, spray WAKS, the boat,
+   * then the plume WAKP only while fast, each through the default draw with the record's flags | 3 set for the call): those records come at the hook's turn (`forced` = drawn although their own
+   * flags are cleared) and not at their own place in the record order.
+   */
+  private drawOrder(): { rv: RecView; forced: boolean }[] {
+    const w = this.loaded.world;
+    const seqs = new Map<number, { before: GameRecord[]; after: GameRecord[] }>();
+    const claimed = new Set<number>();
+    for (const rv of this.views) {
+      const c = rv.rec.ctrl;
+      if (!c || !c.enabled) continue;
+      for (let i = 0; i < c.nodes.length; i++) {
+        const n = c.nodes[i];
+        if (!c.ran[i] || !n.drawSeq) continue;
+        const q = n.drawSeq(w, rv.rec);
+        if (!q) continue;
+        seqs.set(rv.rec.index, q);
+        for (const r of q.before) claimed.add(r.index);
+        for (const r of q.after) claimed.add(r.index);
       }
     }
+    if (claimed.size === 0) return this.views.map((rv) => ({ rv, forced: false }));
+    const out: { rv: RecView; forced: boolean }[] = [];
+    for (const rv of this.views) {
+      if (claimed.has(rv.rec.index)) continue;
+      const q = seqs.get(rv.rec.index);
+      for (const r of q?.before ?? []) { const v = this.viewOf(r.index); if (v) out.push({ rv: v, forced: true }); }
+      out.push({ rv, forced: false });
+      for (const r of q?.after ?? []) { const v = this.viewOf(r.index); if (v) out.push({ rv: v, forced: true }); }
+    }
+    return out;
   }
+  private viewOf(recordIndex: number): RecView | undefined { return this.views.find((v) => v.rec.index === recordIndex); }
+  private applyPartMode(recordIndex: number, mask: number, mode: number, log: boolean) {
+    const rv = this.viewOf(recordIndex);
+    if (log) this.runtimeCalls.push({ kind: 'mode', record: recordIndex, mask, mode });
+    // the behaviours of the sky / sea plane own their records' modes (their set-up call comes from seabed.c, not the zone's table)
+    if (rv && !rv.kind) for (const p of rv.parts) if (mask & (1 << p.slot)) p.mode = mode;
+  }
+  private applyShiny(recordIndex: number, on: boolean, log: boolean) {
+    const rv = this.viewOf(recordIndex);
+    if (log) this.runtimeCalls.push({ kind: 'shiny', record: recordIndex, on });
+    if (!rv) return;
+    // FUN_004446c0 walks every part of the record's model and every part of its attached models
+    for (const p of rv.parts) this.markShiny(p, on);
+    for (const a of rv.attach) for (const p of a.parts) this.markShiny(p, on);
+  }
+  private markShiny(p: Part, on: boolean) {
+    p.shiny = on;
+    if (p.mesh) this.renderer.setShiny(p.mesh, on);
+  }
+  /**
+   * FUN_00444550(record, partMask, mode): sets the draw mode of the record's model parts whose bit is set in `partMask` (bit i = LOD part i; 0xff = all). Modes: states.ts `modePreset`
+   * (0 lit once, 1 lit at every draw, 2 unlit blended, 3 unlit no depth, 4 lit once no depth, 5, 6 unlit opaque, 7). The call is also made at run time by zone code (boat ripple / wake
+   * `FUN_00444550(rip, 0xff, 2)`, ...): this is the entry point for those.
+   */
+  setPartMode(rec: GameRecord, partMask: number, mode: number) { this.applyPartMode(rec.index, partMask, mode, true); }
+  /** FUN_004446c0(record, on): the record's model (and its attached models) switch to vertex format 0x2c2, the lighting adds a specular term (docs/re/rendering.md 4.2) */
+  setShiny(rec: GameRecord, on = true) { this.applyShiny(rec.index, on, true); }
+  /** the current mode of part `slot` of the record's model (tests, tools); undefined when the record or part does not exist */
+  partModeOf(rec: GameRecord, slot = 0): number | undefined { return this.viewOf(rec.index)?.parts.find((p) => p.slot === slot)?.mode; }
 
   /**
    * FUN_0043e930(model, child, bone, slot) / FUN_0043e970 at run time: the model attached to `slot` of the record's skeleton becomes `child` (null: detached). The zone game does this
@@ -183,8 +313,33 @@ export class GameRenderer {
     const sc = this.scene;
     const i = rv.attach.findIndex((a) => a.slot === slot);
     if (!child) { if (i >= 0) rv.attach.splice(i, 1); return; }
-    const parts: Part[] = child.parts.filter(Boolean).map((p) => ({ meshPath: sc.meshPaths[p.mesh] ?? null, texList: sc.texLists[p.texList] ?? [], lod: p.lod }));
+    const sh = this.shinyModels.has(child);
+    const parts: Part[] = child.parts.map((p, slot): Part | null => p ? ({ meshPath: sc.meshPaths[p.mesh] ?? null, texList: sc.texLists[p.texList] ?? [], lod: p.lod, slot, mode: 0, shiny: sh }) : null).filter((p): p is Part => !!p);
     if (i >= 0) rv.attach[i] = { bone, slot, parts }; else rv.attach.push({ bone, slot, parts });
+  }
+
+  /**
+   * the record's model pointer (record + 4) changed at run time: the views of the record are built from the new model (M5 audit: the front end's Pepper borrows the outfit of
+   * another stage figure, FUN_004721f0 `*(param_1 + 4) = *(record + 4)`); the face object stays the one of the model like in buildViews
+   */
+  setModel(rec: GameRecord, model: Model) {
+    const rv = this.views.find((v) => v.rec === rec);
+    if (!rv) return;
+    const sc = this.scene;
+    const mk = (m: Model): Part[] => { const sh = this.shinyModels.has(m); return m.parts.map((p, slot): Part | null => p ? ({ meshPath: sc.meshPaths[p.mesh] ?? null, texList: sc.texLists[p.texList] ?? [], lod: p.lod, slot, mode: 0, shiny: sh }) : null).filter((p): p is Part => !!p); };
+    rv.parts = mk(model);
+    rv.attach = [];
+    for (const at of model.attach) if (at) rv.attach.push({ bone: at.bone, slot: at.slot, parts: mk(at.child) });
+    rv.face = model.face;
+    rv.localCenter = undefined;
+    rv.bindBones = undefined;
+  }
+
+  /** models FUN_00444600(model, 1) switched to the shiny vertex format (the island's decor entries): their parts are shiny whenever a record shows them */
+  private shinyModels = new Set<Model>();
+  setModelShiny(model: Model) {
+    this.shinyModels.add(model);
+    for (const rv of this.views) if (rv.rec.model === model) for (const p of rv.parts) this.markShiny(p, true);
   }
 
   /** add (du, dv) to the texture coordinates of mesh group `group` of the record's first part (accumulates; the repeating texture wraps) */
@@ -215,6 +370,7 @@ export class GameRenderer {
         return null;
       }
       part.mesh = this.renderer.mesh(this.archive, member);
+      if (part.mesh && part.shiny) this.renderer.setShiny(part.mesh, true);
     }
     return part.mesh;
   }
@@ -263,7 +419,8 @@ export class GameRenderer {
     return d.gpu;
   }
 
-  private texFor(part: Part, g: number): TexGpu | null {
+  private texFor(part: Part, g: number, swap?: readonly number[] | null): TexGpu | null {
+    if (swap && this.swapArchive) { const sid = swap[g]; if (sid !== undefined && sid >= 0) return this.renderer.texture(this.swapArchive, sid, ''); }
     const id = part.texList[g] ?? -1;
     return id < 0 ? null : this.renderer.texture(this.archive, id);
   }
@@ -281,7 +438,7 @@ export class GameRenderer {
 
   /** draw one frame. alpha = interpolation factor between the previous and the current simulation tick */
   render(alpha: number, dt: number) {
-    const { world, pepper } = this.loaded;
+    const { world } = this.loaded;
     const r = this.renderer;
     r.resize();
     r.setMipmaps(false);
@@ -301,10 +458,12 @@ export class GameRenderer {
     let fx = tgt[0] - eye[0], fy = tgt[1] - eye[1], fz = tgt[2] - eye[2];
     const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
 
-    const fog0 = this.fog?.fog[0];
+    const fog0 = this.currentFog();
     const setup: CameraSetup = fog0 ? cameraFromFog(fog0, this.slider, this.fov) : { fov: this.fov, near: 0.5, far: 2000, fog: { enabled: false, color: [0.45, 0.62, 0.85], start: 0, end: 1e6 }, clear: [0.45, 0.62, 0.85] };
     if (this.near !== null) setup.near = this.near;
+    if (this.farHook) setup.far = this.farHook(setup.far);   // Ontwikkelaarshoek: adaptive detail (FUN_00443d10), null = off
     r.fog = setup.fog; r.lights = fog0 ? this.lights : defaultLights();
+    r.eye = [eye[0], eye[1], eye[2]];   // DAT_00986e18..20: the specular lighting of shiny meshes looks from here
     r.cull = 1; r.cwFront = true;
     const aspect = r.aspect;
     const view = lookDirLH(eye, [fx, fy, fz]);
@@ -316,19 +475,44 @@ export class GameRenderer {
     const seaLevel = world.seaLevel;
     const cullFar = setup.far * 1.5;
 
-    for (const rv of this.views) {
+    // the view planes of records whose draw hook calls FUN_00444500 (z10RGB's LAND before the record, z22BIP's SEAB after it); an 'after' plane is drawn at the next record's turn
+    // records without a model have no default draw, but the draw pass still calls their hooks
+    for (const rec of world.records) if (rec.ctrl && !this.viewOf(rec.index)) this.drawHooks(rec, alpha, eye, dt);
+    let planeAfter: number | null = null;   // the level of an 'after' view plane that is still to be drawn
+    const ticks = dt * GAME_TICK;   // the length of this drawn frame in the original's frames (1/30 s)
+    const viewPlane = (level: number) => this.drawViewPlane(eye, tgt, view, setup, aspect, ticks, level);
+    for (const { rv, forced: hooked } of this.drawOrder()) {
+      if (planeAfter !== null) { viewPlane(planeAfter); planeAfter = null; }
+      const vp = this.viewPlanes.get(rv.rec.index);
+      if (vp) { if (vp.after) planeAfter = vp.y; else viewPlane(vp.y); }
       const rec = rv.rec;
-      if ((rec.flags & RF_ENABLED) === 0 || (rec.flags & RF_NO_DRAW) !== 0) continue;
+      // the flowing-water node's draw hook (constructor 0x426f55, z13CAI's LAVA / FALL; FUN_00426e9a): every frame it adds (du, dv) to the texture coordinates of part 0's mesh and draws that
+      // mesh in mode 0 at the record's matrix, without the visibility flags and without LOD selection (per DRAWN FRAME, not scaled by the frame time)
+      const flow = this.flow.get(rec.index);
+      let flowing = false;
+      if (flow && this.loaded.world.vars.gate(flow.var, flow.mask, flow.value)) {
+        flowing = true;
+        const m0 = rv.parts[0] ? this.partMesh(rv.parts[0]) : null;
+        if (m0) for (let g = 0; g < m0.groups.length; g++) this.scrollGroup(rec, g, flow.du * ticks, flow.dv * ticks);
+      }
+      // the node draw pass (FUN_0042271b): the draw hooks of the nodes that ran run whatever the record's own draw flags say (the blob shadow hook FUN_004bd41a draws a hidden record's shadow);
+      // a hook that reports "handled" (non-zero) replaces the record's default draw (FUN_00444480)
+      // the sky dome node of z40OGL (PeppSwit.c STAR, FUN_007e62da): its draw hook scales the record to the far plane, centres it on the camera and draws it with the fog off
+      const dome = rec.ctrl?.nodes.find((n) => n.kind === 'PeppStar') as { place(rec: GameRecord, eye: ArrayLike<number>, far: number, fogOn: boolean): unknown } | undefined;
+      const domeOn = !!dome && world.vars.gate(2, 1, 1);
+      if (domeOn) { dome!.place(rec, eye, setup.far, setup.fog.enabled); rec.prev.set(rec.m); }
+      if (this.drawHooks(rec, alpha, eye, dt)) continue;
+      if (!flowing && (((rec.flags & RF_ENABLED) === 0 && !hooked) || (rec.flags & RF_NO_DRAW) !== 0)) continue;
       const mat = this.interp(rec, alpha);
       const dist = Math.hypot(mat[12] - eye[0], mat[13] - eye[1], mat[14] - eye[2]);
       const first = rv.parts[0] ? this.partMesh(rv.parts[0]) : null;
       if (first && rv.localCenter === undefined) { rv.localCenter = first.center; rv.radius = first.radius; }
       const wc = rv.localCenter ? transformPoint(mat, rv.localCenter) : [mat[12], mat[13], mat[14]];
       const cdist = Math.hypot(wc[0] - eye[0], wc[1] - eye[1], wc[2] - eye[2]);
-      if (!rv.kind && cdist - rv.radius * rv.scale > cullFar) continue;
+      if (!rv.kind && !domeOn && cdist - rv.radius * rv.scale > cullFar) continue;
       // FUN_00443f90: the record flags 0x100 / 0x200 / 0x400 force the part (LOD) 0 / 1 / 2 (Pepper's house shows the gold / silver / bronze trophy this way)
       const forced = rec.flags & 0x700;
-      const pi = forced && rv.parts.length > 1 ? (forced & 0x100 ? 0 : forced & 0x200 ? 1 : Math.min(2, rv.parts.length - 1)) : selectLod(rv.parts, dist, this.fov);
+      const pi = flowing ? 0 : forced && rv.parts.length > 1 ? (forced & 0x100 ? 0 : forced & 0x200 ? 1 : Math.min(2, rv.parts.length - 1)) : ((!rv.kind ? this.lodHook?.(rec, rv.parts, dist, this.fov) : null) ?? selectLod(rv.parts, dist, this.fov));
       let part = rv.parts[pi], m = this.partMesh(part);
       if (!m) { for (const q of rv.parts) { const mm = this.partMesh(q); if (mm) { part = q; m = mm; break; } } }
       if (!m) continue;
@@ -348,12 +532,26 @@ export class GameRenderer {
         drawMesh = live ?? this.bindPose(m, part.meshPath ?? '');
       }
       const uvs = this.uvOffsets.get(rec);
+      const vo = this.vertexOverride?.(rec);
+      if (vo) {
+        let g = this.liveVerts.get(m);
+        if (!g) { g = this.renderer.uploadMesh({ ...m.msh }); this.liveVerts.set(m, g); }
+        this.renderer.updateMeshVertices(g, vo, m.msh.normals as Float32Array);
+        drawMesh = g;
+      }
       const ovr = this.partMatrices?.(rec);
-      const opts: DrawOpts = { mode: rv.mode };
+      // FUN_00444480 -> FUN_004440f0 (records with a skeleton, record + 8): the base mesh is drawn by FUN_0088b87b, which ignores the part's mode: block 3, skinned and lit at every draw
+      // (FUN_0088589e; a mesh without skin data is not lit at all: it keeps the colours its vertex buffer has); every other record goes through FUN_0088aca2 with the part's mode
+      const opts: DrawOpts = rec.anim && !rv.kind ? (m.msh.svwl ? { mode: 1, skinned: true } : { mode: 1, lit: 'never' }) : { mode: part.mode, skinned: !!m.msh.svwl };
+      if (drawMesh !== m && drawMesh.shiny !== m.shiny) r.setShiny(drawMesh, m.shiny);   // posed copies of a shiny mesh are shiny too
       if (uvs) opts.uvOffset = (g) => uvs.get(g);
       if (ovr && ovr.size) opts.groupMatrix = this.groupOverride(drawMesh, ovr);
       if (rv.face && rv.face.slot === -1) this.applyFace(rv, part, rv.parts.indexOf(part), opts);
-      r.drawMesh(drawMesh, world_, (g) => this.texFor(part, g), opts);
+      const swap = this.swapTextures?.(rec, rv.parts.indexOf(part));
+      const fogKeep = r.fog;
+      if (domeOn) r.fog = { ...fogKeep, enabled: false };     // FUN_00442d50(0)
+      r.drawMesh(drawMesh, world_, (g) => this.texFor(part, g, swap), opts);
+      if (domeOn) r.fog = fogKeep;
       if (rv.attach.length && !bones) {
         if (rv.bindBones === undefined) {
           rv.bindBones = null;
@@ -363,40 +561,68 @@ export class GameRenderer {
         }
         bones = rv.bindBones ?? null;
       }
-      const drawAttach = (wm: Float32Array, tint?: [number, number, number, number]) => {
+      const drawAttach = (wm: Float32Array) => {
         if (!bones) return;
         const locals = this.attachLocal.get(rec);
         for (const at of rv.attach) {
-          let cp = at.parts[0];
-          let li = selectLod(at.parts, dist, this.fov);
-          if (!at.parts[li]) li = 0;
-          cp = at.parts[li] ?? cp;
+          // FUN_004440f0: the attached model shows the same LOD index as the base mesh (clamped to its own number of parts)
+          let li = Math.min(rv.parts.indexOf(part), at.parts.length - 1);
+          if (li < 0) li = 0;
+          const cp = at.parts[li] ?? at.parts[0];
           const cm = cp && this.partMesh(cp);
           if (!cm) continue;
           const bm = bones.subarray(at.bone * 16, at.bone * 16 + 16);
           if (bm.length < 16) continue;
           const loc = locals?.get(at.slot);
-          const ao: DrawOpts = tint ? { preset: 13, tint } : {};
+          // attachments are drawn by FUN_0088b4c0 with mode 1: lit at every draw (static variant)
+          const ao: DrawOpts = { mode: 1 };
           if (rv.face && rv.face.slot === at.slot) this.applyFace(rv, cp, li, ao);
           r.drawMesh(cm, mul(loc ? mul(loc, bm) : bm, wm), (g) => this.texFor(cp, g), ao);
         }
       };
       drawAttach(world_);
-      const gh = this.ghosts.get(rec);
-      if (gh) for (const g of gh) {
-        r.drawMesh(drawMesh, g.m, (q) => this.texFor(part, q), { preset: 13, tint: [1, 1, 1, g.alpha] });
-        drawAttach(g.m, [1, 1, 1, g.alpha]);
-      }
-      // FUN_00444940: Pepper always (type from var 0xc5), other records with a controller whose flags have 0x10 / 0x40 within 80 units of the camera (type 4);
-      // the blob sits under bone 0 of the pose (hips) unless SWITCH_GME_PEPP_IN_VEHICLE (var 0xa9) is set or the record has no animation
-      const shadowed = rec === pepper || (!!rec.ctrl && (rec.ctrl.flags & SHADOW_CTRL_FLAGS) !== 0 && (mat[12] - eye[0]) ** 2 + (mat[13] - eye[1]) ** 2 + (mat[14] - eye[2]) ** 2 <= SHADOW_RANGE2);
-      if (shadowed) this.drawShadow(rec.anim && bones && bones.length >= 16 && world.vars.get(VAR_PEPP_IN_VEHICLE) === 0 ? mul(bones.subarray(0, 16), world_) : mat, rec === pepper, rec);
+      // FUN_004440f0 ends with FUN_00444940(record): the blob shadow of records with a skeleton (rec + 8), right after the model and its attachments
+      if (rec.anim && !rv.kind) this.drawBlobShadow(rec, mat, world_, bones, eye, dt);
     }
+    if (planeAfter !== null) viewPlane(planeAfter);
+    for (const d of this.meshDraws?.() ?? []) this.drawLiveMesh(d.rec, d.verts, alpha);
     this.effects?.(r, eye);
-    for (const sh of this.extraShadows) this.drawShadowPoints(sh.pts, sh.type);
+    this.particles?.(r, viewProj);
+    this.debugDraw?.(r, eye, viewProj);
     this.info = { eye, target: tgt, camDist: Math.hypot(tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]), draws: r.stats.draws, triangles: r.stats.triangles };
     r.endFrame();
   }
+
+  /**
+   * The direct draw of a node's draw hook (FUN_0043f180(model, 0, mode) + FUN_0043f160(model, 0, matrix, part) + FUN_0043f1a0 = FUN_00416885(matrix) + FUN_0087d9a7(object, part, mode)):
+   * LOD part 0 of the record's model at the world matrix `m`, without visibility flags, culling or LOD selection. `ghostAlpha` null = draw mode 1 (lit at every draw, the real part);
+   * a number 0..1 = draw mode 7 (state preset 26, no z test) with that alpha (FUN_0043ebe0(model, 3, &alpha, 0)). z36CNT's hook FUN_007b1a1b.
+   */
+  drawPart0(rec: GameRecord, m: Float32Array, ghostAlpha: number | null) {
+    const rv = this.viewOf(rec.index);
+    const part = rv?.parts[0];
+    const pm = part ? this.partMesh(part) : null;
+    if (!rv || !part || !pm) return;
+    const mesh = pm.msh.svwl ? this.bindPose(pm, part.meshPath ?? '') : pm;
+    const o: DrawOpts = ghostAlpha === null ? { mode: 1 } : { preset: GHOST_PRESET, tint: [1, 1, 1, ghostAlpha] };
+    this.renderer.drawMesh(mesh, m, (g) => this.texFor(part, g), o);
+  }
+
+  /** a record's part-0 mesh with the vertices `verts` (3 floats each, world space), drawn at the record's matrix with the part's mode (`meshDraws`) */
+  private drawLiveMesh(rec: GameRecord, verts: Float32Array, alpha: number, noZ = false) {
+    const rv = this.viewOf(rec.index);
+    const part = rv?.parts[0];
+    const m = part ? this.partMesh(part) : null;
+    if (!rv || !part || !m) return;
+    let g = this.liveVerts.get(m);
+    if (!g) { g = this.renderer.uploadMesh({ ...m.msh }); this.liveVerts.set(m, g); }
+    this.renderer.updateMeshVertices(g, verts, m.msh.normals as Float32Array);
+    if (g.shiny !== m.shiny) this.renderer.setShiny(g, m.shiny);
+    this.renderer.drawMesh(g, this.interp(rec, alpha).slice(), (q) => this.texFor(part, q), { mode: part.mode, skinned: false, noZ });
+  }
+
+  /** a draw hook's direct draw of a record with live vertices (FUN_0043ebe0(model, 2, points, 0) + FUN_00444480(rec)), optionally with the z test off (FUN_0040cc4d(0)): z28HAT's balloon shadow */
+  drawRecordLive(rec: GameRecord, verts: Float32Array, noZ: boolean) { this.drawLiveMesh(rec, verts, 1, noZ); }
 
   // ---------------------------------------------------------------- faces, live part matrices, visibility
 
@@ -448,8 +674,8 @@ export class GameRenderer {
 
   // ---------------------------------------------------------------- shadow
 
-  /** a blob shadow of type `type` on the given five points (no ray casts) */
-  private drawShadowPoints(pts: number[], type: number) {
+  /** a blob shadow of type `type` on the given five points (no ray casts); `mode` = the part mode FUN_0043f1a0 draws with (the shadows: 0, Pepper's marker: 2) */
+  drawShadowPoints(pts: ArrayLike<number>, type: number, mode = 2) {
     const sm = this.shadowMesh, sa = this.shadowArchive;
     if (!sm || !sa) return;
     const tex = this.renderer.texture(sa, type, '');
@@ -459,42 +685,105 @@ export class GameRenderer {
     for (let i = 0; i < 5; i++) { this.shadowNrm[i * 3] = 0; this.shadowNrm[i * 3 + 1] = 1; this.shadowNrm[i * 3 + 2] = 0; }
     this.renderer.updateMeshVertices(sm, P, this.shadowNrm);
     const id = new Float32Array(16); id[0] = id[5] = id[10] = id[15] = 1;
-    this.renderer.drawMesh(sm, id, () => tex, { mode: 2 });
+    this.renderer.drawMesh(sm, id, () => tex, { mode });
   }
 
-  /** Pepper's blob shadow (rendering.md section 9, type 4): corners 2 units out at heading +-45 / 135 deg, ray-cast down 2 above, lifted 0.08 */
-  private drawShadow(mat: Float32Array, isPepper = true, self: GameRecord | null = null) {
-    const sm = this.shadowMesh, sa = this.shadowArchive;
-    if (!sm || !sa || (isPepper && this.loaded.world.vars.get(V.PEPPERSSHADOW) === -1)) return;
-    const w = this.loaded.world;
-    const tex = this.renderer.texture(sa, SHADOW_TYPE, '');
-    if (!tex) return;
-    const x = mat[12], y = mat[13], z = mat[14];
-    let fx = mat[8], fz = mat[10];
-    const fl = Math.hypot(fx, fz) || 1; fx /= fl; fz /= fl;
-    const rx = fz, rz = -fx;   // right = (cos h, -sin h) for forward (sin h, cos h)
-    const R = 2, lift = 0.08, k = R / Math.SQRT2;
-    const ground = (px: number, pz: number, base: number): number => {
-      const h = w.col.sweep(self, [px, base + 2, pz], [0, -40, 0], 3, 0.01, 0);   // the original casts against the registered collision list (DAT_009e5714), never the record itself
-      return h ? h.point[1] : -Infinity;
-    };
-    let cy = Math.max(w.seaLevel, ground(x, z, y));
-    if (!Number.isFinite(cy)) cy = y;
-    const P = this.shadowPos;
-    // template vertices: 0 (-1,+1) 1 centre 2 (-1,-1) 3 (+1,-1) 4 (+1,+1) in (right, forward)
-    const local = [[-1, 1], [0, 0], [-1, -1], [1, -1], [1, 1]];
-    for (let i = 0; i < 5; i++) {
-      const [lx, lz] = local[i];
-      const px = x + (rx * lx + fx * lz) * k, pz = z + (rz * lx + fz * lz) * k;
-      let h = i === 1 ? cy : ground(px, pz, y);
-      if (!Number.isFinite(h)) h = cy;
-      h = Math.max(cy - 16, Math.min(cy + 16, h));
-      P[i * 3] = px; P[i * 3 + 1] = h + lift; P[i * 3 + 2] = pz;
+  /**
+   * records whose draw hook draws the view plane (FUN_00444500(y), src/render/viewplane.ts) before or after the record itself: z10RGB's LAND node (constructor 0x5f77ad, y = 0, before) and
+   * z22BIP's SEAB node (0x70fd0b, y = -106, after) found in the zone's attach list; other zones can add theirs with `setViewPlane`
+   */
+  private viewPlanes = new Map<number, { y: number; after: boolean }>();
+  setViewPlane(rec: GameRecord, y: number, after: boolean) { this.viewPlanes.set(rec.index, { y, after }); }
+  private planeBatch: BatchGpu | null = null;
+  /** records with the flowing-water node: texture scroll per drawn frame (u = argument word 1, v = argument word 0) and the node's gate */
+  private flow = new Map<number, { du: number; dv: number; var: number; mask: number; value: number }>();
+  /**
+   * DEBUG OPTION (not in the original): switch on the textured pass of FUN_0087f01e, which the original never runs (DAT_05d5faac is only written by the never-called FUN_0087f854, see
+   * viewplane.ts). `viewPlaneTexture` = the texture number FUN_0087f854's first argument would name (`null` = `VIEWPLANE_TEXTURE_DEFAULT` of the zone: a guess, the code does not say). Only has an
+   * effect in the zones whose draw hook draws a view plane (z10RGB, z22BIP). Default off: the pass stays dead like in the original.
+   */
+  viewPlaneTextured = false;
+  viewPlaneTexture: number | null = null;
+  /** DAT_05d5fad4 / DAT_05d5fad8: the phases of the textured pass (0 at start, + 0.01 per 1/30 s) */
+  private planeT1 = 0;
+  private planeT2 = 0;
+  /**
+   * FUN_0087f01e: the textured pass (only with the debug option, see above) and the coloured polygon of the view plane, with the far plane at 2000 and no depth test. The coloured one only shows
+   * for a camera below y = -200, see viewplane.ts. `ticks` = the length of this drawn frame in 1/30 s: the textured pass' phases grow by 0.01 per drawn frame of the original (30 per second).
+   */
+  private drawViewPlane(eye: ArrayLike<number>, tgt: ArrayLike<number>, view: Float32Array, setup: CameraSetup, aspect: number, ticks: number, level: number) {
+    const r = this.renderer;
+    // widescreen: the original's quad covers a 4:3 view; a wider canvas gets a proportionally wider quad
+    const inp = { eye, fwd: [view[2], view[6], view[10]], up: [0, 1, 0], target: tgt, level, widen: Math.max(1, aspect / (4 / 3)) };
+    const opts = { mvp: mul(view, projection({ ...setup, far: 2000 }, aspect)), specular: false };
+    this.planeBatch ??= r.createBatch(8, 24);
+    if (this.viewPlaneTextured) {
+      const tex = this.viewPlaneTexture ?? VIEWPLANE_TEXTURE_DEFAULT[this.loaded.profile.zone] ?? 0;
+      const tm = viewPlaneTexturedMesh(inp, this.planeT1, this.planeT2);
+      if (tm) r.drawBatch(this.planeBatch, tm.count, tm.indices.length, tm.positions, tm.uvs, tm.colors, null, tm.indices, r.texture(this.archive, tex, 'textures'), VIEWPLANE_TEX_PRESET, opts);
+      this.planeT1 = Math.fround(this.planeT1 + VIEWPLANE_TEX_STEP * ticks); this.planeT2 = Math.fround(this.planeT2 + VIEWPLANE_TEX_STEP * ticks);
     }
-    for (let i = 0; i < 5; i++) { this.shadowNrm[i * 3] = 0; this.shadowNrm[i * 3 + 1] = 1; this.shadowNrm[i * 3 + 2] = 0; }
-    this.renderer.updateMeshVertices(sm, P, this.shadowNrm);
-    const id = new Float32Array(16); id[0] = id[5] = id[10] = id[15] = 1;
-    this.renderer.drawMesh(sm, id, () => tex, { mode: 2 });
+    const mesh = viewPlaneMesh(inp);
+    if (!mesh) return;
+    r.drawBatch(this.planeBatch, mesh.count, mesh.indices.length, mesh.positions, null, mesh.colors, null, mesh.indices, null, 0x1d, opts);
+  }
+
+  /** `_DAT_009e5868`: the tick counter of Pepper's marker (FUN_00444ef0 adds DAT_008b1718 = the frame's length in 1/30 s ticks at every call) */
+  private markerTick = 0;
+
+  /**
+   * FUN_0042271b's hooks for one record (controller.ts `runDrawHooks`): a node whose hook is the blob shadow (FUN_004bd41a = FUN_00444940) draws the shadow and reports what that function
+   * leaves in eax; any other node's `draw` runs as it is. True = the default draw of the record is skipped.
+   */
+  private drawHooks(rec: GameRecord, alpha: number, eye: ArrayLike<number>, dt: number): boolean {
+    const w = this.loaded.world;
+    if (!rec.ctrl) return false;
+    return runDrawHooks(w, rec, (n) => {
+      if (n.blobShadow) { const hm = this.interp(rec, alpha); return this.drawBlobShadow(rec, hm, hm.slice(), null, eye, dt); }
+      return n.draw?.(w, rec, rec.ctrl!);
+    });
+  }
+
+  /**
+   * FUN_00444940(record): the blob shadow of a record (docs/re/rendering.md section 9; geometry in shadow.ts, checked against the original on the emulator). Called by the game's
+   * draw of skeleton records right after the model (here from `render`), and by node draw hooks of records the generic draw does not reach (the island's glider: FUN_004bd41a).
+   *   * only zones that called FUN_00444850 and registered terrain records (FUN_00444ed0) have shadows (`ZoneSetup.shadow`): the rays go against exactly those records;
+   *   * PEPP: type = var 0xc5 (-1 = none) and, while var 0xc6 is set, the flashing marker at bone 10 (FUN_00444ef0); every other record needs a controller whose flags have bit 0x10 or 0x40
+   *     and a squared distance to the camera of at most 6400, and gets type 4;
+   *   * the shadow sits under the hips (bone 0 times the record matrix) of a posed record unless var 0xa9 (PEPP_IN_VEHICLE) is set, else under the record's translation.
+   * `mat` = the record's matrix, `world` = the matrix it is drawn with, `bones` = the pose of this frame (null when the record is not posed), `dt` in seconds.
+   * Returns what the original leaves in eax, which is what a node draw hook made of it reports to the draw pass (checked on the emulator, tools/tests/render-shadow.mjs): 0 when the zone has
+   * no shadow system / no registered terrain or the record's controller lacks flags 0x10 / 0x40, else a non-zero, non-1 value (a stack pointer, -1 or the FPU status word's top bits): "handled".
+   */
+  drawBlobShadow(rec: GameRecord, mat: ArrayLike<number>, world: Float32Array, bones: Float32Array | null, eye: ArrayLike<number>, dt: number): number {
+    const ss = this.loaded.setup?.shadow;
+    if (!ss || !ss.records.length || !this.shadowMesh || !this.shadowArchive) return 0;
+    const w = this.loaded.world;
+    const pepp = rec.name === 'PEPP';
+    let type = 4;
+    if (pepp) {
+      if (w.vars.get(VAR_PEPP_MARKER) !== 0 && bones && bones.length >= 176) {
+        this.markerTick += dt * GAME_TICK;
+        if (markerVisible(this.markerTick)) this.drawShadowPoints(markerPoints(mulGame(bones.subarray(160, 176), world), eye), 7, 2);
+      }
+      type = w.vars.get(V.PEPPERSSHADOW);
+    }
+    const dx = eye[0] - mat[12], dy = eye[1] - mat[13], dz = eye[2] - mat[14];
+    const gate = shadowGate({ terrain: true, pepp, type, hasCtrl: !!rec.ctrl, ctrlFlags: rec.ctrl?.flags ?? 0, dist2: dx * dx + dy * dy + dz * dz });
+    if (!gate.draw) return gate.ret;
+    const src = rec.anim && bones && bones.length >= 16 && w.vars.get(VAR_PEPP_IN_VEHICLE) === 0 ? mulGame(bones.subarray(0, 16), world) : mat;
+    const ray: ShadowRay = (index, o) => {
+      const target = w.records[index];
+      if (!target) return null;
+      const h = w.col.rayRecord(target, o, [0, -SHADOW_RAY_LENGTH, 0], SHADOW_RAY_MASK, SHADOW_RAY_RADIUS, 0);
+      return h ? h.point : null;
+    };
+    // the original's rays also overwrite the "last polygon hit" (DAT_009deb78) the footstep sounds read; the port draws between simulation ticks, so that state is kept
+    const lastHit = w.col.lastHit;
+    const pts = blobShadowPoints({ x: src[12], y: src[13], z: src[14], fx: src[8], fz: src[10], type, seaLevel: w.seaLevel }, ss.records, ray);
+    w.col.lastHit = lastHit;
+    this.drawShadowPoints(pts, type, 0);
+    return SHADOW_HANDLED;
   }
 }
 

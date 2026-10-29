@@ -151,7 +151,8 @@ export default async ({ page, shot, wait, log, key }) => {
   m = await menu();
   if (m.page === 18) {
     await select(3); await press('Enter', 1, 500);
-    if ((await menu()).open) { await press('Enter', 1, 500); }
+    // the pause menu's abort is a list item: the confirm page 20 (Annuleren is the default item, OK = item 2: src/shell/menu.ts case 9)
+    if ((await menu()).open) { await select(2); await press('Enter', 1, 500); }
   }
   await inZone('z03PPH');
   await wait(1500);
@@ -186,6 +187,7 @@ export default async ({ page, shot, wait, log, key }) => {
   await press('Escape', 1, 500);
   expect('page 29 again', (await menu()).page === 29);
   await select(3); await press('Enter', 1, 500);
+  if ((await menu()).page === 20) { await select(2); await press('Enter', 1, 500); }         // (a list item: the confirm page 20 first, OK = item 2)
   await inZone('z02LGI'); await wait(500);
   expect('pause menu item 3 of the room: back to the island', (await page.evaluate(() => __zone.info.archive)) === 'z02LGI');
 

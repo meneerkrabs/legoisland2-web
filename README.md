@@ -3,7 +3,7 @@
 Een web-port van *LEGO Eiland 2: De Wraak van Dondersteen* (LEGO Island 2: The Brickster's Revenge, Silicon Dreams, 2001;
 Nederlandse uitgave 2002), in TypeScript en Vite.
 
-Status: in ontwikkeling. Het startscherm leidt naar de echte spelstroom (films, hoofdmenu, verhaal, opslaan/laden); de meeste zones zijn nog een wandel-stub (zie docs/re/engine-m2.md).
+Status: in ontwikkeling. Het startscherm leidt naar de echte spelstroom (films, hoofdmenu, verhaal, opslaan/laden); 23 van de 30 zones zijn gepoort (de 6 hubs z07CSI, z13CAI, z14OSD, z16PYA, z23DIP, z40OGL nog niet volledig; zie docs/re/gaps.md en docs/re/engine-m2.md).
 
 **Er zitten geen spelbestanden in deze repo.** De app haalt de bestanden uit de ISO op
 [archive.org](https://archive.org/details/legoeiland2dutch) (of uit je eigen ISO of cd) en bewaart ze in de browser.
@@ -37,6 +37,12 @@ De **Mod-catalogus** (in het mods-onderdeel) laat de bekende community-mods met 
 Rock Raiders United. **Geen enkele mod staat in deze repo of op de website**: bij "Toevoegen" haalt je browser de mod rechtstreeks op bij de plek waar de maker hem publiceerde
 (MEGA, Rock Raiders United, GitHub, archive.org; de laatste drie via dezelfde doorgeefserver als de ISO). Niets staat vanzelf aan. "IXS-look" wordt in je browser gemaakt van
 de schijf van LEGO Island Xtreme Stunts op archive.org (alleen de vijf benodigde texturebanken, minder dan een halve MB, worden gelezen).
+
+### Debug-opties (alleen met Debugmenu aan)
+
+Alles wat niet in het origineel zit staat achter de **Debugmenu**-optie van het beginscherm (of `?debug=1` in de URL). Naast het verhaalpuntenmenu en de F9 / F10-hulpjes in de mini-games:
+* **F8** (in de zones met een kijkvlak: z10RGB en z22BIP) of `?debug=1&viewplane` / `?debug=1&viewplane=<n>`: de getextureerde pass van het kijkvlak (`FUN_0087f01e`) die het origineel nooit draait
+  (een oneindige vloer op het niveau van de zone met een langzaam golvende texture, `n` = het texturenummer; zie [docs/re/rendering.md](docs/re/rendering.md) sectie 10). Standaard uit: het spel is dan precies het origineel.
 
 ## Ontwikkelen
 

@@ -73,7 +73,7 @@ by a failing run). The banner uses the medal of this run.
 Slot (0x70 bytes): state (+0), active (+4), type (+8), direction (+0xc), ticks in the air (+0x10), model, matrix (+0x1c), start (+0x5c), spin (+0x68), life (+0x6c). The four template records
 TOP4 / TOP1 / TOP2 / TOP3 hold the models (tomato 4 / pepperoni 8 / cheese 2 / green pepper 1). Per slot with `active`:
 
-* state 1 (in the hand): matrix = (translation (0.094, -0.429, 0.135) x bone 14 of Pepper's rig) x her matrix; the start position follows it.
+* state 1 (in the hand): matrix = (translation (0.094, -0.429, 0.135) x bone 14 of Pepper's rig) x her matrix; the start position follows it. **The bone is the one of the END OF THE PREVIOUS TICK**: `FUN_0043bc58` reads the pose buffer of Pepper's animation instance (created with the buffer flag, `FUN_0043b4e2(rig, 1)`), which only the draw pass (`FUN_004440f0` -> `FUN_0043ba7a`) fills, so the hand lags Pepper's clip by one update (found by the differential test; the port keeps `pepperPose` for it). Papa's own hand is evaluated fresh in his update (`FUN_0043ba7a` with his matrix).
 * state 2 (flying, `FUN_0081543e`): t += 1; z = start z + 0.264 t; progress = t / ((Papa z - start z) / 0.264); x goes from the start to -3 / the start x / +3 (direction), y to 3.04; spin 0.03 per tick;
   the 3D loop sound follows it. At z > -1 the sound stops and the distance d to Papa's hand decides: d < 1.0 lands on the base (layer bit, sound by type, landed list, +250 and `RIGHT_TOP`
   when it is the wanted type else `WRONG_TOP`; after the last topping of the round Papa goes to state 6, Pepper to 1 unless she holds one (it is released), `PIZ_DONE`; splat, mama clap,
@@ -110,15 +110,15 @@ scale and path, the planet and galaxy rotation, CIT4's offset) is done at the en
 
 ## 8. Differences and approximations (nothing is silent)
 
-* **Particles**: the splat particles (`FUN_008153c0`, emitter at Papa + 0x88: `Particle/eatpizza.*` of the zone) are not drawn: there is no particle runtime yet. The splat itself (12 ticks, sounds) is ported.
-* **Material animations**: `FUN_0043f1d0(model, 4, 5, params, flag)` binds the `.man` material animations of the records (`matanim/PLAN_Planet.man` ...): not ported (no runtime for `.man`).
+* **Particles**: nothing to draw. `FUN_008153c0` (the splat) calls `FUN_00442a00` / `FUN_00442a20` on the handle at `Papa + 0x88`; the constructor `FUN_008132e0` never writes that field, the node is allocated from the debug heap (`FUN_00433d38` -> `__nh_malloc_dbg`: 0xCD fill), so the handle is 0xcdcdcdcd, which `FUN_0044ea60` / `FUN_0044ea00` reject (negative as int, bit 12 clear); the zone's set-up creates its engine (`FUN_00442900` at 0x813d38, archive `z41MAP`) but starts no effect (`eatpizza.par` is only in the archive). The splat itself (12 ticks, sounds) is ported. Closed (WP-MINI).
+* **Material animations**: closed (gaps R12): `FUN_0043f1d0` is the face-object set-up, `PLAN_Planet.man` / `GALA_Galaxy.man` are not referenced by the executable; the planets turn through `Planet.c`'s code.
 * **Model-holder records hidden**: TOPD, TOP1..4, TOMA, MEAT, CHEE, GREE, TOPP and PIZ1 are placed at the origin by the scene and the original gives them flags 2; the port hides them (the toppings / base are drawn through the
   helper records). Unverified whether the original shows them there; hiding is the only sane look.
+* **dt**: every animation advance (`FUN_0043b76a` / `0043b874`), the gauge (0.005 * dt), the swing, the idle timer, the walking progress and the flight time scale with `world.dt` since WP-VERIFY (before, the animation advances and the gauge ignored it); the slug / planet / splat spin / citizen fly-away (`+0.024`, `+0.24`, `+0.1` per update) are per update in the original too.
 * **Frame-rate dependent bits** of the original that the port runs per 30 Hz tick: the planet / galaxy rotation (per drawn frame), the pulse phase of the first wanted icon.
-* **Random numbers**: the original calls `FUN_004388ae(x)` = `rand() / 32767 * x` (the first call of a pick uses the milliseconds since the start as `x`, then `ftol(..) & 1` / `% 5`): the port draws `Math.random()` (the tests inject a seeded LCG).
+* **Random numbers**: the original calls `FUN_004388ae(x)` = `rand() / 32767 * x` (the first call of a pick uses the milliseconds since the start as `x`, then `ftol(..) & 1` / `% 5`): the port draws from the C runtime generator (`gameRandom`, `// RNG:` in game.ts; the tests inject a seeded LCG).
 * **Music** starts when the zone starts (`ZONE_MUSIC`), the original starts it when the intro is dismissed (mode 1 -> 9). The 3D flight loop plays through `SoundEngine.play3D` (listener = camera, set every tick).
-* **Out-of-range score aliasing of the original not reproduced**: if a fifth topping of a round landed after the round was complete (two toppings in the air at once: not possible with the normal timing, the flight
-  takes longer than pick + throw), the original writes its type into `papa + 0x9c + 4 * 0xc` = the score field; the port ignores it.
+* **Out-of-range score aliasing of the original (reproduced since WP-VERIFY)**: a fifth topping of a round that lands before the next round starts (rapid fire: two toppings in the air) writes its type to `papa + 0x9c + 4 * 0xc` = the **score** field (+0xcc), clears `+0xd0` (the medal word), compares the type with the bits of the gauge (+0xc8, never equal: WRONG_TOP) and counts as landed (`thrown` 5). The port does the same in `landOnDough` (nodes.ts): score := type, medal := 0. A sixth topping would write beyond the node's 0xd8 bytes (heap): not modelled.
 * The gamepad stick axis (`DAT_0098384c`, +-0x14) next to the direction bits is not read separately (the input mapper already turns the stick into the direction bits).
 * The stub chain of the engine (M1 walk / swim nodes) is removed from Pepper: the zone has its own player node.
 
@@ -131,6 +131,34 @@ scale and path, the planet and galaxy rotation, CIT4's offset) is done at the en
   and LOSS (17 wrong toppings, only the 5 x 250 round points, no trophy, hi-score written), a LOSS with an earlier bronze (result still success), determinism).
 * `node tools/steps/...` (browser, headless and muted): see Shortcuts. Result of the last run: intro and help screens, HUD (rounds, score, icon column, gauge), pause menu -> restart -> a fresh run, WIN with real key
   input (a bot reading `game.debug()`, about two minutes: silver or gold, TROPHY_MAP = medal, HISCORE_MAP = score, banner, result menu page 16, continue -> story node 66 in z40OGL), LOSS (score 1250, no medal, banner text, result menu page 19, abort -> node 64 in z40OGL).
+
+## Differential test (WP-VERIFY)
+
+`node tools/test-formats.mjs --only m7-z41MAP-emu` (about 25 s; `tools/lib/m7-z41MAP-emu.mjs`, `tools/tests/m7-z41MAP-emu.mjs`). The ORIGINAL update functions run in the x86 emulation (`src/formats/x86emu.ts`) next to the port:
+`FUN_00816562` Pepper, `FUN_00812399` Papa, `FUN_00815f30` mama, `FUN_00815576` toppings, `FUN_008140cc` the five citizens, `FUN_00814f6e` slug, the draw hooks that rewrite matrices (`FUN_00812ea5` Papa + the dough / layers draw calls,
+`FUN_0081603e` mama, `FUN_00814964` planet + galaxy, `FUN_00815d2b` the toppings in the air) and the constructors (`FUN_00816ba0`, `008132e0`, `0081611f`, `00815e1a`, `0081529f`, `0081483d`). One engine update pass (records in record order,
+like `FUN_0042226e`) runs on a mirror of the port's records / nodes in emulated memory, **resynchronised from the port before every tick**, then the port ticks from the same state, so every comparison is exactly one step.
+Host stand-ins (implemented from the decompile): animation instances (`FUN_0043b6a3 / 76a / 874 / 72b / 73f` on a shadow state, clip table from the port's rigs), the per-instance pose buffers (`FUN_0043ba7a / bc22 / bc58`; the skeleton chain is the port's `sampleBlk`:
+not the subject; the draw pass of the previous tick fills Pepper's buffer like `FUN_004440f0`), game variables, sound / speech / 3D loop / splat logging, `FUN_004388ae` (the port's seeded generator, state copied) and `FUN_00435c91` (per call site the modulus of the following `& 1 / & 3 / % 3 / % 5`).
+The matrix helpers, the CRT (sin, sqrt, floor, `__ftol`) and the zone code run natively. `DAT_008b1718` / `171c` = dt, 1/dt; `world.dt` = the same.
+
+Compared each tick (tolerance 1e-5 relative to max(1, |value|); integers exact): all 36 record matrices (16 floats), Euler angles and flag words (CIT4's draw offset and the slug's 0.4 scale applied to the original's value), the animation clip / frame of every rig, every node field
+(Pepper, Papa with the hand matrix, mama, all 10 topping slots with matrix / start / spin / life, the 5 citizens, the slug), the zone's globals (flying, hit citizens, queue table, result, planet angle, gauge, HUD icons, near plane, camera eye / target), variables 0x3f / 0xda, the ordered list of 2D sounds, speech lines, 3D flight loop positions, splat positions,
+the number of random draws and the generator state, and every hand-made draw call (dough, layers, toppings in the air) against the port's helper records (`syncClones`). Scenarios (all at dt = 1, the last three also at dt = 0.5): a full winning game (score 7800, gold), a losing game (1250), a game with an earlier trophy (result stays success),
+4 noisy bot games (wrong keys at wrong times: hits on Papa, misses, window hits, cheese at the citizen), 2 pure random-key games, 3 rapid-fire games (two toppings in the air), 6 staged "fifth topping lands after the round" trials, an injection run for the slug / mama states the code never reaches by itself (slug 4 / 5, mama 2 / 3),
+and the constructors' initial state. About 59 million checks, 48 000 ticks (13 000 of them at dt = 0.5). Coverage printed in the test notes: Pepper states 1..6, Papa 1..10, mama 0..3, slug 0 / 2 / 3 / 4 / 5, citizens 0..6, topping slots 0 / 1 / 2 / 3 / 4, every sentence `OGSGMP07..13`, all topping / throw / vocal / bounce / cheer sounds, the citizen bonus (once), hits on Papa, window hits, wrong / right toppings.
+
+Deviations found by it and **fixed in the port** (`src/zones/z41MAP/nodes.ts`):
+1. **In-hand topping: one-tick pose lag** (see section 4): the original reads the bone from Pepper's pose buffer of the previous draw; the port used the current frame. The flight start position (and with it the flight length) differed by one animation step.
+2. **Slug path**: the original keeps every intermediate in float32 and the direction is the difference of two close path points (`FUN_00814bd0`), so the port's double arithmetic differed by up to 3e-4 relative in the matrix; the path angles are float fields too. Replayed step by step (`SlugNode.place`).
+3. **Citizens watching a hit** aimed at slot 2's record with CIT4's draw offset (2 units in z) in its matrix; the original reads the record's own position. Uses the node's logical position now.
+4. **Fifth-topping score aliasing** reproduced (`landOnDough`, see section 8).
+5. **dt**: animation advances (Pepper, Papa, mama, citizens, slug) and the gauge decay ignored `world.dt`; they scale now (the test passes at dt = 0.5; with the gauge reverted to `* 1` it fails at the first tick of the dt = 0.5 game).
+
+Not compared / not modelled (listed so nothing is silent): the particle emitter calls other than the splat start (`FUN_00442a20(.., 1, 1, 1)` stops: the port has no emitter), material animations, the HUD (`FUN_0081167c`) and banner (`FUN_00811790`) code, the zone loop modes, the frustum flag (assumed set for Pepper, whose buffer the topping reads),
+the engine's pose evaluation itself (port's `sampleBlk`), the sound engine, the gamepad: `DAT_0098384c` is zeroed by the pad reader (`FUN_004376f9`, gaps.md) so the zone's stick test (`< -0x14` / `> 0x14`) can never fire outside the direction bits the mapper already derives. Planet / galaxy rotation per drawn frame (not per update) stays as noted in section 8.
+
+**Precision (WP-VERIFY follow-up):** the original runs the x87 in 24-bit precision (control word 0x7f), so every + - * / and sqrt rounds to float32. The harness sets `cpu.cw = 0x7f` (env `M7_CW`), the zone's math (`nodes.ts`, `rules.ts`, `game.ts`) replays it per operation (`mulf` / `addf` / `subf`, `mulA` = `FUN_0043a9e5`, `eulerExact` = `FUN_0043a4a1 / 5e4`, float constants such as 0.12f / 0.264f / 2.1991031f: the step count of a walking citizen used the double 0.12) and **the differential test now compares with tolerance 0** (bit-exact; `M7_TOL` overrides). The `m3` tests stay green.
 
 ## Shortcuts
 

@@ -6,7 +6,7 @@ left through the door, by walking out of it, or through the pause menu "Afbreken
 `HISCORE_xxx`) and starts replays.
 
 Code: `src/zones/z03PPH.ts` (zone game + constructor registration), `src/zones/z03PPH/house.ts` (behaviour nodes, pure), `computer.ts` (the computer menu, pure), `totals.ts`
-(FUN_00423bf0, pure). Tests `tools/tests/m3-z03PPH.mjs` (174 checks), headless bot `tools/steps/m3-z03PPH.mjs`.
+(FUN_00423bf0, pure). Tests `tools/tests/m3-z03PPH.mjs` (172 checks), differential test `tools/tests/m7-z03PPH-emu.mjs`, headless bot `tools/steps/m3-z03PPH.mjs`.
 
 ## 1. Addresses (LE2.EXE, image base 0x400000)
 
@@ -67,12 +67,11 @@ of `Overlays/z03PPH`, drawn in the bottom-left slot of the HUD icon column (20, 
 
 The Pepper start place (-3.75, 0.33, 5.37) with yaw 0 is inside the door's box: the door starts open and Shift leaves at once.
 
-**Which camera is drawn.** `FUN_0053dfa2` (view matrix + frustum) runs between the update pass and the pre-render pass, and the pre-render hook of PeppHse is what sets the camera.
-The matrix of a frame therefore comes from the camera *after the update pass* (the walk node's chase camera, `FUN_0042c227`, starts from the position PeppHse wrote last tick and
-re-targets 4 above Pepper), while the state that persists is the one PeppHse writes. The port keeps both: `HotspotNode.prerender` snapshots the post-update camera as the display camera
-(`HouseState.dispCur / dispPrev`) before it writes the fixed camera; `ZoneGame.beforeRender` swaps the display camera into `world.camera` for the draw and
-`HotspotNode.update` (first node of the next update pass) puts the real one back (`swapInDisplayCamera` / `restoreCamera`). Without this the view would look at Pepper's feet instead of his head.
-UNCERTAIN but derived from the call order of the loop; flipping it only needs `beforeRender` to be removed.
+**Which camera is drawn (settled by the differential test, WP-VERIFY).** The loop sets the device's view from the camera after the update pass (`FUN_0053dfa2` -> `FUN_0043cc5c` = look-at + `SetTransform(VIEW)` via `FUN_00416961`), but then
+the pre-render pass runs the nodes' camera functions, and **each of them calls `FUN_0043cc5c` itself** (PeppHse `FUN_00540733`, PeppComp `FUN_0053ffa1`, the browser `FUN_005419dc`, the map `FUN_00541e71`), which sets the view again; the draw hook of PeppHse (`FUN_005407eb`, record 6) re-applies the camera
+once more in the draw pass. So **every record is drawn with the camera the pre-render pass left** (the real camera state): eye = the eased fixed camera, look-at = **the player's position (his feet)**, up = +y. The old "display camera" of this port (the camera after the update pass, the walk node's
+chase code, 4 above the player) was never what the original draws: it is removed (`swapInDisplayCamera` / `restoreCamera` and `ZoneGame.beforeRender` of the house are gone; the view the earlier port showed looked 4 units higher). Evidence: in 15 000 emulated frames every `FUN_00444480` / part draw of the draw pass has the camera after the pre-render pass active
+(in 11 758 of them the view the loop set after the update pass differs from it). Side facts: PeppHse's update (`FUN_0054042d`) also writes the camera target = the player's position (`FUN_005401e0`) and the node's update return codes are 1 (PeppHse, door, trophies, PeppComp, browser, map) / 3 (ClimLadr).
 
 Door (record 2, hinge (-3.763, 0, 14.598)): state 0 closed -> 1 when the flag is set; 1: angle += 5 per tick (to 90 -> state 2), flag lost -> 3; 3: angle -= 5, 0 -> state 0; the
 record is rebuilt with `FUN_0043a5e4(0, angle * 0.0174532, 0, hinge)` every tick.
@@ -170,13 +169,13 @@ close trophy cameras).
 
 ## 8. Differences, approximations, not done
 
-* ClimLadr: the draw clamp (12.8) is not applied (the port does not run draw hooks; the floor is at y = 0 everywhere, so it never matters); the update returns 2 instead of the original's 3
-  because `controller.ts` stops the chain on 3 (the original continues when there is no exclusive node). `controller.ts` is shared: left as is, note for the coordinator.
-* The stray score line (section 4) and the display camera (section 3) are derived from the code, not from a reference run.
-* Sound-test labels: the original reads them from a message table `_data/sounds/DirectMusic/levels` (not in the install); the port shows the `LEVxxx` text of the menu tables.
-* Frame limiter / fps text of the loop (`%d (%d)`): not ported. Particles / lights: nothing house-specific.
-* Pepper's pose while at the computer is whatever the walk node left (it does not run), the camera is on the screen so it is not visible.
-* Not verified against a real running copy of the game (none available): everything is from the decompile.
+* ClimLadr (**closed, WP-MINI**): the update now returns 3 like `FUN_00542090`, and `updatePass` (`controller.ts`) runs return code 3 and the exclusive node like `FUN_0042226e` (3: the exclusive node's update runs again if one is set, the chain CONTINUES; no exclusive node: "ran, go on"; an exclusive node returning 1 ends the record's pass; the old code stopped the chain after a 3; only the test `engine-framework` and ClimLadr use it).
+  Its **draw hook** `FUN_005420c4` is ported as the node's `draw`: while Pepper walks (var 0x5e bit 0) the original draws the record itself with y clamped to 12.8 (`0x89260c`) and returns 1, otherwise it draws nothing and returns 3: both skip the default draw, so **Pepper is drawn only while walking**, not at the computer, in the trophy browser or at the wall map. The port returns 0 while walking (the default draw does what the hook's `FUN_00444480` does; no other draw hook is on Pepper's chain; the clamp never matters because the ground of the house is y = 0) and 3 otherwise. `m7-z03PPH-emu` checks per tick that the original draws record PEPP iff the port's `runDrawHooks` lets the default draw run (15 000 ticks, all four modes).
+* The stray score line (section 4) is confirmed by the differential test (the original never clears the text slot `DAT_05d4de4c`; slots 1 and 3 are cleared by every browser update); the display camera (section 3) turned out wrong and was removed.
+* Sound-test labels: **settled (WP-MINI)**: `FUN_00540198` (the PeppComp constructor, 0x54014b) loads `_data/sounds/DirectMusic/levels` (`FUN_00439126`, file not in the install) into `DAT_009d9c28`, and the only other reference is its destructor (`FUN_00540198` frees it, asm search of `0x9d9c28`: two references): the table is never read, the labels are the `LEVxxx` texts of the menu tables, as ported.
+* Frame limiter / fps text of the loop (`%d (%d)`, `FUN_0053dfda` at 0x53e079..0x53e425): **closed, dead code**: every 30 frames the loop measures the frame rate with `QueryPerformanceCounter` / `GetTickCount` and `sprintf`s it (format 0x8eb2f8) into a local buffer (`ebp - 0x40`) that nothing reads (a single reference in the whole function); there is no sleep and no display. Nothing to port. Particles / lights: nothing house-specific.
+* Pepper's pose while at the computer: he is not drawn there at all (ClimLadr's hook, above), so the pose is invisible; the display camera question is settled by the differential test (section 'Differential test').
+* Not verified against a real running copy of the game (none available): everything is from the decompile, the nodes now also against the original code run in the emulator (see "Differential test").
 
 ## 9. Tests and how to run
 
@@ -188,9 +187,30 @@ close trophy cameras).
   `node tools/browse.mjs "http://localhost:5499/?zone=z02LGI&node=5&mute=1" tools/steps/m3-z03PPH.mjs --size 1280x800 --out /tmp/m3/z03PPH` (screenshots `house-1 .. house-19`). Pepper is put on the
   hotspots with `page.evaluate`, everything the player does uses keys.
 
+## Differential test (WP-VERIFY)
+
+`node tools/test-formats.mjs --only m7-z03PPH-emu` (about 13 s; `tools/lib/m7-z03PPH-emu.mjs`, `tools/tests/m7-z03PPH-emu.mjs`). One frame of the original loop runs natively in the x86 emulation from the port's state of every tick: the engine's **update pass `FUN_0042226e`** (real node chains with their vtables and gates, return codes 1 / 2 / 3, ran bits),
+the loop's view step `FUN_0053dfa2`, the **pre-render pass `FUN_004225c5`**, the **draw pass `FUN_0042271b`** (node draw hooks, every record / part draw and every `FUN_0043cc5c` view call logged with the view active at that moment). The node code (PeppHse, door, LND1, PeppComp, ClimLadr, trophies, browser, map) and the constructors (into zeroed node memory:
+the constant tables) are the executable's own; hosted from the decompile: variables, sounds (by handle -> sound id), the model getters, the draw call, the view transform (logs the camera block it is given) and the computer's menu step (not the subject: the scenarios let the player leave the computer by script). The walk node SGwalk and the port's M1 StubGuard are not in Pepper's chain (Pepper is placed by script).
+
+Compared each tick (1e-5 relative; integers / strings exact): all 34 records (matrix, Euler, flags: the trophies' forced-part bits and the engine's frustum bit excepted), PeppHse (eased camera position, floor index), door (state, angle), browser (current trophy, focus, state, moved flag), map (focus, state), the globals (door flag, leave, HUD icon, the three HUD text strings: sprintf results of the original
+against the port's message ids / number), the camera after the pre-render pass (eye, target, up), all game variables, the ran bits of every chain, the ordered sounds, and for the 23 trophies the part the original draws (by the variable's value) against the port's forced-part flags. The constructors' tables: the two fixed cameras, the 5 hotspot centres / types / half sizes, the eased start position, the 23 trophy argument words and kinds, the sound handles.
+Scenarios: 6 scripted visits of 2 500 ticks (Pepper placed around the hotspots, anywhere in and outside the house on both floors, at any heading including the +z windows, Shift at random moments, the trophy browser with Left / Right / any button / Space / Alt, the map, the computer, trophy values changing at random, long idle stretches for the camera easing): about 11 million checks, 15 000 ticks, hotspots 0..3 (hotspot 4 is shadowed by 3, as documented), modes 1 / 2 / 4 / 0x20, door states 0..3, 825 leave requests, 33 trophy jingles, 107 140 part draws.
+
+Result: **no deviation in any node, constant table, return code, text slot or camera value** except the findings below.
+* The display camera (section 3) was wrong and is removed (fixed in `house.ts` / `z03PPH.ts`; `tools/tests/m3-z03PPH.mjs` asserts the new behaviour instead of the old one).
+* ClimLadr returns 3 in the original (the port 2): equivalent in the house, see section 8. PeppHse and the door return 1 in the original (the port returned 2; changed to 1: no effect, each is alone in its chain).
+* Not covered: the computer menu (`FUN_0053fbc0`, `ComputerMenu`), the zone loop's modes / exit block, the walk node, the HUD drawing, the particle / sound engine, the rendering of the trophy parts themselves.
+
+**Precision (WP-VERIFY follow-up):** the harness runs the x87 in 24-bit precision (`cpu.cw = 0x7f`); the house constants are the executable's float values, the easing (`easeToward`: normalised delta * dist * factor), door matrix, hotspot scan and cameras replay float32 per operation (`src/zones/f32math.ts`): the differential test compares with **tolerance 0** (bit-exact).
+
 ## Shortcuts
 
 * `?zone=z03PPH&mute=1` starts the room directly (story node 69, trophies all empty); `?zone=z02LGI&node=5` then pause -> "Huis van Pepper" (needs node >= 4) is the normal way in.
 * `window.__zone.game.debug()` in the page: `{ mode (var 0x5e), icon, hotspot, doorOpen, trophy, lines, computer: { active, page, item, scroll, last }, movie }`; `__zone.sh.vars.set(0x40, 3)` raises TROPHY_WAB.
 * F9 in the house: leave through the door (dev shortcut).
 * `computeIslandTotals(vars)` (`src/zones/z03PPH/totals.ts`) for the hubs; `GameRenderer.useFogCall(i)`; `ZoneGame.leaveRequest()` / `exitNext()` / `blockPause()`.
+
+## WP-PART-WIRE (2026-10-29): particles
+
+The original's code does start effects here (`FUN_005357cb`: `notes01.par`, `FUN_00536e16`: `music01.par`, `FUN_0053284a` / `FUN_0053287f`: `Explode01.par` / `swirl01.swl`, `FUN_005352f6` / `0053532e`: `TWINKLE01.par` / `TWINKLE02.par`, `FUN_0053d915`: `trainsmoke01.par`: the island's era code that this region carries as copies), but the zone's engine is `FUN_00442900("z03pph")` (0x53fb36) and `_data/z03PPH/Particle/` holds only `text.opt` + `Text000.tga`: no effect record exists, every start returns the invalid handle and every gate / matrix / parameter call on it is ignored. Nothing is drawn in the original either (z03PPH does not use the `GENERICBITS` fallback of the hubs). The port starts nothing. Closed.

@@ -1,4 +1,5 @@
 // The EXE's audio tables (sound ids, speech ids, music keys, MIDI ambience), read from the original EXE bytes.
+import { restoreHooks } from '../restore/flag.ts';
 import { readExeSoundTable, readExeSpeechTable, readExeMusicTable, readExeAmbienceTable } from '../formats/sound.ts';
 import type { SoundTableEntry, MusicTableEntry, AmbienceTableEntry } from '../formats/sound.ts';
 
@@ -22,6 +23,8 @@ export function readAudioTables(exe: Uint8Array): AudioTables {
   const speech = readExeSpeechTable(exe);
   const soundByName = new Map<string, number>();
   for (const s of sounds) if (s.name) soundByName.set(s.name.toLowerCase(), s.id);
+  restoreHooks.soundPatch?.(sounds);        // restored content (option off: unset)
+  restoreHooks.extraSpeech?.(speech);
   const speechIndex = new Map<string, number>();
   speech.forEach((id, i) => { const k = id.toUpperCase(); if (!speechIndex.has(k)) speechIndex.set(k, i); });
   return { sounds, speech, music: readExeMusicTable(exe), ambience: readExeAmbienceTable(exe), soundByName, speechIndex };

@@ -15,10 +15,13 @@ import { V } from '../game/vars.ts';
 import { buildMatrix } from '../formats/matrix.ts';
 import type { Ui2D } from '../ui/renderer2d.ts';
 import type { GameAudio } from '../audio/index.ts';
-import { CentrifugeSim, REC, REC_NAMES, SND, MEDAL_SILVER, MEDAL_GOLD, readFrameTable, TWO_PI, HALF_PI, PI } from './z36cnt/sim.ts';
+import { CentrifugeSim, REC, REC_NAMES, SND, MEDAL_SILVER, MEDAL_GOLD, readFrameTable, TWO_PI, PI } from './z36cnt/sim.ts';
 import type { CntHost } from './z36cnt/sim.ts';
-import { layoutFrom, poseAt, ghostCount, ghostStep, ghostAlpha, armShadows, SHADOW_TYPE } from './z36cnt/pose.ts';
+import { layoutFrom, blurCopies, armShadows, SHADOW_TYPE } from './z36cnt/pose.ts';
+import type { BlurCopy } from './z36cnt/pose.ts';
+import { euler24 } from './common/x87.ts';
 import { f32 } from './z36cnt/util.ts';
+import { gameRandom } from './common/tickrand.ts';
 
 /** constructors the zone's set-up attaches (FUN_007afbc0): the machine on TRAI (record 18), Bob on TBOB (record 0) */
 export const CTOR_TRAI = 0x7b20a8, CTOR_TBOB = 0x7b2836;
@@ -41,6 +44,8 @@ export class CntNode implements BehaviourNode {
   run: ((w: World, pressed: number) => void) | null = null;
   constructor(kind: string) { this.kind = kind; }
   update(w: World): number { this.run?.(w, w.input.pressed); return NODE_CONTINUE; }
+  /** the TRAI node's draw hook (FUN_007b1a1b), bound by the zone game */
+  draw: ((w: World, rec: GameRecord, ctrl: unknown) => number) | undefined = undefined;
   destroy() { this.onDestroy?.(); }
   onDestroy: (() => void) | null = null;
 }
@@ -89,9 +94,8 @@ registerZoneGame('z36CNT', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   c[6] = 0; c[7] = 1; c[8] = 0;
   cam.updateView(); cam.savePrev();
 
-  // FUN_007afbc0 hides TRAI / CHAI / WEIG (flags = 0): the hook FUN_007b1a1b draws them itself with its own matrices. The port draws them as ordinary records
-  // (placed by `placeParts`), which is the hook's j = 0 copy
-  for (const i of [REC.CHAI, REC.WEIG, REC.TRAI]) recs[i].flags |= RF_ENABLED;
+  // FUN_007afbc0 hides TRAI / CHAI / WEIG (flags = 0): the draw hook FUN_007b1a1b draws them itself (every copy and the real parts, `traiNode.draw` below); they stay disabled
+  for (const i of [REC.CHAI, REC.WEIG, REC.TRAI]) recs[i].flags &= ~RF_ENABLED;
 
   const layout = layoutFrom([trai.x, trai.y, trai.z], [recs[REC.CHAI].x, recs[REC.CHAI].y, recs[REC.CHAI].z], [recs[REC.WEIG].x, recs[REC.WEIG].y, recs[REC.WEIG].z]);
   const snd = new CntSound(sh.audio.ga);
@@ -107,8 +111,8 @@ registerZoneGame('z36CNT', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
     play: (id) => snd.play(id), stop: (id) => snd.stop(id), rate: (id, hz) => snd.rate(id, hz),
     say: (id) => { ctx.say(id); },
     getVar: (i) => world.vars.get(i), setVar: (i, v) => world.vars.set(i, v),
-    rand: () => Math.random(),
-    visor: (a) => { visorMatrix.set(buildMatrix(a, 0, 0, VISOR_POS[0], VISOR_POS[1], VISOR_POS[2])); },
+    rand: () => gameRandom(),     // RNG: the C runtime generator (src/zones/common/tickrand.ts)
+    visor: (a) => { visorMatrix.set(euler24(a, 0, 0, VISOR_POS[0], VISOR_POS[1], VISOR_POS[2])); },   // FUN_0043a5e4 (24-bit x87)
   };
   const sim = new CentrifugeSim(host, readFrameTable((va) => sh.pe.u32(va)));
 
@@ -126,32 +130,37 @@ registerZoneGame('z36CNT', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   const monitorTex = ctx.scene.texLists[floor.model?.parts[0]?.texList ?? -1]?.[MONITOR_LIST_INDEX] ?? -1;
   const setMonitor = (frame: number) => { if (monitorTex >= 0) gr.renderer.setTextureFrame(ctx.archive, monitorTex, 2, frame); };
 
-  /** the records of the machine at the arm angle between the last two ticks (FUN_007b1a1b), with the motion blur copies */
+  /**
+   * the machine at the arm angle between the last two ticks: the loop of FUN_007b1a1b (`blurCopies`, 24-bit x87) leaves the real copy's matrices in the records and the copies for the draw
+   * hook below. The original draws once per update; the port interpolates the angle / power by the render fraction (display only, at alpha 1 the numbers are the original's).
+   */
+  let copies: BlurCopy[] = [];
   function placeParts(alpha: number) {
     let da = sim.angle - prevAngle;
     if (da < -PI) da += TWO_PI; else if (da > PI) da -= TWO_PI;
     const angle = prevAngle + da * alpha;
     const power = prevPower + (sim.power - prevPower) * alpha;
-    const tilt = power * HALF_PI;
     const set = (r: GameRecord, m: Float32Array) => { r.m.set(m); r.prev.set(m); };
-    const p = poseAt(layout, angle, tilt);
-    set(recs[REC.TRAI], p.arm); set(recs[REC.WEIG], p.weight); set(recs[REC.CHAI], p.chair); set(pepper, p.pepper);
-    gr.extraShadows = armShadows(p.arm).map((pts) => ({ type: SHADOW_TYPE, pts }));
-    gr.ghosts.clear();
-    const n = ghostCount(power, world.camera.vehicle);
-    if (n > 1) {
-      const step = ghostStep(power);
-      const lists = new Map<GameRecord, { m: Float32Array; alpha: number }[]>();
-      for (const r of [recs[REC.TRAI], recs[REC.WEIG], recs[REC.CHAI], pepper]) lists.set(r, []);
-      for (let j = n - 1; j >= 1; j--) {
-        const q = poseAt(layout, angle, tilt, j * step);
-        const a = ghostAlpha(j, n) / 255;
-        lists.get(recs[REC.TRAI])!.push({ m: q.arm, alpha: a }); lists.get(recs[REC.WEIG])!.push({ m: q.weight, alpha: a });
-        lists.get(recs[REC.CHAI])!.push({ m: q.chair, alpha: a }); lists.get(pepper)!.push({ m: q.pepper, alpha: a });
-      }
-      for (const [r, l] of lists) gr.ghosts.set(r, l);
-    }
+    // FUN_007b0c6e's last matrix call: TRAI = FUN_0043a5e4(0, -angle, 0, position)
+    const base = euler24(0, -angle, 0, layout.arm[0], layout.arm[1], layout.arm[2]);
+    set(recs[REC.TRAI], base);
+    copies = blurCopies(layout, base, power, world.camera.vehicle);
+    const real = copies[copies.length - 1];
+    set(recs[REC.WEIG], real.weight); set(recs[REC.CHAI], real.chair); set(pepper, real.pepper);
   }
+  // the hook draws TRAI / CHAI / WEIG for every copy (the arm, the chair, the weight, in this order), the real copy last, then the two shadows of the arm (FUN_0087dd20(shadow, 2, 5 points),
+  // FUN_0043f1a0 with mode 0); Pepper is NOT drawn by it (only his alpha is set): he is drawn as an ordinary record after TRAI
+  const drawHook = () => {
+    for (const c of copies) {
+      const ghost = c.alpha === 255 ? null : c.alpha / 255;
+      gr.drawPart0(recs[REC.TRAI], c.arm, ghost);
+      gr.drawPart0(recs[REC.CHAI], c.chair, ghost);
+      gr.drawPart0(recs[REC.WEIG], c.weight, ghost);
+    }
+    for (const pts of armShadows(copies[copies.length - 1].arm)) gr.drawShadowPoints(pts, SHADOW_TYPE, 0);
+    return 0;
+  };
+  if (traiNode) traiNode.draw = () => drawHook();
   placeParts(1);
 
   const hudOn = (on: boolean) => { hud.visible = on; };
@@ -203,7 +212,7 @@ registerZoneGame('z36CNT', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
       sim.destroy();
       snd.stop(SND.KLAXON);
       world.vars.set(V.PEPPERSSHADOW, shadowVar);
-      gr.attachLocal.clear(); gr.ghosts.clear(); gr.extraShadows = [];
+      gr.attachLocal.clear();
       hud.gauge = null; hud.visible = true;
     },
     debug() {

@@ -8,7 +8,7 @@ Bot `tools/steps/m4-era3.mjs` (real key input; long walks are teleports), node t
     FROM=end (node=68): the end of the game; FROM=abort (zone=z36CNT&node=59): Afbreken in z36CNT and z38PAR; STOP=<phase> ends early.
 
 Runs seen passing (2026-10-29, screenshots looked at): 52 -> 67 in one run (intro, pages, Space Port, radio, heads, police, tower, z36CNT, z38PAR, era 4
-arrival, LGI13 countdown, z39ASB, z40aPO, z40OGL, z41MAP); z40OGL 66 -> z42BRP (then a stub) -> outro movie -> credits -> node 68; FROM=end; FROM=abort.
+arrival, LGI13 countdown, z39ASB, z40aPO, z40OGL, z41MAP); z40OGL 66 -> z42BRP (then a stub) -> outro movie -> node 68 (no credits, corrected by WP-VERIFY); FROM=end; FROM=abort.
 z42BRP became a real zone (M6) during this WP: the bot stops at node 67 there (its in-page bot is too slow headless; `BRP=1` tries it,
 `tools/steps/m6-z42BRP.mjs` plays it to the outro, the credits and node 68). z38PAR: the pilot sometimes loses the first flight after z36CNT in the same
 page (score 0) and wins the retry; the bot retries from the result menu and flies at 640x480.
@@ -44,7 +44,7 @@ launch); the era-0 PHSE (node 4) / PIZB (nodes 2, 5) blocks are attached but the
 | 63 z40aPO | | tools/lib/apo-bot.mjs | ok |
 | 64 / 66 z40OGL | stub | F9 | ok |
 | 65 z41MAP | | tools/lib/z41map-bot.mjs (~2 min) | ok |
-| 67 z42BRP | stub (ported by M6 meanwhile) | stub: F9 -> banner -> result menu -> **outro movie** (skipped with Space) -> credits (Enter) -> island node 68; ported: see above | ok |
+| 67 z42BRP | stub (ported by M6 meanwhile) | stub: F9 -> banner -> result menu -> **outro movie** (skipped with Space) -> island node 68 (credits removed, WP-VERIFY); ported: see above | ok |
 | 68 `NS_OFF == 1` | band < 0x45: objective PATH 0x1a5 then -1 (the second call wins: nearest talk NPC), texts lifsm15, no hologram texts, record 68 hidden | never completes: free roam, era 4 roster (the era-0 talk NPCs with reward var 0xb0 / op 3), HUD = only the score; arrival at the skate park (PREV_SUBGAME = z42BRP: default case) | ok |
 
 Mini-game aborts (`FROM=abort`): Afbreken in the pause menu (page 18) of z36CNT / z38PAR rewinds the story to node 58 (FUN_00404b43) and the island puts

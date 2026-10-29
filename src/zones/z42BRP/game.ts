@@ -13,6 +13,7 @@ import {
   VAR, SOUNDS_2D, SOUNDS_3D, scoreOf, medalOf, writeResult, clockText, RESULT_LINES, readAnimDictionary, readSwitchDictionary,
 } from './rules.ts';
 import './nodes.ts';
+import { NO_HANDLE, ZoneParticles } from '../../fx/particles/zone.ts';
 
 /** the end cutscene: FUN_00820f12 `FUN_0045c310(1)`, `FUN_0045c366("z42brp", "og")`, `FUN_0045c397(0, "BRP01", "ogl02")` (script BRP01 of this archive, texts ogl02.str) */
 export const CUTSCENE = { slot: 0, zone: 'z42BRP', script: 'BRP01', strings: 'ogl02', area: 'og' } as const;
@@ -67,6 +68,16 @@ registerZoneGame('z42BRP', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   };
   S.env = env;
 
+  // ---- particles (FUN_0082714a, Brickster's constructor): smoke2, flame1, flame1 on the static matrix DAT_05d5f608 (`S.bossFxM`) at (0, 0.3, 0.2), no rotation, gate off; the Brickster
+  // and roof nodes switch them (`S.bossFx`) and refresh the matrix from bone 10 (nodes.ts). The ctor's identity store precedes the starts.
+  const fx = await ZoneParticles.create(ctx);
+  if (fx) {
+    const up = Math.fround(0.3), fwd = Math.fround(0.2);       // 0x3e99999a, 0x3e4ccccd
+    const hs = ['smoke2.par', 'flame1.par', 'flame1.par'].map((n) => fx.start(n, S.bossFxM, [0, up, fwd], [0, 0, 0]));
+    fx.finish();
+    S.bossFx = (on) => on.forEach((v, k) => { if (hs[k] !== NO_HANDLE) { if (v) fx.on(hs[k]); else fx.off(hs[k]); } });
+  }
+
   const loop = new ZoneLoop();
   let resultWritten = false;
   const sync = () => {
@@ -82,9 +93,8 @@ registerZoneGame('z42BRP', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
     introLines: [{ id: 'OGSGBP34', y: 100, wrap: 0x20 }],
     helpControls: 0,
     /** FUN_0045c402 first (the cutscene's frame), then the nodes (world.tick) */
-    beforeTick() { ctx.cutscene.tick(); },
+    beforeTick() { ctx.cutscene.tick(); sync(); },
     update() {
-      sync();
       return loop.update(w, S, ctx.cutscene.active()) || undefined;
     },
     wantsHelp2() { return loop.takeHelp2(); },

@@ -98,7 +98,8 @@ export class PepperNode implements BehaviourNode {
       let best: GameRecord | null = null, bestKind = 0, bestD = K.HIT_RADIUS;
       const test = (r: GameRecord, kind: number, needStanding: boolean) => {
         if (needStanding && !(shown(r) && r.anim?.clip === CLIP.M_STAND)) return;
-        const d = Math.hypot(r.x - x, r.y - y, r.z - z);
+        const ex = F(r.x - x), ey = F(r.y - y), ez = F(r.z - z);
+        const d = F(Math.sqrt(ez * ez + ey * ey + ex * ex));
         if (d < bestD) { best = r; bestKind = kind; bestD = d; }
       };
       test(rs[REC.GUARD[0]], 1, false); test(rs[REC.GUARD[1]], 2, false); test(rs[REC.GUARD[2]], 3, false);
@@ -106,7 +107,7 @@ export class PepperNode implements BehaviourNode {
       for (let n = 3; n <= 10; n++) test(rs[REC.MUMMY_OF[n]], n + 1, true);   // 0x3330 .. 0x3608 (kinds 4..11)
       for (let n = 0; n <= 2; n++) test(rs[REC.MUMMY_OF[n]], n + 12, true);   // 0x3670 .. 0x3740 (kinds 12..14)
       if (best) {
-        const r3 = sh.rng.int(3);
+        const r3 = sh.rng.int(3);      // RNG: the original draws ftol(FUN_004388ae(GetTickCount())) % 3 (wall clock)
         snd.play2D(SND.SQUEAL[r3]);
         const b = best as GameRecord;
         if (bestKind >= 1 && bestKind <= 3) snd.play3D(`groan${bestKind}`, SND.GROAN[bestKind - 1], { x: b.x, y: b.y, z: b.z });
@@ -130,12 +131,12 @@ export class PepperNode implements BehaviourNode {
     // ---- the state machine
     const approach = (sym: GameRecord, cs: GameRecord, ahead: number, stopDist: number): boolean => {
       // FUN_006a4fd0 states 1 / 3 / 5: walk to a point `ahead` along the case's forward axis, facing the symbol; true when there
-      const dx = sym.x - x, dz = sym.z - z;
+      const dx = F(sym.x - x), dz = F(sym.z - z);
       const d = normalise([dx, 0, dz]); dirx = d[0]; diry = 0; dirz = d[2];
-      const tx = sym.x + cs.m[8] * ahead, tz = sym.z + cs.m[10] * ahead;
-      const mvx = tx - x, mvz = tz - z;
-      const dist = Math.hypot(mvx, mvz);
-      const dot = fwd[2] * d[2] + fwd[0] * d[0];       // (the dot product is with the NORMALISED direction to the symbol)
+      const tx = F(cs.m[8] * ahead + sym.x), tz = F(cs.m[10] * ahead + sym.z);          // float32 locals (the sums of large coordinates: the rounding is visible in the direction)
+      const mvx = F(tx - x), mvz = F(tz - z);
+      const dist = F(Math.sqrt(mvz * mvz + mvx * mvx));
+      const dot = F(fwd[2] * d[2] + fwd[0] * d[0]);       // (the dot product is with the NORMALISED direction to the symbol)
       if (stopDist <= dist || dot <= K.FACING) {
         const u = normalise([mvx, 0, mvz]);
         this.vx = F(u[0] * K.WALK_SPEED); this.vz = F(u[2] * K.WALK_SPEED);
@@ -160,11 +161,11 @@ export class PepperNode implements BehaviourNode {
       case PS.TO_PEDESTAL: {
         const st = rs[REC.STAND];
         vars.or(VAR.MATCHED, BIT.CHASE);
-        const dx = st.x - x, dz = st.z - z;
+        const dx = F(st.x - x), dz = F(st.z - z);
         const d = normalise([dx, 0, dz]); dirx = d[0]; diry = 0; dirz = d[2];
-        const mvx = st.x - x, mvz = (st.z - 8) - z;
-        const dist = Math.hypot(mvx, mvz);
-        const dot = fwd[2] * d[2] + fwd[0] * d[0];
+        const mvx = F(st.x - x), mvz = F(F(st.z - 8) - z);
+        const dist = F(Math.sqrt(mvz * mvz + mvx * mvx));
+        const dot = F(fwd[2] * d[2] + fwd[0] * d[0]);
         if (K.ARRIVE <= dist || dot <= K.FACING) {
           const u = normalise([mvx, 0, mvz]);
           this.vx = F(u[0] * K.WALK_SPEED); this.vz = F(u[2] * K.WALK_SPEED);
@@ -344,7 +345,7 @@ export class PepperNode implements BehaviourNode {
     }
     if ((flags & 4) !== 0 && rate > 0) {
       sh.stepWrap = anim.advance(rate, dt) !== 0;
-      this.footsteps(rec, z);
+      this.footsteps(rec, rec.z);       // (FUN_006a7f37 reads the RECORD's z (DAT_00983804 + 0x316c), which the update only writes at its end: the position of the tick before)
     }
     rec.setEuler(0, rec.ry, 0, x, y, z);
     if (teleported) rec.savePrev();       // (port) a jump, not a move: no render interpolation across it

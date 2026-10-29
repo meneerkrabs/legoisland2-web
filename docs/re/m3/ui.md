@@ -45,7 +45,7 @@ The default banner of the runner (zones without `drawBanner`) is now the panel w
 `drawHelp(ui, set, strings, n, opts?)` keeps the M3 coordinator's signature; `opts` = `{ set?, press?, title?, keyName?(bit), menuText?(id) }` (the runner passes
 `ctx.panelEnv()`: menu set, `!PRESS`, `!FECONTRL`, the live key bindings (`sh.input.bindings`), FRONTEND.str). Note the first argument is now the **menu** set
 (`sh.menuSet`), not the zone overlay set. A zone with a second help (z42BRP, loop mode 10, `FUN_00461155(BRP2 table, 5)`) calls `ctx.help(ui, 5, brp2Table)` itself;
-`loopmachine.ts` has the constant `MODE.HELP2` but no transition into it, and `ctx.strings` of z42BRP is the merged `brp.str + brp2.str` (duplicate `CONTROLn` ids), so the BRP port
+`loopmachine.ts` has the transition into `MODE.HELP2` since M6 (`help2` input), and `ctx.strings` of z42BRP is the merged `brp.str + brp2.str` (duplicate `CONTROLn` ids), so the BRP port
 needs a separate table for the second help (BRP2.str CONTROL0..4).
 
 ## 3. Subtitles
@@ -113,14 +113,13 @@ alone is drawn at y 120 unless the table knows the id).
 
 ## 6. Known differences / open points
 
-* Mini-game subtitles are an extension (see 3). The panel text y offsets use the start-up values (-4 / +14); the original's pause menu rewrites `DAT_008a991c` / `8a9918`, so after
-  a pause the next help / banner would sit 2 px lower / 4 px lower in the original (not reproduced).
-* `ui.measure` of the title uses the big font; the original `FUN_0043a05b(text, title font)`.
-* Mouse / joystick bindings are not rebindable in the port (keyboard only), so the `+ 1` quirk for their names is not reproduced.
-* The key list of the options menu (`menuui.ts`, M2) shows the raw EXE names (`UP`, `LCTRL`); the help shows them localised through FRONTEND.str as `FUN_00461175` does. The original
-  key list probably localises too (not verified).
+* Mini-game subtitles are an extension (see 3). The panel text y offsets are the executable's GLOBALS `DAT_008a991c` / `8a9918` (`src/shell/uioffsets.ts`): -4 / +14 only until the first `FUN_004201aa`
+  (the front end's stage set-up, the pause trigger and every zone loop call it through `FUN_0041c080`), 0x12 / -2 afterwards, for every menu and panel (gaps.md U4; `m8-shell-ui` checks the panel and help code against the original for both).
+* `ui.measure` of the title uses the big font, like the original (`FUN_0043a05b(text, ctx + 0x68)`, the font the title is drawn with: gaps.md U5).
+* Mouse buttons 2..7 are bindable (as in the original; joystick buttons are not, the original's capture does not scan them) and the `+ 1` quirk of their help names is reproduced (`MOUSE2` -> `OUSE2`), docs/re/input.md.
+* The key list of the options menu localises the key names exactly like the help (`!UP` through the menu text table: OMHOOG, SPATIE ...) and the layout dependent names (FUN_00438212), docs/re/input.md.
 * The 6 tick start delay of `FUN_00435a5e` and its quirky `speechIdle` (idle during the delay) are not reproduced; `speechIdle` follows the real audio.
-* `loopmachine.ts` has no mode 10 (second help of z42BRP).
+* `loopmachine.ts` has mode 10 (`MODE.HELP2`, entered through `inp.help2` = `game.wantsHelp2()` in `playzone.ts`; corrected by WP-VERIFY, the former "no mode 10" note predates M6).
 
 ## Shortcuts
-`?zone=<archive>&mute=1` with a zone that has no port shows its real intro and help (`z08BKD`, `z41MAP`, ...); F9 / F10 (stub aids) finish / fail it to see the banner.
+`?zone=<archive>&mute=1` with a zone that has no port shows its real intro and help (`z08BKD`, `z41MAP`, ...); with `&debug=1` F9 / F10 (stub aids) finish / fail it to see the banner (without the debug option F10 is the screenshot key).

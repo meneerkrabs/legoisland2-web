@@ -12,6 +12,8 @@ import { audio } from '../engine/audio.ts';
 import { canvasBox, currentDisplayMode, storeDisplayMode } from '../display.ts';
 import type { DisplayMode } from '../display.ts';
 import { playMovie } from '../engine/movie.ts';
+import { installCheats, VAR_SDREAMS } from './cheats.ts';
+import { installScreenshot } from './screenshot.ts';
 import { GameVars, V } from '../game/vars.ts';
 import { InputMapper, readKeyTable } from '../game/input.ts';
 import { Ui2D } from '../ui/renderer2d.ts';
@@ -26,10 +28,11 @@ import { IdbBackend, SaveStore } from './savestore.ts';
 import type { SaveHeader, SaveGame, EntityRecord } from './save.ts';
 import { decodeSave, readSaveHeader, slotFileName, newSaveFromGame, applySaveVars, SAVE_SIZE, encodeSave } from './save.ts';
 import { AudioHost } from './audiohost.ts';
+import { stopLoading } from './loading.ts';
 import { MenuUi, MR } from './menuui.ts';
 import type { MenuContext } from './menuui.ts';
 import { readRowTables } from './menudraw.ts';
-import { codeToDik, readKeyNames } from './dik.ts';
+import { localiseKeyNames, readKeyNames } from './dik.ts';
 import type { PointerState } from './menu.ts';
 
 export type ZoneRunner = (shell: Shell, zone: ZoneInfo) => Promise<number>;
@@ -97,8 +100,6 @@ export class Shell {
   quit = false;
   /** "Beeld": 4:3 (original) or widescreen (src/display.ts): the canvas fills the window, the 3D scene uses its aspect, the 2D layer stays a 4:3 area */
   displayMode: DisplayMode = currentDisplayMode();
-  /** after the outro movie the front end shows the credits and then continues with this zone (null = normal front end) */
-  creditsThen: number | null = null;
   /** how often each zone (table index) was started in this session: `ZoneGameCtx.attempt` */
   readonly zoneAttempts = new Map<number, number>();
   private keyTable: { dik: number; bit: number }[];
@@ -147,6 +148,13 @@ export class Shell {
     ui.loadFonts(fonts);
     sh.menuSet = ui.loadSet(menu, 'mOverlays');
     sh.msgs = loadMenuStrings(messages);
+    // the loading card of the fade overlay (FUN_0040d1be): Pizza.tga / CD.tga of GENERICBITS and the text LOADING (FRONTEND.str)
+    try {
+      const gb = await data.archive('GENERICBITS');
+      const pizza = ui.loadImage(gb, 'Backdrop/Pizza.tga').get(0), cd = ui.loadImage(gb, 'Backdrop/CD.tga').get(0);
+      if (pizza && cd) ui.card = { pizza, cd, text: sh.msgs.label('!LOADING') };
+    } catch (e) { console.warn('loading card', e); }
+    localiseKeyNames(sh.pe, sh.keyNames, sh.msgs.label('!FEERASE'));   // FUN_00438212: the layout dependent key names of the game's language
     sh.std = loadMessages(messages, STD_FILES);
     status?.('Geluid laden…');
     sh.audio = await AudioHost.create(files, params.mute);
@@ -159,6 +167,8 @@ export class Shell {
     await sh.refreshSlots();
     status?.('Start…');
     sh.input.attach(window);
+    installCheats(sh.pe, sh.input, { sdreams: () => sh.vars.set(VAR_SDREAMS, 1), fsmAdvance: () => sh.story.jump(sh.vars.get(0x58) + 1) });   // the typed cheat codes (FUN_004375a8), polled with the input
+    installScreenshot(sh.input, sh.canvas);   // F10
     sh.attachPointer();
     sh.menu = new MenuUi(sh.menuContext(), sh.rawPages);
     return sh;
@@ -213,14 +223,16 @@ export class Shell {
     this.options.applyToVars(this.vars);
     this.applyKeys();
     this.input.gamepad = o.gamepad;
+    this.input.sensitivity = o.sensitivity;
   }
   applyKeys() {
-    this.input.rebind(this.keyTable.map((k, i) => ({ dik: this.options.binding(i).dik, bit: k.bit })));
+    this.input.rebind(this.keyTable.map((k, i) => { const b = this.options.binding(i); return { device: b.device, dik: b.dik, bit: k.bit }; }));
   }
   optionChanged(i: number) {
     const o = this.options;
     if (i === S.MUSIC_VOLUME || i === S.SFX_VOLUME || i === S.SPEECH_VOLUME) this.audio.setVolumes(o.musicVolume, o.sfxVolume, o.speechVolume);
     if (i === S.GAMEPAD) this.input.gamepad = o.gamepad;
+    if (i === S.SENSITIVITY) this.input.sensitivity = o.sensitivity;
     this.options.applyToVars(this.vars);
     for (const l of this.optionListeners) l(i);
   }
@@ -317,9 +329,16 @@ export class Shell {
       eraseSlot: (s) => this.eraseSlot(s),
       newGame: () => { this.loop.newGame(); return true; },
       keysChanged: () => this.applyKeys(),
+      captureKey: (own) => this.input.captureKey(own),
       optionChanged: (i) => this.optionChanged(i),
       measure: (font, s) => this.ui.measure(font === 0 ? 1 : 0, s).w,
       checkpoints: readLevelSelect(this.pe).checkpoints,
+      allZones: readLevelSelect(this.pe).allZones,
+      gotoZone: (e) => {   // page 26 (debug mode: reached through src/devcorner): var 5 = zone, var 0xb = 1 (FUN_0041be4e branch 0x1a)
+        this.vars.set(V.NS_NEXT_SUBGAME, e.zone);
+        this.vars.set(GV.STARTEDFROMMENU, 1);
+        this.loop.pending = { kind: 2, node: this.story.node, zone: e.zone };
+      },
       gotoCheckpoint: (e) => {
         if (e.node >= 0) { this.story.jump(e.node); this.vars.set(GV.LGI_GAMELOOP, 3); }
         this.vars.set(V.NS_NEXT_SUBGAME, e.zone);
@@ -330,12 +349,11 @@ export class Shell {
     };
   }
 
-  /** feed key presses to a waiting key-binding capture (FUN_00438099) */
+  /** while a key-binding capture waits (FUN_00438099, polled by MenuUi through the input mapper) the keys are the capture's: no browser action (F5, Tab ...) */
   private keyCapture = (e: KeyboardEvent) => {
     if (!this.menu?.engine.capture) return;
     if (e.code === 'Escape') return;
-    const dik = codeToDik(e.code);
-    if (dik) { this.menu.engine.feedKey(0x10000 | dik); e.preventDefault(); }
+    e.preventDefault();
   };
   /** E / I on the load, save and erase pages: export / import the highlighted slot as an original `.lgo` file */
   private slotKeys = (e: KeyboardEvent) => {
@@ -408,7 +426,8 @@ export class Shell {
       this.audio.leaveZone();
       const runner = runners.get(info.id.toLowerCase()) ?? runners.get((info.archive ?? '').toLowerCase()) ?? (zone === 0 ? runners.get('frontend') : undefined) ?? runners.get('default');
       if (!runner) throw new Error(`no runner for zone ${info.id}`);
-      const next = await runner(this, info);
+      let next: number;
+      try { next = await runner(this, info); } finally { stopLoading(); }
       this.live = null;
       this.gl.clearCaches();      // the zone's meshes and textures (the shared renderer would keep them for the whole session)
       await this.data.releaseZoneOverrides();   // the zone's mod files (src/mods) are let go of; they are read again when the zone is entered again

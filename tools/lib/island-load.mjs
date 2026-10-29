@@ -15,9 +15,11 @@ import { loadMessages } from '../../src/ui/strings.ts';
 import { installCtx } from '../../src/island/ctx.ts';
 import '../../src/island/index.ts';
 import { loadExe, sceneOf } from './engine-load.mjs';
+import { FakeFx } from './fake-fx.mjs';
 import { waypoints } from '../../src/game/walker.ts';
 import { BrickLibrary } from '../../src/formats/bricks.ts';
 import { installBrickLibrary, brickMorph, brickBurst } from '../../src/fx/bricks/island.ts';
+import { applyRosterRecords } from '../../src/island/vehicles/looks.ts';
 
 /** zone table index of the island for a story node (the four ids 2 / 31 / 32 / 33, architecture.md 2.2) */
 export const islandZoneOf = (node) => { const e = eraOfNode(node); return e === 1 ? 31 : e === 2 ? 32 : e === 3 ? 33 : 2; };
@@ -37,7 +39,9 @@ export function loadIsland(ctx, opts = {}) {
   world.vars = vars;
   world.externalInput = false;
   const profile = profileFor('z02LGI', pe, scene, undefined, { islandVars: vars, archive });
-  const L = setupZone(scene, archive, profile, { world, pe, subgame: islandZoneOf(node), from: opts.from ?? '', vars: { 0x58: node } });
+  const L = setupZone(scene, archive, profile, { world, pe: opts.headerCols === false ? undefined : pe, subgame: islandZoneOf(node), from: opts.from ?? '', vars: { 0x58: node } });
+  // what the zone game's afterSetup does (src/zones/z02LGI/index.ts): the loader's header-only collision slots (S5), FUN_0051c823's record writes (S2 / S11)
+  if (opts.roster !== false) applyRosterRecords(world, pe);
   const messages = ctx.archives.find((a) => a.name.toLowerCase() === 'messages');
   const island = profile.island;
   const ictx = {
@@ -53,7 +57,7 @@ export function loadIsland(ctx, opts = {}) {
     sfx(id) { this.sounds.push({ id, tick: world.tickCount }); },
     stopSfx(id) { this.stopped.push(id); },
     sfxAt(id, pos) { this.sounds.push({ id, pos: [...pos], tick: world.tickCount }); },
-    fx: [], particles(name, mode, pos, owner) { this.fx.push({ name, mode, owner, pos: [...pos], tick: world.tickCount }); },
+    fx: new FakeFx(world),
     animClip(name) { return island?.dictionaries.anims.get(name); },
     switchVar(name) { return island?.dictionaries.switches.get(name); },
     shared: {},

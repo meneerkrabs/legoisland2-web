@@ -15,6 +15,8 @@ import { CedricNode } from './enemy.ts';
 import type { CannonNode } from './enemy.ts';
 import { RgbState } from './shared.ts';
 
+const F = Math.fround;
+
 export class RgbGameNode implements BehaviourNode {
   readonly kind = 'rgbgame';
   var = 2; mask = 1; value = 1;
@@ -27,7 +29,7 @@ export class RgbGameNode implements BehaviourNode {
     const st = this.st, p = st.pepper;
     if (!st.vulnerable) {
       if (st.blink < 0) st.blink = K.BLINK;
-      st.blink = st.blink - K.BLINK_STEP * w.dt * w.dt;
+      st.blink = F(st.blink - F(F(K.BLINK_STEP * w.dt) * w.dt));      // 24-bit x87: every operation rounds to a float
       if (0 <= st.blink) { if (st.ticks & 2) p.flags &= ~RF_ENABLED; else p.flags |= RF_ENABLED; }
       else { st.vulnerable = true; p.flags |= RF_ENABLED; }
     } else p.flags |= RF_ENABLED;
@@ -36,7 +38,7 @@ export class RgbGameNode implements BehaviourNode {
   update(w: World, _rec: GameRecord, _ctrl: Controller): number {
     const st = this.st;
     st.bind(w);
-    st.tickF = 1 * w.dt + st.tickF;
+    st.tickF = F(F(1 * w.dt) + st.tickF);
     st.ticks = Math.trunc(st.tickF);
     // the ambient sounds: a crow now and then (1 % of the ticks, 0.5 %), the wind always
     const r = Math.trunc(st.rand(200));
@@ -71,7 +73,7 @@ export class RgbGameNode implements BehaviourNode {
         break;
     }
     // FUN_005f7d8a: the sixteen flags wave at a random rate 0.75 .. 1.25
-    for (const i of REC.FLAGS) w.records[i].anim?.advance(st.rand(0.5) + K.FLAG_RATE);
+    for (const i of REC.FLAGS) w.records[i].anim?.advance(st.rand(0.5) + K.FLAG_RATE, w.dt);
     return NODE_CONTINUE;
   }
 }

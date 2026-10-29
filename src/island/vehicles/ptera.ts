@@ -21,7 +21,9 @@ import { waypoints } from '../../game/walker.ts';
 import { tryCtx } from '../ctx.ts';
 import { partMatrix } from '../trigger/parts.ts';
 import { ensureAnim, rand } from '../ambient/common.ts';
-import { ICON, VV, vehicles, berthPos, fabs, cutsceneActive, sfx, setVehicleMatrix, normalize } from './common.ts';
+import { ICON, VV, vehicles, berthPos, fabs, cutsceneActive, sfx, setVehicleMatrix } from './common.ts';
+import { ad, sb, ml, fr, fromBits } from '../../zones/common/f32.ts';
+import { reflect3, normalise3, toWorld } from '../../zones/exact.ts';
 
 /** FUN_004bb1a6: FUN_00443580(0x303) -> DAT_05d58638, FUN_00443580(0x302) -> DAT_05d5863c (the wing beats) */
 export const SND_WING_A = 0x303, SND_WING_B = 0x302;
@@ -35,27 +37,25 @@ export const GLIDER_RECORD = 0x45e0 / 0x68;
 const SHADOW_GLIDER = 6, SHADOW_PTERA = 5, SHADOW_OFF = 4;
 
 const PI = 3.1415927410125732, TWO_PI = 6.2831854820251465;   // DAT_0089207c / 00892094 (-pi DAT_00892098)
-const YAW_STEP = 0.0016, YAW_MAX = 0.05;                     // local_104 / local_c8
-const PITCH_STEP = 0.0011, PITCH_RATE_MAX = 0.02;            // local_138 / local_114
+const YAW_STEP = fr(0.0016), YAW_MAX = fr(0.05);                     // local_104 / local_c8
+const PITCH_STEP = fr(0.0011), PITCH_RATE_MAX = fr(0.02);            // local_138 / local_114
 const BANK = 8.0;                                            // local_20
-const ACCEL = 0.18, DECEL = 0.06, SPEED_MAX = 2.0, SPEED_MIN = 0.5;   // local_3c / local_58 / local_c4 / local_1cc
-const PITCH_MAX = 0.35;                                      // local_4c
-const LAND_SINK = 0.1 + 0.6;                                 // local_c0 + DAT_0089213c
-const DIVE_FWD = 0.8;                                        // local_100
-const DIVE_PITCH_STEP = 0.05;                                // double 0x892158
+const ACCEL = fr(0.18), DECEL = fr(0.06), SPEED_MAX = 2.0, SPEED_MIN = 0.5;   // local_3c / local_58 / local_c4 / local_1cc
+const PITCH_MAX = fr(0.35);                                  // local_4c
+const LAND_SINK = ad(fr(0.1), fromBits(0x3f19999a));         // local_c0 + DAT_0089213c
+const DIVE_FWD = fr(0.8);                                    // local_100
+const DIVE_PITCH_STEP = 0.05;                                // double 0x892158 (multiplied as a double: `fmul qword`)
 const TAKEOFF_CLIMB = 0.25, TAKEOFF_ALT = 18.0;              // DAT_00892134 / DAT_0089257c
 const PAD_NEAR = 32.0, PAD_FAR = 80.0, PAD_SQ = 6400.0;     // DAT_00892088 / DAT_008921b0 / local_10c
 const LAND_EASE = 0.125;                                     // DAT_0089208c
 const SWEEP_R = 2.0, CEILING_PROBE = 40.0;                   // 0x40000000 radius / skin, DAT_00892528
 const BOUNCE_TIME = 10.0;                                    // 0x41200000
 const CEILING_Y = 184.0;                                     // DAT_008d9c6c
-const CAM_OFF = [0, 16.0, -24.0], CAM_EASE = 0.3499999940395355;      // 0x41800000 / 0xc1c00000, DAT_00892160
-const GLIDER_SEAT = [0, -5.5, -0.5];                         // DAT_008d9c88
+const CAM_OFF = [0, 16.0, -24.0], CAM_EASE = fr(0.3499999940395355);      // 0x41800000 / 0xc1c00000, DAT_00892160
+const GLIDER_SEAT = [0, fromBits(0xc0b00000), fromBits(0xbf000000)];       // DAT_008d9c88 (0, -5.5, -0.5)
 const PROP_RATE = 0.25;                                      // DAT_00892134 (the glider's part 2 about z)
 
-const wrap = (a: number) => (-PI <= a ? (PI < a ? a - TWO_PI : a) : a + TWO_PI);
-/** FUN_0043cfee(out, d, n): d - 2 n (d . n) (DAT_00892204 = -2) */
-const reflect = (d: number[], n: ArrayLike<number>) => { const k = d[0] * n[0] + d[1] * n[1] + d[2] * n[2]; return [n[0] * -2 * k + d[0], n[1] * -2 * k + d[1], n[2] * -2 * k + d[2]]; };
+const wrap = (a: number) => (-PI <= a ? (PI < a ? sb(a, TWO_PI) : a) : ad(a, TWO_PI));
 
 export interface PteraState { state: number; speed: number; pad: number }
 
@@ -97,8 +97,8 @@ export class PteraNode implements BehaviourNode {
     G.pads.forEach((p, i) => {
       if (p.taken) return;
       const q = berthPos(p);
-      const dx = q[0] - rec.x, dz = q[2] - rec.z;
-      if (fabs(dx) <= PAD_FAR && fabs(dz) <= PAD_FAR) { const d = dz * dz + dx * dx; if (d < bestD) { best = i; bestD = d; } }
+      const dx = sb(q[0], rec.x), dz = sb(q[2], rec.z);
+      if (fabs(dx) <= PAD_FAR && fabs(dz) <= PAD_FAR) { const d = ad(ml(dz, dz), ml(dx, dx)); if (d < bestD) { best = i; bestD = d; } }
     });
     this.pad = best;
     if (best >= 0) G.pads[best].taken = true;
@@ -109,8 +109,8 @@ export class PteraNode implements BehaviourNode {
     vehicles(w).pads.forEach((p, i) => {
       if (p.taken) return;
       const q = berthPos(p);
-      const dx = q[0] - x, dz = q[2] - z;
-      if (fabs(dx) <= lim && fabs(dz) <= lim) { const d = dz * dz + dx * dx; if (d < bestD) { best = i; bestD = d; } }
+      const dx = sb(q[0], x), dz = sb(q[2], z);
+      if (fabs(dx) <= lim && fabs(dz) <= lim) { const d = ad(ml(dz, dz), ml(dx, dx)); if (d < bestD) { best = i; bestD = d; } }
     });
     return best;
   }
@@ -121,7 +121,7 @@ export class PteraNode implements BehaviourNode {
     if ((rec.flags & 2) === 0) return NODE_NONE;
     const G = vehicles(w);
     const anim = rec.anim;
-    const dt = w.dt;
+    const dt = fr(w.dt);
     // first update after a pause: the chosen vehicle flaps (the arrival starts Pepper in it), any other one is parked
     if (w.frame !== this.stamp) {
       if (rec === G.current) anim?.start(PT_FLAP, 0);
@@ -135,9 +135,9 @@ export class PteraNode implements BehaviourNode {
     switch (this.state) {
       case -1: {
         this.ground = w.col.terrainHeight(x, y, z, 8.0);
-        y = TAKEOFF_CLIMB * dt + y;
+        y = ad(ml(TAKEOFF_CLIMB, dt), y);
         anim?.advance(this.speed, dt);
-        if (TAKEOFF_ALT < y - this.ground) this.state = 0;
+        if (TAKEOFF_ALT < sb(y, this.ground)) this.state = 0;
         break;
       }
       case 0: {
@@ -147,53 +147,55 @@ export class PteraNode implements BehaviourNode {
             if ((pressed & B.CTRL) !== 0 && this.home >= 0) this.state = 1;
           }
           if ((held & B.SPACE) === 0) {
-            if ((held & B.ALT) !== 0) { this.speed -= DECEL * dt; if (this.speed < SPEED_MIN) this.speed = SPEED_MIN; }
-          } else { this.speed = ACCEL * dt + this.speed; if (SPEED_MAX < this.speed) this.speed = SPEED_MAX; }
-          x += this.speed * rec.m[8]; y += this.speed * rec.m[9]; z += this.speed * rec.m[10];
+            if ((held & B.ALT) !== 0) { this.speed = sb(this.speed, ml(DECEL, dt)); if (this.speed < SPEED_MIN) this.speed = SPEED_MIN; }
+          } else { this.speed = ad(ml(ACCEL, dt), this.speed); if (SPEED_MAX < this.speed) this.speed = SPEED_MAX; }
+          x = ad(x, ml(this.speed, rec.m[8])); y = ad(y, ml(this.speed, rec.m[9])); z = ad(z, ml(this.speed, rec.m[10]));
           rec.x = x; rec.y = y; rec.z = z;
-          const ky = YAW_STEP * dt, kp = PITCH_STEP * dt;
-          if ((held & B.LEFT) === 0) { if (this.yawDir === 1 && this.yawRate < 0) this.yawRate += ky; }
-          else { this.yawDir = 1; if (0 < this.yawRate) this.yawRate -= ky; if (-YAW_MAX < this.yawRate) this.yawRate -= ky; }
-          if ((held & B.RIGHT) === 0) { if (this.yawDir === 2 && 0 < this.yawRate) this.yawRate -= ky; }
-          else { this.yawDir = 2; if (this.yawRate < 0) this.yawRate += ky; if (this.yawRate < YAW_MAX) this.yawRate += ky; }
-          if (this.yawDir === 1 && 0 < this.yawRate) this.yawRate -= ky;
-          if (this.yawDir === 2 && this.yawRate < 0) this.yawRate += ky;
-          if ((held & B.DOWN) === 0) { if (this.pitchDir === 1 && this.pitchRate < 0) this.pitchRate += kp; }
-          else { this.pitchDir = 1; if (0 < this.pitchRate) this.pitchRate -= kp; if (-PITCH_RATE_MAX < this.pitchRate) this.pitchRate -= kp; }
-          if ((held & B.UP) === 0) { if (this.pitchDir === 2 && 0 < this.pitchRate) this.pitchRate -= kp; }
-          else { this.pitchDir = 2; if (this.pitchRate < 0) this.pitchRate += kp; if (this.pitchRate < PITCH_RATE_MAX) this.pitchRate += kp; }
-          if (this.pitchDir === 1 && 0 < this.pitchRate) this.pitchRate -= kp;
-          if (this.pitchDir === 2 && this.pitchRate < 0) this.pitchRate += kp;
-          rec.ry = wrap(this.yawRate + rec.ry);
-          rec.rz = -this.yawRate * BANK;
+          const ky = ml(YAW_STEP, dt), kp = ml(PITCH_STEP, dt);
+          if ((held & B.LEFT) === 0) { if (this.yawDir === 1 && this.yawRate < 0) this.yawRate = ad(this.yawRate, ky); }
+          else { this.yawDir = 1; if (0 < this.yawRate) this.yawRate = sb(this.yawRate, ky); if (-YAW_MAX < this.yawRate) this.yawRate = sb(this.yawRate, ky); }
+          if ((held & B.RIGHT) === 0) { if (this.yawDir === 2 && 0 < this.yawRate) this.yawRate = sb(this.yawRate, ky); }
+          else { this.yawDir = 2; if (this.yawRate < 0) this.yawRate = ad(this.yawRate, ky); if (this.yawRate < YAW_MAX) this.yawRate = ad(this.yawRate, ky); }
+          if (this.yawDir === 1 && 0 < this.yawRate) this.yawRate = sb(this.yawRate, ky);
+          if (this.yawDir === 2 && this.yawRate < 0) this.yawRate = ad(this.yawRate, ky);
+          if ((held & B.DOWN) === 0) { if (this.pitchDir === 1 && this.pitchRate < 0) this.pitchRate = ad(this.pitchRate, kp); }
+          else { this.pitchDir = 1; if (0 < this.pitchRate) this.pitchRate = sb(this.pitchRate, kp); if (-PITCH_RATE_MAX < this.pitchRate) this.pitchRate = sb(this.pitchRate, kp); }
+          if ((held & B.UP) === 0) { if (this.pitchDir === 2 && 0 < this.pitchRate) this.pitchRate = sb(this.pitchRate, kp); }
+          else { this.pitchDir = 2; if (this.pitchRate < 0) this.pitchRate = ad(this.pitchRate, kp); if (this.pitchRate < PITCH_RATE_MAX) this.pitchRate = ad(this.pitchRate, kp); }
+          if (this.pitchDir === 1 && 0 < this.pitchRate) this.pitchRate = sb(this.pitchRate, kp);
+          if (this.pitchDir === 2 && this.pitchRate < 0) this.pitchRate = ad(this.pitchRate, kp);
+          rec.ry = wrap(ad(this.yawRate, rec.ry));
+          rec.rz = ml(-this.yawRate, BANK);
           if (anim && anim.advance(this.speed, dt) !== 0) anim.start(Math.trunc(rand(16.0)) < 1 ? PT_GLIDE : PT_FLAP, 0);
           // the way just flown, swept backwards (radius / skin 2, mask 3): a wall or the sea bounces the vehicle back for 10 ticks
-          let d = [ox - x, oy - y, oz - z];
+          const sea = fr(w.seaLevel);
+          let d = [sb(ox, x), sb(oy, y), sb(oz, z)];
           const h = w.col.sweep(rec, [x, y, z], d, 3, SWEEP_R, SWEEP_R);
-          if (h) this.bounce = normalize(reflect(d, h.normal));
-          if (y <= w.seaLevel) this.bounce = normalize(reflect(d, [0, 1, 0]));
-          if (h || y <= w.seaLevel) {
+          if (h) { this.bounce = reflect3(d, h.normal); normalise3(this.bounce); }
+          if (y <= sea) { this.bounce = reflect3(d, [0, 1, 0]); normalise3(this.bounce); }
+          if (h || y <= sea) {
             this.bouncing = true; this.bounceT = BOUNCE_TIME; this.speed = SPEED_MIN;
             if (0 < this.bounce[1]) this.bounce[1] = -this.bounce[1];
             if (-0.5 < this.bounce[1]) this.bounce[1] = -0.5;
           }
           // ... and the same way 40 higher: something above the vehicle
-          d = [ox - x, oy - (y - CEILING_PROBE), oz - z];
+          d = [sb(ox, x), sb(oy, sb(y, CEILING_PROBE)), sb(oz, z)];
+          y = ad(sb(y, CEILING_PROBE), CEILING_PROBE);
           const hc = w.col.sweep(rec, [x, y, z], d, 3, SWEEP_R, SWEEP_R);
           if (hc && y < hc.point[1]) {
-            this.bounce = normalize(reflect(d, hc.normal));
+            this.bounce = reflect3(d, hc.normal); normalise3(this.bounce);
             this.bouncing = true; this.bounceT = BOUNCE_TIME; this.speed = SPEED_MIN;
             if (0 < this.bounce[1]) this.bounce[1] = -this.bounce[1];
           }
         } else {
-          const t = this.bounceT * 1.0;
-          x = rec.x - t * this.bounce[0]; y = rec.y - t * this.bounce[1]; z = rec.z - t * this.bounce[2];
+          const t = ml(this.bounceT, 1.0);
+          x = sb(rec.x, ml(t, this.bounce[0])); y = sb(rec.y, ml(t, this.bounce[1])); z = sb(rec.z, ml(t, this.bounce[2]));
           rec.x = x; rec.y = y; rec.z = z;
-          this.bounceT -= 1.0 * dt;
+          this.bounceT = sb(this.bounceT, ml(1.0, dt));
           if (this.bounceT < 0) this.bouncing = false;
-          if (-PITCH_RATE_MAX * 1.0 < this.pitchRate) this.pitchRate -= PITCH_STEP * dt;
+          if (-PITCH_RATE_MAX * 1.0 < this.pitchRate) this.pitchRate = sb(this.pitchRate, ml(PITCH_STEP, dt));
         }
-        let rx = this.pitchRate + rec.rx;
+        let rx = ad(this.pitchRate, rec.rx);
         if (PITCH_MAX < rx) rx = PITCH_MAX;
         if (rx < -PITCH_MAX) rx = -PITCH_MAX;
         rec.rx = wrap(rx);
@@ -204,11 +206,11 @@ export class PteraNode implements BehaviourNode {
         // (the original reads the table at index -1 when the pad was taken meanwhile; the port keeps flying instead)
         if (i < 0) { this.state = 0; break; }
         const q = berthPos(G.pads[i]);
-        x = (q[0] - x) * LAND_EASE * dt + x;
-        z = (q[2] - z) * LAND_EASE * dt + z;
+        x = ad(ml(ml(sb(q[0], x), LAND_EASE), dt), x);
+        z = ad(ml(ml(sb(q[2], z), LAND_EASE), dt), z);
         rec.rz = 0; rec.rx = 0;
-        this.ground = w.col.terrainHeight(x, y, z, 8.0) + (anim ? 1.0 : 4.0);
-        if (y <= this.ground) y = this.ground; else y -= LAND_SINK * dt;
+        this.ground = ad(w.col.terrainHeight(x, y, z, 8.0), anim ? 1.0 : 4.0);
+        if (y <= this.ground) y = this.ground; else y = sb(y, ml(LAND_SINK, dt));
         rec.x = x; rec.y = y; rec.z = z;
         anim?.advance(1.0, dt);
         if (y <= this.ground) {
@@ -229,10 +231,10 @@ export class PteraNode implements BehaviourNode {
       }
       case 2: {
         // dive away; out of view: back home, parked (no code of the executable enters this state)
-        rec.rx -= dt * DIVE_PITCH_STEP;
+        rec.rx = sb(rec.rx, fr(dt * DIVE_PITCH_STEP));
         if (rec.rx <= -0.5) {
           rec.rx = -0.5;
-          x = rec.x + rec.m[8] * DIVE_FWD; y = rec.y + rec.m[9] * DIVE_FWD; z = rec.z + rec.m[10] * DIVE_FWD;
+          x = ad(rec.x, ml(rec.m[8], DIVE_FWD)); y = ad(rec.y, ml(rec.m[9], DIVE_FWD)); z = ad(rec.z, ml(rec.m[10], DIVE_FWD));
           rec.x = x; rec.y = y; rec.z = z;
         }
         anim?.advance(1.0, dt);
@@ -269,12 +271,8 @@ export class PteraNode implements BehaviourNode {
       const m = buildMatrix(rec.rx, rec.ry, 0, rec.x, rec.y, rec.z);
       const c = w.camera.c;
       c[3] = m[12]; c[4] = m[13]; c[5] = m[14];
-      const ex = CAM_OFF[1] * m[4] + CAM_OFF[2] * m[8] + m[12];
-      const ey = CAM_OFF[1] * m[5] + CAM_OFF[2] * m[9] + m[13];
-      const ez = CAM_OFF[1] * m[6] + CAM_OFF[2] * m[10] + m[14];
-      c[0] = (ex - c[0]) * CAM_EASE + c[0];
-      c[1] = (ey - c[1]) * CAM_EASE + c[1];
-      c[2] = (ez - c[2]) * CAM_EASE + c[2];
+      const e = toWorld(m, CAM_OFF);
+      for (let i = 0; i < 3; i++) c[i] = ad(ml(sb(e[i], c[i]), CAM_EASE), c[i]);
     }
     this.lastSpeed = this.speed;
     wrapWorld(w, rec);
@@ -285,7 +283,7 @@ export class PteraNode implements BehaviourNode {
         if (pa) { if (pa.clip === CLIP_GLIDER) pa.advance(1.0, dt); else pa.start(CLIP_GLIDER, 0); }
         const part = partMatrix(w, rec, 2);
         if (part) part.set(buildMatrix(0, 0, this.prop, part[12], part[13], part[14]));
-        this.prop = wrap(PROP_RATE * dt + this.prop);
+        this.prop = wrap(ad(ml(PROP_RATE, dt), this.prop));
       } else if (pa) {
         const ptClip = anim.clip;
         if (pa.clip !== CLIP_RIDE) pa.start(CLIP_RIDE, 0);
@@ -295,7 +293,7 @@ export class PteraNode implements BehaviourNode {
     if (anim) {
       // the wing beats: sounds at frames 1, 15, 30, 45 of the flap; reset when the clip is about to wrap (FUN_0043b92a)
       const f = Math.trunc(anim.frame);
-      const ending = anim.frameCount < 1.0 * dt + 1.0 + anim.frame;
+      const ending = anim.frameCount < ad(ad(1.0, anim.frame), ml(1.0, dt));
       switch (this.wing) {
         case 0: if (0 < f) { sfx(w, SND_WING_A); this.wing = 1; } break;
         case 1: if (0xe < f) { sfx(w, SND_WING_B); this.wing = 2; } break;
@@ -328,7 +326,7 @@ export class PteraNode implements BehaviourNode {
     }
     if (this.state !== 3) {
       pep.m.set(rec.m);                                   // FUN_0043b00b: the whole matrix
-      if (!rec.anim) { const p = rec.toWorld(GLIDER_SEAT); pep.x = p[0]; pep.y = p[1]; pep.z = p[2]; }
+      if (!rec.anim) { const p = toWorld(rec.m, GLIDER_SEAT); pep.x = p[0]; pep.y = p[1]; pep.z = p[2]; }
       else { pep.x = rec.x; pep.y = rec.y; pep.z = rec.z; }
     }
   }

@@ -44,7 +44,7 @@ export const VAR_TROPHY_MAP = 0x3f, VAR_HISCORE_MAP = 0xda;
 export const POINTS_MATCH = 250, POINTS_ROUND = 250, POINTS_PER_GAUGE_UNIT = 50, POINTS_CITIZEN = 500;
 
 /** time gauge (HUD): starts at 12.0 each round (0x41400000) and falls 0.005 per tick (_DAT_008922cc) */
-export const GAUGE_START = 12, GAUGE_DECAY = 0.005;
+export const GAUGE_START = 12, GAUGE_DECAY = Math.fround(0.005);
 
 /**
  * FUN_00812dbb(score): raises HISCORE_MAP / TROPHY_MAP like the original and returns [medal of this run, result flag DAT_05d5f3e8].
@@ -61,21 +61,21 @@ export function finishScore(vars: { get(i: number): number; set(i: number, v: nu
 
 // ---- queue of the Ogel citizens (table DAT_00955df8, 5 entries of 0x14 bytes: occupied, record, x, y, z)
 /** x, y, z of slot 0..4 (0x955e00 + 0x14 i): 0 the exit on the left, 1 the counter, 2 and 3 the queue, 4 the spawn point on the right */
-export const SLOT_POS: [number, number, number][] = [[-8, 0, 6.5], [-1.9, 0, 6.5], [0.5, 0, 6.5], [4.1, 0, 6.5], [16.5, 0, 6.5]];
+export const SLOT_POS: [number, number, number][] = ([[-8, 0, 6.5], [-1.9, 0, 6.5], [0.5, 0, 6.5], [4.1, 0, 6.5], [16.5, 0, 6.5]] as [number, number, number][]).map((p) => p.map(Math.fround) as [number, number, number]);
 /** the citizens' per-record tuning block {rate} of FUN_00813733 (0x3f800000 .. 0x3fa66666): animation rate of CIT1 .. CIT4, CIT5 */
-export const CITIZEN_RATES = [1.0, 1.1, 0.9, 1.3, 1.3] as const;
+export const CITIZEN_RATES: readonly number[] = [1.0, 1.1, 0.9, 1.3, 1.3].map(Math.fround);
 /** the clip table the citizens share (&DAT_00955d58 = 4, 4, 2, 7, 10): [1] arrive, [2] react, [3] hit, [4] walk */
 export const CITIZEN_CLIPS = [4, 4, 2, 7, 10] as const;
 
 // ---- the camera (FUN_00816220): look-at offset table 0x9560a8 and eye offset table 0x9560c0, mode 0 = overview, 1 = close up on Pepper
-export const CAM_LOOK: [number, number, number][] = [[1.5, 2, 8], [0, 3.2, 2]];
-export const CAM_EYE: [number, number, number][] = [[2, 4, -5], [0, 5.65, 1.5]];
+export const CAM_LOOK: [number, number, number][] = ([[1.5, 2, 8], [0, 3.2, 2]] as [number, number, number][]).map((p) => p.map(Math.fround) as [number, number, number]);
+export const CAM_EYE: [number, number, number][] = ([[2, 4, -5], [0, 5.65, 1.5]] as [number, number, number][]).map((p) => p.map(Math.fround) as [number, number, number]);
 export const CAM_EASE = 0.25;
 
 /** Papa's hand offset (FUN_00812399): Z rotation 2.1991 (0x400cbe1b) and translation (-0.3, -1, 0.3) at 0x955bf0 */
-export const HAND_ROT_Z = 2.1991, HAND_OFFSET = [-0.3, -1, 0.3] as const;
+export const HAND_ROT_Z = 2.1991031169891357 /* 0x400cbe1b */, HAND_OFFSET: readonly number[] = [-0.3, -1, 0.3].map(Math.fround);
 /** the topping in Pepper's hand: translation row of the matrix at 0x955f98 */
-export const TOPPING_HAND_OFFSET = [0.094, -0.429, 0.135] as const;
+export const TOPPING_HAND_OFFSET: readonly number[] = [0.094, -0.429, 0.135].map(Math.fround);
 
 /** compare the numeric tables above with the executable (tests) */
 export function readTables(pe: Pe) {

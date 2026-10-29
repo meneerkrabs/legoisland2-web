@@ -14,7 +14,13 @@ import type { TrxGame } from './z27trx/prepare.ts';
 import { TrexNode } from './z27trx/trex.ts';
 import { GateNode, VolcNode, SlogNode, BldrNode, EggNode, BrontyNode, SpectatorNode } from './z27trx/props.ts';
 import { bindGate, meshParts } from './z27trx/gate.ts';
-import { NullSound } from './z27trx/run.ts';
+import { NullSound, nameOf } from './z27trx/run.ts';
+import { GATE_ON, NO_HANDLE, PARAM, ZoneParticles } from '../fx/particles/zone.ts';
+import { RF_ENABLED, RF_FRUSTUM } from '../game/record.ts';
+import type { GameRecord } from '../game/record.ts';
+
+/** a float32 constant by its bit pattern in the executable */
+const f32 = (bits: number): number => new Float32Array(new Uint32Array([bits]).buffer)[0];
 import type { TrxSound } from './z27trx/run.ts';
 
 // the constructors of the zone's nodes (registered for the extraction's `Attach.ctor` list; `prepareTrx` binds the real ones by record name like FUN_0076649a)
@@ -49,7 +55,7 @@ export function clockText(ticks: number): string {
   return `${Math.trunc(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
 }
 
-function trxGame(ctx: ZoneGameCtx): ZoneGame {
+async function trxGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   const { world, loaded, archive, vars, sh, hud, scene } = ctx;
   const rig = (n: string): Blk | null => { const e = archive.find(`anim/${n}.blk`); return e ? parseBlk(archive.read(e)) : null; };
   const ga = sh.audio.ga;
@@ -69,6 +75,33 @@ function trxGame(ctx: ZoneGameCtx): ZoneGame {
     const gateRec = g.gateRec;
     ctx.gr.partMatrices = (rec) => (rec === gateRec ? doors : undefined);
   }
+
+  // ---- particles: FUN_0076b070 (the zone's start-up): the distance LOD (DAT_05d3b0a0 = 1), then for every record in record order: VOLC: `trexvol01` at (0, 4, 0) and `trexvol03` at (0, 10.4, 0),
+  // BURN: `trexburn` at the origin, PEPP: `trexfeet` (gate off, handle DAT_05d5d2b8), all on the record's live matrix, rotated -pi / 2 about x, volcano / fire gate (2, 1, 1) = always on.
+  // The rex node switches `trexfeet` (TrxFx): on after a landing / crash / fire, off for a jump, an obstacle and the end; its parent matrix is the rex record's, its force is speed * 0.1.
+  const fx = await ZoneParticles.create(ctx);
+  if (fx) {
+    fx.setLod(true);
+    const tilt = f32(0xbfc90fdb);
+    let feet = NO_HANDLE;
+    for (const r of world.records) {
+      const name = nameOf(r);
+      if (name === 'VOLC') {
+        fx.start('trexvol01', r.m, [0, f32(0x40800000), 0], [tilt, 0, 0], GATE_ON);
+        fx.start('trexvol03', r.m, [0, f32(0x41266666), 0], [tilt, 0, 0], GATE_ON);
+      } else if (name === 'BURN') fx.start('trexburn', r.m, [0, 0, 0], [tilt, 0, 0], GATE_ON);
+      else if (name === 'PEPP') feet = fx.start('trexfeet', r.m, [0, 0, 0], [tilt, 0, 0]);
+    }
+    fx.finish();
+    run.fx = { feetOn: () => fx.on(feet), feetOff: () => fx.off(feet), feetMatrix: () => fx.setMatrix(feet, run.pepp.m), feetForce: (v) => fx.setParam(feet, PARAM.FORCE, v) };
+    run.fx.feetMatrix(); run.fx.feetForce(0);       // FUN_0076adc5
+  }
+  /** FUN_00444370: record flag 1 = enabled and (no collision object or its sphere inside the view); the spectators read it (the renderer's planes are those of the last drawn frame) */
+  const frustum = (rec: GameRecord) => {
+    if ((rec.flags & RF_ENABLED) === 0) return false;
+    const co = rec.colObj;
+    return !co || ctx.gr.sphereVisible(rec.toWorld(co.col.center), co.radius);
+  };
 
   hud.visible = false;
   hud.left = { tex: 0, tint: 0xffffffff };      // DAT_05d4dd14 = 0 / DAT_05d4dd18 = -1: the hit counter's icon
@@ -94,6 +127,7 @@ function trxGame(ctx: ZoneGameCtx): ZoneGame {
     helpControls: 6,
     onStart() { hud.visible = true; },
     update() {
+      for (const sp of g.spectators) sp.rec.flags = frustum(sp.rec) ? sp.rec.flags | RF_FRUSTUM : sp.rec.flags & ~RF_FRUSTUM;
       syncHud();
       listen();
       if (run.arrivalFog && !fogDone) { fogDone = true; ctx.gr.useFogCall(7); }     // FUN_00442d90(34, 250, 250, 100, ...) of FUN_0076ac33
@@ -132,4 +166,4 @@ function trxGame(ctx: ZoneGameCtx): ZoneGame {
   };
   return game;
 }
-registerZoneGame('z27TRX', async (ctx) => trxGame(ctx));
+registerZoneGame('z27TRX', trxGame);

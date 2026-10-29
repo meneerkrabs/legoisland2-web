@@ -60,5 +60,5 @@ export class GameAudio {
   setSpeechVolume(v: number) { this.options.speech = v; this.speech.setVolume(v); }
 
   /** Zone exit: stop and unload everything the zone loaded (FUN_004359d5 + music/ambience stop). */
-  resetZone() { this.sfx.reset(); this.music.stopAll(); this.ambience.stop(); this.speech.stop(); }
+  resetZone() { this.sfx.reset(); this.music.stopAll(); this.music.setFade(1); this.ambience.stop(); this.speech.stop(); }   // FUN_00873e26 also puts the music fade scale back to 1.0
 }

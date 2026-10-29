@@ -1,5 +1,5 @@
 // M4 WP8: the island zone game (src/zones/z02LGI) in the browser:
-//   node tools/browse.mjs "http://localhost:5499/?zone=z02LGI&node=2&mute=1" tools/steps/m4-island.mjs --size 1280x800 --out /tmp/m4-wp8
+//   node tools/browse.mjs "http://localhost:5499/?zone=z02LGI&node=2&mute=1&debug=1" tools/steps/m4-island.mjs --size 1280x800 --out /tmp/m4-wp8
 // Checks: the emulated set-up ran (the island's attaches, the context), mode 1 waits for a button with the world frozen, the story handler's set-up call
 // selected the node's message tables and objective, the HUD counters, Pepper walks, no console errors; then the story advances 2 -> 3 -> 4 (the node
 // conditions are completed through the F9 dev aid) and the handler's "just advanced" actions of node 4 run.
@@ -27,7 +27,7 @@ export default async ({ page, shot, wait, log }) => {
   s = await st();
   expect('mode 1: the world waits for a button', s.mode === 1 && s.tick === t1, `tick ${t1} -> ${s.tick}`);
   await shot('island-1-wait');
-  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft', { delay: 70 });
   expect('a direction key starts play', await until(async () => (await st()).mode === 2, 5000));
   await wait(1000);
   s = await st();
@@ -36,7 +36,7 @@ export default async ({ page, shot, wait, log }) => {
   // the new game's first cutscene (a StartCSM trigger starts it): skip it with Shift like a player would (the runner's skip key)
   const cut = async () => (await st()).dbg?.cutscene;
   log('cutscene at start:', await cut());
-  for (let i = 0; i < 40 && await cut(); i++) { await page.keyboard.press('ShiftLeft'); await wait(500); }
+  for (let i = 0; i < 40 && await cut(); i++) { await page.keyboard.press('ShiftLeft', { delay: 70 }); await wait(500); }
   expect('no cutscene running after skipping', !(await cut()));
   await wait(500);
   s = await st();
@@ -55,8 +55,8 @@ export default async ({ page, shot, wait, log }) => {
     s = await st();
     if (!s || s.node >= 4) break;
     const want = s.node + 1;
-    await page.keyboard.press('F9');
-    for (let i = 0; i < 40 && await cut(); i++) { await page.keyboard.press('ShiftLeft'); await wait(300); }
+    await page.keyboard.press('F9', { delay: 70 });
+    for (let i = 0; i < 40 && await cut(); i++) { await page.keyboard.press('ShiftLeft', { delay: 70 }); await wait(300); }
     const ok = await until(async () => { const z = await st(); return !z || (z.node === want && z.dbg?.prev === want); }, 20000);
     s = await st();
     expect(`story node ${want} handled`, ok && !!s, JSON.stringify({ node: s?.node, prev: s?.dbg?.prev, log: s?.dbg?.storyLog }));

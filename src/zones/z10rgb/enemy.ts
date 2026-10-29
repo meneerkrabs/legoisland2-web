@@ -10,17 +10,21 @@ import { RF_ENABLED } from '../../game/record.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { CLIP, K, MODE, PHASE, VAR, f32 } from './consts.ts';
+
+const F = Math.fround;
 import { allocBall, launchBall, placeBall } from './balls.ts';
-import { rotate, wrapPi, yawError } from './shared.ts';
+import { rotate, toWorld24, wrapPi, yawError } from './shared.ts';
 import type { Perch, RgbState } from './shared.ts';
 
 /** FUN_005f89c9: the roots of a x^2 + b x + c (null when a = 0 or no real root); `low` = (-b + s) / 2a, `high` = (-b - s) / 2a (the first output of the original is the second here) */
 export function quadratic(a: number, b: number, c: number): { first: number; second: number } | null {
   if (a === 0) return null;
-  const disc = b * b - 4 * a * c;
+  // the game runs the x87 in 24-bit precision (Direct3D 7 leaves it so): every arithmetic result is rounded to a float mantissa, so every operation below is a float operation
+  const disc = F(F(b * b) - F(F(4 * a) * c));  // b b, 4 a c and the difference (FUN_005f89c9 at 0x5f89fa / 0x5f8a09 / 0x5f8a12)
   if (disc < 0) return null;
-  const s = Math.sqrt(disc);
-  return { first: (-b - s) / (2 * a), second: (-b + s) / (2 * a) };
+  const s = F(Math.sqrt(disc));                // `(float) FUN_005f91e0(disc)`
+  const den = F(2 * a);
+  return { first: F(F(-b - s) / den), second: F(F(-b + s) / den) };
 }
 
 /**
@@ -29,10 +33,14 @@ export function quadratic(a: number, b: number, c: number): { first: number; sec
  * first output (-b + s) / 2a (the lower arc), `lob` the second (the higher arc). null = out of reach.
  */
 export function solveShot(g: number, p: ArrayLike<number>, t: ArrayLike<number>, speed: number): { flat: number; lob: number } | null {
-  const dx = t[0] - p[0], dy = t[1] - p[1], dz = t[2] - p[2];
-  const D = Math.hypot(dx, dz);
-  const a = -(g * D * D) / (speed * speed + speed * speed);
-  const r = quadratic(a, D, -dy + a);
+  // every store is a single float: the differences, the heading (the original turns the offset by -atan2(dx, dz) with the matrix builders and takes the z of the result as the
+  // horizontal distance D and keeps dy), g D D, 2 s s, a, and the constant term
+  const dx = F(t[0] - p[0]), dy = F(t[1] - p[1]), dz = F(t[2] - p[2]);
+  const th = F(-Math.atan2(dx, dz)), c = F(Math.cos(th)), s = F(Math.sin(th));
+  const D = F(F(F(dz * c) + F(dy * 0)) + F(dx * -s));      // the translation of the offset matrix times the yaw matrix (FUN_0043a9e5): z * R10 + y * R6 + x * R2
+  const gdd = F(F(g * D) * D);
+  const a = F(-gdd / F(F(speed * speed) + F(speed * speed)));
+  const r = quadratic(a, D, F(-dy + a));
   if (!r) return null;
   // FUN_005f89c9's outputs go to (param_5, param_4) of FUN_005f87e1: the first root (-b - s) / 2a is the HIGH lob, the second the flat one
   return { flat: r.second, lob: r.first };
@@ -75,26 +83,26 @@ export class CannonNode implements BehaviourNode {
   /** FUN_00619c97: turn the cannon straight at `target` and take the launch vector from its new heading (speed * (fx, 1, fz)) */
   private aimNow(rec: GameRecord, target: ArrayLike<number>, speed: number): void {
     const err = yawError(rec, target);
-    rec.ry = wrapPi(rec.ry - err);
+    rec.ry = wrapPi(F(rec.ry - err));
     rec.setEuler(rec.rx, rec.ry, rec.rz, rec.x, rec.y, rec.z);
-    this.aimVec = [rec.m[8] * speed, 1 * speed, rec.m[10] * speed];
+    this.aimVec = [F(speed * rec.m[8]), F(speed * 1), F(speed * rec.m[10])];
   }
   /** FUN_00619dbf: the same without moving the cannon (the matrix is computed on the side) */
   private aimSide(rec: GameRecord, target: ArrayLike<number>, speed: number): void {
     const err = yawError(rec, target);
-    const ry = wrapPi(rec.ry - err);
+    const ry = wrapPi(F(rec.ry - err));
     // the matrix is computed on the side: the forward row of (rx, ry, rz) at the cannon's position
     const m = new Float32Array(16);
     const save = rec.m.slice();
     rec.setEuler(rec.rx, ry, rec.rz, rec.x, rec.y, rec.z);
     m.set(rec.m);
     rec.m.set(save);
-    this.aimVec = [m[8] * speed, 1 * speed, m[10] * speed];
+    this.aimVec = [F(speed * m[8]), F(speed * 1), F(speed * m[10])];
   }
   /** FUN_00619c20: the muzzle (0, 4.8, 11.2) in the cannon's frame */
   private placeMuzzle(rec: GameRecord): void {
-    const p = rec.toWorld(K.MUZZLE);
-    this.muzzle = [p[0], p[1], p[2]];
+    const p = toWorld24(rec.m, K.MUZZLE);
+    this.muzzle = [F(p[0]), F(p[1]), F(p[2])];
   }
 
   /** FUN_00619ec9: true when this cannon can fire now (the aim and the launch angles are in `this.roots`) */
@@ -102,9 +110,10 @@ export class CannonNode implements BehaviourNode {
   private wantsToFire(rec: GameRecord): boolean {
     const st = this.st;
     if (st.phase === PHASE.BRIDGE) {
-      const d = [st.bridge[0] - st.pepper.x, st.bridge[1] - st.pepper.y, st.bridge[2] - st.pepper.z];
-      const f = st.rand(1);
-      const target = [d[0] * f + st.pepperPos[0], d[1] * f + st.pepperPos[1], d[2] * f + st.pepperPos[2]];
+      // single floats throughout: the offset, the random fraction, the target (FUN_00619ec9)
+      const d = [F(st.bridge[0] - st.pepper.x), F(st.bridge[1] - st.pepper.y), F(st.bridge[2] - st.pepper.z)];
+      const f = F(st.rand(1));
+      const target = [F(F(d[0] * f) + st.pepperPos[0]), F(F(d[1] * f) + st.pepperPos[1]), F(F(d[2] * f) + st.pepperPos[2])];
       this.aimNow(rec, target, st.shotSpeed);
       this.placeMuzzle(rec);
       this.roots = solveShot(st.g, this.muzzle, target, this.aimVec[1]);
@@ -135,7 +144,6 @@ export class CannonNode implements BehaviourNode {
           const b = allocBall(st);
           this.ball = b ? b.idx : -1;
           if (b) {
-            st.fx('cannonFire', this.muzzle);
             this.recoil = [this.recoil0[0], this.recoil0[1], this.recoil0[2]];
             placeBall(b, this.muzzle, this.aimVec);
             const r = this.roots!;
@@ -212,7 +220,7 @@ export class CedricNode implements BehaviourNode {
     st.bind(w);
     negateCannonHeading(st);
     st.perches = st.enemy.map((r, i): Perch => ({ rec: r, pos: [0, 0, 0], bit: 1 << i }));
-    st.enemy.forEach((r, i) => { const p = r.toWorld(K.CED_PERCH); st.perches[i].pos = [p[0], p[1], p[2]]; });
+    st.enemy.forEach((r, i) => { const p = toWorld24(r.m, K.CED_PERCH); st.perches[i].pos = [p[0], p[1], p[2]]; });
     const a = st.cedric.anim;
     if (a) {
       a.start(CLIP.CED_TAKEOFF, 0); this.frames.takeoff = Math.trunc(a.frameCount);
@@ -239,8 +247,8 @@ export class CedricNode implements BehaviourNode {
     const dt = w.dt;
     const cannon = st.enemy[this.cur];
     st.cedricAt = this.cur;
-    this.timer += 1 * dt;
-    rec.anim?.advance(this.rate);
+    this.timer = F(F(1 * dt) + this.timer);
+    rec.anim?.advance(this.rate, dt);
     const perch = st.perches[this.cur];
     switch (this.state) {
       case 0: {
@@ -250,8 +258,8 @@ export class CedricNode implements BehaviourNode {
           this.scatter = 4.5 * 8;
           const p = playerPoint(st);
           st.target = [p[0], p[1], p[2]];
-          st.target[0] = st.rand(this.scatter) - this.scatter * 0.5 + st.target[0];
-          st.target[2] = st.rand(this.scatter) - this.scatter * 0.5 + st.target[2];
+          st.target[0] = F(F(st.rand(this.scatter) - F(this.scatter * 0.5)) + st.target[0]);       // every x87 operation rounds to a float (24-bit precision)
+          st.target[2] = F(F(st.rand(this.scatter) - F(this.scatter * 0.5)) + st.target[2]);
           this.timer = 0; this.duration = 100;
           this.started = true;
         }
@@ -262,11 +270,10 @@ export class CedricNode implements BehaviourNode {
         }
         let err = yawError(cannon, st.target);
         if (err <= K.CED_TURN) { if (err < -K.CED_TURN) err = -K.CED_TURN; } else err = K.CED_TURN;
-        cannon.ry -= err * dt;
-        cannon.ry = wrapPi(cannon.ry);
+        cannon.ry = wrapPi(F(cannon.ry - err * dt));
         cannon.setEuler(cannon.rx, cannon.ry, cannon.rz, cannon.x, cannon.y, cannon.z);
         rec.m.set(cannon.m);
-        const pp = cannon.toWorld(K.CED_PERCH);
+        const pp = toWorld24(cannon.m, K.CED_PERCH);
         rec.m[12] = pp[0]; rec.m[13] = pp[1]; rec.m[14] = pp[2];
         perch.pos = [rec.m[12], rec.m[13], rec.m[14]];
         rec.rx = cannon.rx; rec.ry = cannon.ry; rec.rz = cannon.rz;
@@ -311,18 +318,18 @@ export class CedricNode implements BehaviourNode {
             const dest = st.perches[this.next].pos;
             let vy = st.hop[this.cur][this.next] / 2;
             this.scale = 1;
-            const dx = dest[0] - sx, dy = dest[1] - sy, dz = dest[2] - sz;
+            const dx = F(dest[0] - sx), dy = F(dest[1] - sy), dz = F(dest[2] - sz);        // the offsets, the velocities, the duration: single floats
             this.vy = vy;
-            let r = quadratic(-(st.g * K.CED_SCALE), this.vy * K.CED_SCALE, -(dy * K.CED_SCALE));
+            let r = quadratic(F(-F(st.g * K.CED_SCALE)), F(this.vy * K.CED_SCALE), F(-F(dy * K.CED_SCALE)));
             let guard = 0;
-            while (!r && guard++ < 1000) { this.vy += K.CED_VY_STEP; r = quadratic(-(st.g * K.CED_SCALE), this.vy * K.CED_SCALE, -(dy * K.CED_SCALE)); }
+            while (!r && guard++ < 1000) { this.vy = F(this.vy + K.CED_VY_STEP); r = quadratic(F(-F(st.g * K.CED_SCALE)), F(this.vy * K.CED_SCALE), F(-F(dy * K.CED_SCALE))); }
             vy = this.vy;
             this.duration = r ? (r.second <= r.first ? r.first : r.second) : 30;
-            this.vx = dx / this.duration; this.vz = dz / this.duration;
+            this.vx = F(dx / this.duration); this.vz = F(dz / this.duration);
           }
           if (this.duration <= K.CED_SHORT) { rec.anim?.start(CLIP.CED_WAVE, 0); this.rate = 1; }
-          else if (this.vz < 0) { rec.anim?.start(CLIP.CED_HOP_DOWN, 0); this.rate = this.frames.hopDown / this.duration; }
-          else { rec.anim?.start(CLIP.CED_HOP_UP, 0); this.rate = this.frames.hopUp / this.duration; }
+          else if (this.vz < 0) { rec.anim?.start(CLIP.CED_HOP_DOWN, 0); this.rate = F(this.frames.hopDown / this.duration); }
+          else { rec.anim?.start(CLIP.CED_HOP_UP, 0); this.rate = F(this.frames.hopUp / this.duration); }
           if (cannon.flags & RF_ENABLED) st.cedricFire = true;
           this.timer = 0;
           this.state = 3; this.started = false;
@@ -331,9 +338,9 @@ export class CedricNode implements BehaviourNode {
       }
       case 3: {
         if (this.timer < this.duration) {
-          rec.m[12] += this.vx * dt;
-          rec.m[13] = (this.vy * this.scale - this.timer * st.g) * this.timer + perch.pos[1];
-          rec.m[14] += this.vz * dt;
+          rec.m[12] = F(F(this.vx * dt) + rec.m[12]);
+          rec.m[13] = F(F(F(F(this.vy * this.scale) - F(this.timer * st.g)) * this.timer) + perch.pos[1]);
+          rec.m[14] = F(F(this.vz * dt) + rec.m[14]);
           st.sound.at(Math.trunc(st.rand(100)) < 50 ? 'jump2' : 'jump1', [rec.x, rec.y, rec.z]);
         } else {
           this.timer = 0; this.duration = 10;

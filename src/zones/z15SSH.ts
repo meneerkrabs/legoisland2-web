@@ -1,6 +1,7 @@
 // z15SSH "Slangen schieten" (Adventure Island, zone table index 12): ported in M6 (docs/re/m6/z15SSH.md). Registers the constructors of the zone's two behaviour
 // nodes (`Walk` = the coconut buggy, `Snake`: src/zones/z15ssh/rules.ts) and the zone game: the HUD (score, gems), the crosshair, the intro / banner texts and
 // speech, the sounds, the result variables.
+import { ZoneParticles } from '../fx/particles/zone.ts';
 import { registerCtor } from '../game/setup.ts';
 import { V } from '../game/vars.ts';
 import { registerZoneGame } from '../shell/zonegame.ts';
@@ -47,12 +48,15 @@ registerZoneGame('z15SSH', async (ctx) => {
   const { world, loaded, archive, scene, vars, sh, hud, gr } = ctx;
   const audio = new SshAudio(sh.audio.ga ?? null);
   const { node, parts, cart } = prepareSsh(world, loaded, archive, scene, { sounds: audio, say: (id) => ctx.say(id) });
+  // FUN_0065760c: FUN_00442900("Z15SSH"); the buggy's constructor FUN_00659d94 starts the two trexfeet emitters
+  const fx = await ZoneParticles.create(ctx);
+  if (fx) node.startFx(fx, cart);
   gr.partMatrices = parts.overrides;       // the live wheel / turret matrices of the buggy
   gr.refreshViews();                       // the coconut helper records
   // the focus record's blob shadow (Pepper's, SWITCH_GME_PEPPERSSHADOW = var 0xc5, -1 = off) smears over the steep canyon walls under a buggy that follows a path: off for the ride, restored at the end (port decision, docs/re/m6/z15SSH.md)
   const shadowVar = vars.get(V.PEPPERSSHADOW);
   vars.set(V.PEPPERSSHADOW, -1);
-  gr.poseRange = 500;                      // the snakes are posed from far away (the original poses every record it draws)
+  gr.poseRange = 1e9;                     // the original poses every animated record it draws (any distance)
   hud.visible = false;
   hud.left = { tex: -1, tint: 0xffffffff };   // DAT_05d4dd14 = -1: no left icon
   hud.right = { tex: 1, tint: 0xffffffff };   // FUN_00658834: DAT_05d4dd38 = 1 (the gem), DAT_05d4dd3c = -1 (white)
@@ -85,9 +89,8 @@ registerZoneGame('z15SSH', async (ctx) => {
       if (!bannerDone) { applyResult(vars, node.finalScore, node.result); bannerDone = true; }
       void result;
     },
-    draw2d(ui: Ui2D, _dt: number, mode: number) {
-      if (mode !== 2) return;
-      // FUN_0065817c: the crosshair (overlay texture 0, 64 x 64) where the turret points
+    draw2d(ui: Ui2D) {
+      // FUN_0065817c: the crosshair (overlay texture 0, 64 x 64) where the turret points; the original draws it in every loop mode (the panels of the intro / help / banner / result are drawn over it)
       const c = node.crosshair(cart);
       ui.sprite(hud.set, 0, [c.x - 32, c.y - 32, c.x + 32, c.y + 32], 0xffffffff);
     },

@@ -11,9 +11,10 @@ import { IT, MenuEngine } from './menu.ts';
 import type { MenuItem, MenuPage, PointerState } from './menu.ts';
 import { drawMenu, menuLabel, readRowTables } from './menudraw.ts';
 import type { MenuGfx, MenuRowTables } from './menudraw.ts';
-import { keyCodeName } from './dik.ts';
+import { keyCodeLabel } from './dik.ts';
 import { EMPTY_SLOT_CAPTION } from './save.ts';
 import type { SaveHeader } from './save.ts';
+import { applyUiOffsets } from './uioffsets.ts';
 
 /** what the menu needs from the shell */
 export interface MenuContext {
@@ -43,6 +44,8 @@ export interface MenuContext {
   newGame(): boolean;
   /** the key bindings changed: the input mapper must pick them up */
   keysChanged(): void;
+  /** FUN_00438099 (the key capture of the key page): the key code that is down now and may be bound (`own` = the entry's current key), 0 = none */
+  captureKey(own: number): number;
   /** options changed: apply (volumes, draw distance ...) */
   optionChanged(index: number): void;
   /** font metrics for the panel widths */
@@ -52,6 +55,9 @@ export interface MenuContext {
   /** the original's story-checkpoint list (page 17, the Mod Manager's "Debug Mode") and what choosing an entry does (FUN_0041be4e); absent = the page stays empty */
   checkpoints?: LevelEntry[];
   gotoCheckpoint?(entry: LevelEntry): void;
+  /** the original's QA zone list (page 26, reached from the alternative main menu 25 that nothing opens; debug mode only, src/devcorner) and its action (FUN_0041be4e, branch 0x1a) */
+  allZones?: LevelEntry[];
+  gotoZone?(entry: LevelEntry): void;
 }
 
 export function toEnginePages(raw: RawPage[]): MenuPage[] {
@@ -61,7 +67,7 @@ export function toEnginePages(raw: RawPage[]): MenuPage[] {
 /** result codes of the event handler (FUN_0041b500) */
 export const MR = { STAY: 0, RESUME: 1, QUIT: -1, RESTART: -2, ABANDON: -3, CREDITS: -4 } as const;
 
-const GFX_DISPLAY_ITEM = 4, GFX_DISPLAY_ACTION = 14, CHECKPOINT_PAGE = 17;
+const GFX_DISPLAY_ITEM = 4, GFX_DISPLAY_ACTION = 14, CHECKPOINT_PAGE = 17, ALLZONES_PAGE = 26;
 const LOAD_PAGE = 2, SAVE_PAGE = 3, ERASE_PAGE = 8, NEWGAME_LIST = 7, OPTIONS_SOUND = 11, OPTIONS_GAME = 12, OPTIONS_GFX = 10, OPTIONS_CTRL = 9, KEYS_PAGE = 13, PAUSE_ISLAND = 5;
 
 export class MenuUi {
@@ -71,6 +77,9 @@ export class MenuUi {
   mask = 0;
   /** key bindings when the key page was entered (restored when it is left with "cancel") */
   private keyBackup: number[] | null = null;
+  /** DAT_009d9fc0 / DAT_009d9fc4: a bindable key was down at the last poll of the capture (it is bound when it is let go) and which one; never reset by Esc, like the original */
+  private capHeld = false;
+  private capCode = 0;
   private pages: MenuPage[];
 
   constructor(ctx: MenuContext, pages: RawPage[]) {
@@ -101,14 +110,15 @@ export class MenuUi {
   open(page: number, mask = 0, pause = false) {
     this.mask = mask;
     this.pauseRoot = pause;
+    // FUN_0041bd3d's opening call: var 10 (FX_PARTICLE_ONLYRENDER) = 1 while a pause menu is open (the particle and brick effects only draw), 0 again when it returns a result
+    if (pause) this.ctx.vars.set(10, 1);
     this.syncFromOptions();
-    // FUN_004201aa: the pause menus use other text offsets
-    this.engine.titleDy = pause ? 0x12 : 14;
-    this.engine.itemDy = pause ? -2 : -4;
+    // FUN_0041c080 (-> FUN_004201aa) runs before every menu of the original opens (pause trigger, result menu, the front end's set-up): the offsets are the executable's globals now
+    applyUiOffsets();
     this.engine.openAt(page);
   }
   get isOpen() { return this.engine.open; }
-  close() { this.engine.close(); }
+  close() { this.engine.close(); if (this.pauseRoot) { this.ctx.vars.set(10, 0); this.pauseRoot = false; } }
 
   // ---- the page set-up functions of the EXE ---------------------------------------------------------------------------------------------------
   private setup(page: number, at: number, item: MenuItem | null, index: number, e: MenuEngine): number {
@@ -119,6 +129,13 @@ export class MenuUi {
         return -1;
       }
       case 0x41afbc: break;
+      case 0x41ade0: { // the confirm page (20, FUN_0041ade0): its title is the title of the page that opened it, or (the pause menus' "!PAUSE") the label of the item that was chosen
+        if (item || e.stack.length === 0) return -1;
+        const from = e.stack[e.stack.length - 1], src = this.pages[from.page];
+        const title = src.items[0].label;
+        e.cur.items[0].label = title.toLowerCase() === '!pause' ? src.items[from.item].label : title;
+        return -1;
+      }
       case 0x41b227: { // story checkpoints (page 17; reachable through the Debug Mode patch): list entry `index` = record `index` of the table at 0x8a5c68 (label, disable mask)
         if (!item) return 0;
         const t = c.checkpoints;
@@ -126,6 +143,14 @@ export class MenuUi {
         item.label = t[index].label;
         item.disable = t[index].mask;
         return t.length - 1 - index;   // FUN_0041b227 returns 0x24 - index: the entries that follow this one
+      }
+      case 0x41b274: { // QA zone list (page 26): entry `index` = record `index` of the table at 0x8a62c8; FUN_0041b274 returns 0x19 - index
+        if (!item) return 0;
+        const t = c.allZones;
+        if (!t || index < 0 || index >= t.length) return -1;
+        item.label = t[index].label;
+        item.disable = t[index].mask;
+        return t.length - 1 - index;
       }
       case 0x41b037: { // key list (FUN_0041b037): entry `index` of the 13 keys
         if (!item) return 0;
@@ -152,7 +177,8 @@ export class MenuUi {
       // (type 9) that are only greyed while a cutscene runs (FUN_0045c432), an empty slot is chosen like any other (loading it does nothing, saving fills it)
       for (let i = 1; i < 8 && i < p.items.length; i++) {
         const it = p.items[i];
-        if (c.cutsceneRunning()) { it.label = '<________>'; it.type = IT.TITLE; it.disable = 0x20; continue; }
+        if (c.cutsceneRunning()) { it.label = EMPTY_SLOT_CAPTION; it.type = IT.TITLE;   // the exe's string at 0x8a976c / 0x8a9778 is "<-------->" like the empty caption
+           it.disable = 0x20; continue; }
         const h = c.slotHeader(i - 1);
         const id = h ? c.captionId(h.fsmState) : null;
         it.label = (id && c.msgs.label('!' + id)) || EMPTY_SLOT_CAPTION;
@@ -160,7 +186,7 @@ export class MenuUi {
         it.disable = 0;
       }
     }
-    if (e.page === OPTIONS_GFX) { for (let i = 3; i < p.items.length; i++) p.items[i].disable = 0x20; } // resolution: nothing to choose in a browser
+    if (e.page === OPTIONS_GFX) { for (let i = 3; i < p.items.length; i++) if (p.items[i].type !== IT.BACK) p.items[i].disable = 0x20; } // the device / resolution entries: nothing to choose in a browser (the back item stays enabled like the original's)
     // ... except the resolution entry (action 14, item 4): it is the browser's "Beeld" choice, 4:3 (original) or widescreen; the page keeps its rows
     if (e.page === OPTIONS_GFX && c.display && p.items[GFX_DISPLAY_ITEM]?.value === GFX_DISPLAY_ACTION) {
       const it = p.items[GFX_DISPLAY_ITEM];
@@ -181,8 +207,22 @@ export class MenuUi {
     if (!e.open) return 0;
     this.refreshPage();
     if (e.cur.kind === 1 && e.page === KEYS_PAGE && !this.keyBackup) this.keyBackup = Array.from({ length: 13 }, (_, i) => this.ctx.options.a[S.KEY_FIRST + i]);
+    if (e.page === KEYS_PAGE && e.capture !== 0) this.pollCapture();
     const r = e.step(pressed, this.mask, pointer);
     return this.handle(r.ev, r.a, r.b);
+  }
+
+  /**
+   * FUN_0041f966 + FUN_00438099: while a key is waited for, the keys are polled every tick. A key that may be bound (not the current key of any entry, not Esc / F10 / the Windows keys /
+   * the grave accent key; the entry's own current key counts) is remembered while it is down; the entry is bound to it in the tick after it is let go (not when it goes down).
+   */
+  private pollCapture() {
+    const e = this.engine, c = this.ctx;
+    const idx = e.item / 10 - 1 + e.scroll;
+    const own = idx >= 0 && idx < 13 ? c.options.a[S.KEY_FIRST + idx] >>> 0 : 0;
+    const k = c.captureKey(own);
+    if (k !== 0) { this.capHeld = true; this.capCode = k; }
+    else if (this.capHeld) { this.capHeld = false; e.feedKey(this.capCode); }
   }
 
   /** FUN_0041b500 (and the tail of FUN_0041be4e / FUN_0041bd3d) */
@@ -204,13 +244,13 @@ export class MenuUi {
       case 5: this.toggle(b); break;
       case 6: this.slider(b); break;
       case 8: {
-        // key bound (FUN_00437e82): the new key goes to this entry; an entry that had it gets the old one
+        // key bound (FUN_00437e82): the key becomes this entry's current key at once (no other entry can have it: the capture skips those; the entry's fixed key stays live
+        // again unless another entry's current key is the same, which InputMapper.makeBindings derives); leaving the page with "cancel" puts the old keys back (FUN_00437f6e)
         const idx = e.item / 10 - 1 + e.scroll;
         if (idx >= 0 && idx < 13) {
-          const old = o.a[S.KEY_FIRST + idx];
-          for (let i = 0; i < 13; i++) if (i !== idx && o.a[S.KEY_FIRST + i] === b) o.set(S.KEY_FIRST + i, old);
           o.set(S.KEY_FIRST + idx, b);
           e.refreshList();
+          c.keysChanged();
         }
         break;
       }
@@ -230,6 +270,12 @@ export class MenuUi {
       const entry = c.checkpoints?.[this.engine.scroll + this.engine.item / 10 - 1];
       if (!entry) return MR.STAY;
       c.gotoCheckpoint(entry);
+      return MR.ABANDON;
+    }
+    if (this.engine.page === ALLZONES_PAGE && c.gotoZone) {
+      const entry = c.allZones?.[this.engine.scroll + this.engine.item / 10 - 1];
+      if (!entry) return MR.STAY;
+      c.gotoZone(entry);
       return MR.ABANDON;
     }
     if (id === 1) res = MR.ABANDON;
@@ -292,7 +338,7 @@ export class MenuUi {
       gfx, rows: c.rows, mask: this.mask | 0x20,
       label: (it) => menuLabel(it.label, msg),
       onText: msg('FEON'), offText: msg('FEOFF'),
-      keyName: (code) => keyCodeName(code, c.keyNames),
+      keyName: (code) => c.msgs.label(keyCodeLabel(code, c.keyNames)),   // FUN_0043839f's label through the menu text resolver: `!UP` -> OMHOOG, `MOUSE2` as is
       headers: [msg('ACTION'), msg('SET') + ' 1', msg('SET') + ' 2'],
     });
   }

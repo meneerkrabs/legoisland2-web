@@ -58,7 +58,8 @@ export class BeltSound {
     if (!this.ready) return;
     if (state === ST.INTRO) this.play(SND.THRUST);
     if (state === ST.FLY) { this.play(SND.THRUST); this.play(SND.GYRO); }
-    if (state <= ST.HIT) { this.rate(SND.THRUST, engine.thrustRate); this.rate(SND.GYRO, engine.gyroRate); }
+    this.rate(SND.THRUST, engine.thrustHz);      // FUN_007b6f1f sets the thrust pitch in every state while the spool moves (the end states spool it down)
+    if (state <= ST.HIT) this.rate(SND.GYRO, engine.gyroHz);
     if (engine.gyroStopped) { this.stop(SND.GYRO); engine.gyroStopped = false; }
     if (state === ST.END) { this.stop(SND.ENGINE); this.play(SND.ENGINE_IDLE); }
   }

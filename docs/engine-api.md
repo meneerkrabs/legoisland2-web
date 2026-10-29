@@ -174,13 +174,17 @@ for (const o of records) {                              // record order = draw o
 
 | API | what |
 |---|---|
-| `new Renderer(canvas)` | creates the WebGL2 context and shader programs. Fields: `fog: FogState`, `lights: LightSet`, `cull` (0/1), `cwFront`, `mipmaps`, `stats` |
+| `new Renderer(canvas)` | creates the WebGL2 context and shader programs. Fields: `fog: FogState`, `lights: LightSet`, `eye` (camera position for the specular term), `cull` (0/1), `cwFront`, `mipmaps`, `stats` |
 | `r.mesh(archive, member)` / `r.uploadMesh(msh)` | parse + upload a `.msh` (cached) / upload an already parsed (e.g. CPU-skinned) mesh; returns `MeshGpu` (`groups`, `min`, `max`, `center`, `radius`) |
 | `r.texture(archive, id, dir = 'textures')` | `TextNNN.tga` or `.wib` as `TexGpu`; wrap / clamp per `text.txl`; animated `.wib` register themselves for `updateTextures` |
 | `r.updateTextures(dt)` | steps animated textures (seconds in, 30 entries per second); expression sheets (16 frames, identity sequence) stay frozen |
 | `r.setMipmaps(on)` | mip maps on / off for all textures (default off = the game's look) |
 | `r.begin(clear, viewProj)` | `clear` = fog colour of the zone; resets depth, uploads lights and fog, sets culling |
-| `r.drawMesh(mesh, world, texOf, opts)` | draws a mesh the way the game does: one state preset (from `opts.mode` or `opts.preset`), three group passes (flags 0, 1, rest). `opts`: `mode` (0..7), `preset` (0..29), `tint` (vertex colour / alpha of unlit presets), `flat` (colour of untextured groups), `highlight`, `pass` |
+| `r.drawMesh(mesh, world, texOf, opts)` | draws a mesh the way the game does: one state preset (from `opts.mode` or `opts.preset`), three group passes (flags 0, 1, rest), and the game's CPU vertex lighting into the mesh's own vertex-colour buffer (`world` = the matrix the lighting sees). `opts`: `mode` (0..7: 0 / 4 light the mesh once at its first draw, 1 at every draw, the others keep the colours), `lit` (`'once' | 'always' | 'never'` overrides), `skinned`, `preset` (0..29, never lights), `tint` (vertex colour / alpha of unlit presets), `flat` (colour of untextured groups), `highlight`, `pass` |
+| `r.setShiny(mesh, on)`, `r.resetLighting()` | `FUN_00883013`: vertex format 0x2c2 (specular colour per vertex, added after the texture stage); a new zone lights every mesh afresh |
+| `r.createBatch(nv, ni)`, `r.drawBatch(...)` | dynamic world-space triangle batches (the brick effects' 4096-vertex buffers, the view plane's polygon) |
+| `prepareLights`, `lightStatic`, `lightSkinned`, `lightShiny` (`meshlight.ts`) | the original's lighting functions (`FUN_00885664` / `00885a9a` / `0088589e` / `0088612c` / `00885e33`), verified byte for byte on the emulator |
+| `viewPlaneMesh` (`viewplane.ts`) | `FUN_0087f01e` |
 | `r.drawBox(world, min, max, color)` | debug wire box |
 | `PRESETS`, `modePreset(mode)` | the 30 Direct3D state blocks as data (`colorOp`, `alphaOp`, `blend`, `z`, `specular`) and the mode -> preset switch of `FUN_0088aca2` |
 | `lightSetFromLgt(file)`, `lightVertex(set, n)` | runtime light set (ambient = max of all ambient colours, directional lights with Y forced to be >= 0 = towards the light) and the per-vertex formula `max(ambient, screen-combine(N.L * diffuse))` |
@@ -189,7 +193,10 @@ for (const o of records) {                              // record order = draw o
 | `SkyState`, `SeaState` | per-frame matrices of the sky dome (`SSKY`, scale 1.2 * far x (camera y + 100)) and the sea plane (`SSEA`, 2.5 * range, snapped anchor + orbit, y = sea level); modes `SKY_MODE` 2, `SEA_MODE` 3, `SEABED_MODE` 3, `SEA_EDGE_MODE` 2 |
 | `GAME_TICK` (30), `DEFAULT_FOV` (1.0 rad), `GAME_ASPECT_HW` (0.75) | constants of the game's time base and projection |
 
-What a particle / shadow / 2D module should do (not implemented yet) is specified in docs/re/rendering.md sections 8, 9 and 11.
+Second pass (WP-RENDER): `render/math.ts` `mulGame` / `transformPointGame` / `transformDirGame` = `FUN_0043a9e5` / `FUN_0043ab72` / `FUN_0043abe6` (float-exact: x87 in 24-bit mode, adds in x, y, z order); `render/states.ts` `GAME_Z_RANGE` / `d3dZRange` (viewport depth range [0, 0.001]); `render/viewplane.ts` `viewPlaneTexturedMesh` (the original's unused textured pass, `GameRenderer.viewPlaneTextured` / `viewPlaneTexture`, debug option: F8 or `?debug=1&viewplane[=n]`);
+`game/controller.ts` `runDrawHooks(w, rec, hook?)` = the per-record dispatch of `FUN_0042271b` (called by `GameRenderer.render` for every record; `drawPass` uses it too); `Controller.probe` + `game/probehost.ts` (`armControllerProbe` = `FUN_00427014`, `runProbePass` = `FUN_00427233`, run by `World.tick` before the pre-render pass); `game/shadow.ts` `shadowGate` (what `FUN_00444940` returns to the draw pass); `game/fogphases.ts` `pickFogCall`.
+
+GameRenderer (src/game/render.ts) adds the record-level pieces: `setPartMode(record, mask, mode)` = `FUN_00444550`, `setShiny(record)` = `FUN_004446c0`, `drawBlobShadow(...)` = `FUN_00444940` (src/game/shadow.ts), `setViewPlane`, the flowing-water scroll, the fog phases (src/game/fogphases.ts) and the probe pass module (src/game/probe.ts). Particles and the 2D layer: docs/re/rendering.md sections 8 and 11.
 
 Viewer options (`?viewer=1`): `&zone=z02LGI`, `&mode=grid`, HUD checkboxes `game look` (game projection, fog, lighting; also `&game=0`), `draw distance` slider (`&slider=50`), `mip maps` (`&mips=1`), `force LOD0`, `winding`.
 Headless screenshots: `VIEWS='name:x,y,z,yaw,pitch;...' TAG=prefix node tools/browse.mjs "http://localhost:5499/?viewer=1&zone=z02LGI" tools/steps/viewer.mjs --size 1280x800`
@@ -207,10 +214,11 @@ except `test.ts`; the style player and the synth are pure TypeScript and also ru
 | `index.ts` | `GameAudio.create(ctx, destination, files)`: reads the EXE tables, builds `sfx`, `speech`, `music`, `ambience`; `options` (music / sfx / speech sliders, 0..100, default 80); `resetZone()` |
 | `tables.ts`, `files.ts` | `readAudioTables(exeBytes)` (sound / speech / music / ambience tables of the EXE); `AudioFiles` (`read(path)`; `GameFiles` fits), `normalizePath`, `readTolerant` |
 | `sfx.ts` | `SoundEngine`: slots, 16 + 16 voices, 2D / 3D, pitch, listener |
-| `speech.ts` | `SpeechEngine`: MP3-in-WAV lines, `say(a, b)`, subtitle hooks |
-| `music.ts` | `MusicEngine`: `load(key)`, `play(handle)`, `stopAll()`, `setGroove(n)`, volume (the game's dB formula) |
+| `speech.ts` | `SpeechEngine`: MP3-in-WAV lines; the original's request / state machine (`say(a, b)` = FUN_00435a11, `tick(dt)` = FUN_00435a5e once per frame, `idle` = FUN_00435ad3), subtitle hooks |
+| `music.ts` | `MusicEngine`: `load(key)`, `warm()`, `play(handle)` (starts one DirectMusic prepare time, 1000 ms, later on the render clock; a running segment is cut exactly then), `stopAll()`, `setGroove(n)`, `pollNotification()` (FUN_00443370), volume (the game's dB formula), `log` |
 | `ambience.ts`, `midi.ts` | `AmbienceEngine` + `parseSmf` / `MidiRenderer`: the six looping MIDI beds through the DLS synth |
-| `stream.ts` | `SynthStream`: renders a synth block by block ahead of time and schedules `AudioBuffer`s (no AudioWorklet; 0.3 s ahead, 0.4 s worst-case music cut latency) |
+| `stream.ts` | `SynthStream`: renders a synth block by block ahead of time and schedules `AudioBuffer`s at exact context times (no AudioWorklet; 0.3 s ahead; `lead` = how far the render head is ahead of the audible output) |
+| `zonesounds.ts`, `zonemusic.ts`, `listener.ts`, `sea.ts` | the original's per-zone sound lists (generated by `tools/gen/gen-zonesounds.py`), per-zone music keys and Play moments, the zones' 3D listener rule, the island's shore-clamped sea sound |
 | `footsteps.ts` | `walkSounds(surface)`, `landSound(surface)`, `SND_UI` ids (menu sounds) |
 | `dm/dls.ts` | DLS level 1/2 parser (instruments, regions, articulation connections, wave pool, loops) |
 | `dm/format.ts` | `.sgt` segment, `.sty` style, band parsers (all tracks / chunks the game's files use) |
@@ -254,9 +262,12 @@ Everything is deterministic for a given `seed` (pattern and variation choices).
 * 16 2D + 16 3D voices, 200 + 200 slots, no stealing, one voice per slot, re-triggering a playing one-shot only refreshes its volume.
 * Sample gain `floor(tableVol * sfxSlider / 100) / 127`, pan `(table.pan - 64) / 64`, rate `table.rate / fileRate`, loop count 1 / 0 (forever) / n.
 * 3D: inverse-distance law, ref distance = table min, game-side cull at table max; listener = camera. No doppler / cones / EAX.
-* Speech: one line at a time, centre, gain `speechSlider / 100`, no ducking; MP3 frames are cut out of the RIFF wrapper before `decodeAudioData`.
+* Speech: one request at a time (A, then optionally B), started by the per-frame `tick` (the first request of a session after 6 frames), centre, gain `speechSlider / 100`, no ducking; MP3 frames are cut out of the RIFF wrapper before `decodeAudioData`.
 * Music: DirectMusic master volume `dB = 0.22 * opt0 * fade - 22`; 99 synth voices; reverb off (the game switches it off); the music table's `.dls` replaces every band reference.
-* DirectMusic playback is a re-implementation, not a decoder: see the fidelity notes in docs/re/audio.md section 10.8.
+* DirectMusic playback is a re-implementation, not a decoder: see the fidelity notes in docs/re/audio.md section 10.8; the start time and cut semantics, notifications and the per-zone Play moments are in section 11.
+
+### The shell's audio host (`src/shell/audiohost.ts`)
+`sh.audio` (`AudioHost`) sits between the zones and `GameAudio`: `enterZone(zone)` (awaited by the zone runner) loads the zone's sound list and music key(s) like the original's zone start, `leaveZone()` resets, `play(id)` / `playAt(id, pos)` / `stop(id)` / `rate(id, hz)` act on the zone's slots by sound id (a sound the list does not hold is loaded on demand and plays when ready: nothing is dropped), `modeChange(prev, mode)` starts the music at the original's moment (leaving the intro / the help), `frame(camera, dt)` (3D listener + speech tick, once per loop frame), `playMusic(key, groove?)`, `preloadMusic(keys)`, `loadExtra(loads)`, `slot(kind, id, n)` / `slots(kind, id)` for zones that hold slots themselves. Debug: `window.__shell.audio.log`, `.missed`, `.ga.music.log`.
 
 ### Tests and tools
 
@@ -284,7 +295,7 @@ Shell (M2, the real flow: movies -> front end -> story -> zones; `src/shell/`):
 
 Debug handles: `window.__shell` (the `Shell`: `vars`, `story`, `options`, `slots`, `menu`, `live`, `importSlot`, `exportSlot`), `window.__zone` (running zone: `info`, `loaded`
 (incl. `loaded.setup`, `loaded.skipped`), `world`, `machine` (loop mode / exit), `gr`, `hud`), `window.__fe` (front end mode / page).
-Stub aids in zones without ported gameplay: F9 completes the story step the zone waits for (mini-game: success; room: back to the previous zone), F10 fails a mini-game.
+Stub aids in zones without ported gameplay (only with `?debug=1` / the "Debugmenu" option: default play has no F9 / F10 aids, F10 is the original's screenshot key, docs/re/input.md): F9 completes the story step the zone waits for (mini-game: success; room: back to the previous zone), F10 fails a mini-game.
 Save slots: on the load / save / erase page press E (export the highlighted slot as `SaveNN.lgo`) or I (import a `.lgo`).
 Headless tests: `tools/steps/shell-{flow,menu,story,zones,minigame,house}.mjs` (header of each file has the command), `node tools/test-formats.mjs --only shell-menu,shell-ui,shell-save,shell-story,shell-tables,zonesetup,ui-layout,ui-strings`.
 

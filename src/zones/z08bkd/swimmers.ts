@@ -4,13 +4,13 @@ import type { Controller } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
-import { buildMatrix } from '../../formats/matrix.ts';
+import { eulerMatrix, setEuler } from './matrix.ts';
 import { C, CLIP, FISH_TAIL, f32bits } from './consts.ts';
 import { BkdNode } from './env.ts';
 import type { Env } from './env.ts';
 import { angleDelta, dist2, normalize3, wrapAngle } from './math.ts';
 
-const fr = Math.fround;
+import { fr, ad, sb, ml, dv, asin24 } from '../common/f32.ts';
 
 /** the 13-float movement block (node +0x18 / +0xb4): rates [0] yaw [1] pitch, [3] yaw [4] pitch, [6..8] velocity, [9] turn gain, [10] turn drag, [11] speed, [12] drag */
 export type Block = number[];
@@ -18,14 +18,14 @@ export const newBlock = (turn: number, drag: number, speed: number, vdrag: numbe
 
 /** (0, 1, 0) rotated by the matrix of (pitch + pi/2, yaw, 0): the direction the body points in (FUN_0043a340 + FUN_0043abe6) */
 function forward(pitch: number, yaw: number): [number, number, number] {
-  const m = buildMatrix(fr(pitch + C.HALF_PI), yaw, 0, 0, 0, 0);
+  const m = eulerMatrix(ad(pitch, C.HALF_PI), yaw, 0);
   return [m[4], m[5], m[6]];
 }
 
 /** the target angles toward `to` (FUN_005bbd62 / FUN_005bea80): yaw = atan2(dx, dz), pitch = -asin(dy) of the normalised delta, both wrapped */
 function targetAngles(from: ArrayLike<number>, to: ArrayLike<number>): { yaw: number; pitch: number } {
   const d = normalize3([to[0] - from[0], to[1] - from[1], to[2] - from[2]]);
-  return { yaw: wrapAngle(fr(Math.atan2(d[0], d[2]))), pitch: wrapAngle(fr(-Math.asin(d[1]))) };
+  return { yaw: wrapAngle(fr(Math.atan2(d[0], d[2]))), pitch: wrapAngle(fr(-asin24(d[1]))) };
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------ fish
@@ -82,25 +82,25 @@ function steer(env: Env, rec: GameRecord, B: Block, target: ArrayLike<number>, s
   const cmd = (want: number, cur: number): { v: number; dist: number } => {
     const a = angleDelta(want, cur);
     let v = 0;
-    if (a.dir === 1) v = fr(B[9] * a.frac + 0);
-    if (a.dir === -1) v = fr(v - fr(B[9] * a.frac));
+    if (a.dir === 1) v = ml(B[9], a.frac);
+    if (a.dir === -1) v = sb(v, ml(B[9], a.frac));
     return { v, dist: a.dist };
   };
   const yaw = cmd(t.yaw, B[3]), pitch = cmd(t.pitch, B[4]);
-  B[0] = fr(fr(yaw.v + fr(B[10] * B[0])) * dt);
-  B[1] = fr(fr(pitch.v + fr(B[1] * B[10])) * dt);
-  let ny = fr(dt * B[0] + B[3]), np = fr(B[1] * dt + B[4]);
+  B[0] = ml(ad(yaw.v, ml(B[10], B[0])), dt);
+  B[1] = ml(ad(pitch.v, ml(B[1], B[10])), dt);
+  let ny = ad(ml(dt, B[0]), B[3]), np = ad(ml(B[1], dt), B[4]);
   if (yaw.dist < C.FIVE_DEG) ny = t.yaw;
   if (pitch.dist < C.FIVE_DEG) np = t.pitch;
   ny = wrapAngle(ny); np = wrapAngle(np);
   const f = forward(np, ny);
-  const k = fr(B[11] * scale);
-  B[6] = fr(fr(fr(f[0] * k) + fr(B[12] * B[6])) * dt + B[6]);
-  B[7] = fr(fr(fr(f[1] * k) + fr(B[12] * B[7])) * dt + B[7]);
-  B[8] = fr(fr(fr(f[2] * k) + fr(B[12] * B[8])) * dt + B[8]);
-  rec.setEuler(np, ny, 0, fr(B[6] * dt + rec.x), fr(B[7] * dt + rec.y), fr(B[8] * dt + rec.z));
+  const k = ml(B[11], scale);
+  B[6] = ad(ml(ad(ml(f[0], k), ml(B[12], B[6])), dt), B[6]);
+  B[7] = ad(ml(ad(ml(f[1], k), ml(B[12], B[7])), dt), B[7]);
+  B[8] = ad(ml(ad(ml(f[2], k), ml(B[12], B[8])), dt), B[8]);
+  setEuler(rec, np, ny, 0, ad(ml(B[6], dt), rec.x), ad(ml(B[7], dt), rec.y), ad(ml(B[8], dt), rec.z));
   B[3] = ny; B[4] = np;
-  rec.anim?.advance(1.0);
+  rec.anim?.advance(1.0, env.world.dt);
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------ dolphin
@@ -221,41 +221,41 @@ export class DolphinNode extends BkdNode {
     }
     if (this.jumping) {
       const a = rec.anim!;
-      if (fr(a.frameCount - C.ONE) < a.frame) { this.jumping = false; a.start(CLIP.DLPH_DOLSWIM, 0); B[4] = fr(B[4] + C.PI); }
+      if (sb(a.frameCount, C.ONE) < a.frame) { this.jumping = false; a.start(CLIP.DLPH_DOLSWIM, 0); B[4] = ad(B[4], C.PI); }
     }
     let ny: number, np: number;
     if (!steering) { ny = B[3]; np = B[4]; }
     else {
       const t = targetAngles(pos, target);
-      const sf = fr(this.speed / C.TWELVE);
+      const sf = dv(this.speed, C.TWELVE);
       const cmd = (want: number, cur: number): { v: number; dist: number } => {
         const a = angleDelta(want, cur);
-        const frac = fr(a.frac * sf);
+        const frac = ml(a.frac, sf);
         let v = 0;
-        if (a.dir === 1) v = fr(B[9] * frac + 0);
-        if (a.dir === -1) v = fr(v - fr(B[9] * frac));
+        if (a.dir === 1) v = ml(B[9], frac);
+        if (a.dir === -1) v = sb(v, ml(B[9], frac));
         return { v, dist: a.dist };
       };
       const yaw = cmd(t.yaw, B[3]), pitch = cmd(t.pitch, B[4]);
-      B[0] = fr(yaw.v * dt); B[1] = fr(pitch.v * dt);
-      const iy = fr(dt * B[0]), ip = fr(B[1] * dt);
-      if (yaw.dist < C.FIVE_DEG || yaw.dist < Math.abs(iy)) { B[0] = 0; ny = t.yaw; } else ny = fr(iy + B[3]);
-      if (pitch.dist < C.FIVE_DEG || pitch.dist < Math.abs(ip)) { B[1] = 0; np = t.pitch; } else np = fr(ip + B[4]);
+      B[0] = ml(yaw.v, dt); B[1] = ml(pitch.v, dt);
+      const iy = ml(dt, B[0]), ip = ml(B[1], dt);
+      if (yaw.dist < C.FIVE_DEG || yaw.dist < Math.abs(iy)) { B[0] = 0; ny = t.yaw; } else ny = ad(iy, B[3]);
+      if (pitch.dist < C.FIVE_DEG || pitch.dist < Math.abs(ip)) { B[1] = 0; np = t.pitch; } else np = ad(ip, B[4]);
       ny = wrapAngle(ny); np = wrapAngle(np);
     }
     const f = forward(np, ny);
     if (!airborne) {
       if (this.speed !== this.targetSpeed) {
-        if (this.targetSpeed <= this.speed) { this.speed = fr(this.speed - fr(this.accel * dt)); if (this.speed < this.targetSpeed) this.speed = this.targetSpeed; }
-        else { this.speed = fr(fr(this.accel * dt) + this.speed); if (this.targetSpeed < this.speed) this.speed = this.targetSpeed; }
+        if (this.targetSpeed <= this.speed) { this.speed = sb(this.speed, ml(this.accel, dt)); if (this.speed < this.targetSpeed) this.speed = this.targetSpeed; }
+        else { this.speed = ad(ml(this.accel, dt), this.speed); if (this.targetSpeed < this.speed) this.speed = this.targetSpeed; }
       }
-      B[6] = fr(this.speed * f[0]); B[7] = fr(this.speed * f[1]); B[8] = fr(this.speed * f[2]);
+      B[6] = ml(this.speed, f[0]); B[7] = ml(this.speed, f[1]); B[8] = ml(this.speed, f[2]);
     } else {
-      this.speed = fr(C.MINUS_TWENTY_FOUR * dt + this.speed);
+      this.speed = ad(ml(C.MINUS_TWENTY_FOUR, dt), this.speed);
       B[6] = 0; B[7] = this.speed; B[8] = 0;
     }
-    rec.anim?.advance(1.0);
-    rec.setEuler(np, ny, 0, fr(B[6] * dt + pos[0]), fr(B[7] * dt + pos[1]), fr(B[8] * dt + pos[2]));
+    rec.anim?.advance(1.0, env.world.dt);
+    setEuler(rec, np, ny, 0, ad(ml(B[6], dt), pos[0]), ad(ml(B[7], dt), pos[1]), ad(ml(B[8], dt), pos[2]));
     B[3] = ny; B[4] = np;
     return NODE_STOP;
   }

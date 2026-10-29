@@ -4,7 +4,7 @@
 import { loadZone, loadExe } from '../lib/engine-load.mjs';
 import '../../src/zones/z03PPH.ts';
 import { houseOf, scanHotspots, HOTSPOT, HOTSPOT_POS, HOTSPOT_RADIUS, CAM_POS, MODE, REC, TROPHY_SOUND, SOUND_NO_TROPHY, SOUND_NO_INDEX, FORCE_PART, trophyLevelId, BROWSE_HOME,
-  MAP_TARGET, DOOR_POS, COMPUTER_POS, COMPUTER_EYE, ICON, CTOR, restoreCamera, swapInDisplayCamera } from '../../src/zones/z03PPH/house.ts';
+  MAP_TARGET, DOOR_POS, COMPUTER_POS, COMPUTER_EYE, ICON, CTOR } from '../../src/zones/z03PPH/house.ts';
 import { ComputerMenu, PAGE, enterZone, unpackMenuInternals, COMPUTER_MASK } from '../../src/zones/z03PPH/computer.ts';
 import { computeIslandTotals, IV, islandTrophy } from '../../src/zones/z03PPH/totals.ts';
 import { MenuEngine } from '../../src/shell/menu.ts';
@@ -86,12 +86,12 @@ export default {
     eq('scan: at the wall map (-15, 6)', scanHotspots(id, -15, 6, 0), HOTSPOT.MAP);
     eq('scan: at the door facing +z (-6, 9)', scanHotspots(id, -6, 9, 0.2), HOTSPOT.DOOR);
     eq('scan: at the door facing away -> the trophy box (every other place)', scanHotspots(id, -6, 9, 2.5), HOTSPOT.TROPHIES);
-    eq('scan: |ry| exactly 0.78 still counts, 0.79 does not', [scanHotspots(id, -6, 9, 0.78), scanHotspots(id, -6, 9, 0.79)], [HOTSPOT.DOOR, HOTSPOT.TROPHIES]);
+    eq('scan: |ry| exactly 0.78 still counts, 0.79 does not', [scanHotspots(id, -6, 9, Math.fround(0.78)), scanHotspots(id, -6, 9, 0.79)], [HOTSPOT.DOOR, HOTSPOT.TROPHIES]);
     eq('scan: the trophy box is 80 wide: the start place facing away from the door', scanHotspots(id, -3.75, 5.37, 3.0), HOTSPOT.TROPHIES);
     eq('scan: outside the 80 box (z = 90)', scanHotspots(id, 0, 90, 0), HOTSPOT.NONE);
     eq('scan: the corner of the computer box is exclusive of the next slot: (-6.5 + 8, ...) still the computer', scanHotspots(id, -6.52 + 8, -6.568 + 8, 0), HOTSPOT.COMPUTER);
     eq('scan: just beyond the computer box falls to the trophy box', scanHotspots(id, -6.52 + 8.01, -6.568, 0), HOTSPOT.TROPHIES);
-    eq('hotspot table: radii and positions', [HOTSPOT_RADIUS, HOTSPOT_POS[0], HOTSPOT_POS[4]], [[8, 8, 8, 80, 1.6], [-6.52, 0.96, -6.568], [-6, 0.96, 10]]);
+    eq('hotspot table: radii and positions (the float constants of the executable)', JSON.stringify([HOTSPOT_RADIUS, HOTSPOT_POS[0], HOTSPOT_POS[4]]), JSON.stringify([[8, 8, 8, 80, 1.6], [-6.52, 0.96, -6.568], [-6, 0.96, 10]].map((a) => a.map((v) => Array.isArray(v) ? v : Math.fround(v)))));
 
     // in the world: the icon and the door flag follow the hotspot
     place(-3.75, 5.37, 3.0); tick();
@@ -110,7 +110,6 @@ export default {
     st.doorOpen = true;
     const angles = []; for (let i = 0; i < 22; i++) { tick(); angles.push(door.angle); }
     // (the hotspot node resets doorOpen each tick, so drive the door node alone below)
-    restoreCamera(w);
     const dn = { angle: 0, state: 0 };
     const dr = rec[REC.DOOR];
     place(-3.75, 5.37, 0); tick(3);
@@ -151,16 +150,11 @@ export default {
     for (let i = 0; i < 40; i++) { W.tick(); const d = Math.hypot(...CAM_POS[0].map((c, k) => c - S.camCur[k])); if (d >= 0.1 && Math.abs(d / prevD - 0.9) > 0.02 && i > 0) geom = false; prevD = d; }
     ok(geom, 'the distance to the target shrinks by a factor 0.9 per tick');
     for (let i = 0; i < 80; i++) W.tick();
-    eq('camera arrives exactly at camera 0', S.camCur.map((x) => +x.toFixed(4)), [...CAM_POS[0]]);
+    eq('camera arrives exactly at camera 0', S.camCur.map((x) => +x.toFixed(4)), CAM_POS[0].map((x) => +x.toFixed(4)));
     eq('the camera looks at the player (the real camera state after the pre-render pass)', [W.camera.c[3], W.camera.c[5]].map((x) => +x.toFixed(3)), [w2.pepper.x, w2.pepper.z].map((x) => +x.toFixed(3)));
-    // the display camera is the state after the update pass (the walk node's chase code), not the fixed one
-    ok(S.dispCur && Math.abs(S.dispCur[4] - (w2.pepper.y + 4)) < 0.5, `display camera looks 4 above the player (y ${S.dispCur?.[4]?.toFixed(2)} vs ${(w2.pepper.y + 4).toFixed(2)})`);
-    const trueC = Array.from(W.camera.c.slice(0, 6));
-    swapInDisplayCamera(W);
-    eq('swap puts the display camera in', Array.from(W.camera.c.slice(0, 6)), Array.from(S.dispCur));
-    swapInDisplayCamera(W);                      // twice: the real state is only saved once
-    restoreCamera(W);
-    eq('restore brings the real camera back', Array.from(W.camera.c.slice(0, 6)), trueC);
+    // WP-VERIFY (m7-z03PPH-emu): the frame is drawn with the camera the PRE-RENDER pass left (the nodes' camera functions call FUN_0043cc5c = SetTransform(view) there, and the
+    // PeppHse draw hook re-applies it); the older "display camera" of the update pass (4 above the player) was never what the original draws
+    near('the drawn camera looks at the player\'s position (not 4 above)', W.camera.c[4], w2.pepper.y, 1e-4);
     // upper floor: the camera index follows the player height (y > 8.8)
     w2.pepper.y = 9.5; W.tick();
     eq('above y = 8.8 the second camera is used', S.camIdx, 1);

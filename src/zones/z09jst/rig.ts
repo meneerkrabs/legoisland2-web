@@ -129,9 +129,12 @@ export class JstGameNode implements BehaviourNode {
   var = 2; mask = 1; value = 1; stamp = 0xfffffffe;
   duel: JoustDuel | null = null;
   ran = 0;
+  /** the analogue stick (DAT_0098384c / DAT_00983850, -128..127): the input mapper has no stick yet, so it stays 0 (the tests set it); only read by the duel while no key is held */
+  stick: [number, number] = [0, 0];
   update(w: World): number {
     if (!this.duel) return NODE_NONE;
-    this.duel.update(w.input.held, w.input.pressed);
+    this.duel.dt = w.dt;
+    this.duel.update(w.input.held, w.input.pressed, this.stick[0], this.stick[1]);
     this.ran++;
     return NODE_STOP;
   }
@@ -140,16 +143,16 @@ export class JstGameNode implements BehaviourNode {
 export class FlagNode implements BehaviourNode {
   readonly kind = 'Flag';
   var = 2; mask = 1; value = 1; stamp = 0xfffffffe;
-  update(_w: World, rec: GameRecord): number { rec.anim?.advance(1.0); return NODE_STOP; }
+  update(w: World, rec: GameRecord): number { rec.anim?.advance(1.0, w.dt); return NODE_STOP; }
 }
 /** `Anims` (0x5d3cc1: the eight spectators): FUN_005d3b80 advances the clip by 1.0 only while the duel's level (+0x44) is 1, 2 or 3 */
 export class AnimsNode implements BehaviourNode {
   readonly kind = 'Anims';
   var = 2; mask = 1; value = 1; stamp = 0xfffffffe;
   duel: (() => JoustDuel | null) = () => null;
-  update(_w: World, rec: GameRecord, _c: Controller): number {
+  update(w: World, rec: GameRecord, _c: Controller): number {
     const d = this.duel();
-    if (d && d.level >= 1 && d.level <= 3) rec.anim?.advance(1.0);
+    if (d && d.level >= 1 && d.level <= 3) rec.anim?.advance(1.0, w.dt);
     return NODE_STOP;
   }
 }
@@ -159,6 +162,20 @@ export class DrkkNode implements BehaviourNode {
   var = 2; mask = 1; value = 1; stamp = 0xfffffffe;
   update(): number { return NODE_STOP; }
 }
+
+/**
+ * The restart of the zone (exit state 3: retry / pause menu "restart"): the original does not rebuild the node, FUN_00423532 calls the constructor FUN_005d1f64 with the existing node
+ * (else branch: the two managers re-initialised, points and score reset, FUN_005d4860). Every node field that neither the constructor nor the round set-up writes keeps its value
+ * (tools/tests/m7-z09JST-cover.mjs lists them from the oracle). Only `level` (+0x44) has a visible effect before it is overwritten: the `Anims` nodes advance the spectators' clips while it is
+ * 1 .. 3, so after a retry the crowd's idle clips run until the next round's reset; the others are all written (clash, ride, popup, end of the tournament) before anything reads them. The port
+ * rebuilds the zone, so these fields are carried over by hand.
+ */
+const CARRIED = ['level', 'variant', 'popup', 'rider', 'splineRate', 'splineT', 'aimSq', 'bonusSpeed', 'precision', 'roundPts', 'medal'] as const;
+export const restartCarry: Partial<Record<(typeof CARRIED)[number], number>> = {};
+/** remember the fields a restart keeps (the zone is left) */
+export function rememberRestart(duel: JoustDuel) { for (const k of CARRIED) restartCarry[k] = duel[k]; }
+/** put them back (`attempt` > 0 = the zone restarts in place) */
+export function applyRestart(duel: JoustDuel, attempt: number) { if (attempt > 0) for (const k of CARRIED) { const v = restartCarry[k]; if (v !== undefined) duel[k] = v; } }
 
 /** FUN_005ce1c6: the camera of the intro / help (eye and target literals) */
 export const INTRO_CAMERA = [0x41dbf766, 0x41a00069, 0xc2a66b44, 0x43506c4a, 0x418de4f7, 0xc29e3b4a].map(hexf);

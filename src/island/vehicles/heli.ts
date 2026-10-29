@@ -16,24 +16,25 @@ import { ST } from '../../game/walk.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
 import { wrapWorld } from '../../game/swim.ts';
 import { partMatrix } from '../trigger/parts.ts';
+import { ad, sb, ml, dv, fr } from '../../zones/common/f32.ts';
 import { ICON, VV, vehicles, berthPos, fabs, cutsceneActive, sfx, stopSfx, sfxFreq, setVehicleMatrix, leanFrame, padAxis, normalize } from './common.ts';
 
 /** DAT_009daa4c (FUN_004b0f16): the helicopter's engine */
 export const SND_HELI = 0x132;
 const ENGINE_IDLE = 19756.0, ENGINE_FULL = 22050.0, ENGINE_STEP = 76.0;                 // DAT_008ae2b0 / 2ac / 2b4
-const ROTOR_MAIN = 0.800000011920929, ROTOR_TAIL = 0.75;                               // DAT_00892084 / 8921f0
+const ROTOR_MAIN = fr(0.800000011920929), ROTOR_TAIL = 0.75;                               // DAT_00892084 / 8921f0
 const MIN_ALT = 16.0, CRUISE_ALT = 40.0, MAX_Y = 160.0;                                 // DAT_008ae2a0 / 2a4 / 2a8
 const YAW_RATE = 0.06283185482025147;           // double 0x892188
 const PITCH_MAX = 0.5215043950080872;           // double 0x8921e0
 const TILT_STEP = 0.031415927410125735;         // double 0x8921d8: the pitch / roll follow their targets by at most this per tick
 const ROLL_MAX = 0.26389379024505616;           // double 0x8921d0
 const THRUST = 0.7639437055824274;              // double 0x8921c8
-const CLIMB = 0.1599999964237213;               // DAT_008921c4 (also the "moving" threshold of the squared horizontal speed)
-const DRAG = 0.10000000149011612;               // DAT_008920cc
-const VY_MIN = 0.4000000059604645;              // DAT_00892118
-const DEADZONE = 0.20000000298023224;
+const CLIMB = fr(0.1599999964237213);               // DAT_008921c4 (also the "moving" threshold of the squared horizontal speed)
+const DRAG = fr(0.10000000149011612);               // DAT_008920cc
+const VY_MIN = fr(0.4000000059604645);              // DAT_00892118
+const DEADZONE = fr(0.20000000298023224);
 const PAD_SEARCH = 80.0, PAD_SEARCH_SQ = 6400.0, PAD_LAND_SQ = 256.0, EASE = 0.125;
-const CAM_BACK = -56.0, CAM_UP = 24.0, CAM_EASE = 0.3499999940395355;                  // DAT_008921c0 / 892160
+const CAM_BACK = -56.0, CAM_UP = 24.0, CAM_EASE = fr(0.3499999940395355);                  // DAT_008921c0 / 892160
 
 export class HeliNode implements BehaviourNode {
   readonly kind = 'SGHeli';
@@ -55,30 +56,31 @@ export class HeliNode implements BehaviourNode {
     G.pads.forEach((p, i) => {
       if (p.taken) return;
       const q = berthPos(p);
-      const dx = q[0] - rec.x, dz = q[2] - rec.z;
-      if (fabs(dx) <= PAD_SEARCH && fabs(dz) <= PAD_SEARCH) { const d = dz * dz + dx * dx; if (d < bestD) { best = i; bestD = d; } }
+      const dx = sb(q[0], rec.x), dz = sb(q[2], rec.z);
+      if (fabs(dx) <= PAD_SEARCH && fabs(dz) <= PAD_SEARCH) { const d = ad(ml(dz, dz), ml(dx, dx)); if (d < bestD) { best = i; bestD = d; } }
     });
     this.pad = best;
     if (best >= 0) G.pads[best].taken = true;
   }
 
-  /** FUN_004312fe */
+  /** FUN_004312fe (no dt: the pitch moves by 76 Hz per tick) */
   private engine(w: World) {
     const busy = (w.input.held & 0xaf) !== 0;
     let hz: number;
     if (!busy) {
-      if (this.engineHz <= ENGINE_IDLE) hz = this.wobbleHz(ENGINE_IDLE); else { this.engineHz -= ENGINE_STEP; hz = this.engineHz; }
+      if (this.engineHz <= ENGINE_IDLE) hz = this.wobbleHz(ENGINE_IDLE); else { this.engineHz = sb(this.engineHz, ENGINE_STEP); hz = this.engineHz; }
     } else if (ENGINE_FULL <= this.engineHz) hz = this.wobbleHz(ENGINE_FULL);
-    else { this.engineHz += ENGINE_STEP; hz = this.engineHz; }
+    else { this.engineHz = ad(ENGINE_STEP, this.engineHz); hz = this.engineHz; }
     sfxFreq(w, SND_HELI, Math.trunc(hz));
     sfx(w, SND_HELI);
   }
-  /** FUN_00431290: phase += 0.02 (double 0x8921b8) */
+  /** FUN_00431290: base + sin(phase) * (base * 0.05), phase += 0.02 (double 0x8921b8, added as a double), wraps at 360 */
   private wobbleHz(base: number): number {
+    const k = fr(base * 0.05);
     const s = Math.sin(this.wobble);
-    this.wobble += 0.02;
+    this.wobble = fr(this.wobble + 0.02);
     if (this.wobble >= 360.0) this.wobble = 0;
-    return s * (base * 0.05) + base;
+    return fr(fr(s * k) + base);
   }
 
   update(w: World, rec: GameRecord, ctrl: Controller): number {
@@ -102,10 +104,10 @@ export class HeliNode implements BehaviourNode {
     const cur = G.current ?? rec;
     const isR = rec.name === 'RHEL';
     const main = partMatrix(w, cur, isR ? 2 : 3);
-    if (main) { this.rotorMain += ROTOR_MAIN; main.set(buildMatrix(0, this.rotorMain, 0, main[12], main[13], main[14])); }
+    if (main) { this.rotorMain = ad(this.rotorMain, ROTOR_MAIN); main.set(buildMatrix(0, this.rotorMain, 0, main[12], main[13], main[14])); }
     if (isR) {
       const tail = partMatrix(w, cur, 3);
-      if (tail) { this.rotorTail += ROTOR_TAIL; tail.set(buildMatrix(this.rotorTail, 0, 0, tail[12], tail[13], tail[14])); }
+      if (tail) { this.rotorTail = ad(this.rotorTail, ROTOR_TAIL); tail.set(buildMatrix(this.rotorTail, 0, 0, tail[12], tail[13], tail[14])); }
     }
     let y = rec.y, x = rec.x, z = rec.z;                       // local_40 / 44 / 3c
     const fx = rec.m[8], fz = rec.m[10];                       // local_10 / local_8 (local_c = 0)
@@ -118,31 +120,32 @@ export class HeliNode implements BehaviourNode {
         if ((held & B.SPACE) !== 0 && (held & B.ALT) === 0) pitchIn = 1.0;
         else if ((held & B.ALT) !== 0 && (held & B.SPACE) === 0) pitchIn = -1.0;
         const padY = padAxis(held, B.UP, B.DOWN), padX = padAxis(held, B.LEFT, B.RIGHT);
-        turn = padX / 127.0;
-        climb = padY / 127.0;
+        turn = dv(padX, 127);
+        climb = dv(padY, 127);
         this.engine(w);
         if (fabs(turn) < DEADZONE) turn = 0;
         if (fabs(pitchIn) < DEADZONE) pitchIn = 0;
       } else this.state = 2;
+      const sea = fr(w.seaLevel);
       let g = w.col.terrainHeight(x, y, z, 160.0);
-      if (g < w.seaLevel) g = w.seaLevel;
-      let h = y - g;
+      if (g < sea) g = sea;
+      let h = sb(y, g);
       if (MIN_ALT <= h) {
         if (CRUISE_ALT <= h) { if (h < CRUISE_ALT + 8.0 && climb < 0) climb = 0; }
         else climb = 1.0;
       } else { h = MIN_ALT; climb = 1.0; }
-      y = h + g;
+      y = ad(h, g);
       if (y <= MAX_Y) { if (MAX_Y - 8.0 < y && 0 < climb) climb = 0; } else climb = -1.0;
       for (const p of G.pads) {
         if (p.taken) continue;
         const q = berthPos(p);
-        const dx = q[0] - x, dz = q[2] - z;
-        if (fabs(dx) <= PAD_SEARCH && fabs(dz) <= PAD_SEARCH && dz * dz + dx * dx < PAD_SEARCH_SQ) { w.vars.or(VV.ICONS, ICON.PAD); break; }
+        const dx = sb(q[0], x), dz = sb(q[2], z);
+        if (fabs(dx) <= PAD_SEARCH && fabs(dz) <= PAD_SEARCH && ad(ml(dz, dz), ml(dx, dx)) < PAD_SEARCH_SQ) { w.vars.or(VV.ICONS, ICON.PAD); break; }
       }
     } else if (this.state === 0) {
       let g = w.col.terrainHeight(x, y, z, 4.0);
-      if (g < w.seaLevel) g = w.seaLevel;
-      if (g + CRUISE_ALT < y) this.state = 1;
+      if (g < fr(w.seaLevel)) g = fr(w.seaLevel);
+      if (ad(g, CRUISE_ALT) < y) this.state = 1;
       climb = 0.5;
       if (this.pad >= 0) G.pads[this.pad].taken = false;
       this.engine(w);
@@ -151,14 +154,14 @@ export class HeliNode implements BehaviourNode {
       G.pads.forEach((p, i) => {
         if (p.taken) return;
         const q = berthPos(p);
-        const dx = q[0] - x, dz = q[2] - z;
-        if (fabs(dx) <= PAD_SEARCH && fabs(dz) <= PAD_SEARCH) { const d = dz * dz + dx * dx; if (d < bestD) { best = i; bestD = d; } }
+        const dx = sb(q[0], x), dz = sb(q[2], z);
+        if (fabs(dx) <= PAD_SEARCH && fabs(dz) <= PAD_SEARCH) { const d = ad(ml(dz, dz), ml(dx, dx)); if (d < bestD) { best = i; bestD = d; } }
       });
       if (best < 0) this.state = 1;
       else {
         const q = berthPos(G.pads[best]);
-        let dx = q[0] - x, dy = q[1] - y, dz = q[2] - z;
-        if (dz * dz + dx * dx <= PAD_LAND_SQ) {
+        let dx = sb(q[0], x), dy = sb(q[1], y), dz = sb(q[2], z);
+        if (ad(ml(dz, dz), ml(dx, dx)) <= PAD_LAND_SQ) {
           if (y <= q[1]) {
             // landed: Pepper steps off at the pad's exit node
             y = w.col.terrainHeight(x, y, z, 8.0);
@@ -181,42 +184,43 @@ export class HeliNode implements BehaviourNode {
           // above the pad: turn the nose out of the way and sink
           if (fz <= 0) turn = fx <= 0 ? 1.0 : -1.0; else turn = -fx;
           climb = -0.5;
-          x = dx * EASE + x;
-          z = dz * EASE + z;
+          x = ad(ml(dx, EASE), x);
+          z = ad(ml(dz, EASE), z);
         } else {
           if (CRUISE_ALT <= -dy) {
-            pitchIn = (fz * dz * EASE + 0 * EASE * 0 + fx * dx * EASE) * 0.25;
+            pitchIn = ml(ad(ad(ml(fx, ml(dx, EASE)), ml(0, EASE)), ml(fz, ml(dz, EASE))), 0.25);
             if (pitchIn <= 1.0) { if (pitchIn < -1.0) pitchIn = -1.0; } else pitchIn = 1.0;
           } else climb = 0.5;
-          const d = normalize([dx * EASE, EASE * 0, dz * EASE]);
+          const d = normalize([ml(dx, EASE), ml(EASE, 0), ml(dz, EASE)]);
           dx = d[0]; dy = d[1]; dz = d[2];
-          turn = rz0 * dz + ry0 * dy + rx0 * dx;
+          turn = ad(ad(ml(rx0, dx), ml(ry0, dy)), ml(rz0, dz));
           if (turn <= 1.0) { if (turn < -1.0) turn = -1.0; } else turn = 1.0;
           if (pitchIn < 0) turn = -turn;
           if (DEADZONE < fabs(turn)) pitchIn = 0;
         }
       }
     }
-    // turn, tilt towards the targets, thrust along the nose, climb
-    const yaw = turn * YAW_RATE + rec.ry;
+    // turn, tilt towards the targets, thrust along the nose, climb (no dt anywhere: the helicopter's step is per tick). The doubles (0x8921xx) are used as doubles, every result a float32.
+    const yaw = ad(rec.ry, ml(turn, YAW_RATE));
     let rx = rec.rx, rz = rec.rz;
-    const tx = pitchIn * PITCH_MAX;
-    if (tx <= rx + TILT_STEP) { rx = rx - TILT_STEP <= tx ? tx : rx - TILT_STEP; } else rx = rx + TILT_STEP;
-    const tz = -turn * ROLL_MAX;
-    if (tz <= rz + TILT_STEP) { rz = rz - TILT_STEP <= tz ? tz : rz - TILT_STEP; } else rz = rz + TILT_STEP;
-    const ax = rx * THRUST * fx - vx * DRAG;
-    const ay = (climb * CLIMB + rx * THRUST * 0) - vy * DRAG;
-    const az = rx * THRUST * fz - vz * DRAG;
-    vx += ax; vy += ay; vz += az;
-    if (CLIMB < vz * vz + vx * vx) { x += vx; z += vz; }
-    if (VY_MIN < fabs(vy)) y += vy;
+    const tx = ml(pitchIn, PITCH_MAX);
+    if (tx <= ad(rx, TILT_STEP)) { rx = sb(rx, TILT_STEP) <= tx ? tx : sb(rx, TILT_STEP); } else rx = ad(rx, TILT_STEP);
+    const tz = ml(-turn, ROLL_MAX);
+    if (tz <= ad(rz, TILT_STEP)) { rz = sb(rz, TILT_STEP) <= tz ? tz : sb(rz, TILT_STEP); } else rz = ad(rz, TILT_STEP);
+    const th = ml(rx, THRUST);
+    const ax = sb(ml(fx, th), ml(vx, DRAG));
+    const ay = sb(ad(ml(climb, CLIMB), ml(0, th)), ml(vy, DRAG));
+    const az = sb(ml(fz, th), ml(vz, DRAG));
+    vx = ad(vx, ax); vy = ad(vy, ay); vz = ad(vz, az);
+    if (CLIMB < ad(ml(vx, vx), ml(vz, vz))) { x = ad(x, vx); z = ad(z, vz); }
+    if (VY_MIN < fabs(vy)) y = ad(y, vy);
     setVehicleMatrix(rec, rx, yaw, rz, x, y, z);
     this.vx = vx; this.vy = vy; this.vz = vz;
-    if (w.focus) leanFrame(w.focus, pitchIn, true);
+    if (w.focus) leanFrame(w.focus, turn, true);        // (the multiplier is the turn: `[ebp - 0x1c]`, the yaw's factor)
     const c = w.camera.c;
-    c[0] = ((x + fx * CAM_BACK) - c[0]) * CAM_EASE + c[0];
-    c[1] = ((y + CAM_UP) - c[1]) * CAM_EASE + c[1];
-    c[2] = ((z + fz * CAM_BACK) - c[2]) * CAM_EASE + c[2];
+    c[0] = ad(c[0], ml(sb(ad(x, ml(fx, CAM_BACK)), c[0]), CAM_EASE));
+    c[1] = ad(c[1], ml(sb(ad(y, CAM_UP), c[1]), CAM_EASE));
+    c[2] = ad(c[2], ml(sb(ad(z, ml(fz, CAM_BACK)), c[2]), CAM_EASE));
     c[3] = x; c[4] = y; c[5] = z;
     wrapWorld(w, rec);
     return NODE_STOP;

@@ -5,6 +5,7 @@
 // [3] press-animation counter, [4] press-animation kind, [5] key capture state, [6] list scroll, [8] confirm target (-1), [9+2k] / [10+2k] page stack.
 // Pure: no DOM. Drawing is in menudraw.ts.
 import { B } from '../game/input.ts';
+import { uiOffsets } from './uioffsets.ts';
 
 /** item types (item +0x40) */
 export const IT = { TITLE: 0, GOTO: 1, BACK: 2, YES: 3, ACTION: 4, TOGGLE: 5, SLIDER: 6, KEY: 7, KEYSET: 8, LIST: 9, ICON: 10 } as const;
@@ -38,6 +39,8 @@ export interface MenuHooks {
   /** a page's set-up function of the EXE (by address) runs: may rewrite items / list entries; `index` = -1 for the page, else the item or list index (the engine passes list entries with index + scroll) */
   setup?(page: number, setupAt: number, item: MenuItem | null, index: number, engine: MenuEngine): number;
   sound?(kind: MenuSound): void;
+  /** FUN_00438099: the key (device << 16 | id) that is down now and may be bound to the entry whose current key is `own`, 0 = none; absent = the host calls `feedKey` itself */
+  poll?(own: number): number;
 }
 
 const NO_EVENT: MenuEvent = { ev: 0, a: 0, b: 0 };
@@ -54,11 +57,17 @@ export class MenuEngine {
   pressKind = 0;
   capture = 0;
   scroll = 0;
+  /** [8]: the page the type-9 (list) items ask for confirmation on (0x14 = page 20, set by every wrapper), -1 = act at once */
+  confirm = 0x14;
+  /** DAT_009d9fc8: the action id of the item that opened the confirm page */
+  confirmValue = 0;
   /** DAT_008a95ac: -1 = closed */
   open = false;
-  /** DAT_008a9918 / 991c: text offsets (14 / -4, the pause menu sets 0x12 / -2: FUN_004201aa) */
-  titleDy = 14;
-  itemDy = -4;
+  /** DAT_008a9918 / 991c: text offsets: globals of the executable (uioffsets.ts), shared by every menu and panel */
+  get titleDy() { return uiOffsets.titleDy; }
+  set titleDy(v: number) { uiOffsets.titleDy = v; }
+  get itemDy() { return uiOffsets.itemDy; }
+  set itemDy(v: number) { uiOffsets.itemDy = v; }
   /** list entries of the current kind-1 page (the original's DAT_009d9c38..: 8 visible) and their count */
   list: (MenuItem | null)[] = [];
   listCount = 0;
@@ -71,7 +80,7 @@ export class MenuEngine {
 
   /** FUN_0041bd3d / FUN_0041be4e initialisation: open at `page` */
   openAt(page: number) {
-    this.page = page; this.item = 1; this.stack = []; this.press = 0; this.pressKind = 0; this.capture = 0; this.scroll = 0; this.open = true;
+    this.page = page; this.item = 1; this.stack = []; this.press = 0; this.pressKind = 0; this.capture = 0; this.confirm = 0x14; this.open = true;   // the original's wrappers do not reset the scroll word [6]
     this.enterPage();
   }
   close() { this.open = false; }
@@ -140,42 +149,58 @@ export class MenuEngine {
         if (cur) { cur.value = cur.value === 0 ? 1 : 0; b = cur.value; }
         break;
       case 7:
-        this.capture = 1; this.capKey = 0;
+        this.capture = 1; this.capKey = 0; this.capOwn = cur?.value ?? 0;
         break;
       case 8: b = cur?.value ?? 0; break;
       case 9:
-        // list item (save slots, pause "abort" entries): the action id is the item's value; the original opens a confirm page only when [8] != -1
-        return { ev: 4, a: 0, b };
+        // list item (save slots, pause "abort" / "restart"): the original goes to the confirm page [8] (= 0x14, set by every open) with the action id kept in DAT_009d9fc8; only
+        // when [8] is -1 the item acts at once. The event it returns is 9 (the wrappers ignore it).
+        if (this.confirm === -1) return { ev: 4, a: 0, b };
+        this.confirmValue = b;
+        b = this.confirm;
+        this.gotoPage(b);
+        break;
       case 1:
-        this.stack.push({ page: this.page, item: this.item });
-        this.page = b; this.item = 1; this.capture = 0; this.scroll = 0;
-        this.enterPage();
+        this.gotoPage(b);
         break;
-      case 2: {
-        this.snd('back');
-        if (this.stack.length === 0) a = -1;
-        else {
-          a = this.page;
-          const s = this.stack.pop()!;
-          this.page = s.page; this.item = s.item; this.capture = 0;
-          this.scroll = 0;
-          this.enterPage();
-        }
+      case 10:
+        // the confirm page's "yes": the action of the item that opened it, then a normal back (sound included)
+        ev = 4; b = this.confirmValue;
+        a = this.back();
         break;
-      }
+      case 2:
+        a = this.back();
+        break;
     }
     return { ev, a, b };
+  }
+
+  /** case 1 of FUN_0041fd45: push (page, item), enter `page` at item 1 (the scroll word is not touched, a kind-1 page resets it on its first step) */
+  private gotoPage(page: number) {
+    this.stack.push({ page: this.page, item: this.item });
+    this.page = page; this.item = 1; this.capture = 0;
+    this.enterPage();
+  }
+  /** case 2: the sound, then pop (a = the page left, -1 at the root); the scroll word is not touched */
+  private back(): number {
+    this.snd('back');
+    if (this.stack.length === 0) return -1;
+    const a = this.page;
+    const s = this.stack.pop()!;
+    this.page = s.page; this.item = s.item; this.capture = 0;
+    this.enterPage();
+    return a;
   }
 
   /** FUN_0041fa84 */
   private input(pressed: number, mask: number, pointer?: PointerState): number {
     let ev = 0;
     if (this.capture !== 0) return this.captureStep(pressed);
-    const cur = this.current();
+    // FUN_0041fa84 picks the item (puVar2) before the mouse and the cursor keys move the cursor: all its tests below (disabled? type?) use that item
+    const c = this.current();
     // pointer: hover selects, press activates (the original's FUN_0041f181 does the same with the mouse cursor)
     if (pointer) this.pointer(pointer, mask);
     if (this.cur.kind !== 2) this.cursorKeys(pressed);
-    const c = this.current();
     const type = c?.type ?? -1;
     const off = c ? (c.disable & mask) !== 0 : true;
     if (c && !off && (pressed & B.LEFT) && type === IT.SLIDER) { this.press = 2; this.pressKind = 0; c.value = Math.max(0, c.value - 10); }
@@ -185,7 +210,6 @@ export class MenuEngine {
     if (!c || !off || type === IT.KEY) {
       if (pressed & B.SHIFT) { this.pressKind = 0; this.press = 4; }
       if (pressed & B.ENTER) { this.pressKind = 0; this.press = 4; }
-      if (pressed & B.SPACE) { this.pressKind = 0; this.press = 4; }
     }
     if (this.press === 1 && this.pressKind === 0) ev = 4;
     if (pressed & B.ESC) {
@@ -193,48 +217,68 @@ export class MenuEngine {
     }
     if (this.press > 0) this.press--;
     if (c && type !== IT.KEY && off) { this.press = 0; ev = 0; }
-    void cur;
     return ev;
   }
 
-  /** FUN_0041f695: Up / Down move the cursor through the selectable entries, wrapping; plays the move sounds */
+  /**
+   * FUN_0041f695: Up / Down move the cursor through the selectable entries, wrapping; plays the move sounds. Written like the original's control flow, including its use of the
+   * loop index `i` after the search loops: the scroll markers (-1 above, -2 below the visible entries) are never landed on, the cursor stays on the entry next to the marker and
+   * the list scrolls by one (press animation: kind 3 = down, 1 = up).
+   */
   private cursorKeys(pressed: number) {
     const list = this.cursorList();
-    if (list.length === 0) return;
+    const n = list.length;
+    if (n === 0) return;
+    // the original's local index after its item loop `for (i = 2; i < nitems; i++)` (also the stale value the Up code reads when the cursor is on the first entry)
+    let i = Math.max(2, this.cur.items.length);
     if (pressed & B.DOWN) {
       this.press = 0;
-      let i = list.indexOf(this.item);
-      if (i >= 0 && i < list.length - 1) this.item = list[i + 1]; else this.item = list[0];
+      let found = false;
+      for (i = 0; i < n - 1; i++) if (list[i] === this.item) { this.item = list[i + 1]; found = true; break; }
+      if (!found) this.item = list[0];
       if (this.item === -1) this.item = list[1];
-      if (this.item === -2) { this.scrollBy(1); this.item = list[list.length - 2]; }
+      if (this.item === -2) { this.pressKind = 3; this.press = 4; this.scroll++; this.refreshList(); this.item = list[i]; }
       this.snd('move');
     }
     if (pressed & B.UP) {
       this.press = 0;
-      let i = list.indexOf(this.item);
-      if (i > 0) this.item = list[i - 1]; else this.item = list[list.length - 1];
-      if (this.item === -2) this.item = list[list.length - 2];
-      if (this.item === -1) { this.scrollBy(-1); this.item = list[1]; }
+      let found = false;
+      if (this.item === list[0]) { this.item = list[n - 1]; found = true; } else {
+        for (i = 1; i < n; i++) if (list[i] === this.item) { this.item = list[i - 1]; found = true; break; }
+      }
+      if (!found) this.item = list[n - 1];
+      if (this.item === -2) this.item = list[i - 2];
+      if (this.item === -1) { this.pressKind = 1; this.press = 4; this.scroll--; this.refreshList(); this.item = list[i]; }
       this.snd('move');
     }
   }
-  private scrollBy(d: number) {
-    this.scroll = Math.max(0, Math.min(Math.max(0, this.listCount - 8), this.scroll + d));
-    this.refreshList();
-  }
-
-  /** FUN_0041f966: waiting for a key; the host calls feedKey with the new key code (device 1: 0x10000 | DIK) when one went down */
+  /** FUN_0041f966: waiting for a key; a host that polls the keys itself calls feedKey with the new key code (device 1: 0x10000 | DIK) when one was let go (the entry is bound on the next step) */
   feedKey(code: number) { if (this.capture !== 0 && code) { this.capKey = code; } }
+  /** DAT_009d9fc0 / DAT_009d9fc4: the poll (`hooks.poll`, FUN_00438099) reported a bindable key at the last step, and which one; never reset by Esc or by opening a page, like the original */
+  capHeld = false;
+  capCode = 0;
+  /** DAT_009db288: the key the entry being bound has now (FUN_0043808c) */
+  capOwn = 0;
   private captureStep(pressed: number): number {
-    if (pressed & B.ESC) { this.capture = 0; return 0; }
+    if (pressed & B.ESC) this.capture = 0;       // the original goes on through the poll below: a key that was down in the previous step is still bound
     if (this.capKey) {
       const c = this.current();
       if (c) c.value = this.capKey;
       this.capture = 0; this.capKey = 0;
       return 8;
     }
-    // blinking cursor: 1..5 then -1..-5 (the original's [5])
-    if (this.capture > 0) { this.capture++; if (this.capture > 5) this.capture = -1; } else { this.capture--; if (this.capture < -5) this.capture = 1; }
+    const k = this.hooks.poll ? this.hooks.poll(this.capOwn) : 0;
+    if (k !== 0) { this.capHeld = true; this.capCode = k; return 0; }
+    if (this.capHeld) {
+      const c = this.current();
+      this.capture = 0;
+      if (c) c.value = this.capCode;
+      this.capHeld = false;
+      return 8;
+    }
+    // blinking cursor: two consecutive ifs, so the step that wraps from 5 to -1 goes on to -2 at once (the period is 9 ticks: 1 2 3 4 5 -2 -3 -4 -5)
+    if (this.capture > 0) { this.capture++; if (this.capture > 5) this.capture = -1; }
+    if (this.capture < 0) { this.capture--; if (this.capture < -5) this.capture = 1; }
     return 0;
   }
 

@@ -1,9 +1,21 @@
 import { loadZone, run, press } from '../lib/engine-load.mjs';
 import { ST } from '../../src/game/walk.ts';
+import { PepSwitchNode } from '../../src/game/swim.ts';
 import { NO_GROUND } from '../../src/game/collision.ts';
 import { parseCompiledWaypoints } from '../../src/formats/waypoints.ts';
 
 // Pepper's walk (SGwalk), scenarios run on the real island / house data (src/game/walk.ts, swim.ts, camera.ts).
+// The BARE engine: the zone games ported later (importing src/zones/*, src/island/* in the shared runner registers their behaviour constructors: the house's fixed cameras, the island's
+// IslandPepSwitch that runs in the pre-render pass and only dives when the walk node leaves y below the sea level) change what a scenario does, so every zone here is reduced to the
+// player's walk / swim chain with the engine's own mode switch (the oracle tests m7-walk-* check the engine bit for bit against the original; this file checks its scenarios).
+function bareZone(ctx, zone, opts) {
+  const L = loadZone(ctx, zone, opts);
+  for (const r of L.world.records) if (r !== L.pepper) r.ctrl = null;
+  const c = L.pepper.ctrl;
+  c.nodes = c.nodes.filter((n) => n.kind === 'StubGuard' || n.kind === 'SGwalk' || n.kind === 'sgswim');
+  c.nodes.splice(c.nodes.findIndex((n) => n.kind === 'SGwalk'), 0, new PepSwitchNode());
+  return L;
+}
 export default {
   name: 'engine-walk',
   run(ctx) {
@@ -14,7 +26,7 @@ export default {
 
     // ============================================================ the island
     {
-      const L = loadZone(ctx, 'z02LGI');
+      const L = bareZone(ctx, 'z02LGI');
       const w = L.world, p = L.pepper, walk = L.walk;
       const ground = (x, z) => w.col.terrainHeight(x, p.y + 20, z, 0);
       run(L, 10);
@@ -62,7 +74,7 @@ export default {
         const nd = wp.nodes[ni];
         if (nd.y > 60) continue;
         for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
-          const L = loadZone(ctx, 'z02LGI', { pos: [nd.x, nd.y + 0.5, nd.z], yaw });
+          const L = bareZone(ctx, 'z02LGI', { pos: [nd.x, nd.y + 0.5, nd.z], yaw });
           const w = L.world, p = L.pepper, walk = L.walk;
           const ground = (x, z) => w.col.terrainHeight(x, p.y, z, 4);
           run(L, 12);
@@ -89,7 +101,7 @@ export default {
     }
     // --- ledge: running off a drop makes Pepper jump / fall and land lower; no tunnelling through the ground
     {
-      const L = loadZone(ctx, 'z02LGI');
+      const L = bareZone(ctx, 'z02LGI');
       const w = L.world, p = L.pepper, walk = L.walk;
       const hgt = (x, z) => w.col.terrainHeight(x, 200, z, 0);
       // find a cliff edge by scanning: neighbouring samples 1 unit apart that drop by more than 5 on dry land
@@ -101,7 +113,7 @@ export default {
       ok(!!spot, 'found a cliff edge on the island');
       if (spot) {
         // start 12 units before the edge (towards -x), face +x with the Right key (camera looks +z by default after the yaw reset)
-        const L2 = loadZone(ctx, 'z02LGI', { pos: [spot[0] - 12, spot[1] + 0.2, spot[2]], yaw: Math.PI / 2 });
+        const L2 = bareZone(ctx, 'z02LGI', { pos: [spot[0] - 12, spot[1] + 0.2, spot[2]], yaw: Math.PI / 2 });
         const w2 = L2.world, p2 = L2.pepper, wk = L2.walk;
         run(L2, 15);
         const seen = new Set(); let minAbove = 1e9; const y0 = p2.y;
@@ -115,7 +127,7 @@ export default {
     // --- the sea: walk off the beach into the water, swim, come back
     {
       // the land ends at the shore (the terrain ray finds nothing beyond it): east of the island centre around x = 480, z = -90
-      const L = loadZone(ctx, 'z02LGI', { pos: [430, 80, -90], yaw: Math.PI / 2 });
+      const L = bareZone(ctx, 'z02LGI', { pos: [430, 80, -90], yaw: Math.PI / 2 });
       const w = L.world, p = L.pepper, walk = L.walk;
       p.y = w.col.terrainHeight(430, 200, -90, 0) + 0.2;
       run(L, 15);
@@ -138,7 +150,7 @@ export default {
     }
     // --- the sea is a loop: swimming past x = 1056 puts Pepper (and the camera) at the opposite edge (FUN_0043363c)
     {
-      const L = loadZone(ctx, 'z02LGI', { pos: [1030, 1.5, -90], yaw: Math.PI / 2 });
+      const L = bareZone(ctx, 'z02LGI', { pos: [1030, 1.5, -90], yaw: Math.PI / 2 });
       const w = L.world, p = L.pepper;
       run(L, 10);
       ok((w.vars.get(0x5e) & 0xfff) === 2, `far out in the sea Pepper swims (mode ${w.vars.get(0x5e)})`);
@@ -150,7 +162,7 @@ export default {
     }
     // ============================================================ Pepper's house
     {
-      const L = loadZone(ctx, 'z03PPH');
+      const L = bareZone(ctx, 'z03PPH');
       const w = L.world, p = L.pepper, walk = L.walk;
       run(L, 10);
       ok(Math.abs(p.y - 0.33) < 0.1, `house floor height ${p.y.toFixed(2)}`);
@@ -164,7 +176,7 @@ export default {
       let outside = 0, stopped = 0, total = 0;
       const dirs = [['ArrowUp'], ['ArrowDown'], ['ArrowLeft'], ['ArrowRight'], ['ArrowUp', 'ArrowLeft'], ['ArrowUp', 'ArrowRight'], ['ArrowDown', 'ArrowLeft'], ['ArrowDown', 'ArrowRight']];
       for (const keys of dirs) {
-        const L2 = loadZone(ctx, 'z03PPH'); const p2 = L2.pepper;
+        const L2 = bareZone(ctx, 'z03PPH'); const p2 = L2.pepper;
         run(L2, 10);
         let moved = 0, px = p2.x, pz = p2.z;
         run(L2, 200, keys, () => { moved += Math.hypot(p2.x - px, p2.z - pz); px = p2.x; pz = p2.z; if (p2.x < bounds.x[0] || p2.x > bounds.x[1] || p2.z < bounds.z[0] || p2.z > bounds.z[1]) outside++; total++; });
@@ -178,7 +190,7 @@ export default {
       ok(outside === 0, `${outside} ticks outside the room`);
       ok(stopped >= 6, `only ${stopped} of 8 diagonal / straight runs ended against an obstacle`);
       // wall sliding: up + left runs along the north wall to the north-west corner
-      const L3 = loadZone(ctx, 'z03PPH'); const p3 = L3.pepper;
+      const L3 = bareZone(ctx, 'z03PPH'); const p3 = L3.pepper;
       run(L3, 10); run(L3, 150, ['ArrowUp', 'ArrowLeft']);
       notes.push(`up+left ends at ${p3.x.toFixed(2)},${p3.z.toFixed(2)}`);
       ok(p3.x < -5 && p3.z > 8, `up+left slides to the north-west corner (${p3.x.toFixed(1)}, ${p3.z.toFixed(1)})`);

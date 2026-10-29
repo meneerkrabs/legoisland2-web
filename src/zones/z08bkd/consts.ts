@@ -5,18 +5,18 @@ const bitsView = new DataView(new ArrayBuffer(4));
 /** the float32 with the given bit pattern (the decompile shows float immediates as hex ints) */
 export const f32bits = (u: number): number => { bitsView.setUint32(0, u >>> 0); return bitsView.getFloat32(0); };
 
-/** the float literals the zone code reads from .rdata: name -> [address, value] */
+/** the float literals the zone code reads from .rdata: name -> [address, value] (WP-VERIFY: every value is the exact float32 of the executable; `tools/tests/m7-z08BKD-emu.mjs` checks the bit patterns) */
 export const FLOAT_ADDRS = {
   HUNDRED: [0x89201c, 100], ONE: [0x892020, 1], TWELVE: [0x892024, 12], TWO: [0x892028, 2], ZERO: [0x89202c, 0], THIRTY: [0x892038, 30], HALF: [0x89204c, 0.5],
   TEN: [0x892060, 10], TWO_EIGHT: [0x89206c, 2.8], FIVE: [0x892070, 5], FIFTEEN: [0x892074, 15], PI: [0x89207c, 3.1415927], FOUR: [0x892080, 4],
   TWO_PI: [0x892094, 6.2831855], GAUGE_SCALE: [0x8920e8, 1.2], POINT_TWO: [0x8920f0, 0.2], POINT_FOUR: [0x892118, 0.4], ONE_POINT_ONE: [0x892148, 1.1],
   TWO_FIFTY_SIX: [0x8921e8, 256], SIXTEEN: [0x8921f4, 16], THREE: [0x892200, 3], MINUS_TWO: [0x892204, -2], HALF_PI: [0x892220, 1.5707964], FIFTY: [0x892254, 50],
-  TICK_SECONDS: [0x8922ac, 0.03333334], TWENTY: [0x89237c, 20], WAVE_RANGE: [0x892388, 60], FADE_STEP: [0x8923cc, 0.0625], POINT_THREE: [0x89245c, 0.3], TIME_LIMIT: [0x8924b4, 500],
+  TICK_SECONDS: [0x8922ac, 0.03333333507180214], TWENTY: [0x89237c, 20], WAVE_RANGE: [0x892388, 60], FADE_STEP: [0x8923cc, 0.0625], POINT_THREE: [0x89245c, 0.3], TIME_LIMIT: [0x8924b4, 500],
   ONE_EIGHTY: [0x8924e0, 180], POINT_NINETY_FIVE: [0x8924e4, 0.95], MINUS_TWENTY_FOUR: [0x892518, -24], FORTY: [0x892528, 40], SIXTEEN_HUNDRED: [0x8925dc, 1600],
   POINT_FIFTEEN: [0x892624, 0.15], NINE: [0x892660, 9], FIVE_DEG: [0x8926a4, 0.087266], ANG_LO: [0x8926a8, 4.014236], ANG_HI: [0x8926ac, 5.497758],
-  MINUS_QUARTER_PI: [0x8926b0, -0.785394], EIGHTH_PI: [0x8926b4, 0.392697], CLAM_OPEN_LIM: [0x8926b8, -1.047192], CLAM_OPEN_MID: [0x8926bc, -0.261798],
-  CLAM_SHUT_LIM: [0x8926c0, -1.221724], ANCHOR_LO: [0x8926c4, -0.43633], ANCHOR_HI: [0x8926c8, 0.43633], SURFACE_Y: [0x8926cc, 86.5], DOLPHIN_RISE_Y: [0x8926d0, 78.5],
-  OCTO_ANGLE: [0x8926d4, 1.919852], MINUS_HUNDRED: [0x8926d8, -100],
+  MINUS_QUARTER_PI: [0x8926b0, -0.7853939533233643], EIGHTH_PI: [0x8926b4, 0.39269697666168213], CLAM_OPEN_LIM: [0x8926b8, -1.047192], CLAM_OPEN_MID: [0x8926bc, -0.261798],
+  CLAM_SHUT_LIM: [0x8926c0, -1.2217239141464233], ANCHOR_LO: [0x8926c4, -0.43633], ANCHOR_HI: [0x8926c8, 0.43633], SURFACE_Y: [0x8926cc, 86.5], DOLPHIN_RISE_Y: [0x8926d0, 78.5],
+  OCTO_ANGLE: [0x8926d4, 1.9198518991470337], MINUS_HUNDRED: [0x8926d8, -100],
 } as const satisfies Record<string, readonly [number, number]>;
 
 type Floats = { -readonly [K in keyof typeof FLOAT_ADDRS]: number };
@@ -50,6 +50,7 @@ export const REC = {
   OCTC: 69,        // 0x1c08 the octopus's tentacle collision
   OCTH: 72,        // 0x1d40 the octopus's head collision
   PAGE: 82,        // 0x2150 PAG5
+  PCOL: 93,        // 0x25c8 the particle collision record the diver's bubble emitter is registered with (FUN_005c23f9: flags |= 0x20 = solid while hidden)
 } as const;
 
 /** the animated records (FUN_005ca0a5 loads the .blk, FUN_005b9430's caller binds them: `rec + 8 = FUN_0043b4e2(DAT_009837fc[k], 1)`, clip 1) */
@@ -140,3 +141,9 @@ export const HURT_REGISTRATIONS: readonly { rec: number; category: number; templ
 
 /** the fish nodes (FUN_005bc592): FUN_005b9430's argument blocks {tag, link, fraction} per record (`Attach.argWords`) plus one shared 4-float tail; the tail seeds the movement block [9..12] */
 export const FISH_TAIL = { TURN: f32bits(0x4390dc8f), DRAG_ANG: 0, SPEED: 10, DRAG: -2 } as const;
+
+/**
+ * The diver's exhaust bubbles (FUN_005c23f9 at 0x5c2469, the node constructor): `bubble01.par` on the diver's live matrix (record 5) at (0, 4, 0), Euler rotation (0, -pi, 0), gate (2, 1, 1) = always on;
+ * the collision list FUN_00442a50 gets the records 1 (0x68), 93 (PCOL, 0x25c8; its flags |= 0x20 first, `DiverNode.bind`) and 52 (0x1520), in this order.
+ */
+export const BUBBLE = { NAME: 'bubble01.par', OFFSET: [0, 4, 0] as const, ROT: [0, f32bits(0xc0490fdb), 0] as const, COLLIDE: [1, 93, 52] as const } as const;

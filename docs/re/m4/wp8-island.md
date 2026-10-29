@@ -97,3 +97,25 @@ Cutscenes: the 41 slots of the set-up are declared (`zone` z02LGI, area li); LGI
 * emusetup: FUN_0043cec0 native (section 4).
 * Headless runs on the shared dev server get reloaded by the other workers' edits (HMR); a private server without HMR: a config that spreads `vite.config.ts`
   with `server: { port: 5498, hmr: false, watch: null }`.
+
+## Differential test (WP-VERIFY)
+
+> Status after WP-ISLAND-FIX: every KNOWN DEVIATION named in this section is fixed in the port and the test runs at tolerance 0 without the filters (`docs/re/gaps.md`, "Deviations FIXED by WP-ISLAND-FIX"); the sentences below describe the state when the deviation was found.
+
+`tools/tests/m7-isl-veh-story.mjs` (lib `tools/lib/m7-isl-veh-story.mjs`, 958,933 checks, ~2 s): the original `FUN_004b7040` and `FUN_00424e37` run natively in the x86 emulation (`IslEmu` of `m7-isl-veh-emu.mjs`: the island's
+machine state of the original's own set-up, FPU at 24 bit) next to the port's `storyHandler` + the real `liveStoryEnv` (z02LGI/index.ts) over the port world.
+* **Handler**: all 73 nodes x previous node {node-1 (just advanced), node-2, node+1, 0, -1, 72, uninitialised 0xcccccccc} x cutscene on / off x seeded random flag words of the 9 records it writes x random state of the
+  pizza-carry nodes of records 12 / 13 (era 3 world). Per call: return value, `*next`, `*prev`, the text-table calls (path strings), the objective globals (mode, 4 record pointers, PATH node, radius^2), every record's 16-bit
+  flag word, every variable store (op + value) and the whole variable array, the hologram alert timer (DAT_05defbcc), the walker pins (FUN_0046140f / 004625d7 arguments: all ten records and PATH nodes of node 0x36), the
+  pizza-carry reset. dt has no part in it (no `DAT_008b1718` reference in 0x4b7040..: checked on the disassembly); both Duel dts run.
+* **Objective target `FUN_00424e37`** (4000 random cases: modes 0 nearest talk NPC / 1 / 2 / 3 PATH node / 4 nearest of four; Pepper walking, and the vehicle branch var 0x5e & 8 with kind -2 / -3, docks / pads free or
+  taken): found / not found, target record, target position; the berth tables (counts, nodes, maps) read from the original's memory.
+* **Result: exact except**: (1) KNOWN DEVIATION `story-0x36-pizza-reset-missing`: node 0x36 calls `FUN_00429638(ctrl, 0, 0)` on records 12 and 13 (PAPA / MAMA), which zeroes the carry node's bone (+0x20), carrier
+  (+0x24), push flag (+0x2e) and timer (+0x34). The port's `liveStoryEnv.pizzaReset` looks for `storyReset` on the node, which `CarryNode` (island/pizza/carry.ts) does not have: the reset never happens (the docs
+  section 2 claim "the port calls `storyReset(0, 0)`" is wrong). Evidence: node 54, prev 53: original 0,0,0,0 (bone, carrier, timer, flag), port 11,1,240,1. Fix: `CarryNode.storyReset(a, b)` (carrier = null, bone = b,
+  timer = 0, pushPending = false) in src/island/pizza/carry.ts (not edited: owned elsewhere). (2) Not compared, indeterminate in the original: in objective mode 3 (PATH node) `FUN_00424e37` never assigns its return
+  local (`[ebp-0x40]`, jump to 0x4252bc): the return value is stack residue (false in 12 of 584 emulated cases); the written target position is identical. The story handler leaves mode 3 only transiently
+  (`objNode(0x1a5)` is overwritten by `objRecord(-1)` in the same call), so no gameplay consumer sees it. (3) With no free berth the vehicle branch reads `FUN_00462be9(1, -1)`: the debug heap header before the node
+  array; not observable in the emulation (bump heap), counted, not compared.
+* Docs corrections: wp8 section 3 says the objective's mode 1 reads a "record", fine, but the dead `local_40` test in mode 1 (0x42507d..) is a dead branch (`[ebp-0x3c]` is overwritten by 1 at 0x4250bc): the mode-1
+  target is returned unconditionally, as ported. A record with a null pointer in mode 4 crashes the original (reads +0x60 of it); the story never sets one.

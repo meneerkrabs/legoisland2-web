@@ -25,7 +25,10 @@ import type { Attach } from '../../formats/zonesetup.ts';
 import { ArgView } from '../args.ts';
 import { tryCtx } from '../ctx.ts';
 import { partMatrix, setRotation } from '../trigger/parts.ts';
-import { PI_F, TWO_PI_F, sfx, sfxAt, wrapOnce } from './common.ts';
+import { randTrunc } from '../rng.ts';
+import { PI_F, TWO_PI_F, sfx, sfxAt } from './common.ts';
+import { ad, sb, ml, sq, fr } from '../../zones/common/f32.ts';
+import { toWorld } from '../../zones/exact.ts';
 
 export const CTOR_SPEEDER = 0x538126, CTOR_DRIVER = 0x5385d3;
 
@@ -57,7 +60,7 @@ export const CAR = {
   /** FUN_00537ea9: wheel roll = 2 * atan(dist * 0.25), steer = (yaw - yaw at the update) * 3 */
   WHEEL_K: 0.25, STEER_K: 3.0,
   /** FUN_0053727a / FUN_005371eb: engine rate 18500 idle .. 22050 (0x8eaeac / 0x8eaea8), +-118.3 per tick, wobble 5 % at 0.02 per tick */
-  RATE_IDLE: 18500, RATE_MAX: 22050, RATE_STEP: 118.30000305175781, WOBBLE: 0.05, WOBBLE_STEP: 0.019999999552965164, THROTTLE_KEYS: 0xa3,
+  RATE_IDLE: 18500, RATE_MAX: 22050, RATE_STEP: 118.30000305175781, WOBBLE: 0.05000000074505806, WOBBLE_STEP: 0.019999999552965164, THROTTLE_KEYS: 0xa3,
   /** the car table DAT_05d58648 (FUN_004b6475): SPD0, AMBU, PCAR, SPD1, SPD2 */
   TABLE: ['SPD0', 'AMBU', 'PCAR', 'SPD1', 'SPD2'] as const,
   /** the brick burst kind of a crash */
@@ -90,22 +93,24 @@ function horn(w: World, rec: GameRecord) {
 
 /** FUN_005373a6: the ground under the front / back axle; returns the pitch (unchanged when one of them has no ground) */
 export function axlePitch(w: World, rec: GameRecord, front: number[], back: number[]): number {
-  const fx = rec.m[8] * CAR.AXLE, fy = rec.m[9] * CAR.AXLE, fz = rec.m[10] * CAR.AXLE;
+  const fx = ml(rec.m[8], CAR.AXLE), fy = ml(rec.m[9], CAR.AXLE), fz = ml(rec.m[10], CAR.AXLE);
   const probe = (p: number[]): boolean => {
     const t = w.col.terrainHeight(p[0], p[1], p[2], 0);
     let dy: number = -CAR.PROBE_FALL, found = false;
-    if (t > CAR.NO_GROUND_Y && t !== NO_GROUND) { dy = t - p[1]; found = true; }
+    if (t > CAR.NO_GROUND_Y && t !== NO_GROUND) { dy = sb(t, p[1]); found = true; }
     const from = [p[0], p[1], p[2]];
     if (found) p[1] = t;
     const h = w.col.probe(rec, from, [0, dy, 0], 0x43);
     if (h) { p[0] = h.point[0]; p[1] = h.point[1]; p[2] = h.point[2]; }
     return found || !!h;
   };
-  front[0] = rec.x + fx; front[1] = rec.y + fy + CAR.PROBE_UP; front[2] = rec.z + fz;
-  back[0] = rec.x - fx; back[1] = rec.y - fy + CAR.PROBE_UP; back[2] = rec.z - fz;
+  front[0] = ad(rec.x, fx); front[1] = ad(ad(rec.y, fy), CAR.PROBE_UP); front[2] = ad(rec.z, fz);
+  back[0] = sb(rec.x, fx); back[1] = ad(sb(rec.y, fy), CAR.PROBE_UP); back[2] = sb(rec.z, fz);
   const a = probe(front), b = probe(back);
   if (!a || !b) return rec.rx;
-  return wrapOnce(-Math.atan2(front[1] - back[1], CAR.AXLE_SPAN));
+  let r = fr(-Math.atan2(sb(front[1], back[1]), CAR.AXLE_SPAN));
+  if (-PI_F <= r) { if (PI_F < r) r = sb(r, TWO_PI_F); } else r = ad(r, TWO_PI_F);
+  return r;
 }
 
 export class SpeederNode implements BehaviourNode {
@@ -157,6 +162,8 @@ export class SpeederNode implements BehaviourNode {
   update(w: World, rec: GameRecord, ctrl: Controller): number {
     if (!this.inited) this.init(w, rec, ctrl);
     const g = globals(w);
+    // the draw hook FUN_00537ea9 turns the wheels for the draw and resets them to rotation 0 afterwards (the pre-render below sets them again for this frame's draw)
+    for (let i = 0; i < 4; i++) { const m = partMatrix(w, rec, 2 + i); if (m) setRotation(m, 0, 0, 0); }
     const v = w.vars.get(this.var);
     if ((v & CAR_PLAYER) !== 0) {
       if ((rec.flags & RF_CAR_STOPPED) === 0 || (v & CAR_PEPPER_IN) !== 0) {
@@ -166,7 +173,7 @@ export class SpeederNode implements BehaviourNode {
           if (g.engineCar === rec) { g.engineCar = null; stopSfx(w, SND_CAR.PEPPER_ENGINE); }
           if (this.moved) {
             if (!inView(w, rec)) {
-              this.offTicks = 1.0 * w.dt + this.offTicks;
+              this.offTicks = ad(ml(1.0, fr(w.dt)), this.offTicks);
               if (this.offTicks > CAR.RETURN_TICKS) {
                 rec.rx = this.savedEuler[0]; rec.ry = this.savedEuler[1]; rec.rz = this.savedEuler[2];
                 rec.setEuler(rec.rx, rec.ry, rec.rz, this.saved[0], this.saved[1], this.saved[2]);
@@ -178,8 +185,8 @@ export class SpeederNode implements BehaviourNode {
         } else {
           // Pepper drives it: Shift = a random horn, the engine follows the throttle keys
           if ((w.input.pressed & B.SHIFT) !== 0) {
-            const r = Math.trunc(Math.random() * 6);
-            if (r >= 1 && r <= 5) sfx(w, SND_CAR.SHIFT_HORNS[r - 1]);
+            const r = randTrunc(6);
+            if (r >= 1) sfx(w, SND_CAR.SHIFT_HORNS[Math.min(r, 5) - 1]);   // (r reaches 6 once in 32768 draws: the chain's last branch, the fifth horn)
           }
           if (!g.engineCar) { engineOff(w, rec); g.engineCar = rec; }
           this.enginePitch(w);
@@ -193,15 +200,19 @@ export class SpeederNode implements BehaviourNode {
     if (w.frame === 0) {
       // the first frame: straight onto the ground
       rec.rx = axlePitch(w, rec, this.front, this.back);
-      rec.setEuler(rec.rx, rec.ry, rec.rz, (this.front[0] + this.back[0]) * 0.5, (this.front[1] + this.back[1]) * 0.5, (this.front[2] + this.back[2]) * 0.5);
+      rec.setEuler(rec.rx, rec.ry, rec.rz, ml(ad(this.front[0], this.back[0]), 0.5), ml(ad(this.front[1], this.back[1]), 0.5), ml(ad(this.front[2], this.back[2]), 0.5));
       this.save(rec);
       return NODE_NONE;
     }
     this.save(rec);
     // something ahead? the cars Pepper drives (var bit 0x20000000), then Pepper himself (box test while flagged 0x40)
     const k1 = CAR.BACK, k2 = CAR.AHEAD;
-    const from = [this.saved[0] - rec.m[8] * k1, this.saved[1] - rec.m[9] * k1 + CAR.LIFT, this.saved[2] - rec.m[10] * k1];
-    const delta = [rec.m[8] * k2, rec.m[9] * k2, rec.m[10] * k2];
+    const from = [sb(this.saved[0], ml(rec.m[8], k1)), ad(sb(this.saved[1], ml(rec.m[9], k1)), CAR.LIFT), sb(this.saved[2], ml(rec.m[10], k1))];
+    const delta = [ml(rec.m[8], k2), ml(rec.m[9], k2), ml(rec.m[10], k2)];
+    if (w.col.debug) {   // FUN_00445ba0 + 2 x FUN_00445c70 (LE2.c:91188 / 91212; Ontwikkelaarshoek): the obstacle segment, X markers (r 2, white) at both ends
+      const to = [ad(from[0], delta[0]), ad(from[1], delta[1]), ad(from[2], delta[2])];
+      w.col.debug.line('zone', from, to, 0xff0000ff, 0xffff0000); w.col.debug.shape('zone', from, 0, 2, 0xffffffff); w.col.debug.shape('zone', to, 0, 2, 0xffffffff);
+    }
     let hit = false;
     for (const car of g.table ?? []) {
       if (hit) break;
@@ -243,19 +254,20 @@ export class SpeederNode implements BehaviourNode {
 
   /** FUN_0053727a: the engine of the car Pepper drives revs up with the throttle keys (0xa3), down to idle without, with a 5 % wobble */
   private enginePitch(w: World) {
+    const dt = fr(w.dt);
     let hz: number;
     if ((w.input.held & CAR.THROTTLE_KEYS) === 0) {
       if (this.rate <= CAR.RATE_IDLE) hz = this.wobbled(CAR.RATE_IDLE, w);
-      else { this.rate = this.rate - CAR.RATE_STEP * w.dt; hz = this.rate; }
+      else { this.rate = sb(this.rate, ml(CAR.RATE_STEP, dt)); hz = this.rate; }
     } else if (CAR.RATE_MAX <= this.rate) hz = this.wobbled(CAR.RATE_MAX, w);
-    else { this.rate = CAR.RATE_STEP * w.dt + this.rate; hz = this.rate; }
+    else { this.rate = ad(ml(CAR.RATE_STEP, dt), this.rate); hz = this.rate; }
     tryCtx(w)?.sfxFreq?.(SND_CAR.PEPPER_ENGINE, Math.trunc(hz));   // FUN_00443600
     sfx(w, SND_CAR.PEPPER_ENGINE);
   }
-  /** FUN_005371eb */
+  /** FUN_005371eb: sin(phase) * (base * 0.05) + base (the sine stays a double until the multiplication rounds) */
   private wobbled(base: number, w: World): number {
-    const r = Math.sin(this.wobble) * (base * CAR.WOBBLE) + base;
-    this.wobble = CAR.WOBBLE_STEP * w.dt + this.wobble;
+    const r = ad(ml(Math.sin(this.wobble), ml(base, CAR.WOBBLE)), base);
+    this.wobble = ad(ml(CAR.WOBBLE_STEP, fr(w.dt)), this.wobble);
     if (this.wobble >= 360) this.wobble = 0;
     return r;
   }
@@ -265,15 +277,16 @@ export class SpeederNode implements BehaviourNode {
     void _c;
     if (!this.skipPrerender) {
       const target = axlePitch(w, rec, this.front, this.back);
-      if (rec.rx <= target) rec.rx = target - rec.rx > CAR.PITCH_STEP ? rec.rx + CAR.PITCH_STEP : target;
-      else rec.rx = rec.rx - target > CAR.PITCH_STEP ? rec.rx - CAR.PITCH_STEP : target;
-      rec.setEuler(rec.rx, rec.ry, rec.rz, (this.front[0] + this.back[0]) * 0.5, (this.front[1] + this.back[1]) * 0.5, (this.front[2] + this.back[2]) * 0.5);
+      if (rec.rx <= target) rec.rx = sb(target, rec.rx) > CAR.PITCH_STEP ? ad(rec.rx, CAR.PITCH_STEP) : target;
+      else rec.rx = sb(rec.rx, target) > CAR.PITCH_STEP ? sb(rec.rx, CAR.PITCH_STEP) : target;
+      rec.setEuler(rec.rx, rec.ry, rec.rz, ml(ad(this.front[0], this.back[0]), 0.5), ml(ad(this.front[1], this.back[1]), 0.5), ml(ad(this.front[2], this.back[2]), 0.5));
     }
     // the wheels: MATL parts 2, 3 (front, steering) and 4, 5 (rear)
-    const d = Math.hypot(rec.x - this.saved[0], rec.y - this.saved[1], rec.z - this.saved[2]);
-    this.wheel = this.wheel + 2 * Math.atan2(d * CAR.WHEEL_K, 1.0);
-    if (this.wheel < -PI_F) this.wheel += TWO_PI_F; else if (this.wheel > PI_F) this.wheel -= TWO_PI_F;
-    const steer = (rec.ry - this.savedEuler[1]) * CAR.STEER_K;
+    const dx = sb(rec.x, this.saved[0]), dy = sb(rec.y, this.saved[1]), dz = sb(rec.z, this.saved[2]);
+    const d = sq(ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz)));
+    this.wheel = ad(ml(2, Math.atan2(ml(d, CAR.WHEEL_K), 1.0)), this.wheel);
+    if (this.wheel < -PI_F) this.wheel = ad(this.wheel, TWO_PI_F); else if (this.wheel > PI_F) this.wheel = sb(this.wheel, TWO_PI_F);
+    const steer = ml(sb(rec.ry, this.savedEuler[1]), CAR.STEER_K);
     for (let i = 0; i < 4; i++) {
       const m = partMatrix(w, rec, 2 + i);
       if (m) setRotation(m, this.wheel, i < 2 ? steer : 0, 0);
@@ -337,14 +350,14 @@ export class DriverNode implements BehaviourNode {
     const car = this.car;
     if (!car) return;
     const seat = partMatrix(w, car, 1);
-    const p = car.toWorld(seat ? [seat[12], seat[13], seat[14]] : [0, 0, 0]);
+    const p = toWorld(car.m, seat ? [seat[12], seat[13], seat[14]] : [0, 0, 0]);
     rec.rx = car.rx; rec.ry = car.ry; rec.rz = car.rz;
     rec.m.set(car.m);
-    rec.x = p[0]; rec.y = p[1] + this.rise; rec.z = p[2];
+    rec.x = p[0]; rec.y = ad(p[1], this.rise); rec.z = p[2];
     w.vars.andNot(this.var, DRIVER_SEATED);
-    if ((car.flags & 0xc000) === RF_IN_BRICKS) { if (this.rise < 8) this.rise += 1.600000023841858; }
+    if ((car.flags & 0xc000) === RF_IN_BRICKS) { if (this.rise < 8) this.rise = ad(this.rise, 1.600000023841858); }
     else if (this.rise <= 0) this.rise = 0;
-    else this.rise -= 2.6666600704193115;
+    else this.rise = sb(this.rise, 2.666663885116577);
   }
 }
 

@@ -80,7 +80,7 @@ export default async ({ page, shot, wait, log, key }) => {
   };
   const tapKey = async (mask) => {
     const code = mask === 0x10 ? 'ControlLeft' : mask === 0x80 ? 'Space' : null;
-    if (code) await page.keyboard.press(code, { delay: 25 });
+    if (code) await page.keyboard.press(code, { delay: 70 });
   };
   /** play until `until(info)` is true or `ms` ran out; the aim keys are held for big corrections and tapped for the fine ones (one game tick each) */
   let dbgN = 0;
@@ -93,7 +93,7 @@ export default async ({ page, shot, wait, log, key }) => {
       if (onStep) await onStep(o);
       if (o.mode === 4 && o.err) {
         const fine = Math.abs(o.err[0]) < 0.012 && Math.abs(o.err[1]) < 0.012;
-        if (fine && o.hold) { await setHeld(0); for (const bit of [1, 2, 4, 8]) if (o.hold & bit) await page.keyboard.press(KEYS[bit], { delay: 12 }); await wait(60); }
+        if (fine && o.hold) { await setHeld(0); for (const bit of [1, 2, 4, 8]) if (o.hold & bit) await page.keyboard.press(KEYS[bit], { delay: 70 }); await wait(60); }
         else await setHeld(o.hold);
       } else await setHeld(o.hold);
       if (o.tap) { await setHeld(0); await tapKey(o.tap); if (o.tap === 0x80) { await page.evaluate(() => window.__rgbBotNoteFire()); } await wait(120); }

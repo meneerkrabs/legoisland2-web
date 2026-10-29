@@ -10,11 +10,10 @@ import { parseBlk, parseMan } from '../../formats/anim.ts';
 import type { Blk } from '../../formats/anim.ts';
 import type { Archive } from '../../formats/archive.ts';
 import type { Pe } from '../../formats/exe.ts';
-import { buildMatrix } from '../../formats/matrix.ts';
 import { BipSpline } from './spline.ts';
 import { bipRun, dropBipRun, REC, MODE, VAR_MODE } from './run.ts';
 import type { BipRun } from './run.ts';
-import { PlaneNode, PLANE } from './plane.ts';
+import { PlaneNode, bananaMatrix } from './plane.ts';
 import { TakeoffNode, parseSrc } from './takeoff.ts';
 import type { SrcPoints } from './takeoff.ts';
 import { LandingNode } from './landing.ts';
@@ -155,13 +154,7 @@ export function prepareBip(world: World, archive: Archive, pe: Pe, opts: { scrol
   const syncDraw = () => {
     walk.bananas.forEach((b, i) => {
       if (!b.active) { place(bananaH[i], false); return; }
-      // scale 4 and the spin first, then the heading and the place (FUN_0070b58c: (spin * scale) * (Euler(0, heading, 0) + position))
-      const rot = buildMatrix(b.ax, b.ay, b.az, 0, 0, 0);
-      for (const k of [0, 1, 2, 4, 5, 6, 8, 9, 10]) rot[k] *= PLANE.BANANA_SCALE;
-      const hm = buildMatrix(0, b.heading, 0, 0, 0, 0);
-      out.fill(0);
-      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) out[r * 4 + c] = rot[r * 4] * hm[c] + rot[r * 4 + 1] * hm[4 + c] + rot[r * 4 + 2] * hm[8 + c];
-      out[12] = b.x; out[13] = b.y; out[14] = b.z; out[15] = 1;
+      bananaMatrix(b, out);                    // (spin * scale 4) * (Euler(0, heading, 0) + position), FUN_0070b58c
       place(bananaH[i], true, out);
     });
     monkeys.forEach((m, k) => m.node.melons.forEach((ml, i) => place(melonH[k][i], ml.active, ml.active ? melonMatrix(ml) : undefined)));

@@ -411,7 +411,7 @@ export default {
             if (S.hits === h0) { S.peptop.flying = false; pz.flags = 0; }
           }
         };
-        S.spoken.length = 0; S.sounds.length = 0;
+        S.spoken.length = 0; S.sounds.length = 0; S.fxLog.length = 0;
         hitHim();
         ok(S.hits === 1 && S.peptop.myHits === 1, `the first hit counts (hits ${S.hits})`);
         ok(S.spoken[0] === 'OGSGBP26', `first hit: OGSGBP26 (${S.spoken})`);
@@ -420,6 +420,9 @@ export default {
         ok(!S.peptop.flying && (w.records[REC.PIZZ].flags & 3) === 0, 'the pizza is gone');
         tick(w, 0);
         ok(bn.period === BOSS.LEG_HIT1, `the legs take ${bn.period} ticks after the first hit`);
+        // FUN_00826b40: the first hit seen by Brickster's node lights smoke2 (gates 1 0 0) and the emitters' matrix is bone 10 x BSTR's matrix from then on
+        ok(S.fxLog.join() === '100', `first hit: smoke2 on (${S.fxLog})`);
+        ok(S.bossFxM[15] === 1 && Math.hypot(S.bossFxM[12] - brik.x, S.bossFxM[14] - brik.z) < 4 && S.bossFxM[13] > brik.y, `the emitter matrix sits on Brickster's bone 10 (${[...S.bossFxM.slice(12, 15)].map((v) => v.toFixed(2))} vs ${brik.x.toFixed(2)},${brik.y.toFixed(2)},${brik.z.toFixed(2)})`);
         // while the hit clip plays he does not move and a second pizza does not count
         const bx = brik.x;
         for (let i = 0; i < 5; i++) tick(w, 0);
@@ -429,11 +432,12 @@ export default {
         // wait for the clip to end (40 ticks), then the second hit: two lines of speech, shorter legs
         for (let i = 0; i < 45; i++) tick(w, 0);
         ok(brik.anim.clip === CLIP.BRIK_RUN, 'running again');
-        S.spoken.length = 0;
+        S.spoken.length = 0; S.fxLog.length = 0;
         hitHim();
         ok(S.hits === 2 && S.spoken.join() === 'OGSGBP27,OGSGBP28', `second hit: hits ${S.hits}, spoken ${S.spoken}, clip ${brik.anim.clip}, reacting ${bn.reacting}`);
         tick(w, 0);
         ok(bn.period === BOSS.LEG_HIT2, `${bn.period} ticks after the second`);
+        ok(S.fxLog.join() === '010', `second hit: smoke2 off, the first flame1 on (${S.fxLog})`);
         for (let i = 0; i < 45; i++) tick(w, 0);
         let letter = null;
         S.env.letterbox = (on) => { letter = on; };

@@ -10,13 +10,17 @@ import { NODE_CONTINUE, NODE_STOP } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { B } from '../../game/input.ts';
+import { toWorld } from '../../zones/exact.ts';
 import { ST } from '../../game/walk.ts';
 import { tryCtx } from '../ctx.ts';
 import { waypoints } from '../../game/walker.ts';
 import { VV, vehicles, sfx, stopSfx, partPos } from './common.ts';
 import { SKATE_ROLL_SOUNDS } from './skate.ts';
+import { lookPrerender } from './looks.ts';
+import { SND_LGI_SEA, lgiSeaPosition } from '../../audio/sea.ts';
 
 /** sound ids (FUN_004b0f16): DAT_009da978 getting on the board, DAT_009da940 getting off, DAT_009da93c leaving the water */
+const fr = Math.fround;
 export const SND_BOARD_ON = 0x150, SND_BOARD_OFF = 0x106, SND_OUT_OF_WATER = 0x128;
 /** walk states that keep Pepper off the board (jump, jump start, hard landing, second jump, teeter) and his clips 99 / 0x62 (the dive) */
 const NO_BOARD_STATES = [ST.JUMP, ST.JUMPSTART, ST.LANDING, ST.JUMP2, ST.TEETER];
@@ -31,12 +35,13 @@ export function findFreeSpot(w: World, rec: GameRecord, out: number[], step: num
   let r = step;
   let rx = rec.m[0], ry = rec.m[1], rz = rec.m[2];
   let fx = rec.m[8], fy = rec.m[9], fz = rec.m[10];
-  const x = rec.x, y = rec.y + 48.0, z = rec.z;   // DAT_008925e0 = 48
+  const x = rec.x, y = fr(rec.y + 48.0), z = rec.z;   // DAT_008925e0 = 48
   const sea = w.seaLevel;
+  // every value is a float32 (the original's locals / the spot array)
   const tryAt = (px: number, py: number, pz: number): boolean => {
     out[0] = px; out[1] = py; out[2] = pz;
-    let t = w.col.terrainHeight(px, py, pz, 0);
-    if (sea <= t && w.col.lastSurface() === 9) { out[1] -= 36.0; t = w.col.terrainHeight(out[0], out[1], out[2], 0); }   // DAT_0089269c = 36
+    let t = fr(w.col.terrainHeight(px, py, pz, 0));
+    if (sea <= t && w.col.lastSurface() === 9) { out[1] = fr(out[1] - 36.0); t = fr(w.col.terrainHeight(out[0], out[1], out[2], 0)); }   // DAT_0089269c = 36
     if (sea < t) {
       const h = w.col.probe(rec, out, [0, -56, 0], 3);
       if (!h) { out[1] = t; return true; }
@@ -44,13 +49,13 @@ export function findFreeSpot(w: World, rec: GameRecord, out: number[], step: num
     return false;
   };
   for (let round = 0; round < 6; round++) {
-    rx = -r * rx; ry = -r * ry; rz = -r * rz;
-    fx *= r; fy *= r; fz *= r;
-    if (tryAt(x + rx, y + ry, z + rz)) return true;
-    if (tryAt(x - rx, y - ry, z - rz)) return true;
-    if (tryAt(x + fx, y + fy, z + fz)) return true;
-    if (tryAt(x - fx, y - fy, z - fz)) return true;
-    r += step;
+    rx = fr(-r * rx); ry = fr(-r * ry); rz = fr(-r * rz);
+    fx = fr(fx * r); fy = fr(fy * r); fz = fr(fz * r);
+    if (tryAt(fr(x + rx), fr(y + ry), fr(z + rz))) return true;
+    if (tryAt(fr(x - rx), fr(y - ry), fr(z - rz))) return true;
+    if (tryAt(fr(x + fx), fr(y + fy), fr(z + fz))) return true;
+    if (tryAt(fr(x - fx), fr(y - fy), fr(z - fz))) return true;
+    r = fr(r + step);
   }
   // FUN_00462be9(1, 0x1a4, out)
   const p = [0, 0, 0];
@@ -84,7 +89,8 @@ export class IslandPepSwitch implements BehaviourNode {
     void _ctrl;
     const G = vehicles(w);
     const pressed = w.input.pressed;
-    // (Enter: FUN_0051db5c, every tick FUN_0051dbd7: the brick-morph vehicle roster 0x8e9b28 of FX_Bricks, WP9; not ported here)
+    // Enter: FUN_0051db5c (nearest record: vehicle looks, src/island/vehicles/looks.ts), every tick FUN_0051dbd7
+    lookPrerender(w, rec);
     const word = w.vars.get(VV.PEPPER_CONTROL);
     const base = word & 0xfff;
     const ctrlKey = (pressed & B.CTRL) !== 0 || (word & 0x1000) !== 0;
@@ -102,15 +108,15 @@ export class IslandPepSwitch implements BehaviourNode {
         sfx(w, SND_BOARD_OFF);
       }
       // ... and so does water 4 units ahead (not in the air, not while getting on: clip 0x16)
-      const ax = rec.m[8] * 4.0 + rec.x, ay = rec.m[9] * 4.0 + rec.y, az = rec.m[10] * 4.0 + rec.z;
+      const ax = fr(fr(rec.m[8] * 4.0) + rec.x), ay = fr(fr(rec.m[9] * 4.0) + rec.y), az = fr(fr(rec.m[10] * 4.0) + rec.z);
       if (w.col.terrainHeight(ax, ay, az, 4.0) <= w.seaLevel && mailbox !== 0x20 && mailbox !== 0x21 && rec.anim?.clip !== 0x16) {
         mode = 1; state = ST.OFFBOARD;
         board?.anim?.start(2, 0);
       }
     } else if (base === 2) {
       // swimming: out of the water where the terrain one unit ahead reaches the sea level
-      const px = rec.m[8] + rec.x, pz = rec.m[10] + rec.z, py = rec.m[9] + rec.y + 4.0;
-      if (w.seaLevel <= w.col.terrainHeight(px, py, pz, 4.0)) {
+      const px = fr(rec.m[8] + rec.x), pz = fr(rec.m[10] + rec.z), py = fr(fr(rec.m[9] + rec.y) + 4.0);
+      if (w.seaLevel <= fr(w.col.terrainHeight(px, py, pz, 4.0))) {
         mode = 1; state = ST.OUTOFWATER;
         sfx(w, SND_OUT_OF_WATER);
         rec.y = py; rec.x = px; rec.z = pz;
@@ -147,8 +153,9 @@ export class IslandPepSwitch implements BehaviourNode {
     }
     if (state !== 0) { w.pep.mailbox = state; rec.anim?.start(state, 0); }
     if (mode !== 0) w.vars.set(VV.PEPPER_CONTROL, mode | (word & 0x1000));
-    // (the rest: FUN_004bc527(near the sea) is an empty function, FUN_004433f0(DAT_05d5812c, p) moves the sea sound to Pepper's position clamped to
-    //  +-400: ambient sound, WP7)
+    // (the rest: FUN_004bc527(near the sea) is an empty function.) FUN_004433f0(DAT_05d5812c = SND_LGI_SEA, p): the sea loop sits on the nearest shore point of the
+    // +-400 square (src/audio/sea.ts), every frame, whatever Pepper does (A3, docs/re/audio.md 3.3)
+    tryCtx(w)?.sfxAt(SND_LGI_SEA, lgiSeaPosition(rec.x, rec.z, w.seaLevel));
   }
 }
 
@@ -167,7 +174,7 @@ export class VehicleSeat implements BehaviourNode {
     if (this.stamp !== w.frame) G.range = -8.0;      // no other vehicle can take Pepper while he sits in one
     for (let i = 0; i < 11; i++) if (i !== 3 && i !== 7) rec.m[i] = v.m[i];
     const seat = seatPos(w, v);
-    const p = v.toWorld(seat);
+    const p = toWorld(v.m, seat);
     rec.x = p[0]; rec.y = p[1]; rec.z = p[2];
   }
 }

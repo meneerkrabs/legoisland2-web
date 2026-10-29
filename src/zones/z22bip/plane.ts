@@ -52,7 +52,9 @@ export const PLANE = {
   ROLL_STEP: f32(0x3eb2b884),  // 0x892150: 20 degrees per tick of the spin-out
   ROLL_END: f32(0x40c90f94),   // 0x8928d0
   TWO_PI: f32(0x40c90fdb),     // 0x892094
-  HEADING_BAND: 0.9,           // doubles 0x892890 / 0x892898: how far the heading may leave the course
+  HEADING_BAND: f32(0x3f666666),   // the doubles 0x892890 / 0x892898 (+-0.9) are cast to float in the code: (float)0.9 = 0.8999999762: how far the heading may leave the course
+  /** 0x8928a0: the double 3.1415927410125732 (= float32 pi): the wrap threshold of the course heading */
+  WRAP_LIMIT: f32(0x40490fdb),
   CAM_OFFSET: [0, 6, -20] as const, // 0x40c00000 / 0xc1a00000
   CAM_LERP: f32(0x3d75c28f),   // 0.06 (0x3d75c28f)
   CAM_Y_LERP_K: 8,             // 0x892090
@@ -86,10 +88,25 @@ export interface Banana {
   vx: number; vy: number; vz: number;
   /** +0x4c birth tick, +0x50 active */
   born: number; active: boolean;
-  /** +0x54 spin rates, +0x60 spin angles */
+  /** +0x54 spin rates, +0x60 spin angles (the draw FUN_0070b58c adds the rates AFTER it has drawn with the angles: the port adds them in the update, `dax..daz` are the angles the draw of this tick uses) */
   sx: number; sy: number; sz: number; ax: number; ay: number; az: number;
+  dax: number; day: number; daz: number;
 }
-function newBanana(): Banana { return { x: 0, y: 0, z: 0, heading: 0, vx: 0, vy: 0, vz: 0, born: 0, active: false, sx: 0, sy: 0, sz: 0, ax: 0, ay: 0, az: 0 }; }
+function newBanana(): Banana { return { x: 0, y: 0, z: 0, heading: 0, vx: 0, vy: 0, vz: 0, born: 0, active: false, sx: 0, sy: 0, sz: 0, ax: 0, ay: 0, az: 0, dax: 0, day: 0, daz: 0 }; }
+
+/**
+ * FUN_0070b58c (draw): the matrix a banana is drawn with: (Euler(spin) * diag(4)) * (Euler(0, heading, 0) + position) (FUN_0043a5e4, FUN_0043a9e5 twice with the
+ * scale matrix of 4 on the diagonal). `out` receives it (row-vector 4x4).
+ */
+export function bananaMatrix(b: Banana, out: Float32Array = new Float32Array(16)): Float32Array {
+  const rot = buildMatrix(b.dax, b.day, b.daz, 0, 0, 0);
+  for (const k of [0, 1, 2, 4, 5, 6, 8, 9, 10]) rot[k] *= PLANE.BANANA_SCALE;
+  const hm = buildMatrix(0, b.heading, 0, 0, 0, 0);
+  out.fill(0);
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) out[r * 4 + c] = rot[r * 4] * hm[c] + rot[r * 4 + 1] * hm[4 + c] + rot[r * 4 + 2] * hm[8 + c];
+  out[12] = b.x; out[13] = b.y; out[14] = b.z; out[15] = 1;
+  return out;
+}
 
 /** FUN_0043abe6: a direction through the rotation part of a row-vector matrix */
 export function rotateDir(m: ArrayLike<number>, v: ArrayLike<number>): [number, number, number] {
@@ -179,7 +196,7 @@ export class PlaneNode implements BehaviourNode {
     let b = 0;
     if (!this.rolling) b = w.input.held & ~(B.ESC | B.ANY);
     else {
-      this.rollAngle = F(this.rollAngle + PLANE.ROLL_STEP * dt);
+      this.rollAngle = F(this.rollAngle + PLANE.ROLL_STEP);       // per tick, not scaled by dt (FUN_00709fac: `+0x84 += DAT_00892150`)
       if (PLANE.ROLL_END < this.rollAngle) { this.rollAngle = 0; this.rolling = false; }
     }
 
@@ -207,7 +224,7 @@ export class PlaneNode implements BehaviourNode {
       w.vars.set(VAR_MODE, MODE.LAND);
     }
     // FUN_00708e17: the river's reach, the score for being ahead of Johnny
-    const t = run.spline.nearest([rec.x, rec.y, rec.z]);
+    const t = F(run.spline.nearest([rec.x, rec.y, rec.z]));       // `float fVar1 = (float)FUN_004478d0(..)`
     run.riverNear = t <= PLANE.RIVER_TO && !(t < PLANE.RIVER_FROM);
     const jn = run.johnny;
     if (jn) {
@@ -232,6 +249,7 @@ export class PlaneNode implements BehaviourNode {
       this.speed = F(this.speed - 10);
       this.alt = F(this.alt - 1);
       snd.stop('fuelAlarm'); snd.stop('planeFlight'); snd.play('windOutOfFuel');
+      run.cue?.('bip-outoffuel');
     }
     // ---- speed, fuel use, the low-fuel speech
     let lift = F(PLANE.THRUST_K * this.thrust);
@@ -242,7 +260,7 @@ export class PlaneNode implements BehaviourNode {
     if (this.speed < 0) this.speed = 0;
     if (PLANE.SPEED_MAX < this.speed) this.speed = PLANE.SPEED_MAX;
     this.fuel = F(this.fuel - this.speed);
-    if (run.hudFuel < PLANE.FUEL_LOW_SAY && !run.lowFuelSaid) { run.say('ADSGBI09'); run.lowFuelSaid = true; }
+    if (run.hudFuel < PLANE.FUEL_LOW_SAY && !run.lowFuelSaid) { run.say('ADSGBI09'); run.lowFuelSaid = true; run.cue?.('bip-lowfuel'); }
     if (this.fuel < 0) this.fuel = 0;
     if (PLANE.FUEL_MAX < this.fuel) this.fuel = PLANE.FUEL_MAX;
     this.speed = F(this.speed + this.impulse);
@@ -251,8 +269,9 @@ export class PlaneNode implements BehaviourNode {
 
     // ---- heading and the step of this tick
     this.heading = F(F(F(F(this.speed * PLANE.SPEED_TURN) * this.steer) / PLANE.TURN_DIV) + this.heading);
-    const k = this.speed * PLANE.SPEED_TURN * dt;
-    const dx = F(k * Math.sin(this.heading)), dz = F(k * Math.cos(this.heading));
+    // ((float10)speed * K * sin(heading) * dt): every product rounded to float32 (24-bit x87), sin / cos stay as the CRT returns them
+    const sk = F(this.speed * PLANE.SPEED_TURN);
+    const dx = F(F(sk * Math.sin(this.heading)) * dt), dz = F(F(sk * Math.cos(this.heading)) * dt);
     rec.ry = this.heading;
     const nx = F(dx + rec.x), nz = F(dz + rec.z);
     if (this.speed <= PLANE.STALL_SPEED) this.alt = F(this.alt - PLANE.FALL_STALL);
@@ -264,7 +283,7 @@ export class PlaneNode implements BehaviourNode {
     // ---- the course ahead (the position of the plane before this step)
     const sp = run.spline;
     const tAhead = F(sp.nearest([rec.x, rec.y, rec.z]) + PLANE.PROGRESS_AHEAD);
-    const ahead = sp.frame(tAhead).m;
+    const ahead = sp.frameB(tAhead);
     const fwdX = ahead[8], fwdZ = ahead[10], aX = ahead[12], aY = ahead[13], aZ = ahead[14];
 
     // ---- what the plane touches: the 12 edges of a box in front of it
@@ -279,7 +298,8 @@ export class PlaneNode implements BehaviourNode {
         run.lowFuelSaid = false;
         run.stats.fuelCans++;
       } else if (nm.startsWith(NAME.PALM)) {
-        run.leafBursts++;        // FUN_00442a20(DAT_05d5cd6c, 2, 1, 1): the leaf particle
+        run.leafBursts++;        // FUN_00442a20(DAT_05d5cd6c, 2, 1, 1) then FUN_00442a40(DAT_05d5cd6c): the leaf particle
+        run.onLeaf?.();
       } else if (nm.startsWith(NAME.BANANA_PICKUP)) {
         this.ammo += PLANE.AMMO_BUNCH;
         hide(hit);
@@ -296,7 +316,7 @@ export class PlaneNode implements BehaviourNode {
         c.ax = aX; c.ay = aY; c.az = aZ;
         c.headingNow = this.heading;
         const t2 = F(tAhead + PLANE.PROGRESS_AHEAD);
-        const p2 = sp.frame(t2).m;
+        const p2 = sp.frameB(t2);
         c.headingPath = F(Math.atan2(F(p2[12] - aX), F(p2[14] - aZ)));
         this.thrust = 0;
         this.score -= PLANE.CRASH_COST;
@@ -308,9 +328,9 @@ export class PlaneNode implements BehaviourNode {
     rec.x = nx; rec.y = ny; rec.z = nz;
     if (!this.rolling) {
       // the heading follows the course: the course's heading is tracked through the wrap-around and the plane may stay within 0.9 rad of it
-      const a = F(Math.atan2(fwdX, fwdZ));
+      const a = Math.atan2(fwdX, fwdZ);             // FUN_0085d640 leaves the double on the x87 stack: the sum below rounds once
       let la = F(a + this.headCorr);
-      if (Math.PI * 0.99999 < Math.abs(F(la - this.headRef))) {
+      if (PLANE.WRAP_LIMIT < Math.abs(F(la - this.headRef))) {
         if (this.headRef <= la) { this.headCorr = F(this.headCorr - PLANE.TWO_PI); la = F(la - PLANE.TWO_PI); }
         else { this.headCorr = F(this.headCorr + PLANE.TWO_PI); la = F(la + PLANE.TWO_PI); }
       }
@@ -389,9 +409,10 @@ export class PlaneNode implements BehaviourNode {
   private moveBananas(run: BipRun) {
     for (const bn of this.bananas) {
       if (!bn.active) continue;
-      if (bn.born + PLANE.BANANA_LIFE < run.bananaClock) bn.active = false;
-      else { bn.x = F(F(bn.vx * PLANE.BANANA_STEP) + bn.x); bn.y = F(F(bn.vy * PLANE.BANANA_STEP) + bn.y); bn.z = F(F(bn.vz * PLANE.BANANA_STEP) + bn.z); }
-      // the draw (FUN_0070b58c) turns the banana by its spin rates once per frame
+      if (bn.born + PLANE.BANANA_LIFE < run.bananaClock) { bn.active = false; continue; }
+      bn.x = F(F(bn.vx * PLANE.BANANA_STEP) + bn.x); bn.y = F(F(bn.vy * PLANE.BANANA_STEP) + bn.y); bn.z = F(F(bn.vz * PLANE.BANANA_STEP) + bn.z);
+      // the draw (FUN_0070b58c) draws with the angles and then turns the banana by its spin rates, once per frame (a banana that is alive at the draw)
+      bn.dax = bn.ax; bn.day = bn.ay; bn.daz = bn.az;
       bn.ax = F(bn.ax + bn.sx); bn.ay = F(bn.ay + bn.sy); bn.az = F(bn.az + bn.sz);
     }
     run.bananaClock++;
@@ -423,20 +444,25 @@ export class PlaneNode implements BehaviourNode {
       if (rec.name.startsWith(NAME.BANANA_TARGET)) kind = 1;
       if (rec.name.startsWith(NAME.ROPE_TARGET)) kind = 2;
       if (!kind) continue;
+      // `cur` is the original's `local_30`: the record the banana loop measures against. The partner search of a rope-target hit reuses the same variable as its loop
+      // pointer, so every later banana of this record in this tick is measured against the partner record (the last record scanned when there is none)
+      let cur = rec;
       for (const bn of this.bananas) {
         if (!bn.active) continue;
-        const d2 = Math.trunc(sq(rec.x - bn.x) + sq(rec.y - bn.y) + sq(rec.z - bn.z));
+        const d2 = Math.trunc(sq(cur.x - bn.x) + sq(cur.y - bn.y) + sq(cur.z - bn.z));
         const lim = kind === 1 ? HIT_R2.BANT : HIT_R2.DTR;
         if (d2 >>> 0 >= lim) continue;
         if (kind === 1) {
           this.score += SCORE.BANANA_TARGET;
-          run.sound.at('onTarget', [rec.x, rec.y, rec.z]);
+          run.sound.at('onTarget', [cur.x, cur.y, cur.z]);
           run.stats.bantHits++;
         } else {
           // the rope target's partner record "DTH?" (same last character) carries the slide node: 100 points the first time
+          const ch = cur.name[3];
           for (let j = 1; j < recs.length; j++) {
             const o = recs[j];
-            if (o.name.length === 4 && o.name.startsWith(NAME.ROPE_HIT) && o.name[3] === rec.name[3]) {
+            cur = o;
+            if (o.name.length === 4 && o.name.startsWith(NAME.ROPE_HIT) && o.name[3] === ch) {
               const slide = slideOf(o);
               if (slide && slide.hit === 0) {
                 this.score += SCORE.TARGET;

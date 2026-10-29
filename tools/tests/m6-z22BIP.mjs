@@ -12,6 +12,7 @@ import { CTOR_JOHNNY } from '../../src/zones/z22bip/johnny.ts';
 import { CTOR_MONKEY } from '../../src/zones/z22bip/monkey.ts';
 import { CTOR_ROCKY, ROCKY } from '../../src/zones/z22bip/rocky.ts';
 import { CTOR_PSWITCH, CTOR_SEABED, CTOR_RIVER, CTOR_JERRYCAN, CTOR_PROP3, CTOR_ANIM_CROC, CTOR_ANIM_PARROT, CTOR_ROPE } from '../../src/zones/z22bip/props.ts';
+import { BIP_FX } from '../../src/zones/z22BIP.ts';
 import { SOUNDS, MODE, VAR_MODE } from '../../src/zones/z22bip/run.ts';
 import { bipMedal, bipFinish, bipResultLines, BIP_VARS } from '../../src/zones/z22bip/rules.ts';
 import { registeredCtors } from '../../src/game/setup.ts';
@@ -39,7 +40,7 @@ function pushCalls(pe, lo, hi) {
 const hasImm = (pe, lo, hi, v) => { for (let a = lo; a < hi - 3; a++) if (pe.u32(a) === (v >>> 0)) return true; return false; };
 const bits = (x) => { const d = new DataView(new ArrayBuffer(4)); d.setFloat32(0, x, true); return d.getUint32(0, true); };
 
-export default {
+const inner = {
   name: 'm6-z22BIP',
   run(ctx) {
     const failures = [], notes = [];
@@ -57,7 +58,8 @@ export default {
     ok(f32(pe, 0x931ef8) === PLANE.FUEL_UNIT && f32(pe, 0x8928a8) === PLANE.SPEED_TURN && f32(pe, 0x892100) === PLANE.TURN_DIV, 'fuel unit 6825, speed factor 1/256, turn divisor 128');
     near(f32(pe, 0x8920d8), PLANE.BANK_K, 1e-9, 'pi / 180 (0x8920d8)');
     ok(f64(pe, 0x8928b0) === PLANE.SOUND_HZ_BASE && f64(pe, 0x8928b8) === PLANE.SOUND_HZ_PER_PITCH, 'engine sound rate 56750 - 65.5 * pitch (doubles 0x8928b0 / b8)');
-    ok(f64(pe, 0x892890) === PLANE.HEADING_BAND && f64(pe, 0x892898) === -PLANE.HEADING_BAND, 'heading band +-0.9 (doubles 0x892890 / 98)');
+    ok(Math.fround(f64(pe, 0x892890)) === PLANE.HEADING_BAND && Math.fround(f64(pe, 0x892898)) === -PLANE.HEADING_BAND, 'heading band +-0.9 (doubles 0x892890 / 98, cast to float by the code)');
+    ok(f64(pe, 0x8928a0) === PLANE.WRAP_LIMIT, 'the heading wrap threshold is the double 0x8928a0 (= float32 pi)');
     ok(f32(pe, 0x892254) === PLANE.FUEL_CAN && f32(pe, 0x892074) === PLANE.FUEL_LOW_SAY && f32(pe, 0x892060) === PLANE.FUEL_LOW_ALARM, 'fuel can 50 %, speech below 15 %, alarm below 10 %');
     // the hit tests and the medals (immediates of FUN_00709258 / FUN_00709fac)
     ok(hasImm(pe, 0x709258, 0x70988a, SCORE.MONKEY) && hasImm(pe, 0x709258, 0x70988a, HIT_R2.MONKEY) && hasImm(pe, 0x709258, 0x70988a, HIT_R2.BANT) && hasImm(pe, 0x709258, 0x70988a, HIT_R2.DTR), 'monkey 700 points, hit limits 92 / 32 / 48 (squared distances)');
@@ -88,6 +90,18 @@ export default {
       ok(rp.length === 13 && rp.every((r) => /^DTH\d+\.SRC$/i.test(pe.cstr(r[3]))), `13 rope targets with their DTHn.SRC: ${rp.length}`);
       const L = loadZone(ctx, 'z22BIP');
       ok(mk.every((r) => L.world.records[r[0]].name.startsWith('MNK')) && rp.every((r) => L.world.records[r[0]].name.startsWith('DTH') && L.world.records[r[1]].name.startsWith('SLD') && L.world.records[r[2]].name.startsWith('DTR')), 'table records have the names MNK / DTH-SLD-DTR');
+    }
+    // the particle emitters of FUN_00707800 (WP-PART-WIRE): the Spray01 table, the Leaffall record and the pushed rotations (0, pi, 0) / (0, -pi/2, 0)
+    {
+      const L = loadZone(ctx, 'z22BIP');
+      const sp = []; for (let a = 0x9319b0; (pe.u32(a) | 0) !== -1; a += 8) sp.push([pe.u32(a), pe.cstr(pe.u32(a + 4))]);
+      ok(JSON.stringify(sp.map((r) => r[0])) === JSON.stringify(BIP_FX.SPRAY_RECORDS) && sp.every((r) => r[1] === 'Spray01'), `Spray01 table: ${sp.map((r) => r[0])}`);
+      ok(BIP_FX.LEAF_RECORD === (0x1e1c - 0xc) / 0x68, 'Leaffall on the record whose matrix is at +0x1e1c');
+      ok(pe.cstr(0x931d18).toLowerCase() === 'leaffall.par' && pe.cstr(0x931d10) === 'Z22BIP', 'the effect / archive names');
+      ok(pushCalls(pe, 0x707800, 0x707da6).some((c) => c.target === 0x442900 && c.arg === 0x931d10), 'FUN_00442900("Z22BIP") is called with that name');
+      ok([...BIP_FX.SPRAY_RECORDS, BIP_FX.LEAF_RECORD].every((r) => L.world.records[r]), 'the records exist');
+      // the call arguments: leaf (name, record matrix, 0 0 0, 0 pi 0, gate 1 1 1) and spray (.., 0 -pi/2 0, 2 1 1)
+      ok(hasImm(pe, 0x707cd9, 0x707d70, 0x40490fdb) && hasImm(pe, 0x707cd9, 0x707d70, 0xbfc90fdb), 'the rotations pi / -pi/2 are the pushed immediates');
     }
     // the sound slots of FUN_00708640: every load2D / load3D (id) is in SOUNDS and vice versa
     {
@@ -206,5 +220,15 @@ export default {
     }
     notes.push(`sections: ${sections.map(([n, r]) => `${n} ${r.checked}`).join(', ')}`);
     return { checked, failures, notes };
+  },
+};
+
+// the executable runs the x87 in 24-bit mode (Direct3D 7 leaves control word 0x7f): the emulator is created with it for this test (and the port's spline / flight maths rounds every step to float32)
+export default {
+  name: inner.name,
+  run(ctx) {
+    const old = process.env.M7_CW;
+    process.env.M7_CW = '127';
+    try { return inner.run(ctx); } finally { if (old === undefined) delete process.env.M7_CW; else process.env.M7_CW = old; }
   },
 };

@@ -17,7 +17,10 @@ import { B } from '../../game/input.ts';
 import { ST } from '../../game/walk.ts';
 import { CLIP, K, MODE, PHASE, REC, VAR, f32 } from './consts.ts';
 import { allocBall, launchBall, placeBall, releaseBall } from './balls.ts';
+import { toWorld24 } from './shared.ts';
 import type { RgbState, PepperCannon } from './shared.ts';
+
+const F = Math.fround;
 
 /** the euler angles FUN_005f4f14 writes into the four cannons (rx, ry, rz at +0x4c / 0x50 / 0x54; the matrix is built from their negatives) */
 export const CANNON_EULER: readonly (readonly [number, number, number])[] = [
@@ -104,14 +107,13 @@ export class PepSwitcNode implements BehaviourNode {
       st.curBall = b ? b.idx : -1;
       if (b) {
         st.sound.play('fire');
-        const muzzle = rec.toWorld(K.MUZZLE);
+        const muzzle = toWorld24(rec.m, K.MUZZLE);
         const scale = shotScale.value;
         placeBall(b, muzzle, [rec.m[8] * scale, 1 * scale, rec.m[10] * scale]);
-        const pitch = K.PITCH_K * 1 * rec.rx + K.PITCH_0;
+        const pitch = F(F(F(K.PITCH_K * 1) * rec.rx) + K.PITCH_0);        // 24-bit x87: every operation rounds to a float
         shotScale.value = K.SHOT_SCALE;
         launchBall(b, pitch);
         c.timer = K.RELOAD;
-        st.fx('muzzle', muzzle);
       }
     } else st.sound.play('dry');
   }
@@ -128,17 +130,17 @@ export class PepSwitcNode implements BehaviourNode {
     let used = false;
     const step = K.AIM_STEP * w.dt;
     if (held & B.DOWN) {
-      rec.rx -= step;
+      rec.rx = F(rec.rx - step);       // the euler angles are single floats in the record
       if (rec.rx < K.PITCH_MIN) rec.rx = K.PITCH_MIN;
       st.sound.play('tilt'); used = true;
     } else if (held & B.UP) {
-      rec.rx += step;
+      rec.rx = F(rec.rx + step);
       if (!(rec.rx <= K.PITCH_MAX)) rec.rx = K.PITCH_MAX;
       st.sound.play('tilt'); used = true;
     }
     if (!(held & B.RIGHT)) {
-      if (held & B.LEFT) { st.sound.play('swivel'); used = true; rec.ry += step; }
-    } else { st.sound.play('swivel'); used = true; rec.ry -= step; }
+      if (held & B.LEFT) { st.sound.play('swivel'); used = true; rec.ry = F(rec.ry + step); }
+    } else { st.sound.play('swivel'); used = true; rec.ry = F(rec.ry - step); }
     if (!used) { st.sound.stop('swivel'); st.sound.stop('tilt'); }
     // the gauge shows the reload
     st.hud.min = 0; st.hud.max = K.GAUGE_RELOAD; st.hud.value = c.timer;
@@ -147,7 +149,7 @@ export class PepSwitcNode implements BehaviourNode {
       st.hud.icon = (st.ticks & 0x10) === 0 ? 7 : 5;
     } else { st.bell = false; st.hud.icon = 4; st.sound.play('reload'); }
     rec.setEuler(-rec.rx, -rec.ry, 0, rec.x, rec.y, rec.z);
-    const eye = rec.toWorld(K.AIM_EYE), target = rec.toWorld(K.AIM_TARGET);
+    const eye = toWorld24(rec.m, K.AIM_EYE), target = toWorld24(rec.m, K.AIM_TARGET);
     const cam = w.camera.c;
     cam[0] = eye[0]; cam[1] = eye[1]; cam[2] = eye[2]; cam[3] = target[0]; cam[4] = target[1]; cam[5] = target[2];
     if (st.aimTicks++ === 0) w.camera.savePrev();      // the jump into the barrel is not interpolated
@@ -163,7 +165,6 @@ export class PepSwitcNode implements BehaviourNode {
         e.flags &= ~RF_ENABLED;
         st.cannonsLeft--;
         st.score += 500;
-        st.fx('cannonHit', [e.x, e.y, e.z]);
         releaseBall(ball);
       }
     }
@@ -256,7 +257,6 @@ export class PeppHitNode implements BehaviourNode {
       case 2: {
         const a = rec.anim;
         if (a && clipEnding({ frame: a.frame, frameCount: a.frameCount }, K.HIT_CLIP_END, w.dt)) {
-          st.fx('splashOff');
           a.start(CLIP.IDLE, 0);
           this.state = 3;
           this.ts = st.ticks;
@@ -270,7 +270,7 @@ export class PeppHitNode implements BehaviourNode {
         this.ts = 0;
         break;
     }
-    rec.anim?.advance(1.0);
+    rec.anim?.advance(1.0, w.dt);
     return NODE_CONTINUE;
   }
 
@@ -294,7 +294,6 @@ export class PeppHitNode implements BehaviourNode {
         this.vy = 0; this.vz = 0;
         rec.anim?.start(CLIP.HIT_LAND, 0);
         st.sound.play('explode2d');
-        st.fx('splash', [rec.x, rec.y, rec.z]);
         if (!st.saidFirstHit) { st.say('CASGRB06'); st.saidFirstHit = true; }
         this.ts = st.ticks;
         this.state = 1;

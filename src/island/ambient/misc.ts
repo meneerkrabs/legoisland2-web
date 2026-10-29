@@ -10,9 +10,11 @@ import { RF_ENABLED, RF_NO_COLLIDE } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
-import { mul } from '../../render/math.ts';
+import { mulGame } from '../../render/math.ts';
+import { ad, sb, ml, dv, fr, fromBits } from '../../zones/common/f32.ts';
 import { ArgView } from '../args.ts';
 import { tryCtx } from '../ctx.ts';
+import { FX_NONE, GATE_OFF, GATE_ON, boneWorld, fxGate, fxMatrix, fxParam, fxStart, registerFxStart } from '../emitters.ts';
 import { wrapPi, ftol, setRot, ensureAnim } from './common.ts';
 
 export const CTOR_SPIN = 0x4bdbb2, CTOR_SEAAMIN = 0x4b1212, CTOR_SOUND3D = 0x538779, CTOR_BOTMUSIC = 0x536e16, CTOR_GHETTO = 0x536961;
@@ -34,12 +36,12 @@ export class SpinNode extends Node {
   constructor(args: ArgView) { super(); this.axis = args.i16(0); this.face = 0; this.rate = args.f32(4); }
   /** FUN_004bd900 (no dt: the original adds the rate once per frame) */
   update(w: World, rec: GameRecord): number {
-    if (this.axis === 0) rec.rx = wrapPi(rec.rx + this.rate);
-    else if (this.axis === 1) rec.ry = wrapPi(rec.ry + this.rate);
-    else if (this.axis === 2) rec.rz = wrapPi(rec.rz + this.rate);
+    if (this.axis === 0) rec.rx = wrapPi(ad(rec.rx, this.rate));
+    else if (this.axis === 1) rec.ry = wrapPi(ad(rec.ry, this.rate));
+    else if (this.axis === 2) rec.rz = wrapPi(ad(rec.rz, this.rate));
     if (this.face !== 0) {
       const e = w.camera.c;     // DAT_009da5e8: the camera eye
-      rec.ry = Math.atan2(rec.x - e[0], rec.z - e[2]) + 1.5707963705062866;
+      rec.ry = fr(Math.atan2(sb(rec.x, e[0]), sb(rec.z, e[2])) + HALF_PI_F);     // (the sum of the unrounded atan2 and the constant, rounded once)
     }
     setRot(rec.m, rec.rx, rec.ry, rec.rz);
     return 1;
@@ -64,12 +66,12 @@ export class SeaAminNode extends Node {
   }
   prerender(w?: World, rec?: GameRecord) {
     const s = Math.sin(this.phase);
-    this.vOffset = s * 0.003;
+    this.vOffset = fr(s * SEA_WOBBLE);      // (the double sin times the float 0.003 at 0x892414, rounded once)
     // FUN_0043ebe0(model, 0, &0, &v) ADDS v to the V coordinates of the foam mesh (FUN_0088350d mode 0): the texture drifts (WP10: renderer via ctx)
     if (w && rec) tryCtx(w)?.uvScroll?.(rec, 0, this.vOffset);
-    this.phase += this.vOffset >= 0 ? 0.0523596 : 0.0174532;   // _DAT_00892534 / _DAT_008920d8
+    this.phase = ad(this.phase, this.vOffset >= 0 ? SEA_PHASE_UP : SEA_PHASE_DOWN);   // _DAT_00892534 / _DAT_008920d8
     this.prevScroll = this.scroll;
-    this.scroll += 0.01;
+    this.scroll = ad(this.scroll, SEA_SCROLL);                                       // _DAT_00892030
   }
 }
 
@@ -87,6 +89,7 @@ export class Sound3dNode extends Node {
 // ================================================================================================ BOTMUSIC
 
 /** DAT_05d586d4: a bot danced this frame (the ghetto blaster's pre-render hook unmutes the music then) */
+const HALF_PI_F = fromBits(0x3fc90fdb), SEA_WOBBLE = fromBits(0x3b449ba6), SEA_PHASE_UP = fromBits(0x3d567704), SEA_PHASE_DOWN = fromBits(0x3c8efa03), SEA_SCROLL = fromBits(0x3c23d70a);
 const DANCE_KEY = 'ambient.botDance';
 const RADIO_VAR = 0x22;          // var 0x22: the ghetto blaster is on
 const BONE_HAND = 10;            // FUN_0043bc58(anim, 10): where the notes come out
@@ -100,15 +103,23 @@ export function bonePos(rec: GameRecord, bone: number): [number, number, number]
   return [v[0], v[1], v[2]];
 }
 
+registerFxStart((w) => { for (const r of w.records) for (const n of r.ctrl?.nodes ?? []) if (n instanceof BotMusicNode) n.startFx(w); });
+
 export class BotMusicNode extends Node {
   readonly kind = 'BOTMUSIC';
   timer = 0;   // +0x18
+  /** +0x14: the music01 emitter (FUN_00442960 in the constructor FUN_00536e16: matrix = the node's own matrix buffer +0x1c, offset (0, 0.5, 0), no rotation, gate off) */
+  fxH = FX_NONE;
+  /** +0x1c: that matrix buffer (the bot's hand bone in world space, recomputed every dancing tick: FUN_0043bc58(anim, 10) + FUN_0043a9e5) */
+  readonly fxMat = new Float32Array(16);
   constructor() { super(); }
+  /** the constructor, at 0x536e7a (idempotent; also run by `finishEmitters`) */
+  startFx(w: World) { if (this.fxH === FX_NONE) this.fxH = fxStart(w, 'music01.par', this.fxMat, [0, 0.5, 0], [0, 0, 0], GATE_OFF); }
   /** FUN_00536a44 (gate value = the bot's own var) */
   update(w: World, rec: GameRecord, c: Controller): number {
     const val = w.vars.get(this.var);
     const ctx = tryCtx(w);
-    const emit = (mode: number) => ctx?.particles?.('music01.par', mode, bonePos(rec, BONE_HAND), rec.index);
+    this.startFx(w);
     // return values as in the executable (0x536a8f / 0x536b1a: `xor eax, eax`, 0x536d4f: 1 only while dancing). Returning 0 when the bot does not dance
     // lets its walker nodes run and leaves the stamp (+8) alone, so the first dancing frame resets the dance timer (WP17: the port returned 1 always: the
     // bots stood still and the timer, counted down by 5 per tick while Pepper was away, never reached the 0x1000000 'danced out' state)
@@ -117,7 +128,7 @@ export class BotMusicNode extends Node {
       return 0;
     }
     let near = c.distSq <= 576;
-    if (!near) { this.timer -= 5 * w.dt; near = 0 < this.timer; }
+    if (!near) { this.timer = sb(this.timer, ml(5, fr(w.dt))); near = 0 < this.timer; }
     if (near) {
       w.ext.set(DANCE_KEY, true);
       const anim = rec.anim ?? ensureAnim(w, rec);
@@ -126,22 +137,29 @@ export class BotMusicNode extends Node {
         anim?.start(DANCE_CLIP, 0);
         w.vars.andNot(this.var, 0x1000000);
         w.vars.or(this.var, 1);
-        emit(2);
+        fxGate(w, this.fxH, GATE_ON);                       // FUN_00442a20(h, 2, 1, 1)
+        boneWorld(this.fxMat, rec, BONE_HAND);
+        fxMatrix(w, this.fxH, this.fxMat);                  // FUN_00442a00(h, node + 0x1c)
       }
       if ((val & 0x4000000) === 0) w.vars.or(this.var, 0x4000000);
       ctx?.expression?.(rec, 7);
-      this.timer += 1 * w.dt;
+      this.timer = ad(ml(1, fr(w.dt)), this.timer);
       let n = Math.trunc(ftol(this.timer) / 0x78) + 1;
       if (3 < n && 144 < c.distSq) { n = 3; this.timer = 240; }
-      emit(0);
+      boneWorld(this.fxMat, rec, BONE_HAND);
+      // FUN_0044ebd0 modes 8 / 9 (density, its variation) = timer / 610, mode 0 (force) = that * 0.3 + 0.1 (single precision)
+      let k = dv(this.timer, 610);
+      fxParam(w, this.fxH, 8, k); fxParam(w, this.fxH, 9, k);
+      k = fr(fr(k * 0.3) + 0.1);       // (`fmul qword 0.3`, `fadd qword 0.1`: the double constants, each result rounded to a float32)
+      fxParam(w, this.fxH, 0, k);
       if (n < 6) anim?.advance(n, w.dt);
-      else { w.vars.or(this.var, 0x1000000); this.timer = 0; emit(1); }
+      else { w.vars.or(this.var, 0x1000000); this.timer = 0; fxGate(w, this.fxH, GATE_OFF); }
       return 1;
     }
     if (val & 0x4000000) {
       w.vars.andNot(this.var, 0x4000000);
       ctx?.expression?.(rec, 0);
-      emit(1);
+      fxGate(w, this.fxH, GATE_OFF);
     }
     return 0;
   }
@@ -150,18 +168,16 @@ export class BotMusicNode extends Node {
 /** the ghetto blaster carried by Pepper in nodes 0x38 .. 0x3c */
 export class GhettoNode extends Node {
   readonly kind = 'GETO';
-  scale = 0.8;     // +0x1c
+  scale = fromBits(0x3f4ccccd);     // +0x1c (_DAT_00892084)
   phase = 0;       // +0x24
-  /** FUN_005366b0 */
+  /** FUN_005366b0: returns 0 outside the story nodes 0x38 .. 0x3c (0x5366f7 `xor eax, eax`: the node did not run, so its pre-render hook FUN_005367b9 / draw hook FUN_00536806 are skipped: finding V10) and 1 inside (0x5367a6) */
   update(w: World, rec: GameRecord): number {
     const node = w.vars.get(0x58);
-    if (node < 0x38 || 0x3c < node) rec.flags &= ~RF_ENABLED;
-    else {
-      rec.flags |= 0x12;
-      w.vars.set(this.var, 1);
-      this.phase = wrapPi(this.phase + 0.523596);
-      this.scale = Math.sin(this.phase) * 0.2 + 0.8;
-    }
+    if (node < 0x38 || 0x3c < node) { rec.flags &= ~RF_ENABLED; return 0; }
+    rec.flags |= 0x12;
+    w.vars.set(this.var, 1);
+    this.phase = wrapPi(ad(this.phase, fromBits(0x3f060a63)));
+    this.scale = fr(fr(Math.sin(this.phase) * fromBits(0x3e4ccccd)) + fromBits(0x3f4ccccd));
     return 1;
   }
   /** FUN_005367b9 (music muted unless a bot danced) + FUN_00536806 (the draw hook: the blaster at Pepper's bone 16, offset (0, -1.12, 0.2), scaled) */
@@ -170,11 +186,11 @@ export class GhettoNode extends Node {
     w.ext.set(DANCE_KEY, false);
     const p = w.focus;
     if (!p) return;
-    const local = buildMatrix(0, 0, 0, 0, -1.12, 0.2, this.scale, this.scale, this.scale);   // DAT_008eade8 .. 0x8eadf0
+    const local = buildMatrix(0, 0, 0, 0, fromBits(0xbf8f5c29), fromBits(0x3e4ccccd), this.scale, this.scale, this.scale);   // FUN_0043a742 with DAT_008eade8 .. 0x8eadf0 = (0, -1.12, 0.2) and the scale
     const pose = p.anim?.pose(1);
     const tmp = new Float32Array(16);
-    if (pose && pose.length >= 17 * 16) mul(local, pose.subarray(16 * 16, 17 * 16) as Float32Array, tmp); else tmp.set(local);
-    mul(tmp, p.m, rec.m);
+    if (pose && pose.length >= 17 * 16) mulGame(local, pose.subarray(16 * 16, 17 * 16) as Float32Array, tmp); else tmp.set(local);
+    mulGame(tmp, p.m, rec.m);
     rec.flags |= 3;
   }
 }

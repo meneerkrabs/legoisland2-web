@@ -15,6 +15,7 @@ import type { World } from '../../game/world.ts';
 import { waypoints } from '../../game/walker.ts';
 import type { StepOut } from '../../game/walker.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
+import { ad, sb, fr } from '../../zones/common/f32.ts';
 import { ArgView } from '../args.ts';
 import { carriedPizza, releaseCarry } from '../pizza/carry.ts';
 import { actionVarOp } from './globals.ts';
@@ -59,9 +60,9 @@ export class Turn2PepANode implements BehaviourNode {
     const ranLast = this.stamp === w.frame;
     const h = ctrl.walker;
     if ((v & 0x200) === 0) this.waved = 0;
-    else if (0 < this.pause && this.waved === 0 && this.timers) { this.pause -= w.dt; return NODE_NONE; }
+    else if (0 < this.pause && this.waved === 0 && this.timers) { this.pause = sb(this.pause, fr(w.dt)); return NODE_NONE; }
     if (!ranLast) {
-      if (0 < this.delay && this.timers) { this.delay -= w.dt; return NODE_NONE; }
+      if (0 < this.delay && this.timers) { this.delay = sb(this.delay, fr(w.dt)); return NODE_NONE; }
       this.heading = rec.ry;
       if (h) waypoints.pause(h);
       this.back = 0; this.pause = 0;
@@ -145,11 +146,11 @@ export class Turn2PepBNode implements BehaviourNode {
   private syncFrame(w: World, rec: GameRecord, restart: boolean) {
     const t = this.target(w);
     if (!rec.anim) return;
-    let f = (t?.anim?.frame ?? 0) + this.args.offset;
+    let f = ad(t?.anim?.frame ?? 0, this.args.offset);
     const len = rec.anim.frameCount;
     if (len < f) {
       if (restart && 0 < this.args.first) rec.anim.start(this.args.idle, 0);
-      if (0 < len) while (len < f) f -= len;
+      if (0 < len) while (len < f) f = sb(f, len);
     }
     if (f < 0) f = 0;
     rec.anim.seek(f);
@@ -191,7 +192,7 @@ export class Turn2PepBNode implements BehaviourNode {
           if (rec.anim.advance(1, w.dt) !== 0) {
             const clip = rec.anim.clip;
             if (clip === a.idle) {
-              if (0 < a.extra) { this.idleTime += w.dt; if (T2B_IDLE_TIME < this.idleTime) rec.anim.start(a.extra, 0); }
+              if (0 < a.extra) { this.idleTime = ad(this.idleTime, fr(w.dt)); if (T2B_IDLE_TIME < this.idleTime) rec.anim.start(a.extra, 0); }
             } else {
               if (clip === a.first && (v & 0x8000) !== 0) this.dropBox(w, rec, BOX_TICKS);
               rec.anim.start(a.idle, 0);
@@ -199,7 +200,7 @@ export class Turn2PepBNode implements BehaviourNode {
             }
             if (0 < this.loops) { this.loops--; if (this.loops === 0) actionVarOp(w, rec, a.op, this.var, a.opValue); }
           }
-        } else if (advanceOnce(rec)) {
+        } else if (advanceOnce(rec, w.dt)) {
           if (a.mode < 0) { done = true; if (a.mode === -1) rec.ry = this.heading; }
           else if (this.back === 0) { this.back = 1; rec.anim.start(a.mode, 0); }
         }
@@ -220,14 +221,7 @@ export class Turn2PepBNode implements BehaviourNode {
 }
 
 /** FUN_0043b874(anim, 1.0, 0): advance without looping, true at the end */
-function advanceOnce(rec: GameRecord): boolean {
-  const an = rec.anim;
-  if (!an || !an.clipData) return false;
-  an.frame += 1;
-  const n = an.clipData.frameCount;
-  if (n < an.frame) { an.frame = n; return true; }
-  return false;
-}
+function advanceOnce(rec: GameRecord, dt: number): boolean { return (rec.anim?.advanceTo(1, dt, 0) ?? 0) !== 0; }
 
 /** the end of Turn2Pep B / MeetPepp: the node's gate bit is cleared when the gate wants it set, set otherwise */
 function toggleGate(w: World, n: BehaviourNode) {

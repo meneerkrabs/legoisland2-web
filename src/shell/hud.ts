@@ -29,6 +29,8 @@ export class Hud {
   visible = true;
   /** the zone's gauge (null: none) */
   gauge: HudGauge | null = null;
+  /** restored content (src/restore/arrow.ts): extra draw callbacks after the gauge (800x600 reference grid scaled by 0.8 is up to the callback); empty = the original HUD */
+  extras: ((ui: Ui2D) => void)[] = [];
 
   constructor(set: UiTextureSet | null) { this.set = set; }
 
@@ -106,6 +108,7 @@ export class Hud {
     icon(this.right, 716, 20);
     if (this.rightText) ui.text(1, this.rightText, 699 * k, 69 * k, { colour: 0, align: 'right' });
     if (this.gauge) this.drawGauge(ui);
+    for (const x of this.extras) x(ui);
     ui.anchor('centre');
     if (this.centreText) ui.text(1, this.centreText, 400 * k, 69 * k, { colour: 0, align: 'centre' });
   }
@@ -121,8 +124,9 @@ export class Hud {
     let n: number;
     if (g.marker >= 0) {
       n = 12;
-      const yc = 508 - 192 * fr;
-      ui.sprite(this.set, g.marker, [696 * k, (yc - 16) * k, (696 + 32) * k, (yc + 16) * k]);
+      // FUN_00460214: the centre is truncated to an integer first (ftol(508 - 192 f)), then the 32 high marker is placed around it, drawn with the gauge's tint like every other part
+      const yc = Math.trunc(508 - 192 * fr);
+      ui.sprite(this.set, g.marker, [696 * k, (yc - 16) * k, (696 + 32) * k, (yc + 16) * k], g.tint);
     } else n = Math.max(0, Math.min(12, Math.trunc(12 * fr + 0.5)));
     for (let i = 0; i < n; i++) {
       const t = g.segments[i] ?? -1;

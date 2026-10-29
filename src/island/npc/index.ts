@@ -10,11 +10,14 @@ import { waypoints, MAP_NAMES } from '../../game/walker.ts';
 import { ArgView } from '../args.ts';
 import { CTOR_SGMFIG, SgmfigNode, decodeSgmfig } from './sgmfig.ts';
 import { CTOR_HUMAN1, Human1Node, decodeHuman1 } from './human1.ts';
+import { CTOR_LAUNCH, LaunchNode } from './launch.ts';
+import { BunnyNode } from '../ambient/animals.ts';
 import { BRICKBOT_FACTORIES, startBrickBots } from './brickbot.ts';
 import { CTOR_MEETPEPP, CTOR_TURN2PEP_A, CTOR_TURN2PEP_B, CTOR_TURN2PEP_C, MeetPeppNode, Turn2PepANode, Turn2PepBNode, Turn2PepCNode, decodeMeetPepp, decodeTurn2PepA, decodeTurn2PepB, decodeTurn2PepC } from './turn2pep.ts';
 
 registerCtor(CTOR_SGMFIG, (a) => new SgmfigNode(decodeSgmfig(ArgView.of(a)), a));
 registerCtor(CTOR_HUMAN1, (a) => new Human1Node(decodeHuman1(ArgView.of(a)), a));
+registerCtor(CTOR_LAUNCH, (a) => LaunchNode.of(a));   // gaps S3: the kids' jump (FUN_004bf329)
 registerCtor(CTOR_TURN2PEP_A, (a) => new Turn2PepANode(decodeTurn2PepA(ArgView.of(a)), a));
 registerCtor(CTOR_TURN2PEP_B, (a) => new Turn2PepBNode(decodeTurn2PepB(ArgView.of(a)), a));
 registerCtor(CTOR_TURN2PEP_C, (a) => new Turn2PepCNode(decodeTurn2PepC(ArgView.of(a)), a));
@@ -45,16 +48,24 @@ export function loadIslandWalkMaps(archive: Archive, setup?: IslandSetup | null)
  * `loadIslandWalkMaps`, with the island context installed. Nodes not initialised here do it on their first update.
  */
 export function startIslandNpcs(w: World) {
+  w.beforePrerender = islandProbePass;   // the first tick's emitter start; the probe pass itself is the shared one of World.tick (FUN_00427233)
+  w.afterTick = clearNear;               // FUN_0042271b zeroes every controller's +0x14 after the draw (D3)
+  // the constructors' world work in the original's attach order (D1): SGMFIG / Human1 / launch / the bots' nodes of every record, interleaved as the set-up attaches them
+  const all: { seq: number; run: () => void }[] = [];
   for (const rec of w.records) {
     const c = rec.ctrl;
     if (!c) continue;
-    for (const n of c.nodes) if (n instanceof SgmfigNode) n.init(w, rec, c);
-    for (const n of c.nodes) if (n instanceof Human1Node) n.init(w, rec, c);
+    for (const n of c.nodes) {
+      if (n instanceof SgmfigNode || n instanceof Human1Node || n instanceof LaunchNode) all.push({ seq: n.seq, run: () => n.init(w, rec, c) });
+      else if (n instanceof BunnyNode) all.push({ seq: n.seq, run: () => n.init(w, rec) });      // Bunny.c's constructor FUN_004b2149 (the start heading draws a random number)
+    }
   }
-  startBrickBots(w);   // WP11: the bots' constructors (after the SGMFIG walkers exist)
+  startBrickBots(w, all);   // WP11: the bots' constructors
 }
 
+export { LaunchNode } from './launch.ts';
 export { SgmfigNode, Human1Node, Turn2PepANode, Turn2PepBNode, Turn2PepCNode, MeetPeppNode };
+import { islandProbePass, clearNear } from './globals.ts';
 export { npcGlobals, npcGroup } from './globals.ts';
 export * from './brickbot.ts';
 export * from './interact.ts';

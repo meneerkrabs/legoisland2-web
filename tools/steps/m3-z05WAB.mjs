@@ -3,6 +3,7 @@
 // retry, pause menu, abort back to the island and the way into the zone from the island (var 5 = 5, what the WAB door does).
 //   node tools/browse.mjs "http://localhost:5499/?zone=z05WAB&mute=1" tools/steps/m3-z05WAB.mjs --size 1024x768 --out /tmp/m3/z05WAB
 // WIN=0 skips the 90 s win run (loss / retry / abort only).
+import { installPageBot } from './lib-pagebot.mjs';
 export default async ({ page, shot, wait, log, key, evaluate }) => {
   const fail = [];
   const expect = (name, cond, extra = '') => { log(cond ? 'ok  ' : 'FAIL', name, extra); if (!cond) fail.push(name); };
@@ -38,27 +39,37 @@ export default async ({ page, shot, wait, log, key, evaluate }) => {
 
   // ---- win: whack every bot (never the Infomaniac) as soon as it rises
   if (process.env.WIN !== '0') {
-    let shots = 0, presses = 0;
+    let shots = 0;
+    // the whack decision runs inside the page (lib-pagebot.mjs): a press needs a bot that is up for a few more ticks than the hammer's 12, and the reaction time in ticks of a bot
+    // that decides in this process grows with the load of the machine (the first runs of the day: 30 hits of 45 with three other bots running)
+    const bot = await installPageBot(page, 'wab', `(() => {
+      const KEYS = ['ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown'];
+      let until = 0, code = '';
+      return (w) => {
+        const out = new Set(); const z = w.__zone;
+        if (!z || !z.game || z.machine.mode !== 2) return out;
+        const now = performance.now();
+        if (now < until) { out.add(code); return out; }
+        const g = z.game.debug();
+        if (g.over) return out;
+        for (let i = 0; i < 4; i++) if ((g.state[i] === 1 || (g.state[i] === 2 && g.elapsed - g.tUp[i] < 10)) && !g.isInfo[i] && !g.whacked[i] && g.busy === 0 && g.stun === 0 && g.clip === 1) { code = KEYS[i]; until = now + 90; out.add(code); break; }
+        return out;
+      };
+    })()`);
+    await bot.start();
     for (;;) {
-      const h = await page.waitForFunction(() => {
-        const g = window.__zone.game.debug();
-        if (g.over) return -2;
-        for (let i = 0; i < 4; i++) if ((g.state[i] === 1 || (g.state[i] === 2 && g.elapsed - g.tUp[i] < 10)) && !g.isInfo[i] && !g.whacked[i] && g.busy === 0 && g.stun === 0 && g.clip === 1) return i;
-        return -1;
-      }, null, { polling: 4, timeout: 300000 }).then((j) => j.jsonValue());
-      // (waitForFunction resolves on a truthy value: -1 is truthy too, so wait for a real hole or the end)
-      if (h === -2) break;
-      if (h >= 0) {
-        await page.keyboard.down(KEYS[h]); await wait(40); await page.keyboard.up(KEYS[h]);
-        presses++;
-        if (shots < 2 && presses > 5 + shots * 10) { await wait(330); await shot(`wab-4-playing-${shots}`); shots++; }       // (a screenshot stalls the page for a second: the bot misses a bot or two meanwhile)
-        await wait(120);
-      } else await wait(8);
+      const g = await dbg();
+      if (g.over) break;
+      const n = (await bot.info()).presses;
+      if (shots < 2 && n > 5 + shots * 10) { await wait(330); await shot(`wab-4-playing-${shots}`); shots++; }
+      await wait(50);
     }
+    log('page bot', JSON.stringify(await bot.info()));
+    await bot.stop();
     d = await dbg();
     log('win run:', JSON.stringify({ hits: d.hits, misses: d.misses, pct: d.pct, score: d.score }));
     expect('win: nearly every bot whacked and a medal (the two screenshots cost a few bots)', d.hits > 30 && d.score >= 5000, JSON.stringify(d));
-    await wait(900);
+    await modeIs(4, 60000).catch(() => {});
     expect('end banner (mode 4)', (await mode()) === 4);
     await shot('wab-5-banner-gold');
     v = await vars();
@@ -104,7 +115,10 @@ export default async ({ page, shot, wait, log, key, evaluate }) => {
   expect('resume', (await mode()) === 2);
   // abort through the pause menu: back to the island, the story rewinds to the hub
   await press('Escape'); await wait(500);
-  await select(3); await press('Enter'); await wait(1500);       // Afbreken (items: 0 continue, 1 load, 3 abort, 4 restart, 5 options, 6 quit)
+  await select(3); await press('Enter'); await wait(500);
+  // the pause menu's abort is a list item: the confirm page (page 20: 0 title, Annuleren is the default item, 2 = OK, src/shell/menu.ts case 9) comes first
+  expect('abort asks for confirmation (page 20)', (await menu()).page === 20, JSON.stringify(await menu()));
+  await select(2); await press('Enter'); await wait(1000);       // Afbreken (items: 0 continue, 1 load, 3 abort, 4 restart, 5 options, 6 quit)
   await inZone('z02LGI');
   await page.waitForFunction(() => window.__zone.world.tickCount > 5, null, { timeout: 300000 });
   v = await vars();

@@ -10,6 +10,7 @@ import { loadFontData } from './fonts.ts';
 import type { UiFontData } from './fonts.ts';
 import { drawString, layoutMessage, lineHeight, measureText, COLOUR_SHADOW } from './layout.ts';
 import type { Align, LayoutFont, ScreenEnv, TextCmd } from './layout.ts';
+import { LoadingCard } from './loadingcard.ts';
 
 // ---------------------------------------------------------------------------------------------------- textures
 
@@ -151,6 +152,11 @@ export class Ui2D {
   private lbMode = 0; private lbH = 0; private lbRate = 0;
   /** horizontal shift (canvas pixels) of what is queued next: see `anchor()` */
   private dx = 0;
+  /** the loading card of the fade overlay (FUN_0040d1be, loadingcard.ts): the two faces of the disc and its text; null = only the black quad */
+  card: { pizza: UiTexture; cd: UiTexture; text: string } | null = null;
+  readonly cardState = new LoadingCard();
+  /** GetTickCount (ms) of the card's clock */
+  clockMs: () => number = () => Math.trunc(performance.now());
 
   constructor(gl: WebGL2RenderingContext, opts: { fit?: 'fit' | 'stretch' } = {}) {
     this.gl = gl;
@@ -246,6 +252,20 @@ export class Ui2D {
     b.count += 6;
   }
 
+  /** a convex quad in CANVAS pixels (corners in fan order, a free shape: the loading card's disc), one colour; the +0.5 pixel-centre fix is applied here */
+  private quad4(layer: number, mode: number, tex: WebGLTexture | null, p: readonly { x: number; y: number; u: number; v: number }[], argb: number) {
+    this.ensure(6);
+    const b = this.batch(layer, mode, tex);
+    const pack = (c: number) => (((c & 0xff0000) >>> 16) | (c & 0xff00) | ((c & 0xff) << 16) | ((c >>> 24) << 24)) >>> 0;
+    for (const k of [0, 1, 2, 0, 2, 3]) {
+      const o = (this.nv * STRIDE) >> 2;
+      this.f32[o] = p[k].x + 0.5; this.f32[o + 1] = p[k].y + 0.5; this.f32[o + 2] = p[k].u; this.f32[o + 3] = p[k].v;
+      this.u32[o + 4] = pack(argb);
+      this.nv++;
+    }
+    b.count += 6;
+  }
+
   /**
    * FUN_0043c267 (block 3): the whole texture on a rectangle given in the 640x480 virtual grid (floats, not truncated), tinted by `argb` (0xffffffff = unchanged;
    * the alpha of the colour is ignored like in the game: the alpha comes from the texture). `set` null / index out of range = block 0x1d (flat ARGB incl. alpha).
@@ -260,6 +280,18 @@ export class Ui2D {
     const clip = this.clipRect(rect);
     if (!clip) return;
     this.quad(deferred ? 1 : 0, MODE_SPRITE, t.tex, clip.x0, clip.y0, clip.x1, clip.y1, clip.u0, clip.v1, clip.u1, clip.v0, [argb, argb, argb, argb]);
+  }
+  /**
+   * RESTORED CONTENT (src/restore/features/arrow.ts; not in the original): the whole texture `index` as a square of side `size` centred on (cx, cy) of the 640x480 virtual grid, turned
+   * clockwise by `angle` radians (screen y down), tinted like `sprite`. Not clipped (a small icon well inside the screen). A missing texture draws nothing.
+   */
+  spriteRot(set: UiTextureSet | null, index: number, cx: number, cy: number, size: number, angle: number, argb = 0xffffffff, deferred = false) {
+    const t = set?.get(index) ?? null;
+    if (!t) return;
+    const v = this.view, sx = v.w / 640, sy = v.h / 480, h = size / 2, c = Math.cos(angle), s = Math.sin(angle);
+    // corners TL TR BR BL (fan order of quad4) with the UVs of `sprite` (V up: the top edge has v = 1)
+    const corner = (ox: number, oy: number, u: number, vv: number) => ({ x: v.x + this.dx + (cx + ox * c - oy * s) * sx, y: v.y + (cy + ox * s + oy * c) * sy, u, v: vv });
+    this.quad4(deferred ? 1 : 0, MODE_SPRITE, t.tex, [corner(-h, -h, 0, 1), corner(h, -h, 1, 1), corner(h, h, 1, 0), corner(-h, h, 0, 0)], argb);
   }
   /** FUN_0043c267 without texture (block 0x1d): a rectangle of flat ARGB (alpha blended) in virtual coordinates */
   fillRect(rect: RectLike, argb: number, deferred = false) {
@@ -281,14 +313,29 @@ export class Ui2D {
   }
 
   /**
-   * Fade overlay (FUN_0040d1be, block 0x10): `a` = scene visibility 0..1 (1 = visible, 0 = black); a black quad over the WHOLE canvas with alpha 255 - a * 255.
+   * Fade overlay and loading card (FUN_0043ec80 + FUN_0040d1be at the frame's present, block 0x10): `a` = scene visibility 0..1 (1 = visible, 0 = black); a black quad over the whole canvas except its last pixel
+   * column / row (the original's quad is (0, 0)-(W - 1, H - 1) of the back buffer), with alpha 255 - a * 255, and, while `a < 1`, the spinning disc and the text LOADING (loadingcard.ts: the original draws them with every fade, fading with it).
    * Call it after the scene sprites and before the text of the frame. (The "frame is black while a == 0" rule is the caller's; a >= 1 draws nothing.)
    */
   fade(a: number) {
-    const al = Math.trunc(255 - Math.max(0, Math.min(1, a)) * 255);
-    if (al < 1) return;
-    const c = (al << 24) >>> 0;
-    this.quad(0, MODE_FADE, this.black, 0, 0, this.cw, this.ch, 0, 0, 1, 1, [c, c, c, c]);
+    const card = this.cardState;
+    card.setFade(a);
+    const cf = card.frame(640, 480, this.clockMs());
+    const al = cf ? cf.alpha : Math.trunc(255 - Math.max(0, Math.min(1, a)) * 255);
+    if (al >= 1) {
+      const c = (al << 24) >>> 0;
+      // the original quad is (0, 0)-(W - 1, H - 1) of the back buffer it renders to (here the drawing buffer): with the top-left rule its last pixel column and row stay unfaded
+      this.quad(0, MODE_FADE, this.black, 0, 0, this.cw - 1, this.ch - 1, 0, 0, 1, 1, [c, c, c, c]);
+    }
+    if (!cf) return;
+    const t = this.card;
+    if (t) {
+      // the disc (triangle fan of the four corners, block 0x10, both faces drawn)
+      const v = this.view, sx = v.w / 640, sy = v.h / 480;
+      this.quad4(0, MODE_FADE, (cf.face === 1 ? t.cd : t.pizza).tex, cf.verts.map((q) => ({ x: v.x + this.dx + q.x * sx, y: v.y + q.y * sy, u: q.u, v: q.v })), cf.colour);
+    }
+    // FUN_00439c6f(0, 1, text, 1, 0, W / 2, H - 100, 30): font 1, yellow, wrap 30, centred
+    if (t) this.text(1, t.text, cf.textX, cf.textY, { colour: 0, maxChars: 30 });
   }
   /**
    * Cinematic bars (FUN_0045f750 / FUN_0045f7a8 / FUN_0045f8a1): `mode` 0 off, 1 top + bottom bar, 2 bottom bar only. The bar height grows by H / 30 per tick

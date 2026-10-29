@@ -1,6 +1,7 @@
 // The per-zone loop template of the original (docs/re/architecture.md 2.3, verified on FUN_00465d39, FUN_00470ac3, FUN_004afaf7): every zone loop has a
-// `mode` and an `exit state`. This is that state machine without any drawing or simulation, so a zone only supplies its hooks. Pure, runs at the
-// 30 Hz game tick (dt = 1): a fade takes 16 ticks (`f += 0.0625 * dt`).
+// `mode` and an `exit state`. This is that state machine without any drawing or simulation, so a zone only supplies its hooks. Pure, one call per loop pass
+// (the game tick): a fade steps `f += 0.0625 * dt` per pass like the original (`_DAT_008923cc * DAT_008b1718`), i.e. 16 passes at dt = 1 and 32 at dt = 0.5; everything else
+// (mode changes, button waits) is per pass, as in the original's loops.
 //
 // modes: 7 fade in, 0 init, 1 intro (one-line brief, wait for a button), 9 controls help, 2 play, 3 pause menu (FUN_0041bd3d), 4 end banner,
 //        5 result menu (FUN_0041c092), 6 "pause requested" marker (FUN_00423170 maps it to 3), 8 fade out, 10 second help screen.
@@ -49,6 +50,8 @@ export interface LoopInput {
   varChanged?: boolean;
   /** the zone asks for its confirm dialog (mode 5 from mode 2: z04IFC's exit question) */
   dialog?: boolean;
+  /** DAT_008b1718, the time step of this pass (default 1): scales the fades */
+  dt?: number;
   /** the zone asks for its second controls help (z42BRP: the roof phase starts, FUN_0081fd64 mode 10): play -> mode 10 until a button is pressed */
   help2?: boolean;
 }
@@ -95,7 +98,7 @@ export class LoopMachine {
     this.pauseTrigger(inp.pressed);
     switch (this.mode) {
       case MODE.FADE_IN:
-        this.fade += FADE_STEP;
+        this.fade += FADE_STEP * (inp.dt ?? 1);
         if (this.fade >= 1) { this.fade = 1; this.set(this.cfg.intro ? MODE.INIT : MODE.INIT); }
         break;
       case MODE.INIT:
@@ -137,7 +140,7 @@ export class LoopMachine {
         break;
       }
       case MODE.FADE_OUT:
-        this.fade -= FADE_STEP;
+        this.fade -= FADE_STEP * (inp.dt ?? 1);
         if (this.fade <= 0) { this.fade = 0; this.exit = this.pending; this.done = true; }
         break;
     }

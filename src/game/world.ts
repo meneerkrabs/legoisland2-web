@@ -6,6 +6,7 @@ import { InputMapper } from './input.ts';
 import { ChaseCamera } from './camera.ts';
 import { PepperGlobals } from './walk.ts';
 import { destroyNodes, prerenderPass, updatePass } from './controller.ts';
+import { runProbePass } from './probehost.ts';
 import { B } from './input.ts';
 
 /** simulation rate of the game's time unit (one tick = 1/30 s) */
@@ -29,6 +30,10 @@ export class World {
   frame = 0;
   /** DAT_009da5c8: freezes the update pass (pause) */
   frozen = false;
+  /** zone hook run between the camera / view update and the pre-render pass (the original's FUN_00427233, the probe pass of the node framework); null = none */
+  beforePrerender: ((w: World) => void) | null = null;
+  /** zone hook run at the end of the tick, where the original's draw pass (FUN_0042271b) zeroes every controller's +0x14 word (the island: the NPC code's `near` bits live for one frame); null = none */
+  afterTick: ((w: World) => void) | null = null;
   /** DAT_009da858: sea level (the island: 2.4, 0 elsewhere) */
   seaLevel = 0;
   /** DAT_009da9bc: gravity (the island and most zones: -10) */
@@ -61,7 +66,10 @@ export class World {
     }
     updatePass(this);
     this.camera.updateView();
+    this.beforePrerender?.(this);
+    runProbePass(this);   // FUN_00427233 for the controllers whose nodes armed a probe (probehost.ts)
     prerenderPass(this);
+    this.afterTick?.(this);
     this.tickCount++;
   }
 

@@ -46,7 +46,7 @@ export default {
       const w = I.world, S = I.rec('SUPE'), n = supeOf(I);
       tick(I, 1);
       ok(Math.abs(n.zoneA - 15.35) < 0.2 && Math.abs(n.zoneB + 336.95) < 0.2, `zones from OTH 0 / 0x39: south z > ${f1(n.zoneA)}, north z < ${f1(n.zoneB)}`);
-      ok(n.state === ST.FLY && n.mode === 0 && n.dest >= 0 && n.dest <= 4, `Pepper in the middle (z ${f1(I.pepper.z)}): flying from the hub to a random node 0..4 (state ${n.state}, dest ${n.dest})`);
+      ok(n.state === ST.FLY && n.mode === 0 && [14, 15, 21, 41, 46].includes(n.dest), `Pepper in the middle (z ${f1(I.pepper.z)}): flying from the hub to a random OTH node of the table 0x8eb13c {14, 15, 21, 41, 46} (state ${n.state}, dest ${n.dest})`);
       ok(Math.hypot(S.x + 55.8, S.z + 186.8) < 5, `starts at the hub CTR (${f1(S.x)}, ${f1(S.y)}, ${f1(S.z)})`);
       let path = 0, prev = [S.x, S.y, S.z], bad = 0;
       const goals = new Set();

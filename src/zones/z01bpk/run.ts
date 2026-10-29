@@ -7,6 +7,11 @@ import { NODE_CONTINUE, NODE_STOP } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import type { GameVars } from '../../game/vars.ts';
+import { buildMatrixF32 } from '../../formats/matrixf32.ts';
+
+const f32 = Math.fround;
+/** FUN_0043a5e4(rec + 0xc, 0, rec.ry, 0, x, y, z): the matrix of the yaw with the executable's float32 arithmetic (formats/matrixf32.ts) */
+export function setYawMatrix(rec: GameRecord) { rec.m.set(buildMatrixF32(0, f32(rec.ry), 0, rec.m[12], rec.m[13], rec.m[14])); }
 
 /** the constructor addresses the zone's set-up attaches to PEPP (FUN_004933c4: FUN_00494091 @ 0, FUN_004944f3 @ 1 [PEPPER_CONTROL & 1], FUN_00492cc2 @ 2 [PEPPER_CONTROL & 4]) */
 export const CTOR = { SWITCH: 0x494091, WALK: 0x4944f3, SKATE: 0x492cc2 } as const;
@@ -23,7 +28,7 @@ export const MEDAL = { GOLD: 5001, SILVER: 2501, BRONZE: 1 } as const;
 export const SCORE_STEP = 10.0, TICKS_PER_SECOND = 30.0, SECONDS_PER_MINUTE = 60.0;
 /** the walk-in target of Pepper (FUN_00494190: 0x4207999a, 0x41826666, 0xc1e80000) and its tests (0x892084 = 0.8 arrival, 0x892530 = 6.8 / 0x89228c = 6.0 facing, 0x89252c = 45 degrees a tick, 0x8920f0 = 0.2 a tick) */
 export const WALK_TARGET = [Math.fround(33.9), Math.fround(16.3), -29.0] as const;
-export const WALK = { ARRIVE: Math.fround(0.8), FACING_GO: Math.fround(6.8), FACING_TURNED: 6.0, TURN: Math.fround(0.785398), STEP: Math.fround(0.2) } as const;
+export const WALK = { ARRIVE: Math.fround(0.8), FACING_GO: Math.fround(6.8), FACING_TURNED: 6.0, TURN: new Float32Array(new Uint32Array([0x3f490fdb]).buffer)[0], STEP: Math.fround(0.2) } as const;
 
 /**
  * FUN_0048d52b: the text id of the stunt Pepper's clip is (the strings "BPK3" .. "BPK23" at 0x8d1fc0 + 8 * (n - 3); BPK3 "Mooie vis!" ... BPK23 "Sluwe Sam Sinister"); other clips: no text.
@@ -120,24 +125,24 @@ export class BpkSwitch implements BehaviourNode {
   /** FUN_00493ba0: the clock runs down while Pepper is not getting on (clip 0x16), the trick score of a good landing moves into the total 10 per tick */
   private clock(w: World, rec: GameRecord) {
     const run = this.run, dt = w.dt;
-    if (0 < this.time && rec.anim?.clip !== 0x16) this.time = this.time - 1.0 * dt;
+    if (0 < this.time && rec.anim?.clip !== 0x16) this.time = f32(this.time - 1.0 * dt);
     else if (this.time <= 0) { this.time = 0; run.trickScore = 0; }
     run.timeLeft = this.time;
     if (this.time <= 0) this.over = 1;
     const secs = Math.trunc(this.time / TICKS_PER_SECOND);
     if (run.trickFlag !== 0) {
       this.counting = 1; run.trickFlag = 0;
-      this.pending = run.trickScore + this.pending;
+      this.pending = f32(run.trickScore + this.pending);
       run.trickScore = 0;
     }
     if (this.counting !== 0 && 0 < this.pending) {
-      this.score = this.score + SCORE_STEP;
-      this.pending = this.pending - SCORE_STEP;
-      if (this.pending < 0) { this.score = this.score + this.pending; this.pending = 0; this.counting = 0; }
+      this.score = f32(this.score + SCORE_STEP);
+      this.pending = f32(this.pending - SCORE_STEP);
+      if (this.pending < 0) { this.score = f32(this.score + this.pending); this.pending = 0; this.counting = 0; }
     }
     if (0 <= this.time) run.clockText = `${Math.trunc(secs / SECONDS_PER_MINUTE)}:${String(secs % 60).padStart(2, '0')}`;
     run.scoreText = String(Math.trunc(this.score));
-    run.trickText = run.trickScore === 0 ? '' : String(Math.trunc(run.trickScore));
+    run.trickText = run.trickScore === 0 ? '    ' : String(Math.trunc(run.trickScore));   // DAT_05d4dfec: sprintf("%d") or the 4 blanks of 0x8d2428 (WP-VERIFY)
   }
 }
 
@@ -159,8 +164,8 @@ export class BpkWalk implements BehaviourNode {
     void _ctrl;
     const g = w.pep;
     const [tx, ty, tz] = WALK_TARGET;
-    const dx = tx - rec.x, dy = ty - rec.y, dz = tz - rec.z;
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dx = f32(tx - rec.x), dy = f32(ty - rec.y), dz = f32(tz - rec.z);
+    const dist = f32(Math.sqrt(dz * dz + dy * dy + dx * dx));
     const fx = rec.m[8], fy = rec.m[9], fz = rec.m[10];
     if (dist <= WALK.ARRIVE) {
       rec.anim?.start(0x16, 0);
@@ -171,16 +176,16 @@ export class BpkWalk implements BehaviourNode {
       const b = w.records[this.run.board];
       if (b) b.show();
     } else {
-      const dot = fx * dx + fy * dy + fz * dz;
+      const dot = fz * dz + fy * dy + fx * dx;
       if (WALK.FACING_GO <= dot || this.turned !== 0) {
-        rec.ry = Math.atan2(dx, dz);
-        rec.x = fx * WALK.STEP + rec.x;
-        rec.z = fz * WALK.STEP + rec.z;
+        rec.ry = f32(Math.atan2(dx, dz));
+        rec.x = f32(fx * WALK.STEP + rec.x);
+        rec.z = f32(fz * WALK.STEP + rec.z);
       } else {
-        rec.ry = rec.ry + WALK.TURN;
+        rec.ry = f32(rec.ry + WALK.TURN);
         if (WALK.FACING_TURNED < dot) this.turned = 1;
       }
-      rec.rebuildYaw();
+      setYawMatrix(rec);
       this.wrapped = rec.anim?.advance(1.0, w.dt) ?? 0;
       if (this.wrapped !== 0 && this.state === 0x1b) { rec.anim?.start(0x0d, 0); this.state = 0x0d; }
     }

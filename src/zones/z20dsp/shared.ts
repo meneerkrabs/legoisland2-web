@@ -5,15 +5,18 @@ import type { World } from '../../game/world.ts';
 import { TrackSpline } from './spline.ts';
 import { ReplayBuffer } from './replay.ts';
 
+const F = Math.fround;
+/** the "no ground" value of the terrain functions: the float -1e38 (0xfe967699, _DAT_008920c4) */
+export const NO_GROUND = F(-1e38);
 /**
- * FUN_0043ce45(pos, dy) with the ground record set to LAND (FUN_004425e0(DAT_00983804 + 0x138) around the call, as the nodes do): the terrain height under (x, z), a ray of 500
- * down from y + dy against the LAND record (radius 1.0, skin 0.1, minus 0.1); -1e38 when there is none. The ground record stays unset outside those calls (the camera's
- * own FUN_0043ce45 therefore finds nothing).
+ * FUN_0043ce45(pos, dy) with the ground record set to LAND (FUN_004425e0(DAT_00983804 + 0x138) around the call, as the nodes do): the terrain height under (x, z): y' = float(dy + y), a ray of 300 down
+ * (DAT_008b1a40 = (0, -300, 0)) against the LAND record (radius 1.0, skin 0.1; FUN_004425f0 returns the hit's y minus 0.1f); NO_GROUND when there is none. The ground record stays unset outside
+ * those calls (the camera's own FUN_0043ce45 therefore finds nothing).
  */
 export function terrain(w: World, x: number, y: number, z: number, dy = 4.0): number {
   const land = w.records[3];
-  const h = land ? w.col.rayRecord(land, [x, y + dy, z], [0, -500, 0], 3, 1.0, 0.1) : null;
-  return h ? h.point[1] - 0.1 : -1e38;
+  const h = land ? w.col.rayRecord(land, [F(x), F(F(dy) + F(y)), F(z)], [0, -300, 0], 3, 1.0, 0.1) : null;
+  return h ? F(h.point[1] - F(0.1)) : NO_GROUND;
 }
 
 /** record indices of z20DSP (the builder FUN_006c6f40; checked at run time against the names, `checkRecords`) */
@@ -61,13 +64,30 @@ export class SoundLog implements DspSounds {
   count(prefix: string) { return this.log.filter((l) => l.startsWith(prefix)).length; }
 }
 
-/** the game's random numbers (FUN_00435c91 + FUN_004388ae seed from the tick count): uniform integers; injectable for tests */
+/**
+ * The game's random numbers: FUN_004388ae(max) = float(float(rand() / 32767) * max) in the 24-bit x87 (`fild; fdiv 32767.0f; fmul max`), used as `ftol(FUN_004388ae(n))`. `next()` is rand() / 32767
+ * (0..1 inclusive: r = 32767 gives n itself, as in the original); injectable for tests (the differential test feeds both sides the same draws).
+ */
 export class DspRng {
   private s: number;
   constructor(seed = 0x1234567) { this.s = seed >>> 0; }
-  next(): number { this.s = (Math.imul(this.s, 1664525) + 1013904223) >>> 0; return this.s / 4294967296; }
-  int(n: number): number { return Math.min(n - 1, Math.floor(this.next() * n)); }
+  // RNG: the C runtime's rand() (15 bits) of the original; the shared game generator replaces this one when WP-TIME lands
+  next(): number { this.s = (Math.imul(this.s, 1664525) + 1013904223) >>> 0; return (this.s >>> 17) / 32767; }
+  /** `ftol(FUN_004388ae(n))` */
+  int(n: number): number { return Math.trunc(Math.fround(Math.fround(this.next()) * Math.fround(n))); }
 }
+
+/** the particle calls of the zone (FUN_00442960 start, FUN_00442a00 parent matrix, FUN_00442a40 restart); the zone game binds them to the particle engine, tests record them */
+export interface DspFx {
+  start(name: string, parent: Float32Array<ArrayBufferLike>, pos: readonly number[], rot: readonly number[], gate: readonly [number, number, number]): number;
+  setMatrix(h: number, parent: Float32Array<ArrayBufferLike>): void;
+  stop(h: number): void;
+}
+/**
+ * The emitters of FUN_006bf633 and the matrices the Speedster feeds them: handles DAT_05d5c154 .. 16c (cactus x2 on record 2 gate 0xfa, problow x4 gates 0xfc / 0xfc / 0xfd / 0xfd, cactuspop02 gate 0xfb)
+ * and the four wheel-ground matrices DAT_05d5c2c0 / 300 / 340 / 380 (static zeroed memory until the first update writes them).
+ */
+export interface DspEmit { h: number[]; m: Float32Array[]; local: Float32Array[] }
 
 /** the zone-wide state (DAT_05d5c0xx and friends) */
 export class DspShared {
@@ -99,6 +119,8 @@ export class DspShared {
   rec(i: number): GameRecord { return this.world.records[i]; }
   get(v: number): number { return this.world.vars.get(v); }
   set(v: number, x: number) { this.world.vars.set(v, x); }
+  fx: DspFx | null = null;
+  emit: DspEmit = { h: [], m: [0, 1, 2, 3].map(() => new Float32Array(16)), local: [0, 1, 2, 3].map(() => new Float32Array(16)) };
   /** the model replacement of a smashed cactus (model index 0x7b of the zone's model table); set by the zone module, null = no swap */
   smashedModel: import('../../formats/exe.ts').Model | null = null;
   /** DAT_05d4dd18 / DAT_05d4dd3c: the tints of the left (clock, white while a time bonus runs) and right (turbo) HUD icons (0x7f7f7f = grey) */

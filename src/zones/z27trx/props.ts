@@ -3,11 +3,11 @@
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import { NODE_CONTINUE, NODE_NONE } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
-import { RF_ENABLED } from '../../game/record.ts';
+import { RF_ENABLED, RF_FRUSTUM } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import type { Model } from '../../formats/exe.ts';
 import { V } from '../../game/vars.ts';
-import { buildMatrix } from '../../formats/matrix.ts';
+import { eulerMatrix, eulerRotation, fr } from '../exact.ts';
 import { PHASE, SND, VAR } from './consts.ts';
 import { groundAt } from './run.ts';
 import type { TrxRun } from './run.ts';
@@ -33,8 +33,8 @@ export class GateNode extends PropNode {
   /** FUN_00766ef0: while the run is in its arrival phase the doors swing open by one degree per tick up to 90 degrees */
   update(w: World): number {
     if (!this.run) return NODE_NONE;     // registered by constructor address but not bound by prepareTrx (the generic stub run)
-    if (w.vars.get(VAR.PHASE) === PHASE.ARRIVE && this.angle < 1.5707964) {
-      this.angle += 0.017453199 * w.dt;
+    if (w.vars.get(VAR.PHASE) === PHASE.ARRIVE && this.angle < fr(1.5707964)) {
+      this.angle = fr(this.angle + fr(0.017453199));       // 0x8920d8: one degree per update, NOT scaled by DAT_008b1718 (FUN_00766ef0 has no dt factor: at a 60 Hz step the doors open twice as fast per second)
       if (this.door1) rotateY(this.door1, this.angle);
       if (this.door2) rotateY(this.door2, -this.angle);
     }
@@ -42,7 +42,7 @@ export class GateNode extends PropNode {
   }
 }
 /** FUN_0043a4a1(m, 0, angle, 0): the rotation part of a sub-object matrix from the Euler angles, its translation kept */
-function rotateY(m: Float32Array, angle: number) { m.set(buildMatrix(0, angle, 0, m[12], m[13], m[14])); }
+function rotateY(m: Float32Array, angle: number) { eulerRotation(m, 0, fr(angle), 0); }
 
 // ----------------------------------------------------------------------------------------------------------------------------------- VOLC (FUN_007679e2 / FUN_0076776f)
 
@@ -54,7 +54,7 @@ export class VolcNode extends PropNode {
     if (!this.run) return NODE_NONE;     // registered by constructor address but not bound by prepareTrx (the generic stub run)
     const run = this.run, p = run.pepp;
     if (run.volcano === null && !this.done) {
-      const dz = rec.z - p.z, dx = rec.x - p.x;
+      const dz = fr(rec.z - p.z), dx = fr(rec.x - p.x);
       if (-this.reach < dz && dz < this.reach && -this.reach < dx && dx < this.reach) {
         w.vars.set(VAR.VOLCANO, 1);
         run.volcano = rec;
@@ -62,10 +62,10 @@ export class VolcNode extends PropNode {
         run.sound.at(SND.VOLCANO, pos(rec));
       }
     } else if (run.volcano === rec) {
-      const dx = rec.x - p.x;
+      const dx = fr(rec.x - p.x);
       if (dx < -this.reach || this.reach < dx) { run.volcano = null; w.vars.set(VAR.VOLCANO, 0); }
       else {
-        const dz = rec.z - p.z;
+        const dz = fr(rec.z - p.z);
         if (dz < -this.reach || this.reach < dz) { run.volcano = null; w.vars.set(VAR.VOLCANO, 0); run.sound.stop(SND.VOLCANO); }
       }
     }
@@ -82,13 +82,14 @@ export class SlogNode extends PropNode {
   update(w: World, rec: GameRecord): number {
     if (!this.run) return NODE_NONE;     // registered by constructor address but not bound by prepareTrx (the generic stub run)
     const run = this.run;
-    const dz = run.pepp.z - rec.z;
+    const dz = fr(run.pepp.z - rec.z);
     if (-160 < dz && dz < 160) {
       run.sound.at(SND.PENDULUM, pos(rec));
       const c = Math.cos(this.phase);
-      this.phase += 0.10471919 * w.dt;               // 0x892688 (pi / 30)
-      if (3.1415927 < this.phase) this.phase -= 6.2831855;
-      rec.setEuler(0, rec.ry, c * 0.349064, rec.x, rec.y, rec.z);     // rz = cos(phase) * 0.349 (20 degrees)
+      this.phase = fr(fr(fr(0.10471919) * fr(w.dt)) + this.phase);               // 0x892688 (pi / 30)
+      if (fr(3.1415927) < this.phase) this.phase = fr(this.phase - fr(6.2831855));
+      // FUN_0043a5e4(m, 0, ry, cos * 0.349, x, y, z): the product is rounded when it is passed as a float
+      eulerMatrix(rec.m, 0, rec.ry, fr(c * fr(0.349064)), rec.x, rec.y, rec.z);     // rz = cos(phase) * 0.349 (20 degrees)
     }
     return NODE_CONTINUE;
   }
@@ -107,24 +108,24 @@ export class BldrNode extends PropNode {
   bind(w: World, rec: GameRecord) {
     const x0 = rec.x, y0 = rec.y, z0 = rec.z;
     this.ground = groundAt(w, x0, y0, z0);
-    this.px = x0 - 24; this.py = this.ground + 54; this.pz = z0 - 24;
-    this.vx = 0.8; this.vy = 0; this.vz = 0.8; this.state = 0; this.owner = false;
+    this.px = fr(x0 - 24); this.py = fr(this.ground + 54); this.pz = fr(z0 - 24);
+    this.vx = fr(0.8); this.vy = 0; this.vz = fr(0.8); this.state = 0; this.owner = false;
     rec.flags &= ~RF_ENABLED;
   }
   update(w: World, rec: GameRecord): number {
     if (!this.run) return NODE_NONE;     // registered by constructor address but not bound by prepareTrx (the generic stub run)
     const run = this.run, dt = w.dt;
     if (this.state === 0) {
-      const dx = rec.x - run.pepp.x, dz = rec.z - run.pepp.z;
-      if (dx * dx + dz * dz < 3136) {
+      const dx = fr(rec.x - run.pepp.x), dz = fr(rec.z - run.pepp.z);
+      if (fr(fr(dx * dx) + fr(dz * dz)) < 3136) {
         this.state = 1;
         rec.flags |= RF_ENABLED;
         if (w.vars.get(VAR.BOULDER) === 0) { this.owner = true; w.vars.set(VAR.BOULDER, 1); }
         this.vy = 0;
       }
     } else if (this.state === 1) {
-      this.px += this.vx * dt; this.py += this.vy * dt; this.pz += this.vz * dt;
-      this.vy -= 0.12 * dt;
+      this.px = fr(fr(this.vx * dt) + this.px); this.py = fr(fr(this.vy * dt) + this.py); this.pz = fr(fr(this.vz * dt) + this.pz);
+      this.vy = fr(this.vy - fr(fr(0.12) * dt));
       if (this.ground < this.py) run.sound.at(SND.ROCKFALL, pos(rec));
       else {
         this.py = this.ground; this.state = 2;
@@ -151,7 +152,7 @@ export class EggNode extends PropNode {
   bind(w: World, rec: GameRecord) {
     this.ground = groundAt(w, rec.x, rec.y, rec.z);
     this.state = 0; this.vy = 0;
-    this.y = this.ground + 48;
+    this.y = fr(this.ground + 48);
     rec.flags &= ~RF_ENABLED;
     if (this.models.falling) { rec.model = this.models.falling; this.onModel(rec); }
   }
@@ -159,12 +160,12 @@ export class EggNode extends PropNode {
     if (!this.run) return NODE_NONE;     // registered by constructor address but not bound by prepareTrx (the generic stub run)
     const run = this.run, dt = w.dt;
     if (this.state === 0) {
-      const dx = rec.x - run.pepp.x, dz = rec.z - run.pepp.z;
-      if (dx * dx + dz * dz < 5184) { this.state = 1; rec.flags |= RF_ENABLED; }
+      const dx = fr(rec.x - run.pepp.x), dz = fr(rec.z - run.pepp.z);
+      if (fr(fr(dx * dx) + fr(dz * dz)) < 5184) { this.state = 1; rec.flags |= RF_ENABLED; }
       this.vy = 0;
     } else if (this.state === 1) {
-      this.y += this.vy * dt;
-      this.vy -= 0.12 * dt;
+      this.y = fr(fr(this.vy * dt) + this.y);
+      this.vy = fr(this.vy - fr(fr(0.12) * dt));
       if (this.ground <= this.y) run.sound.at(SND.EGGFALL, pos(rec));
       else {
         if (this.models.landed) { rec.model = this.models.landed; this.onModel(rec); }
@@ -197,7 +198,7 @@ export class BrontyNode extends PropNode {
   update(w: World, rec: GameRecord): number {
     if (!this.run) return NODE_NONE;     // registered by constructor address but not bound by prepareTrx (the generic stub run)
     const res = rec.anim ? rec.anim.advance(1.0, w.dt) : 0;
-    const dz = rec.z - this.run.pepp.z;
+    const dz = fr(rec.z - this.run.pepp.z);
     if (this.state === 0) {
       if (res !== 0 && 0 < dz && dz < 48) { rec.anim?.start(2, 0); this.state = 1; }
     } else if (this.state === 1) {
@@ -211,21 +212,29 @@ export class BrontyNode extends PropNode {
 
 // ----------------------------------------------------------------------------------------------------------------------------------- TRIC / STEG / BREX (FUN_0076847b / FUN_00768330)
 
-/** a spectator dinosaur: its clip (TRIC 3, STEG 4, BREX 1) runs while the record is in view; a random number picks the call it makes */
+/**
+ * a spectator dinosaur (FUN_00768330): its clip runs while the record is in the view frustum (record flag bit 0 = `RF_FRUSTUM`, set every frame by FUN_00444370, kept by the zone
+ * game from the renderer's view planes); a random number picks the call it makes. The draw is made every tick, in view or not (it moves the generator on).
+ */
 export class SpectatorNode extends PropNode {
   readonly kind = 'trx-anim';
   clip = 1;
-  /** how far from the listener the record counts as in view (the original tests the frustum flag) */
-  viewRange = 220;
   bind(rec: GameRecord, clip: number) { this.clip = clip; rec.anim?.start(clip, 0); }
   update(w: World, rec: GameRecord): number {
     if (!this.run) return NODE_NONE;     // registered by constructor address but not bound by prepareTrx (the generic stub run)
-    const c = w.camera.c;
-    const dx = rec.x - c[3], dz = rec.z - c[5];
-    if (dx * dx + dz * dz > this.viewRange * this.viewRange) return NODE_CONTINUE;
     const r = this.run.rng.int(3);
-    rec.anim?.advance(1.0, w.dt);
-    if (r === 1) this.run.sound.at(SND.DINO, pos(rec)); else if (r === 2) this.run.sound.at(SND.DINO1, pos(rec));
+    if (rec.flags & RF_FRUSTUM) {
+      rec.anim?.advance(1.0, w.dt);
+      if (r === 1) this.run.sound.at(SND.DINO, pos(rec)); else if (r === 2) this.run.sound.at(SND.DINO1, pos(rec));
+    }
     return NODE_CONTINUE;
   }
+}
+
+// ----------------------------------------------------------------------------------------------------------------------------------- PTRA (FUN_00768188 / FUN_007680c0)
+
+/** the pterodactyl's `fly` node: the constructor attaches it to record 2, its update does nothing (the pterodactyls stand still in the shipped game) */
+export class FlyNode extends PropNode {
+  readonly kind = 'trx-fly';
+  update(): number { return NODE_CONTINUE; }
 }

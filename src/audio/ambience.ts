@@ -7,6 +7,9 @@ import { readTolerant } from './files.ts';
 import type { AudioFiles } from './files.ts';
 import type { AmbienceTableEntry } from './tables.ts';
 
+/** `_DAT_009e06e4 += 1.0` per frame until it is above 5.0: the sequence starts on the 7th call, 6 frames after FUN_004431e0 reset the counter */
+export const AMBIENCE_START_FRAMES = 6;
+
 export class AmbienceEngine {
   readonly ctx: BaseAudioContext;
   private dest: AudioNode;
@@ -32,7 +35,7 @@ export class AmbienceEngine {
     if (!mid || !dls) return false;
     this.stop();
     const r = new MidiRenderer(this.ctx.sampleRate, 32);
-    r.start(parseSmf(mid), parseDls(dls));
+    r.start(parseSmf(mid), parseDls(dls), AMBIENCE_START_FRAMES / 30);   // FUN_00443230 counts 6 frames (5.0 + 1) before AIL_start_sequence
     this.renderer = r; this.entry = e; this.current = e.key;
     this.applyVolume();
     this.stream = new SynthStream(this.ctx, this.dest, (L, R, n) => r.render(L, R, n));

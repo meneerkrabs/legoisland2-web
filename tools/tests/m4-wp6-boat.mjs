@@ -22,7 +22,11 @@ export default {
       const B = I.rec(name);
       const N = B.ctrl.find('SGBoat');
       ok(N && N.var === gateVar, `${name}: SGBoat gated by var 0x${gateVar.toString(16)}`);
+      const pmAll = []; I.ictx.partMode = (r, m, mo) => pmAll.push([r, `${r.name}/${m}/${mo}`]);
       tick(I, 2);
+      const mine = new Set([N.rip, N.wakeR, N.wakeP, N.wakeS]), pm = pmAll.filter(([r]) => mine.has(r)).map((x) => x[1]);
+      const got = (r) => pmAll.some(([x, t]) => x === r && t.endsWith('/255/2'));   // boats of one era share WAKP / WAKS: each boat's ctor sets them again
+      ok(got(N.rip) && got(N.wakeP) && got(N.wakeS) && !pmAll.some(([x]) => x === N.wakeR), `${name}: FUN_00444550(rec, 0xff, 2) for the ripple, WAKP and WAKS but not WAKR (${pm})`);
       ok(N.rip && N.wakeR && N.wakeP && N.wakeS && N.rip.name.startsWith('RIP') && N.wakeR.name === 'WAKR', `${name}: argument block -> ${N.rip?.name} WAKR WAKP WAKS`);
       ok(N.dock >= 0 && G.docks[N.dock].taken, `${name}: parked at dock ${N.dock}`);
       ok(N.rip.enabled && !N.wakeR.enabled, `${name}: the ripple shows under the parked boat, the wake is hidden`);
@@ -50,7 +54,7 @@ export default {
       ok(maxDy < 1e-3, `${name}: the boat stays on the sea level 2.4 (max |y - sea| ${maxDy.toFixed(4)})`);
       ok(sounds > 30, `${name}: the engine sound 0x${engine.toString(16)} plays (${sounds} ticks)`);
       ok(Math.hypot(P.x - B.x, P.z - B.z) < 3, `${name}: Pepper rides along`);
-      ok(N.wakeR.enabled && N.wakeS.enabled, `${name}: the wake shows while driving`);
+      { const q = N.drawSeq(W, B); ok(!N.wakeR.enabled && !N.wakeS.enabled && q.before[0] === N.wakeR && q.before[1] === N.wakeS && (N.fast ? q.after[0] === N.wakeP : q.after.length === 0), `${name}: the wake is drawn by the boat's hook in the order WAKR, WAKS, boat${N.fast ? ', WAKP (fast)' : ''}; the records' own flags stay cleared`); }
       // the boat camera: 40 behind, 16 up, looking at 8 above the boat
       const c = W.camera.c;
       const back = (c[0] - B.x) * B.m[8] + (c[2] - B.z) * B.m[10];

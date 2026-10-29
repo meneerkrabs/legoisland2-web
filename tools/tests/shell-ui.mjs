@@ -24,7 +24,7 @@ export default {
     for (const d of [0x01, 0x1c, 0x39, 0x56, 0x1d, 0x2a, 0x38, 0xd3]) eq(`dik ${d.toString(16)} round trip`, dikToCodes(d).every((c) => codeToDik(c) === d), true);
     const names = readKeyNames(pe);
     eq('key names come from the EXE table', [names.get(0x01), names.get(0x1c), names.get(0x1d)], ['ESCAPE', 'RETURN', 'LCTRL']);
-    eq('FUN_0043839f formats', [keyCodeName(0x10039, names), keyCodeName(0x00001, names), keyCodeName(0x20003, names)], [names.get(0x39), 'MOUSE 1', 'JOY 3']);
+    eq('FUN_0043839f formats', [keyCodeName(0x10039, names), keyCodeName(0x00001, names), keyCodeName(0x20003, names)], [names.get(0x39), 'OUSE1', 'OY:3']);
 
     // ---- credits: 225 table lines, wrapped to 600 px, scrolling from -480, ended by any button but Space
     const messages = ctx.archives.find((a) => a.name.toLowerCase() === 'messages');

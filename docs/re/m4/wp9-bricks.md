@@ -110,8 +110,8 @@ WP4's tests now check record 370.
 
 ## 5. Not done / approximations
 
-* Vehicles' Enter "change the look" (FUN_0051db5c -> FUN_00420404: a model-variant cycler FUN_00443b00 / 004439c0 writes var = part + 256 variant,
-  record flags |= 0x8020 until FUN_00420590 sees the slot idle) is not ported: the cycler handles come from the decor code FUN_004202ef (WP6 territory).
+* Vehicles' Enter "change the look" (FUN_0051db5c -> FUN_00420404): ported by WP-ISLAND (`src/island/vehicles/looks.ts`, wp6-vehicles.md "Vehicle looks"). The outfit / decor half
+  (variant type 1, FUN_00420bb7 + the animation FUN_00420dc4) is not ported.
 * The specular term, the 4096-vertex batching and the debug LOD override (DAT_05d37024) of the drawing; save / load of the effects (FUN_00449a10 /
   FUN_00449be0, `FUN_00447c90` blob of the save game).
 * Bricks whose second colour is missing use the first colour (the original reads garbage UVs before the palette table).

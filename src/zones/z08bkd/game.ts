@@ -4,7 +4,8 @@ import type { ZoneGame, ZoneGameCtx } from '../../shell/zonegame.ts';
 import type { Ui2D } from '../../ui/renderer2d.ts';
 import type { Medal } from '../../shell/helpscreen.ts';
 import type { SoundBackend } from '../parachute/sound.ts';
-import { VAR } from './consts.ts';
+import { BUBBLE, REC, VAR } from './consts.ts';
+import { GATE_ON, ZoneParticles } from '../../fx/particles/zone.ts';
 import { medalOfScore } from './state.ts';
 import { prepareBkd, snapshot } from './run.ts';
 import type { BkdRun } from './run.ts';
@@ -26,7 +27,7 @@ export function finish(vars: { get(i: number): number; set(i: number, v: number)
   return { text, medal: m, line: m === 3 ? 'CASGBD01' : m === 2 ? 'CASGBD02' : 'CASGBD03' };
 }
 
-export function createBkdGame(ctx: ZoneGameCtx): ZoneGame {
+export async function createBkdGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   const { world, gr, hud, vars, sh } = ctx;
   const ga = sh.audio.ga;
   const run: BkdRun = prepareBkd(world, ctx.archive, ctx.scene, {
@@ -35,6 +36,13 @@ export function createBkdGame(ctx: ZoneGameCtx): ZoneGame {
     attach: (rec, slot, bone, child) => gr.setAttach(rec, slot, bone, child),
   });
   const { state } = run;
+  // the diver's bubble emitter (FUN_005c23f9, see BUBBLE): started with the diver node, always on
+  const fx = await ZoneParticles.create(ctx);
+  if (fx) {
+    const h = fx.start(BUBBLE.NAME, world.records[REC.PEPP].m, BUBBLE.OFFSET, BUBBLE.ROT, GATE_ON);
+    for (const r of BUBBLE.COLLIDE) fx.collideWith(h, world.records[r]);
+    fx.finish();
+  }
   let done = 0, banner: { text: string; medal: Medal; line: string } | null = null;
 
   // the HUD (FUN_005b9fca / FUN_0045f9d2): the page icon at the left corner, five brick icons in the left column, the oxygen gauge at the right

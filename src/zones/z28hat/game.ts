@@ -9,7 +9,7 @@ import type { World } from '../../game/world.ts';
 import { V } from '../../game/vars.ts';
 import { SoundBank } from '../parachute/sound.ts';
 import type { SoundBackend } from '../parachute/sound.ts';
-import { HAT_KEY, HAT_SOUNDS, HatShared, REC, VAR, WINCH, checkRecords, findRecords } from './rules.ts';
+import { HAT_KEY, HAT_SOUNDS, HatShared, REC, VAR, checkRecords, findRecords } from './rules.ts';
 import type { HatSound } from './rules.ts';
 import { BABY_START_FRAME, mouthOf, HatBalloon, HatBaby, HatBronty, HatDino, HatFireball, HatMrHates, HatPepp, HatPtera, HatSandbag, HatWinch, fx } from './nodes.ts';
 
@@ -20,6 +20,9 @@ export const RIGS: { rec: number; rig: string }[] = [
   { rec: REC.DINOS[5], rig: 'TREX' }, { rec: REC.DINOS[1], rig: 'STEG' }, { rec: REC.DINOS[4], rig: 'TRIC' }, { rec: REC.PTER, rig: 'PTER' },
   { rec: REC.BABIES[1], rig: 'BREX' }, { rec: REC.BABIES[2], rig: 'BREX' }, { rec: REC.BABIES[3], rig: 'BREX' }, { rec: REC.BABIES[4], rig: 'BREX' }, { rec: REC.HOLO, rig: 'MFIG' },
 ];
+
+/** DAT_05d5d3c0 (the winch's copy of var 0xfa) as the last tick left it: a process global of the original, never cleared (tests reset it) */
+export const hatGlobals = { winchLast: 0 };
 
 export interface HatNodes {
   pepp: HatPepp; balloon: HatBalloon; bronty: HatBronty; winch: HatWinch; hates: HatMrHates;
@@ -87,14 +90,15 @@ export function prepareHat(world: World, archive: Archive | null, sound: SoundBa
   fireball.init(world);
   sandbags.forEach((n) => n.init());
   ptera.init(world, recs.pter);
-  world.vars.set(VAR.WINCH, WINCH.TOP);
+  // var 0xfa is NOT written here: a zone entry clears 0xfa..0x13e (FUN_004177ed, `Story.enter`) and a restart inside the loop does not (FUN_00792868 / FUN_007918a0 never touch it); the winch's copy
+  // DAT_05d5d3c0 is a process global (`hatGlobals`) that nothing clears
   world.vars.set(V.PEPPERSSHADOW, 4);      // FUN_00790fc0 sets var 0xc5 = 4 before its cutscenes: the blob shadow type
   if (archive) {
     const e = archive.find('matanim/Food.man');
     if (e) { try { bronty.food = parseMan(archive.read(e)); } catch (err) { console.warn('Food.man', err); } }
   }
   fx.rumble = 0; fx.fireball.length = 0;
-  S.winchLast = 0; S.brontyVar = 0;
+  S.winchLast = hatGlobals.winchLast; S.brontyVar = 0;
   return { shared: S, nodes: { pepp, balloon, bronty, winch, hates, dinos, babies, fireball, sandbags, ptera } };
 }
 /** the state a scripted player decides from (tools/lib/hat-bot.mjs): plain data */
@@ -106,7 +110,7 @@ export function hatSnapshot(world: World) {
   const sandbag = (r: GameRecord) => ({ ...at(r), active: (r.ctrl?.nodes[0] as unknown as { active?: boolean })?.active ?? false });
   const m = mouthOf(R.bron);
   return {
-    balloon: { ...at(R.hotb), fx: R.hotb.fx, fz: R.hotb.fz }, hook: at(R.winch), bronty: at(R.bron), mouth: m ? { x: m[12], y: m[13], z: m[14] } : null, drop: at(R.drop), nest: { x: S.nest[0], y: S.nest[1], z: S.nest[2] }, fireball: at(R.frb1),
+    balloon: { ...at(R.hotb), fx: R.hotb.fx, fz: R.hotb.fz }, hook: at(R.winch), bronty: at(R.bron), mouth: m ? { x: m[12], y: m[13], z: m[14] } : null, drop: at(R.drop), nest: { x: S.nest[0], y: S.nest[1], z: S.nest[2] }, fireball: { ...at(R.frb1), on: ((R.frb1.ctrl?.nodes.find((n) => n.kind === 'hatfireball') as { active?: boolean } | undefined)?.active ?? false) },
     dinos: R.dinos.map(st), babies: R.babies.map(st), sandbags: R.sandbags.map(sandbag),
     winch: world.vars.get(VAR.WINCH), brontyState: world.vars.get(VAR.BRONTY), control: world.vars.get(VAR.CONTROL),
     score: S.score, delivered: S.delivered, total: S.total, allDone: S.allDone, carrying: S.carrying, result: S.result, mom: [...S.mom], eatCount: S.eatCount, fade: S.fade,
@@ -120,5 +124,6 @@ export function hatSnapshot(world: World) {
 export function hatUpdate(world: World): { score: string; left: string; leftIcon: number; result: number } {
   const S = world.ext.get(HAT_KEY) as HatShared;
   if (S.total <= S.delivered) S.allDone = true;
+  hatGlobals.winchLast = S.winchLast;
   return { score: String(S.score), left: String(S.total - S.delivered), leftIcon: S.allDone ? 2 : -1, result: S.result };
 }

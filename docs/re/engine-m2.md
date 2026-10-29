@@ -24,10 +24,10 @@ options, outro + credits; every zone without ported gameplay runs as a stub. Sub
 * Mini-game exits go through `FUN_00404d14` (failed / aborted rewinds to the last hub; B noted stale snapshots after loading a save).
 
 ## Approximations / not ported
-* Zone gameplay (stub: M1 walk in the zone scene; F9 / F10 aids), intros / help screens (modes 1 / 9 exist in the template, no zone texts attached), cutscenes, subtitles.
+* **State at M2, corrected by WP-VERIFY:** zone gameplay, intro / help screens (modes 1 / 9 / 10 with the zone texts), cutscenes and subtitles exist for the 23 ported zones (M3, M4, M6); only the six hubs (z07CSI, z13CAI, z14OSD, z16PYA, z23DIP, z40OGL) still run as stubs (M1 walk in the zone scene; F9 aid). Mini-game subtitles are a port extension (gaps.md U3).
 * Front end: butterflies, train and the brick figure of the stage are static; Pepper's crossing speed / length is reconstructed from x87 code (fenodes.ts header).
-* After the outro movie the port shows the credits (original: straight to the island). Loading card (pizza / CD) is plain "LADEN".
-* Save files: Pepper's place and camera are written (entity record `PEPP`, camera block); walkers, bricks, decor, node blobs are empty sections of the right size, so files are valid for the original's checksum but not a faithful snapshot.
+* After the outro movie the port goes straight to the island like the original (the credits were removed by WP-VERIFY, gaps.md U2). The loading card is the original's (spinning pizza / CD disc and LADEN over every fade and while a zone loads: gaps.md U1, `src/ui/loadingcard.ts`).
+* Save files (still true, gaps.md V1): Pepper's place and camera are written (entity record `PEPP`, camera block); walkers, bricks, decor, node blobs are empty sections of the right size, so files are valid for the original's checksum but not a faithful snapshot.
 * Resolution items of the graphics page are greyed (browser). Mouse sensitivity is stored, unused. Speech preview on the volume slider is missing.
 * Render modes of the extraction are applied per record (GameRenderer), not per part mask.
 

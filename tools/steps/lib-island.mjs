@@ -13,7 +13,7 @@ export function island({ page, wait, log, shot }) {
   /** poll `fn` until it is true or `maxTicks` simulation ticks passed (30 per second of game time) */
   S.untilTicks = async (fn, maxTicks, poll = 40) => { const t0 = await S.ticks(); for (;;) { if (await fn()) return true; await wait(poll); const t = await S.ticks(); if (t < 0 || t < t0 - 2 || t - t0 > maxTicks) return false; } };   // (t < t0: the zone changed under us, its tick counter starts again)
   S.waitIsland = async () => { await page.waitForFunction(() => window.__zone && window.__zone.info.archive === 'z02LGI' && (window.__zone.machine.mode === 1 || window.__zone.machine.mode === 2), null, { timeout: 300000 }); };
-  S.start = async () => { await S.waitIsland(); if ((await S.state()).mode === 1) await page.keyboard.press('ArrowLeft'); await S.until(async () => (await S.state()).mode === 2, 5000); };
+  S.start = async () => { await S.waitIsland(); if ((await S.state()).mode === 1) await page.keyboard.press('ArrowLeft', { delay: 70 }); await S.until(async () => (await S.state()).mode === 2, 5000); };
   /** hold Shift taps (the cutscene skip) until no script runs; returns the number of taps */
   S.skipCutscenes = async (max = 80) => { let n = 0; for (; n < max; n++) { const s = await S.state(); if (!s || !s.cs) { await wait(250); if (!(await S.state())?.cs) break; continue; } await tap('ShiftLeft', 60); await wait(120); } return n; };
   // keys are held for game ticks (30 per second of game time): a tap shorter than one tick of a slow page (the live site, THROTTLE=4) would be lost between two

@@ -17,7 +17,11 @@ export type DmEvent =
   | { tick: number; kind: 'mute'; pch: number; mute: boolean }
   | { tick: number; kind: 'alloff'; pch: number }
   /** a new primary segment takes over: forget every channel's instrument and controllers */
-  | { tick: number; kind: 'reset' };
+  | { tick: number; kind: 'reset' }
+  /** GUID_NOTIFICATION_SEGMENT: the segment started / looped / reached its end minus the prepare time / ended / was stopped or replaced (dmusici.h DMUS_NOTIFICATION_SEG*) */
+  | { tick: number; kind: 'notify'; option: DmNotification };
+
+export type DmNotification = 'start' | 'end' | 'almostend' | 'loop' | 'abort';
 
 /** What a segment needs at playback time: its styles by (lower-case) file name. */
 export interface DmSegmentAssets { seg: DmSegment; styles: Map<string, DmStyle>; /** DLS collections by lower-case file name ("" = primary), used to resolve band instruments */ dls?: Map<string, DlsCollection> }
@@ -188,6 +192,7 @@ export class SegmentPlayer {
         this.local = s.loopStart;
         this.plan = null;
         this.bandsDone.clear();
+        out.push({ tick: this.perf, kind: 'notify', option: 'loop' });   // DMUS_NOTIFICATION_SEGLOOP at every wrap
         return this.generateWindow(out);
       }
       this.ended = true;
@@ -366,12 +371,19 @@ export interface PlayOptions {
   startLocal?: number;
   /** repeat count override */
   repeats?: number;
+  /**
+   * Start time in performance seconds (the renderer's clock). A primary segment started this way replaces the running one exactly then:
+   * what the old segment would still play from that instant on is dropped, its notes are released (DirectMusic: `PlaySegment` with a start time and no
+   * boundary flag; `DMUS_SEGF_AFTERPREPARETIME` resolves "now" to now + prepare time, audio.md 7.3). Overrides `boundary`.
+   */
+  atSec?: number;
 }
 
 export interface SegmentHandle { id: number; assets: DmSegmentAssets; secondary: boolean; started: boolean; ended: boolean }
 
 interface Inst { handle: SegmentHandle; player: SegmentPlayer; stopAt: number }
 interface Pending { handle: SegmentHandle; assets: DmSegmentAssets; atTick: number; opts: PlayOptions }
+const ownerOf = new WeakMap<DmEvent, Inst>();
 
 /**
  * Clock in ticks (768 per quarter note) with a piecewise-constant tempo map. Events come out of `run(untilSeconds)`
@@ -442,11 +454,13 @@ export class DmPerformance {
   /** Queue a segment: it starts at the first boundary at or after what has been generated so far. */
   play(assets: DmSegmentAssets, opts: PlayOptions = {}): SegmentHandle {
     const handle: SegmentHandle = { id: this.nextId++, assets, secondary: !!opts.secondary, started: false, ended: false };
-    const atTick = opts.secondary && !this.primary ? this.generatedTick : this.boundaryTick(opts.boundary ?? 'immediate');
+    const atTick = opts.atSec !== undefined ? this.atSecTick(opts.atSec) : opts.secondary && !this.primary ? this.generatedTick : this.boundaryTick(opts.boundary ?? 'immediate');
     this.pending.push({ handle, assets, atTick, opts });
     this.pending.sort((a, b) => a.atTick - b.atTick);
     return handle;
   }
+
+  private atSecTick(sec: number): number { return Math.max(0, Math.round(this.secToTick(sec))); }
 
   /** Stop a segment (or everything when omitted) at the boundary: notes are released and generation stops. */
   stop(handle?: SegmentHandle | null, boundary: Boundary = 'immediate') {
@@ -467,14 +481,22 @@ export class DmPerformance {
     p.handle.started = true;
     if (p.opts.secondary) this.secondaries.push(inst);
     else {
-      if (this.primary) this.endInstance(this.primary, p.atTick, true);
+      if (this.primary) {
+        // a start time inside already generated windows: what the old primary produced from that tick on never sounds
+        const old = this.primary;
+        if (p.opts.atSec !== undefined) this.buffer = this.buffer.filter((e) => !(e.tick >= p.atTick && ownerOf.get(e) === old));
+        this.endInstance(this.primary, p.atTick, true);
+      }
       this.buffer.push({ tick: p.atTick, kind: 'reset' });
+      this.buffer.push({ tick: p.atTick, kind: 'notify', option: 'start' });
       this.primary = inst;
     }
   }
 
   private endInstance(i: Inst, tick: number, release: boolean) {
     i.handle.ended = true;
+    // a segment that is cut (stopped, replaced) reports SEGABORT; one that played to its end SEGEND (release = false)
+    if (!i.handle.secondary) this.buffer.push({ tick, kind: 'notify', option: release ? 'abort' : 'end' });
     if (release) for (const c of i.player.channels) this.buffer.push({ tick, kind: 'alloff', pch: c });
     if (this.primary === i) this.primary = null;
     this.secondaries = this.secondaries.filter((s) => s !== i);
@@ -489,6 +511,10 @@ export class DmPerformance {
     this.clockSec = Math.max(this.clockSec, untilSec);
     for (let guard = 0; ; guard++) {
       if (guard > 1000000) throw new Error('DmPerformance.run: runaway');
+      // pending starts given in seconds follow the tempo map as it grows
+      let resort = false;
+      for (const p of this.pending) if (p.opts.atSec !== undefined) { const t = this.atSecTick(p.opts.atSec); if (t !== p.atTick) { p.atTick = t; resort = true; } }
+      if (resort) this.pending.sort((a, b) => a.atTick - b.atTick);
       const live: Inst[] = [];
       if (this.primary) live.push(this.primary);
       live.push(...this.secondaries);
@@ -506,7 +532,7 @@ export class DmPerformance {
           const win: DmEvent[] = [];
           const ok = i.player.generateWindow(win);
           this.stats.windows++;
-          for (const e of win) this.buffer.push(e);
+          for (const e of win) { ownerOf.set(e, i); this.buffer.push(e); }
           if (!ok) this.endInstance(i, i.player.perf, false);
         }
       }
@@ -530,7 +556,7 @@ export class DmPerformance {
     const ready: DmEvent[] = [], keep: DmEvent[] = [];
     for (const e of this.buffer) (e.tick < limit ? ready : keep).push(e);
     this.buffer = keep;
-    const prio = (e: DmEvent) => (e.kind === 'reset' ? 0 : e.kind === 'tempo' ? 0 : e.kind === 'patch' || e.kind === 'mute' ? 1 : e.kind === 'alloff' ? 2 : 3);
+    const prio = (e: DmEvent) => (e.kind === 'reset' ? 0 : e.kind === 'notify' ? 4 : e.kind === 'tempo' ? 0 : e.kind === 'patch' || e.kind === 'mute' ? 1 : e.kind === 'alloff' ? 2 : 3);
     ready.sort((a, b) => a.tick - b.tick || prio(a) - prio(b));
     for (const e of ready) {
       if (e.kind === 'tempo') this.setTempo(e.tick, e.bpm);

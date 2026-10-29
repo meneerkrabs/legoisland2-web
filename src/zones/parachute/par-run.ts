@@ -4,6 +4,7 @@ import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import type { Vec3 } from './util.ts';
 import { SoundBank } from './sound.ts';
+import type { ParFx } from './par-fx.ts';
 import type { SoundBackend, SoundDef } from './sound.ts';
 
 /** the sound slots of FUN_00467370 (id = sound table index; 2D = FUN_00443580, 3D = FUN_004433b0). Comments: the DAT_ slot and the file. */
@@ -69,6 +70,8 @@ export class ParRun {
   sound: SoundBank<ParSound>;
   /** FUN_00439bf8 + FUN_00435a11: speak a message of the zone table (ctx.say); the default drops it */
   say: (id: string) => boolean = () => false;
+  /** the zone's particle emitters (null in node tests without a particle engine) */
+  fx: ParFx | null = null;
   /** diagnostics for tests: every spoken id, in order */
   spoken: string[] = [];
 
@@ -100,6 +103,8 @@ export class ParRun {
   landScore = 0; landBonus = 0;
   /** ticks since the start */
   tick = 0;
+  /** DAT_05d57da8: the five points of the shadow patch (FUN_00442a70), the vertices of the SHAD mesh while the draw hook FUN_00468250 shows it */
+  shadow = new Float32Array(15);
   /** the last ground hit of the probe under the pilot (the blob shadow is drawn there) */
   groundHit: Vec3 = [0, 0, 0];
 

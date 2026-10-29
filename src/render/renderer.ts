@@ -1,6 +1,6 @@
 // WebGL2 renderer for game meshes. Reproduces the render-state model of the original Direct3D 7 renderer (docs/re/rendering.md):
 //   * state presets (blend / alpha test / depth / colour+alpha combine) selected per mesh draw `mode`, see states.ts
-//   * CPU-style Gouraud lighting (directional lights + ambient, evaluated per vertex), see lighting.ts
+//   * the game's CPU vertex lighting (Lights.cpp: written into per-mesh vertex colours once or at every draw, optional specular), see lighting.ts and meshlight.ts
 //   * linear fog by view depth, bilinear filtering of single-level textures (no mipmaps by default), per-texture wrap/clamp
 //   * animated textures (.wib) stepping at the game's 30 Hz
 // Game convention: left-handed, +Y up, row-vector matrices (see math.ts).
@@ -10,57 +10,44 @@ import { parseTga } from '../formats/tga.ts';
 import { parseWib } from '../formats/wib.ts';
 import type { Archive, ArchiveEntry } from '../formats/archive.ts';
 import type { Mat4 } from './math.ts';
-import { PRESETS, modePreset } from './states.ts';
+import { PRESETS, modePreset, GAME_Z_RANGE } from './states.ts';
 import type { Preset } from './states.ts';
-import { MAX_DIRECTIONAL, defaultLights } from './lighting.ts';
+import { defaultLights } from './lighting.ts';
 import type { LightSet } from './lighting.ts';
+import { prepareLights, lightStatic, lightSkinned, lightShiny } from './meshlight.ts';
 import { GAME_TICK } from './camera.ts';
 
 const VS = `#version 300 es
 layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aNrm;
 layout(location=2) in vec2 aUv;
+layout(location=3) in vec4 aCol;     // the vertex DIFFUSE colour of the mesh's vertex buffer (white until lit; the game's lighting writes it, meshlight.ts)
+layout(location=4) in vec4 aSpec;    // the vertex SPECULAR colour of a mesh in vertex format 0x2c2 (zero otherwise)
 uniform mat4 uMVP;
-uniform mat4 uWorld;
 uniform vec2 uUvOff;
 uniform vec2 uUvScale;
-uniform float uLit;
-uniform vec3 uAmbient;
-uniform int uNumLights;
-uniform vec3 uLightDir[${MAX_DIRECTIONAL}];
-uniform vec3 uLightCol[${MAX_DIRECTIONAL}];
 out vec2 vUv;
-out vec3 vLit;
+out vec4 vCol;
+out vec3 vSpec;
 out float vDepth;
 void main(){
   vec4 p = uMVP * vec4(aPos,1.0);
   gl_Position = p;
   vUv = (aUv - vec2(0.0, 1.0)) * uUvScale + vec2(0.0, 1.0) + uUvOff;   // scale about v = 1 (Faces.c FUN_0087e260), then the offset
   vDepth = p.w;
-  vec3 c = vec3(1.0);
-  if (uLit > 0.5) {
-    // game lighting (Lights.cpp FUN_00885a9a): per colour channel acc += (1-acc) * max(N.L,0) * diffuse, result = max(acc, ambient)
-    vec3 n = normalize(mat3(uWorld) * aNrm);
-    vec3 acc = vec3(0.0);
-    for (int i = 0; i < ${MAX_DIRECTIONAL}; i++) {
-      if (i >= uNumLights) break;
-      float d = max(dot(n, uLightDir[i]), 0.0);
-      acc = acc + (vec3(1.0) - acc) * d * uLightCol[i];
-    }
-    c = max(acc, uAmbient);
-  }
-  vLit = c;
+  vCol = aCol;
+  vSpec = aSpec.rgb;
 }`;
 const FS = `#version 300 es
 precision highp float;
-in vec2 vUv; in vec3 vLit; in float vDepth;
+in vec2 vUv; in vec4 vCol; in vec3 vSpec; in float vDepth;
 uniform sampler2D uTex;
 uniform float uUseTex;      // 0: untextured group, uFlat is used as the texel
 uniform vec3 uFlat;
 uniform int uColorOp;       // 0 texture, 1 texture * vertex colour, 2 vertex colour
 uniform int uAlphaOp;       // 0 one, 1 texture alpha, 2 texture * vertex alpha, 3 vertex alpha, 4 modulate 4x
-uniform vec4 uTint;         // vertex colour of unlit presets (rgb) and vertex alpha (a)
-uniform float uLit;
+uniform vec4 uTint;         // vertex colour of presets that select it (rgb: COLORARG2 = DIFFUSE presets) and the vertex alpha (a)
+uniform float uSpecOn;      // SPECULARENABLE with a vertex format that carries a specular colour
+uniform float uAttrColor;   // 1: the presets that select the vertex colour (COLORARG2 = DIFFUSE) read it from the vertex buffer (batches), 0: from uTint (meshes)
 uniform float uHighlight;
 uniform float uFogOn;
 uniform vec3 uFog;
@@ -69,15 +56,16 @@ uniform float uAdditive;
 out vec4 o;
 void main(){
   vec4 t = uUseTex > 0.5 ? texture(uTex, vUv) : vec4(uFlat, 1.0);
-  vec3 vc = uLit > 0.5 ? vLit : uTint.rgb;
-  float va = uTint.a;
+  vec3 vc = uColorOp == 2 && uAttrColor < 0.5 ? uTint.rgb : vCol.rgb;
+  float va = uAttrColor > 0.5 ? vCol.a : uTint.a;
   vec3 col = uColorOp == 0 ? t.rgb : (uColorOp == 1 ? t.rgb * vc : vc);
   float a = uAlphaOp == 0 ? 1.0 : (uAlphaOp == 1 ? t.a : (uAlphaOp == 2 ? t.a * va : (uAlphaOp == 3 ? va : min(t.a * va * 4.0, 1.0))));
   if (a < 0.5 / 255.0) discard;                       // ALPHATESTENABLE, ALPHAREF 1, ALPHAFUNC GREATEREQUAL
+  col = min(col + vSpec * uSpecOn, 1.0);              // the specular colour is added after the texture stage, before the fog
   col = mix(col, vec3(1.0, 0.9, 0.2), uHighlight * 0.35);
   if (uFogOn > 0.5) {
     float f = clamp((uFogRange.y - vDepth) / max(uFogRange.y - uFogRange.x, 1e-3), 0.0, 1.0);
-    col = mix(uAdditive > 0.5 ? vec3(0.0) : uFog, col, f);
+    col = mix(col, uAdditive > 0.5 ? vec3(0.0) : uFog, 1.0 - f);
   }
   o = vec4(col, a);
 }`;
@@ -99,6 +87,17 @@ export interface MeshGpu {
   groups: { first: number; count: number; flags: number; mat: Mat4 | null }[];
   min: number[]; max: number[]; center: number[]; radius: number;
   triangles: number;
+  /**
+   * the mesh's vertex DIFFUSE colours (RGBA8, white at load: the files hold 0xffffffff) in `colBuf`: the game's lighting (meshlight.ts) writes them, mode 0 / 4 meshes at their first
+   * draw only (`mesh + 0x60`), mode 1 meshes at every draw; all records that draw this mesh share them (as the original's vertex buffer is shared)
+   */
+  col: Uint8Array; colBuf: WebGLBuffer;
+  /** `mesh + 0x60`: lit once already, and with which light set (a new zone brings new lights and freshly loaded meshes) */
+  lit: boolean; litFor: LightSet | null;
+  /** FUN_004446c0(record, 1) / FUN_00883013: vertex format 0x2c2 (specular colour per vertex, `spec` / `specBuf`) */
+  shiny: boolean; spec: Uint8Array | null; specBuf: WebGLBuffer | null;
+  /** the vertex data of the last `updateMeshVertices` (skinned meshes): what the lighting reads */
+  curNormals?: Float32Array; curPositions?: Float32Array;
 }
 export interface TexAnim {
   /** RGBA frames */
@@ -110,7 +109,14 @@ export interface TexAnim {
   /** FUN_00411202 mode 2 (and the expression sheets): not stepped by `updateTextures`, `setTextureFrame` picks the entry */
   frozen?: boolean;
 }
-export interface TexGpu { tex: WebGLTexture; soft: boolean; cutout: boolean; w: number; h: number; frames: number; anim?: TexAnim; mips: boolean; /** a mod's picture larger than the original: always mip-mapped */ hd?: boolean }
+export interface TexGpu { tex: WebGLTexture; soft: boolean; cutout: boolean; w: number; h: number; frames: number; anim?: TexAnim; mips: boolean; /** the texture's address modes (text.txl): true = wraps, false = clamps */ wrapU?: boolean; wrapV?: boolean; /** a mod's picture larger than the original: always mip-mapped */ hd?: boolean }
+
+/** a dynamic vertex batch (positions already in world space, 16-bit indices): the brick effects' ping-pong vertex buffers (Effects.c FUN_00886900: 4096 vertices of format 0x2c2 each) */
+export interface BatchGpu {
+  vao: WebGLVertexArrayObject;
+  pos: WebGLBuffer; uv: WebGLBuffer; col: WebGLBuffer; spec: WebGLBuffer; idx: WebGLBuffer;
+  capVertices: number; capIndices: number;
+}
 
 export interface FogState { enabled: boolean; color: [number, number, number]; start: number; end: number }
 
@@ -132,6 +138,15 @@ export interface DrawOpts {
   uvScale?: (group: number) => readonly [number, number] | undefined;
   /** per group: a matrix that replaces the mesh's static MATL group matrix (live sub-object matrices: doors, rotors); undefined = the static one */
   groupMatrix?: (group: number) => Mat4 | null | undefined;
+  /**
+   * when the vertices are lit (FUN_0088aca2): 'once' = at the mesh's first draw only (mode 0 and 4: `mesh + 0x60`), 'always' = at every draw (mode 1, attachments, skinned meshes),
+   * 'never' = the mesh keeps the colours it has (unlit modes). Default: from `mode` (0 / 4 once, 1 always, others never); a `preset` without `mode` never lights.
+   */
+  lit?: 'once' | 'always' | 'never';
+  /** the mesh is a skinned one (FUN_0088b87b: FUN_0088589e / FUN_00885e33, no point lights) */
+  skinned?: boolean;
+  /** D3D ZENABLE = 0 around the draw (FUN_0040cc4d(0): draw hooks): no depth test and no depth write whatever the preset says */
+  noZ?: boolean;
 }
 
 function mul4(a: Mat4, b: Mat4, out: Mat4): Mat4 {
@@ -175,6 +190,8 @@ export class Renderer {
   private aniso: EXT_texture_filter_anisotropic | false | null = null;
   fog: FogState = { enabled: false, color: [0, 0, 0], start: 0, end: 1e6 };
   lights: LightSet = defaultLights();
+  /** the camera position the specular lighting looks from (DAT_00986e18..20); set by the caller each frame, null = unknown (no specular highlights) */
+  eye: [number, number, number] | null = null;
   stats = { draws: 0, triangles: 0 };
 
   readonly canvas: HTMLCanvasElement;
@@ -186,7 +203,7 @@ export class Renderer {
     this.gl = gl;
     this.prog = compile(gl, VS, FS);
     this.lineProg = compile(gl, LINE_VS, LINE_FS);
-    for (const n of ['uMVP', 'uWorld', 'uUvOff', 'uUvScale', 'uTex', 'uUseTex', 'uFlat', 'uColorOp', 'uAlphaOp', 'uTint', 'uLit', 'uHighlight', 'uFogOn', 'uFog', 'uFogRange', 'uAdditive', 'uAmbient', 'uNumLights', 'uLightDir', 'uLightCol']) this.u[n] = gl.getUniformLocation(this.prog, n);
+    for (const n of ['uMVP', 'uUvOff', 'uUvScale', 'uTex', 'uUseTex', 'uFlat', 'uColorOp', 'uAlphaOp', 'uTint', 'uSpecOn', 'uAttrColor', 'uHighlight', 'uFogOn', 'uFog', 'uFogRange', 'uAdditive']) this.u[n] = gl.getUniformLocation(this.prog, n);
     for (const n of ['uMVP', 'uColor']) this.ul[n] = gl.getUniformLocation(this.lineProg, n);
     this.white = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, this.white);
@@ -269,6 +286,7 @@ export class Renderer {
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, m.buffers[0]);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, vb, 0, n * 8);
+    m.curPositions = positions; m.curNormals = normals;
   }
 
   private upload(msh: Msh): MeshGpu {
@@ -297,11 +315,62 @@ export class Renderer {
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, b2);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    // the vertex colours (diffuse): white like the mesh files' 0xffffffff until the game's lighting writes them
+    const col = new Uint8Array(n * 4).fill(255);
+    const b3 = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, b3);
+    gl.bufferData(gl.ARRAY_BUFFER, col, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 4, gl.UNSIGNED_BYTE, true, 4, 0);
+    gl.disableVertexAttribArray(4);
     gl.bindVertexArray(null);
     if (!n) { min.fill(0); max.fill(0); }
     const center = [0, 1, 2].map((k) => (min[k] + max[k]) / 2);
     const radius = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2;
-    return { msh, vao, buffers: [b1, b2], groups, min, max, center, radius, triangles: idx.length / 3 };
+    return { msh, vao, buffers: [b1, b2, b3], groups, min, max, center, radius, triangles: idx.length / 3, col, colBuf: b3, lit: false, litFor: null, shiny: false, spec: null, specBuf: null };
+  }
+
+  /**
+   * FUN_004446c0(record, 1) / FUN_00883013(mesh, 1): switches the mesh to vertex format 0x2c2 (a specular colour per vertex); its lighting then computes the specular term and
+   * `drawMesh` adds it. `false` = back to 0x242. The specular colours start at zero.
+   */
+  setShiny(m: MeshGpu, on: boolean) {
+    if (m.shiny === on) return;
+    const gl = this.gl;
+    m.shiny = on;
+    gl.bindVertexArray(m.vao);
+    if (on) {
+      m.spec = new Uint8Array(m.msh.vertexCount * 4);
+      m.specBuf = gl.createBuffer()!;
+      m.buffers.push(m.specBuf);
+      gl.bindBuffer(gl.ARRAY_BUFFER, m.specBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, m.spec, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 4, gl.UNSIGNED_BYTE, true, 4, 0);
+    } else {
+      gl.disableVertexAttribArray(4);
+      if (m.specBuf) { gl.deleteBuffer(m.specBuf); m.buffers.splice(m.buffers.indexOf(m.specBuf), 1); }
+      m.spec = null; m.specBuf = null;
+    }
+    gl.bindVertexArray(null);
+    m.lit = false;   // the format changed: lit again at the next draw
+  }
+
+  /** a new zone: its meshes are loaded afresh in the original, so every mesh is lit again at its next first draw (`mesh + 0x60` = 0) */
+  resetLighting() {
+    for (const m of this.meshes.values()) if (m) { m.lit = false; m.litFor = null; }
+  }
+
+  /** the lit modes' vertex lighting of one draw (FUN_0088abcc / FUN_0088b87b): the colours go into the mesh's own buffers */
+  private lightMesh(m: MeshGpu, world: Mat4, skinned: boolean) {
+    const gl = this.gl, n = m.msh.vertexCount;
+    const pl = prepareLights(this.lights, world, this.eye);
+    const normals = m.curNormals ?? m.msh.normals;
+    if (m.shiny && m.spec) lightShiny(pl, n, normals, m.col, m.spec, skinned);
+    else if (skinned) lightSkinned(pl, n, normals, m.col);
+    else lightStatic(pl, n, normals, m.curPositions ?? m.msh.positions, m.col);
+    gl.bindBuffer(gl.ARRAY_BUFFER, m.colBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, m.col);
+    if (m.shiny && m.spec) { gl.bindBuffer(gl.ARRAY_BUFFER, m.specBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, m.spec); }
+    m.lit = true; m.litFor = this.lights;
   }
 
   /** per-texture flag bytes of <dir>/text.txl ("TEXT", u32 n, n bytes): bit0 = U wraps (else clamps), bit1 = V wraps (else clamps) */
@@ -369,7 +438,7 @@ export class Renderer {
         const fl = this.textureFlags(archive, dir)?.[id];
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, fl === undefined || (fl & 1) ? gl.REPEAT : gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, fl === undefined || (fl & 2) ? gl.REPEAT : gl.CLAMP_TO_EDGE);
-        t = { tex, soft, cutout, w, h, frames, anim, mips, hd };
+        t = { tex, soft, cutout, w, h, frames, anim, mips, hd, wrapU: fl === undefined || !!(fl & 1), wrapV: fl === undefined || !!(fl & 2) };
         if (anim) this.animated.add(t);
       }
     } catch (e) { console.warn('texture', id, e); }
@@ -451,6 +520,7 @@ export class Renderer {
     gl.depthMask(true);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
+    gl.depthRange(GAME_Z_RANGE[0], GAME_Z_RANGE[1]);   // SetViewport(.., MinZ 0, MaxZ 0) = depth range 0 .. 0.001 in Direct3D 7 (states.ts)
     const vr = this.viewRect;
     if (vr.w < this.canvas.width || vr.h < this.canvas.height) {
       gl.disable(gl.SCISSOR_TEST);
@@ -463,23 +533,11 @@ export class Renderer {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.useProgram(this.prog);
     gl.uniform1i(this.u.uTex, 0);
-    this.uploadLights();
     gl.uniform1f(this.u.uFogOn, this.fog.enabled ? 1 : 0);
     gl.uniform3f(this.u.uFog, this.fog.color[0], this.fog.color[1], this.fog.color[2]);
     gl.uniform2f(this.u.uFogRange, this.fog.start, this.fog.end);
     if (this.cull) { gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.frontFace(this.cwFront ? gl.CW : gl.CCW); } else gl.disable(gl.CULL_FACE);
     this.stats.draws = 0; this.stats.triangles = 0;
-  }
-
-  private uploadLights() {
-    const gl = this.gl, L = this.lights;
-    const n = Math.min(L.directional.length, MAX_DIRECTIONAL);
-    const dir = new Float32Array(MAX_DIRECTIONAL * 3), col = new Float32Array(MAX_DIRECTIONAL * 3);
-    for (let i = 0; i < n; i++) { dir.set(L.directional[i].dir, i * 3); col.set(L.directional[i].color, i * 3); }
-    gl.uniform3fv(this.u.uLightDir, dir);
-    gl.uniform3fv(this.u.uLightCol, col);
-    gl.uniform1i(this.u.uNumLights, n);
-    gl.uniform3f(this.u.uAmbient, L.ambient[0], L.ambient[1], L.ambient[2]);
   }
 
   /** applies the blend / depth part of a state preset (the colour / alpha combine is done in the shader) */
@@ -495,7 +553,6 @@ export class Renderer {
     gl.uniform1i(this.u.uColorOp, COLOR_OP[p.colorOp]);
     gl.uniform1i(this.u.uAlphaOp, ALPHA_OP[p.alphaOp]);
     gl.uniform1f(this.u.uAdditive, p.blend === 'add' ? 1 : 0);
-    gl.uniform1f(this.u.uLit, p.colorOp === 'mod' ? 1 : 0);
   }
 
   /**
@@ -505,8 +562,15 @@ export class Renderer {
    */
   drawMesh(m: MeshGpu, world: Mat4, texOf: (g: number) => TexGpu | null | undefined, o: DrawOpts = {}) {
     const gl = this.gl;
-    const preset = PRESETS[o.preset ?? modePreset(o.mode ?? 0)];
+    const mode = o.mode ?? 0;
+    const preset = PRESETS[o.preset ?? modePreset(mode)];
     this.applyPreset(preset);
+    if (o.noZ) { gl.disable(gl.DEPTH_TEST); gl.depthMask(false); }
+    // FUN_0088aca2: modes 0 and 4 light the mesh at its first draw only, mode 1 at every draw; the others keep the colours the vertex buffer has
+    const lit = o.lit ?? (o.preset !== undefined ? 'never' : mode === 0 || mode === 4 ? 'once' : mode === 1 ? 'always' : 'never');
+    if (lit === 'always' || (lit === 'once' && (!m.lit || m.litFor !== this.lights))) this.lightMesh(m, world, !!o.skinned);
+    gl.uniform1f(this.u.uSpecOn, m.shiny ? 1 : 0);
+    gl.uniform1f(this.u.uAttrColor, 0);
     const tint = o.tint ?? [1, 1, 1, 1];
     gl.uniform4f(this.u.uTint, tint[0], tint[1], tint[2], tint[3]);
     gl.uniform1f(this.u.uHighlight, o.highlight ? 1 : 0);
@@ -528,7 +592,6 @@ export class Renderer {
           const wm = gmat ? mul4(gmat, world, w2) : world;
           for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) mvp[r * 4 + c] = wm[r * 4] * viewProj[c] + wm[r * 4 + 1] * viewProj[4 + c] + wm[r * 4 + 2] * viewProj[8 + c] + wm[r * 4 + 3] * viewProj[12 + c];
           gl.uniformMatrix4fv(this.u.uMVP, false, mvp);
-          gl.uniformMatrix4fv(this.u.uWorld, false, wm);
         }
         const t = texOf(g);
         gl.activeTexture(gl.TEXTURE0);
@@ -548,6 +611,56 @@ export class Renderer {
       }
     }
     gl.bindVertexArray(null);
+  }
+
+  /** a dynamic batch of `capVertices` vertices and `capIndices` 16-bit indices (see `drawBatch`) */
+  createBatch(capVertices: number, capIndices: number): BatchGpu {
+    const gl = this.gl;
+    const vao = gl.createVertexArray()!;
+    gl.bindVertexArray(vao);
+    const mk = (bytes: number, loc: number, size: number, type: number, norm: boolean) => {
+      const b = gl.createBuffer()!;
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.bufferData(gl.ARRAY_BUFFER, bytes, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, size, type, norm, 0, 0);
+      return b;
+    };
+    const pos = mk(capVertices * 12, 0, 3, gl.FLOAT, false), uv = mk(capVertices * 8, 2, 2, gl.FLOAT, false);
+    const col = mk(capVertices * 4, 3, 4, gl.UNSIGNED_BYTE, true), spec = mk(capVertices * 4, 4, 4, gl.UNSIGNED_BYTE, true);
+    const idx = gl.createBuffer()!;
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idx);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, capIndices * 2, gl.DYNAMIC_DRAW);
+    gl.bindVertexArray(null);
+    return { vao, pos, uv, col, spec, idx, capVertices, capIndices };
+  }
+
+  /**
+   * Uploads and draws the first `nv` vertices / `ni` indices of the arrays (a triangle list, positions in world space, 16-bit indices) with state preset `preset`: the brick batches'
+   * state block 5 (FUN_00886b34, specular on) or the coloured polygons of the view plane (block 0x1d, vertex colours). The caller's arrays are the batch's CPU side.
+   * `uv` / `spec` null = not uploaded (the batch's buffers keep zeros), `opts.mvp` replaces the frame's view * projection, `opts.specular` (default true) SPECULARENABLE.
+   */
+  drawBatch(b: BatchGpu, nv: number, ni: number, pos: Float32Array, uv: Float32Array | null, col: Uint8Array, spec: Uint8Array | null, idx: Uint16Array, tex: TexGpu | null, preset: number, opts: { mvp?: Mat4; specular?: boolean } = {}) {
+    if (!ni) return;
+    const gl = this.gl;
+    this.applyPreset(PRESETS[preset]);
+    gl.bindVertexArray(b.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, b.pos); gl.bufferSubData(gl.ARRAY_BUFFER, 0, pos, 0, nv * 3);
+    if (uv) { gl.bindBuffer(gl.ARRAY_BUFFER, b.uv); gl.bufferSubData(gl.ARRAY_BUFFER, 0, uv, 0, nv * 2); }
+    gl.bindBuffer(gl.ARRAY_BUFFER, b.col); gl.bufferSubData(gl.ARRAY_BUFFER, 0, col, 0, nv * 4);
+    if (spec) { gl.bindBuffer(gl.ARRAY_BUFFER, b.spec); gl.bufferSubData(gl.ARRAY_BUFFER, 0, spec, 0, nv * 4); }
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, b.idx); gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, idx, 0, ni);
+    gl.uniform4f(this.u.uTint, 1, 1, 1, 1);
+    gl.uniform1f(this.u.uHighlight, 0);
+    gl.uniform2f(this.u.uUvOff, 0, 0); gl.uniform2f(this.u.uUvScale, 1, 1);
+    gl.uniform1f(this.u.uSpecOn, opts.specular === false ? 0 : 1);
+    gl.uniform1f(this.u.uAttrColor, 1);
+    gl.uniformMatrix4fv(this.u.uMVP, false, opts.mvp ?? this.viewProj);
+    gl.activeTexture(gl.TEXTURE0);
+    if (tex) { gl.bindTexture(gl.TEXTURE_2D, tex.tex); gl.uniform1f(this.u.uUseTex, 1); }
+    else { gl.bindTexture(gl.TEXTURE_2D, this.white); gl.uniform1f(this.u.uUseTex, 0); gl.uniform3f(this.u.uFlat, 1, 1, 1); }
+    gl.drawElements(gl.TRIANGLES, ni, gl.UNSIGNED_SHORT, 0);
+    gl.bindVertexArray(null);
+    this.stats.draws++; this.stats.triangles += ni / 3;
   }
 
   /** wireframe box in object space (min..max) transformed by world */

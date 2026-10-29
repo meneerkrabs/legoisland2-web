@@ -82,10 +82,12 @@ export class MusicNode implements BehaviourNode {
     this.timer = 0x78;
   }
 
-  /** squared XZ distance of a building to the focus (FUN_0042377a reads the controller's +0x18 of the previous frame; computed here) */
+  /** FUN_0042377a: the controller's +0x18 as the update pass left it: written when the building's own record was processed, so it is the value of THIS frame for a
+   *  building earlier in the record order than the Music node and of the PREVIOUS frame (focus position included) for one after it. Without a controller: FUN_004221f2, live. */
   private dist2(w: World, idx: number): number {
     const r = w.records[idx], f = w.focus;
     if (!r || !f) return 1e38;
+    if (r.ctrl) return r.ctrl.distSq;
     const dx = r.x - f.x, dz = r.z - f.z;
     return dx * dx + dz * dz;
   }

@@ -9,6 +9,10 @@
 // decides: inside radius sqrt(40) the player scores (0xb), outside sqrt(60) the dark knight does (0xc), in between nobody (0xe); then one of the 4 reaction clips plays
 // (0xf .. 0x20), the round popup is shown (0x21) and the next round starts (0x22) until one side has 3 points (0x23).
 import type { GameRecord } from '../../game/record.ts';
+import { sampleBlk } from '../../formats/anim.ts';
+import { CLIP_LOOP, POSE_SNAP } from '../../game/anim.ts';
+import type { AnimInstance } from '../../game/anim.ts';
+import { composeBone } from '../../island/emitters.ts';
 import { MfigMan } from './mfig.ts';
 import { REC, K, START, SAY, VAR, S2D, S3D, hexf, f32 } from './consts.ts';
 
@@ -32,6 +36,7 @@ export interface DuelRng {
 /** a seeded MSVC rand() (FUN_0085daf0) */
 export class MsvcRng implements DuelRng {
   seed: number;
+  // RNG: the original seeds the CRT with the clock (srand(time)); tests pass a fixed seed
   constructor(seed = (Date.now() & 0xffffffff) >>> 0) { this.seed = seed >>> 0; }
   next(): number { this.seed = (Math.imul(this.seed, 214013) + 2531011) >>> 0; return (this.seed >>> 16) & 0x7fff; }
   range(range: number): number { return range <= 0 ? 0 : (this.next() / 32767) * range; }
@@ -53,7 +58,18 @@ export interface DuelHost {
   /** the camera spline's control points (0x90b740, count at 0x90b73c) and the offsets added to the last one (0x90b730) */
   spline: { points: number[][]; end: number[]; follow: number[]; blend: number };
   rng: DuelRng;
+  /** the zone's particle engine (null without one): the eight `orsemud1.par` emitters of the constructor, handled by index 0..7 (FUN_0044ea60 / FUN_00442a00 on handles +0x1c .. +0x38 of the node) */
+  fx?: DuelFx | null;
 }
+/** the particle calls of the duel */
+export interface DuelFx {
+  /** FUN_0044ea60(handle[i], var, 1, 1): on = (2, 1, 1), off = (1, 1, 1) */
+  gate(i: number, on: boolean): void;
+  /** FUN_00442a00(handle[i], &matrix) */
+  matrix(i: number, m: Float32Array): void;
+}
+/** the mud emitters' bones of a horse (FUN_0043bc58(anim, bone)): 0x17, 0x1b, 0xb, 0xe = the four hooves; emitters 0..3 follow HORS (record 12), 4..7 DRKH (record 29) */
+export const MUD_BONES = [0x17, 0x1b, 0xb, 0xe] as const;
 
 /** the B-spline of the camera (GSMS path object, vtable 0x892268 slot 8 = 0x446fd0): uniform cubic B-spline over the control points, u = t * count */
 export function bspline(pts: readonly (readonly number[])[], t: number): number[] {
@@ -103,12 +119,18 @@ export class JoustDuel {
   finalShown = false;
   /** what the HUD texts show (FUN_005d1e1b: sprintf of the score +0x108 / +0x5c / +0x58, run by the constructor and at the end of every round: state 0x1f) */
   shown = { score: 0, hitsE: 0, hitsP: 0 };
+  /** the frame step DAT_008b1718 (1 at the 30 Hz step, 0.5 at 60 Hz; the `JSTGame` node sets it from `world.dt` every tick): scales every per-tick movement and the animation advances like the original */
+  dt = 1;
   /** ticks run */
   ticks = 0;
   /** diagnostics: every state change "from>to" (tests) */
   log: string[] | null = null;
   /** an effect the original starts with a particle emitter (FUN_0044ea60: botexpl01 / orsemud1): the port has no particles, the event is only reported */
   onEffect: ((name: string) => void) | null = null;
+  /** DAT_05d5aea8 .. 05d5b068: the eight static matrices the mud emitters follow (zero until the first update, like the BSS) */
+  readonly fxMats: Float32Array[] = Array.from({ length: 8 }, () => new Float32Array(16));
+  /** the clip / frame of the two horses at the start of the tick = the state the last draw posed (FUN_0043bc58 reads the buffer of that draw: nothing in the update re-poses a horse) */
+  private horsePose: ({ clip: number; frame: number } | null)[] = [null, null];
 
   constructor(host: DuelHost) {
     this.host = host;
@@ -183,7 +205,7 @@ export class JoustDuel {
 
   /** FUN_005f2f0b(mode) */
   camera(mode: number) {
-    const c = this.host.cam, d = K.ONE;
+    const c = this.host.cam, d = this.dt;
     const R = this.r;
     switch (mode) {
       case 0: {
@@ -340,14 +362,17 @@ export class JoustDuel {
 
   /** the reaction states move the two groups apart by charge / 32 per tick */
   private moveTogether() {
-    const d = f32(this.speed * K.RATE * K.ONE);
+    const d = f32(this.speed * K.RATE * this.dt);
     this.pPos[0] = f32(this.pPos[0] + d);
     this.ePos[0] = f32(this.ePos[0] - d);
   }
 
   // ------------------------------------------------------------------------------------------------------------------------------ the update
-  /** FUN_005ce506: one tick (`held` = DAT_0098383c, `pressed` = DAT_00983840) */
-  update(held: number, pressed: number) {
+  /**
+   * FUN_005ce506: one tick (`held` = DAT_0098383c, `pressed` = DAT_00983840; `stickX` / `stickY` = DAT_0098384c / DAT_00983850, the analogue stick in -128..127 that moves the aim point
+   * while no key is held; the port's input mapper has no stick yet, the node passes 0)
+   */
+  update(held: number, pressed: number, stickX = 0, stickY = 0) {
     const h = this.host, snd = h.snd, R = this.r;
     this.ticks++;
     // crows: rand(200): 0 / 1 = the second crow, 199 / 200 = the first
@@ -355,7 +380,9 @@ export class JoustDuel {
     if (crow < 199) { if (crow < 2) snd.play2D(S2D.CROW_B); } else snd.play2D(S2D.CROW_A);
     snd.play2D(S2D.WIND);
     const drkk = R[REC.DRKK], jkit = R[REC.JKIT], hors = R[REC.HORS];
-    const dt = K.ONE;
+    const dt = this.dt;
+    this.player.dt = dt; this.enemy.dt = dt;
+    this.horsePose = [REC.HORS, REC.DRKH].map((i) => { const a = R[i].anim; return a ? { clip: a.clip, frame: a.frame } : null; });
     const st = this.state;
     switch (st) {
       case 0: this.set(1); break;
@@ -366,8 +393,8 @@ export class JoustDuel {
       case 2: {
         const b1 = R[REC.BUG1].anim, b2 = R[REC.BUG2].anim;
         const f = ftol(b1?.frame ?? 0);
-        b1?.advance(1.0);
-        const res = b2 ? b2.advance(1.0) : 1;
+        b1?.advance(1.0, dt);
+        const res = b2 ? b2.advance(1.0, dt) : 1;
         if (K.FORTY <= f && f <= K.FIFTY) snd.play2D(S2D.FANFARE_SHORT);
         this.ambient();
         if (res !== 0) {
@@ -423,12 +450,12 @@ export class JoustDuel {
           drkk.anim?.start(0xbe, 0);
           this.player.setClips(10);
           this.set(6);
-        } else drkk.anim?.advance(1.0);
+        } else drkk.anim?.advance(1.0, dt);
         break;
       }
       case 6: {
         const dz = drkk.z, hz = hors.z;
-        drkk.anim?.advance(1.0);
+        drkk.anim?.advance(1.0, dt);
         const { t, res } = this.player.advance(1.0, 0);
         if (res === 2) {
           const ja = jkit.anim;
@@ -460,11 +487,12 @@ export class JoustDuel {
           this.set(9);
           snd.play3D(S3D.HORSE1_NEIGH, this.pPos); snd.play3D(S3D.HORSE2_NEIGH, this.ePos);
           this.onEffect?.('orsemud1');
+          this.mud(true);
           this.rider = f32(this.speed * K.RIDER);
         }
         break;
       }
-      case 9: this.ride(held); break;
+      case 9: this.ride(held, stickX, stickY); break;
       case 0xb: this.hit(); break;
       case 0xc: this.hurt(); break;
       case 0xd:
@@ -546,7 +574,7 @@ export class JoustDuel {
         if (drkk.x <= K.SEVENTY) this.set(0x1f);
         else drkk.x = f32(drkk.x - K.HALF * dt);
         break;
-      case 0x15: if (drkk.anim && drkk.anim.advance(1.0) !== 0) this.set(0x1f); break;
+      case 0x15: if (drkk.anim && drkk.anim.advance(1.0, dt) !== 0) this.set(0x1f); break;
       case 0x16: {
         const { t } = this.enemy.advance(this.r1, 0);
         if (ftol(t) === 10) snd.play2D(S2D.ONLANCE);
@@ -608,7 +636,7 @@ export class JoustDuel {
         if (K.ONE_EIGHTY <= jkit.x) this.set(0x1f);
         else jkit.x = f32(K.HALF * dt + jkit.x);
         break;
-      case 0x1c: if (jkit.anim && jkit.anim.advance(1.0) !== 0) this.set(0x1f); break;
+      case 0x1c: if (jkit.anim && jkit.anim.advance(1.0, dt) !== 0) this.set(0x1f); break;
       case 0x1d: {
         this.moveTogether();
         this.player.advance(this.r0, 0);
@@ -619,6 +647,7 @@ export class JoustDuel {
       }
       case 0x1f:
         this.onEffect?.('emitters-off');
+        this.mud(false);
         this.refreshHud();
         this.gauge = 0;
         this.set(0x21);
@@ -643,12 +672,29 @@ export class JoustDuel {
     // the spectators turn to the two knights (FUN_005ce3a0 x 8), then the camera of the current mode
     for (const i of [REC.LKNG, REC.LQUN, REC.LSD1, REC.LSD2]) this.face(R[i], jkit.x, jkit.z);
     for (const i of [REC.BKNG, REC.BQUN, REC.BSD1, REC.BSD2]) this.face(R[i], drkk.x, drkk.z);
+    this.placeMud();
     this.camera(this.camMode);
   }
 
+  /** the hooves' emitters follow the bones of the two horses: dest = FUN_0043a9e5(record matrix, FUN_0043bc58(horse, bone)), then FUN_00442a00(handle, dest), eight times at the end of the update */
+  private placeMud() {
+    [REC.HORS, REC.DRKH].forEach((ri, k) => {
+      const rec = this.r[ri], a = rec.anim, snap = this.horsePose[k];
+      MUD_BONES.forEach((bone, j) => {
+        const i = k * 4 + j, dst = this.fxMats[i];
+        const p = a && snap ? poseAt(a, snap.clip, snap.frame) : null;
+        if (p && p.length >= bone * 16 + 16) composeBone(dst, rec.m, p, bone * 16);
+        else dst.set(rec.m);        // no pose in the animation's buffer: the record's own matrix (island `boneWorld` convention)
+        this.host.fx?.matrix(i, dst);
+      });
+    });
+  }
+  /** all eight mud emitters on / off (FUN_0044ea60 x 8 in one go) */
+  private mud(on: boolean) { for (let i = 0; i < 8; i++) this.host.fx?.gate(i, on); }
+
   // ------------------------------------------------------------------------------------------------------------------------------ the ride and its outcomes
-  private ride(held: number) {
-    const snd = this.host.snd, dt = K.ONE;
+  private ride(held: number, stickX: number, stickY: number) {
+    const snd = this.host.snd, dt = this.dt;
     snd.play2D(S2D.CROWD_CHARGE);
     this.camMode = 1;
     const l28 = f32(this.speed * K.SIXTEENTH * dt + K.ONE);
@@ -660,8 +706,11 @@ export class JoustDuel {
       this[axis] = f32(r + this[axis]);
     };
     wob('aimX'); wob('aimY');
-    // keys (the stick of the original is read only while no key is held; the port has no analogue stick)
-    if (held !== 0) {
+    // keys; the stick is read only while no key is held (dead zone +-20, no dt in the original's stick path)
+    if (held === 0) {
+      if (stickX < -20 || stickX > 20) this.aimX = f32(f32(stickX / K.STICK_DIV) * this.aimStep + this.aimX);
+      if (stickY < -20 || stickY > 20) this.aimY = f32(f32(stickY / K.STICK_DIV) * this.aimStep + this.aimY);
+    } else {
       if (held & 4) { this.steer = 1; this.aimY = f32(this.aimY - this.aimStep * dt); }
       if (held & 8) { this.steer = 1; this.aimY = f32(this.aimStep * dt + this.aimY); }
       if (held & 1) { this.steer = 1; this.aimX = f32(this.aimX - this.aimStep * dt); }
@@ -683,7 +732,7 @@ export class JoustDuel {
       if (K.FORTY <= this.aimSq) this.set(this.aimSq <= K.SIXTY ? 0xe : 0xc);
       else this.set(0xb);
       // the variant: rand(ms since the start) & 3 (FUN_00435c91 = GetTickCount - base)
-      this.variant = ftol(this.host.rng.range(ftol(this.ticks * 1000 / 30))) & 3;
+      this.variant = ftol(this.host.rng.range(ftol(this.ticks * 1000 * dt / 30))) & 3;
       this.popup = this.state;
     }
   }
@@ -806,4 +855,11 @@ export class JoustDuel {
     if (won) { this.host.gear(REC.DRKK, 7, false); this.host.gear(REC.DRKK, 9, false); }
     else { this.host.gear(REC.JKIT, 7, false); this.host.gear(REC.JKIT, 9, false); }
   }
+}
+
+/** the bone matrices of `anim` posed at (clip, frame) with the identity root (model space): what the draw of that state leaves in the animation's buffer */
+function poseAt(anim: AnimInstance, clip: number, frame: number): Float32Array | null {
+  const sk = anim.rig.skeleton, c = anim.rig.clips[clip];
+  if (!sk || !c || c.boneCount !== sk.boneCount) return null;
+  return sampleBlk(sk, c, frame, (c.flags & CLIP_LOOP) !== 0, undefined, anim.noInterp ? 1e9 : POSE_SNAP);
 }

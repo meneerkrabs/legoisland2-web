@@ -11,6 +11,9 @@
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
+import { mulGame } from '../../render/math.ts';
+import { normalise3 } from '../../zones/exact.ts';
+const fr = Math.fround;
 import { waypoints } from '../../game/walker.ts';
 import { tryCtx } from '../ctx.ts';
 import { partMatrix } from '../trigger/parts.ts';
@@ -67,8 +70,10 @@ export class VehicleGlobals {
   board = 9;
   /** DAT_05d57ff8: the surface whose rolling sound the skateboard plays (5 = none) */
   rollSurface = 5;
-  /** DAT_05d58008 / DAT_05d58004: the trick score flags of skate.c (the tricks are not ported, docs) */
+  /** DAT_05d58008 / DAT_05d58004: the trick score flags of skate.c (FUN_0048e840 and the landing judgement, shared with the park) */
   trickFlag = 0; trickScore = 0;
+  /** DAT_05d58009: set to 1 by Ogel's island (PeppSwit.c FUN_007e4b12: Pepper fell into the void) and by the glider's landing (FUN_004b93b0); the skateboard's start block (skate.c FUN_00490e2e) clears its jump state and the flag */
+  skateReset = 0;
 }
 
 export function vehicles(w: World): VehicleGlobals {
@@ -89,14 +94,9 @@ export function sfx(w: World, id: number) { const c = tryCtx(w); if (c) c.sfx(id
 export function stopSfx(w: World, id: number) { tryCtx(w)?.stopSfx(id); }
 export function sfxFreq(w: World, id: number, hz: number) { tryCtx(w)?.sfxFreq?.(id, hz); }
 
-/** FUN_0043a9e5(out, a, b): out = b * a (row vectors: b is applied first) */
+/** FUN_0043a9e5(out, a, b): out = b * a (row vectors: b is applied first); every product and sum a float32 (the x87 at 24 bit, adds in the order x, y, z, the translation row adds a's translation last) */
 export function mul(b: ArrayLike<number>, a: ArrayLike<number>, out = new Float32Array(16)): Float32Array {
-  const r = new Float32Array(16);
-  for (let i = 0; i < 4; i++) {
-    for (let j = 0; j < 3; j++) r[i * 4 + j] = b[i * 4] * a[j] + b[i * 4 + 1] * a[4 + j] + b[i * 4 + 2] * a[8 + j] + (i === 3 ? a[12 + j] : 0);
-  }
-  r[15] = 1;
-  out.set(r);
+  out.set(mulGame(b, a));
   return out;
 }
 
@@ -115,20 +115,16 @@ export function partPos(w: World, rec: GameRecord, i: number): [number, number, 
   return m ? [m[12], m[13], m[14]] : null;
 }
 
-/** FUN_0043cec0: normalise in place (a zero vector stays zero) */
-export function normalize(v: number[]): number[] {
-  const l = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
-  if (l !== 0) { const k = 1 / Math.sqrt(l); v[0] *= k; v[1] *= k; v[2] *= k; }
-  return v;
-}
+/** FUN_0043cec0: normalise in place (a zero vector stays zero; 1 / sqrt in float32, every step rounded) */
+export function normalize(v: number[]): number[] { normalise3(v); return v; }
 
-/** FUN_0043b753 / FUN_0043b64d: Pepper's lean pose of a vehicle = frame n + n * s with n = trunc((frames - 1) * 0.5) (the boat and the helicopter truncate) */
+/** FUN_0043b753 / FUN_0043b64d: Pepper's lean pose of a vehicle = frame n + n * s with n = trunc((frames - 1) * 0.5) (the boat and the helicopter truncate); float32 per operation */
 export function leanFrame(rec: GameRecord, s: number, trunc: boolean) {
   const a = rec.anim;
   if (!a) return;
-  const half = (a.frameCount - 1) * 0.5;
-  if (trunc) { const n = Math.trunc(half); a.seek(Math.trunc(n + n * s)); }
-  else a.seek(half * s + half);
+  const half = fr(fr(a.frameCount - 1) * 0.5);
+  if (trunc) { const n = Math.trunc(half); a.seek(Math.trunc(fr(n + fr(n * s)))); }
+  else a.seek(fr(fr(half * s) + half));
 }
 
 /** DAT_0083850 / DAT_0098384c for the keyboard: the "pad" value -127 / 0 / 127 the vehicles build from two opposite buttons */

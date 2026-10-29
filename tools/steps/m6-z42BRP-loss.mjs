@@ -11,6 +11,12 @@ export default async ({ page, shot, wait, log, key }) => {
   const menu = () => page.evaluate(() => { const e = __shell.menu.engine; return { page: e.page, item: e.item, open: e.open }; });
   const press = async (k, n = 1) => { for (let i = 0; i < n; i++) { await key(k); await wait(170); } };
   const select = async (idx) => { for (let i = 0; i < 12 && (await menu()).item !== idx; i++) await press('ArrowDown'); };
+  // the pause menu's restart / abort go through the confirm page (0x14: Annuleren, OK; src/shell/menu.ts case 9): choose OK
+  const confirm = async () => {
+    await wait(500);
+    const m = await menu();
+    if (m.open && m.page === 0x14) { for (let i = 0; i < 6 && (await menu()).item !== 2; i++) await press('ArrowDown'); await shot('confirm'); await key('Enter'); }
+  };
   const start = async () => {
     await page.waitForFunction(() => window.__zone && window.__zone.info.archive === 'z42BRP' && window.__zone.machine.mode === 1, null, { timeout: 300000 });
     await wait(400); await key('Enter'); await wait(500); await key('Enter');
@@ -32,7 +38,7 @@ export default async ({ page, shot, wait, log, key }) => {
   // ---- pause: restart (a fresh run), then the recorded run takes her up; on the roof nothing is done
   await key('Escape'); await wait(600);
   expect('pause menu page 18', (await menu()).page === 18, JSON.stringify(await menu()));
-  await select(4); await shot('2-pause-restart'); await key('Enter');                 // Opnieuw starten
+  await select(4); await shot('2-pause-restart'); await key('Enter'); await confirm();                 // Opnieuw starten
   await start();
   s = await dbg();
   expect('restart: a fresh run (attempt 1, phase 1, clock reset, no restarts or falls)', s.attempt === 1 && s.g.phase === 1 && s.g.elapsed < 200 && s.g.restarts === 0 && s.g.falls === 0, JSON.stringify({ attempt: s.attempt, phase: s.g.phase, elapsed: s.g.elapsed }));
@@ -46,7 +52,10 @@ export default async ({ page, shot, wait, log, key }) => {
     inp.update = () => {
       let mask = 0;
       if (!B.off && z.machine.mode === 2 && w.vars.get(0xfa) === 1) { const t = w.tickCount; mask = t >= 16 ? (flat[t - 16] ?? 0) : 0; }
-      for (const [bit, code] of Object.entries(codes)) inp.setKey(code, (mask & +bit) !== 0);
+      // only drive the keys while the bot plays (mode 2), and release them once when it stops: else the menu's arrow taps of the steps are wiped before they are sampled
+      const driving = !B.off && z.machine.mode === 2;
+      if (driving || B.drove) for (const [bit, code] of Object.entries(codes)) inp.setKey(code, (mask & +bit) !== 0);
+      B.drove = driving;
       orig();
     };
   }, PLAN1);
@@ -71,7 +80,15 @@ export default async ({ page, shot, wait, log, key }) => {
 
   // ---- pause again: abandon
   await key('Escape'); await wait(600);
-  await select(3); await shot('6-pause-abort'); await key('Enter');                    // Afbreken
+  // (under heavy machine load a tap can fall between two ticks: re-select and press again while the pause page is still up)
+  for (let tries = 0; tries < 3; tries++) {
+    await select(3); if (tries === 0) await shot('6-pause-abort');
+    await key('Enter'); await confirm();                    // Afbreken
+    await wait(800);
+    const m = await menu().catch(() => null);
+    if (!m || !m.open || m.page !== 18) break;
+    log('the pause page is still open, again', JSON.stringify(m));
+  }
   await page.waitForFunction(() => window.__zone && window.__zone.info.archive === 'z40OGL' && window.__zone.machine.mode === 2 && window.__zone.world.tickCount > 5, null, { timeout: 300000 });
   s = await dbg();
   expect('abort: the story rewinds to the Ogel hub at node 66 (to the palace)', s.arch === 'z40OGL' && s.node === 66, JSON.stringify({ arch: s.arch, node: s.node }));

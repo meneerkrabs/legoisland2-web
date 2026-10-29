@@ -13,6 +13,7 @@ import {
   parseControlLine, CONTROL_BUTTONS, drawPanel, drawHelp, drawIntroScreen, bannerLines, wrapSubtitle, drawSubtitle, SUBTITLE_Y, SUBTITLE_MAX_WIDTH, MEDAL_IDS,
 } from '../../src/shell/helpscreen.ts';
 import { ZONE_INTRO, zoneIntroFor } from '../../src/shell/zoneintro.ts';
+import { resetUiOffsets } from '../../src/shell/uioffsets.ts';
 
 /** a recording stand-in for Ui2D: every sprite / text call is kept; text is 10 px per character */
 function stubUi() {
@@ -35,6 +36,7 @@ const HELP_CALLS = {
 export default {
   name: 'm3-ui',
   run(ctx) {
+    resetUiOffsets();   // the geometry below is the one with the executable's start-up offsets (14 / -4); FUN_004201aa makes them 0x12 / -2 (uioffsets.ts)
     const failures = [], notes = [];
     let checked = 0;
     const ok = (msg, c) => { checked++; if (!c) failures.push(msg); };

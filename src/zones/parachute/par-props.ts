@@ -8,6 +8,9 @@ import { buildMatrix } from '../../formats/matrix.ts';
 import { parRun } from './par-run.ts';
 import { rand, transformPoint } from './util.ts';
 
+const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+const f = Math.fround;
+
 abstract class PropNode implements BehaviourNode {
   abstract readonly kind: string;
   var = 2; mask = 1; value = 1;
@@ -18,15 +21,16 @@ abstract class PropNode implements BehaviourNode {
 /** FUN_004676cd / update FUN_00467520: the boat sails a circle of radius 400 around the origin (angle += 0.003 per tick), heading along the circle + 0.3456 */
 export class ParBoat extends PropNode {
   readonly kind = 'ParBoat';
-  /** +0x1c: the angle, +0x18: the heading */
+  /** +0x1c: the angle, +0x18: the heading (float32 node fields: every store rounds, M7 oracle) */
   angle = 0; heading = 0;
   update(_w: World, rec: GameRecord): number {
+    parRun(_w).fx?.boatTick(rec);                         // FUN_00442a00(James01, record matrix) first
     const y = rec.y, ox = rec.x, oz = rec.z;
     const s = Math.sin(this.angle), c = Math.cos(this.angle);
-    this.angle += 0.003 * _w.dt;
-    const nx = s * 400, nz = c * 400;
-    const h = Math.atan2(nx - ox, nz - oz);
-    this.heading = h + 0.3455752;      // 0x3eb0ef3c
+    this.angle = f(f(0.003) * _w.dt + this.angle);        // _DAT_00892414 (float 0.003) * DAT_008b1718 + angle, stored as a float
+    const nx = f(s * 400), nz = f(c * 400);               // `(float)(sin * 400)`: the position is a float, the deltas are float locals
+    const h = Math.atan2(f(nx - ox), f(nz - oz));
+    this.heading = f(h + f(0.3455752));                   // 0x3eb0ef3c
     rec.setEuler(0, this.heading, 0, nx, y, nz);
     return NODE_STOP;
   }
@@ -39,7 +43,7 @@ export const BIRDS: BirdDef[] = [
   { radius: 65, y: 954.517, step: 0.011, phase0: 8, heading: 0, fly: 'birdFly2', call: 'birdCall2' },
   { radius: 48, y: 944.517, step: 0.014, phase0: 15, heading: 0, fly: 'birdFly3', call: 'birdCall3' },
 ];
-export const BIRD_CENTRE = [35.784, 29.474] as const;   // 0x420f22d1 / 0x41ebcac1
+export const BIRD_CENTRE = [f(35.784), f(29.474)] as const;   // 0x420f22d1 / 0x41ebcac1 (float constants)
 
 /** FUN_00467d38 / FUN_004677a0 */
 export class ParBirds extends PropNode {
@@ -58,14 +62,14 @@ export class ParBirds extends PropNode {
       const rec = birds[i];
       if (!rec) return;
       const pos = [rec.x, rec.y, rec.z];
-      if (rand(2) < 1) run.sound.at(def.call, pos);
+      if (rand(50) < 1) run.sound.at(def.call, pos);       // FUN_004677a0: `push 0x42480000` (50.0) before FUN_004388ae, then `< 1.0`: a call about every 50 ticks per bird (M7 oracle: it was rand(2) = every other tick)
       run.sound.at(def.fly, pos);
       const t = this.phase[i];
-      const nx = Math.sin(2 * t) * def.radius + BIRD_CENTRE[0], nz = Math.cos(t) * def.radius + BIRD_CENTRE[1];
-      this.phase[i] += def.step * w.dt;
-      const h = Math.atan2(nx - pos[0], nz - pos[2]) + def.heading;
+      const nx = f(Math.sin(t + t) * def.radius + BIRD_CENTRE[0]), nz = f(Math.cos(t) * def.radius + BIRD_CENTRE[1]);
+      this.phase[i] = f(f(def.step) * w.dt + t);            // the phases are float node fields (+0x1c / +0x20 / +0x24)
+      const h = f(Math.atan2(nx - pos[0], nz - pos[2]) + def.heading);     // (double)(nx - x): the differences of two floats are not rounded again
       rec.setEuler(0, h, 0, nx, def.y, nz);
-      rec.anim?.advance(2);
+      rec.anim?.advance(2, w.dt);
     });
     return NODE_STOP;
   }
@@ -80,11 +84,11 @@ export class ParBalloon extends PropNode {
     const run = parRun(w);
     let y = rec.y;
     if (!this.rising) {
-      y -= 0.5 * w.dt;
+      y = f(y - 0.5 * w.dt);                  // local_1c is a float
       if (y < 400) this.rising = true;
     } else {
       run.sound.at('balloonThrust', [rec.x, rec.y, rec.z]);
-      y += 0.3 * w.dt;
+      y = f(f(0.3) * w.dt + y);               // _DAT_0089245c is a float constant
       if (460 < y) { this.rising = false; run.sound.stop('balloonThrust'); }
     }
     rec.y = y;
@@ -100,7 +104,7 @@ export class ParPlane extends PropNode {
     // local offset (0, 0, 70) through the rotation, then the translation
     const p = transformPoint(a, [0, 0, 70]);
     rec.m.set(a); rec.m[12] = p[0]; rec.m[13] = p[1]; rec.m[14] = p[2];
-    rec.rx += 0.027 * w.dt;
+    rec.rx = f(f(0.027) * w.dt + rec.rx);        // _DAT_00892460 (float) * dt + the record's rx (a float field)
     parRun(w).sound.at('planeIdle', [rec.x, rec.y, rec.z]);
     return NODE_STOP;
   }
@@ -118,20 +122,17 @@ export class ParCanopy extends PropNode {
     let pos: number[] = [pep.x, pep.y, pep.z];
     const pose = pep.anim?.pose(1);
     if (pose && pose.length >= 9 * 16) pos = pep.toWorld([pose[8 * 16 + 12], pose[8 * 16 + 13], pose[8 * 16 + 14]]);
-    if (run.canopy === 1) { this.scale += 0.05 * w.dt; if (0.55 < this.scale) this.scale = 0.55; }
-    if (run.canopy === 2) { this.scale -= 0.05 * w.dt; if (this.scale < 0) this.scale = 0; }
-    rec.m.set(buildMatrix(pep.rx, pep.ry, pep.rz, pos[0], pos[1], pos[2], this.scale, this.scale, this.scale));
-    rec.scale = [this.scale, this.scale, this.scale];
-    if (this.scale <= 0) rec.flags |= 0x8000; else rec.flags &= ~0x8000;
-    // the blob shadow of the canopy (FUN_00468250): over land only, flat quad at the ground point of the probe
+    // FUN_00468338: the matrix is built with the scale of this moment (FUN_0043a742), THEN the scale moves on (DAT_05d57d30: 1 opening, 2 closing); M7 oracle: the port moved it first
+    const s = this.scale;
+    rec.m.set(buildMatrix(pep.rx, pep.ry, pep.rz, pos[0], pos[1], pos[2], s, s, s));
+    rec.scale = [s, s, s];
+    if (s <= 0) rec.flags |= 0x8000; else rec.flags &= ~0x8000;
+    if (run.canopy === 1) { this.scale = f(f(0.05) * w.dt + this.scale); if (f(0.55) < this.scale) this.scale = f(0.55); }      // +0x18 is a float (0x3d4ccccd step, 0x3f0ccccd cap)
+    if (run.canopy === 2) { this.scale = f(this.scale - f(0.05) * w.dt); if (this.scale < 0) this.scale = 0; }
+    // the shadow patch of the canopy (FUN_00468250, only while DAT_05d57de4): the SHAD record (identity matrix, position zeroed by the pilot's constructor) is drawn with its five vertices
+    // set to the points of FUN_00442a70 (`run.shadow`, GameRenderer.vertexOverride): a patch that follows the terrain
     const sh = R.shad;
-    if (sh) {
-      if (run.shadowOn) {
-        const g = run.groundHit;
-        sh.m.set(buildMatrix(0, Math.atan2(rec.m[8], rec.m[10]), 0, g[0], g[1] + 0.4 * 8, g[2], 2.05, 2.05, 2.05));
-        sh.show();
-      } else sh.hide();
-    }
+    if (sh) { if (run.shadowOn) { sh.m.set(IDENTITY); sh.show(); } else sh.hide(); }
     return NODE_STOP;
   }
 }

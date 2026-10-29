@@ -1,6 +1,6 @@
 // Generic intro / help / subtitle / banner of a mini-game zone without a port (src/shell/helpscreen.ts, zoneintro.ts): mode 1 panel + brief, mode 9 controls help,
 // a subtitle while playing, the end banner of the stub (F9 / F10).
-//   node tools/browse.mjs "http://localhost:5499/?zone=z08BKD&mute=1" tools/steps/m3-ui.mjs --size 1280x800 --out /tmp/m3/ui/z08BKD
+//   node tools/browse.mjs "http://localhost:5499/?zone=z08BKD&mute=1&debug=1" tools/steps/m3-ui.mjs --size 1280x800 --out /tmp/m3/ui/z08BKD
 export default async ({ page, shot, wait, log, key }) => {
   const fail = [];
   const expect = (name, cond, extra = '') => { log(cond ? 'ok  ' : 'FAIL', name, extra); if (!cond) fail.push(name); };

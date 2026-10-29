@@ -12,7 +12,9 @@ import type { Renderer } from '../render/index.ts';
 import type { Mat4 } from '../render/math.ts';
 import type { SoundBackend } from './parachute/sound.ts';
 import { CTOR, K, REC, applyResult, medalOf, readAnimDictionary, resultLines } from './z28hat/rules.ts';
-import { BABY_ARGS, DINO_ARGS, HatBalloon, HatBaby, HatBronty, HatDino, HatFireball, HatMrHates, HatPepp, HatPtera, HatSandbag, HatWinch } from './z28hat/nodes.ts';
+import { ZoneParticles } from '../fx/particles/zone.ts';
+import { BABY_ARGS, DINO_ARGS, HatBalloon, HatBaby, HatBronty, HatDino, HatFireball, HatMrHates, HatPepp, HatPtera, HatSandbag, HatWinch, fx as hatFx } from './z28hat/nodes.ts';
+import { SHAD_RECORD, shadowPoints } from './z28hat/shadow.ts';
 import { hatSnapshot, hatSounds, hatUpdate, prepareHat } from './z28hat/game.ts';
 
 registerCtor(CTOR.PEPP, () => new HatPepp());
@@ -69,10 +71,26 @@ async function hatGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   void sound.load();
   // DAT_0094000c: how many dinosaurs there are (the executable's 11)
   const total = sh.pe.u32(0x94000c);
+  // FUN_00442900 (engine of the zone) before the constructors start their emitters (the fireball's burp.par); the original never calls FUN_0044e8d0 here (no [SPLASH] effect)
+  const particles = await ZoneParticles.create(ctx);
+  hatFx.particles = particles;
   const { shared: S, nodes } = prepareHat(world, archive, sound, { total });
   S.say = (a, b) => { const ok = ctx.say(a, b ?? null); if (ok) { S.spoken.push(a); if (b) S.spoken.push(b); } return ok; };
   S.onFade = (f) => { ga?.music.setFade(f); };
   const R = S.recs;
+  // the balloon's draw hook FUN_00796d72 (before the balloon's default draw): flag 2 of SHAD, the five vertices from the balloon record's bytes (z28hat/shadow.ts), SHAD drawn with the z test off;
+  // the flag stays set, so from the next frame SHAD is also drawn by the ordinary record loop (depth tested) with the vertices of the last hook
+  const shad = world.records[SHAD_RECORD];
+  let shadVerts: Float32Array | undefined;
+  if (shad && shad.name === 'SHAD') {
+    (nodes.balloon as unknown as { draw: () => number }).draw = () => {
+      shadVerts = shadowPoints(R.hotb, shadVerts);
+      shad.flags |= 2;
+      ctx.gr.drawRecordLive(shad, shadVerts, true);
+      return 0;
+    };
+    ctx.gr.vertexOverride = (rec) => (rec === shad ? shadVerts : undefined);
+  }
   let outro = false;
 
   // the two cutscenes; the intro plays at the first start of the loop (FUN_00790fc0 `local_20`), not after a restart
@@ -146,6 +164,8 @@ async function hatGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
       ga?.music.setFade(1);
       ctx.cutscene.abort();
       ctx.gr.effects = null;
+      hatFx.particles = null;
+      ctx.gr.vertexOverride = null;
     },
     debug() {
       return { ...hatSnapshot(world), medal: S.medal, outro: queued, cutscene: ctx.cutscene.active(), spoken: S.spoken.slice(-8), nodes: Object.keys(nodes).length };

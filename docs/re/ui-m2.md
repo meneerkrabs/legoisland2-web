@@ -99,11 +99,10 @@ Float precision: the game computes in x87 extended and stores float32 at the sam
 
 ## 5. Approximated / unresolved
 
-* **Loading card** (`FUN_0040d1be`: 128-radius diamond of `Pizza.tga` / `CD.tga` rotated by two angles, text `LOADING` / `INSERTCD` font 1 centred at `(W/2, H - 100)`, wrap width 30) is not implemented; the pieces (`ui.spriteTex`, `ui.text`, `FRONTEND.str` `LOADING` = `LADEN`) are there.
-  The diamond corners are `(+-128, +-128)` rotated by `FUN_0043a340` matrices (angles advance `dtMs / 30 * 0.05` and `* 0.01`); the card shows the CD face when the rotated normal points one way, the pizza the other (`local_268`).
+* **Loading card** (`FUN_0040d1be`): done by WP-SHELL, see gaps.md U1: `src/ui/loadingcard.ts` (checked against the original in the x86 interpreter, `m8-shell-loadcard`), drawn by `Ui2D.fade()` with every fade below 1.0; the UVs are the full-screen quad's reused (0,1) (1,1) (1,0) (0,0), the face is the CD when the turned normal has z > 0.
 * The fade quad's last pixel row / column (`W - 1`, `H - 1`) is not reproduced (the whole canvas is covered; the original leaves a one pixel strip unfaded, an open question in rendering.md).
 * The letterbox bars use the canvas height (not the 4:3 area) so they match the full-canvas 3D scene.
-* Text containing `%` goes through `vsprintf` in the original (the text is the format string); not reproduced (no such text in the data).
+* Text containing `%` goes through `vsprintf` in the original (the text is the format string); not reproduced: no text of the data contains a `%` (gaps.md U5, scanned).
 * A string with no space inside `maxChars` is cut hard (the original reads out of bounds).
 * `Pause` label (section 1) and the `FileM*` placeholders are the original's behaviour as read from the code, not verified on a running game.
 * Colour 10 (`0x3f000000`) draws opaque black like colour 8 (block 0x12 ignores the vertex alpha).

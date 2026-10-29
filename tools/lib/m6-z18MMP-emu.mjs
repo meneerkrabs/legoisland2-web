@@ -45,7 +45,10 @@ export function createHarness(ctx, G) {
   hook(0x4432c0, (c) => { push(['music', H.music.get(c.arg(0))]); });
   hook(0x439bf8, (c) => { const tok = 0x7000 + H.tokens.size; H.tokens.set(tok, mem.cstr(c.arg(1))); mem.w32(c.arg(2), tok); });
   hook(0x435a11, (c) => { const a = H.tokens.get(c.arg(0)), b = c.arg(1) === 0xffffffff ? null : H.tokens.get(c.arg(1)); push(['say', a, b]); });
-  hook(0x44ea60, () => {}); hook(0x442a00, () => {}); hook(0x442a50, () => {}); hook(0x442960, () => { cpu.eax = 0; });
+  // the particle API (FUN_0044ea60 = gate (handle, var, mask, value), FUN_00442a00 = matrix (handle, record + 0xc)): logged like the sounds, compared with the port's recorder
+  hook(0x44ea60, (c) => { push(['fxgate', c.arg(0), c.arg(1), c.arg(2), c.arg(3)]); });
+  hook(0x442a00, (c) => { push(['fxmat', c.arg(0), (c.arg(1) - 0xc - RB) / 0x68]); });
+  hook(0x442a50, () => {}); hook(0x442960, () => { cpu.eax = 0; });
   hook(0x444480, () => {});
   hook(0x435c91, () => { cpu.eax = 3; });      // GetTickCount: the original draws FUN_004388ae(tick) % 3: with 3 it is the port's int(3)
   // the game variables
@@ -121,11 +124,11 @@ export function createHarness(ctx, G) {
       ts(n) { return { home: [...n.home], target: [...n.target] }; },
     },
     mmpKey: {
-      write(n, m, p) { for (let i = 0; i < 3; i++) m.wf32(p + 0x18 + 4 * i, n.home[i]); m.w8(p + 0x28, n.doorOpen ? 1 : 0); },
+      write(n, m, p) { for (let i = 0; i < 3; i++) m.wf32(p + 0x18 + 4 * i, n.home[i]); m.w8(p + 0x28, n.doorOpen ? 1 : 0); m.w32(p + 0x24, n.fxTwin); },
       read(m, p) { return { home: [0, 1, 2].map((i) => m.f32(p + 0x18 + 4 * i)), door: m.r8(p + 0x28) }; },
       ts(n) { return { home: [...n.home], door: n.doorOpen ? 1 : 0 }; },
     },
-    mmpPage: { write(n, m, p) { m.w32(p + 0x18, n.started ? 1 : 0); }, read(m, p) { return { started: m.u32(p + 0x18) }; }, ts(n) { return { started: n.started ? 1 : 0 }; } },
+    mmpPage: { write(n, m, p) { m.w32(p + 0x18, n.started ? 1 : 0); m.w32(p + 0x1c, n.fxTwinkle); }, read(m, p) { return { started: m.u32(p + 0x18) }; }, ts(n) { return { started: n.started ? 1 : 0 }; } },
     mmpRock: {
       write(n, m, p) { m.wf32(p + 0x18, n.vy); for (let i = 0; i < 3; i++) m.wf32(p + 0x1c + 4 * i, n.home[i]); m.w8(p + 0x28, n.musicStarted ? 1 : 0); },
       read(m, p) { return { vy: m.f32(p + 0x18), home: [0, 1, 2].map((i) => m.f32(p + 0x1c + 4 * i)), music: m.r8(p + 0x28) }; },
@@ -133,7 +136,7 @@ export function createHarness(ctx, G) {
     },
     mmpPillar: { write(n, m, p) { m.w32(p + 0x18, n.state); }, read(m, p) { return { state: m.u32(p + 0x18) }; }, ts(n) { return { state: n.state }; } },
     mmpDebris: { write() {}, read() { return {}; }, ts() { return {}; } },
-    mmpTorch: { write() {}, read() { return {}; }, ts() { return {}; } },
+    mmpTorch: { write(n, m, p) { m.w32(p + 0x18, n.fxFire); }, read() { return {}; }, ts() { return {}; } },
     mmpSpider: { write(n, m, p) { m.w32(p + 0x18, n.state); }, read(m, p) { return { state: m.u32(p + 0x18) }; }, ts(n) { return { state: n.state }; } },
     mmpRat: {
       write(n, m, p) { for (let i = 0; i < 3; i++) m.wf32(p + 0x14 + 4 * i, n.home[i]); m.wf32(p + 0x20, n.turnFor); m.w32(p + 0x24, n.mode); m.wf32(p + 0x28, n.timer); m.w32(p + 0x2c, n.cycles); m.wf32(p + 0x30, n.turn); },
@@ -141,7 +144,7 @@ export function createHarness(ctx, G) {
       ts(n) { return { home: [...n.home], turnFor: n.turnFor, mode: n.mode, timer: n.timer, cycles: n.cycles, turn: n.turn }; },
     },
     mmpCoffin: {
-      write(n, m, p) { m.w32(p + 0x18, n.bit); m.w32(p + 0x1c, n.partner); m.w8(p + 0x20, n.n); m.w8(p + 0x21, n.counter); m.w8(p + 0x22, n.state); m.wf32(p + 0x24, n.dist); m.w32(p + 0x28, recPtr(rs[REC.COFFIN[n.n]])); },
+      write(n, m, p) { m.w32(p + 0x18, n.bit); m.w32(p + 0x1c, n.partner); m.w8(p + 0x20, n.n); m.w8(p + 0x21, n.counter); m.w8(p + 0x22, n.state); m.wf32(p + 0x24, n.dist); m.w32(p + 0x28, recPtr(rs[REC.COFFIN[n.n]])); m.w32(p + 0x34, n.fxTwin); m.w32(p + 0x38, n.fxSmoke[0]); m.w32(p + 0x3c, n.fxSmoke[1]); },
       read(m, p) { return { bit: m.u32(p + 0x18), partner: m.u32(p + 0x1c), n: m.r8(p + 0x20), counter: m.r8(p + 0x21), state: m.r8(p + 0x22) }; },
       ts(n) { return { bit: n.bit, partner: n.partner, n: n.n, counter: n.counter, state: n.state }; },
     },

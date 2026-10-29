@@ -22,3 +22,10 @@ import './z10RGB.ts';
 import './z08BKD.ts';
 import './z20DSP.ts';
 import './z42BRP.ts';
+// M5 hubs (one folder per hub, each registers through src/hub: the hub workers edit only their own folder)
+import './z07CSI/index.ts';
+import './z13CAI/index.ts';
+import './z14OSD/index.ts';
+import './z16PYA/index.ts';
+import './z23DIP/index.ts';
+import './z40OGL/index.ts';

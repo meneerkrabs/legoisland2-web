@@ -32,6 +32,8 @@ export const FN = {
   BOX_DIMS: 0x442780,
   /** (rec, partMask, mode): per-part render mode */
   RENDER_MODE: 0x444550,
+  /** (rec, on): FUN_004446c0 / FUN_00883013 switch every mesh of the record's model (and of its attached models) to vertex format 0x2c2 (specular): "shiny" */
+  SHINY: 0x4446c0,
   /** (slot, name, messages): cutscene slot */
   CUTSCENE: 0x45c397,
   /** (index, a, b, c, d, scale): HUD hint icons */
@@ -47,6 +49,9 @@ export const FN = {
   /** CRT strncmp (the record-name tests of the set-up loops) */
   STRNCMP: 0x85e410,
 } as const;
+
+/** the blob shadow set-up (Shadow.c): FUN_00444850 initialises the shadows of the zone, FUN_00444ed0(record) registers a terrain record the shadows are ray-cast against */
+export const SHADOW_INIT = 0x444850, SHADOW_REGISTER = 0x444ed0;
 
 /** globals the set-up code stores into (name, address) */
 export const GLOBALS = {
@@ -126,6 +131,8 @@ export interface Box extends Base {
   dims: number[];
 }
 export interface RenderMode extends Base { record: number; partMask: number; mode: number }
+/** FUN_004446c0(record, on): the record's meshes get a specular colour per vertex (vertex format 0x2c2); `on` false = back to 0x242 */
+export interface Shiny extends Base { record: number; on: boolean }
 export interface Cutscene extends Base { slot: number | null; name: string | null; messages: string | null }
 export interface HudHint extends Base { index: number; a: number; b: number; c: number; d: number; scale: number }
 export interface GlobalWrite extends Base { addr: number; size: number; value: number | null; float: number | null; ref: number | null; recordPtr: number | null }
@@ -134,6 +141,9 @@ export interface CtrlFlags extends Base { record: number; flags: number }
 export interface WaypointMap extends Base { index: number; path: string | null }
 /** FUN_00462be9(map, node, record + field): the record is placed at the position of a waypoint node (word -1: all three of x / y / z at field, field + 4, field + 8) */
 export interface Place extends Base { record: number; field: number; map: number; node: number; word: number }
+
+/** a zone's blob shadow set-up: the terrain records FUN_00444ed0 registers (record indices); with none, FUN_00444940 draws nothing */
+export interface ShadowSetup { init: number[]; records: number[]; /** call sites whose record is not a constant */ unresolved: number }
 
 export interface ZoneSetup {
   zone: string;
@@ -154,6 +164,10 @@ export interface ZoneSetup {
   fieldWrites: FieldWrite[];
   boxes: Box[];
   modes: RenderMode[];
+  /** FUN_004446c0 calls (specular "shiny" records) */
+  shiny: Shiny[];
+  /** the same two kinds of call made by the CONSTRUCTORS of the attached nodes (`extractCtorRenderCalls`): they run while FUN_00423532 builds the node, which neither the symbolic walk nor the emulation does */
+  ctorModes: RenderMode[]; ctorShiny: Shiny[];
   cutscenes: Cutscene[];
   hudHints: HudHint[];
   globalWrites: GlobalWrite[];
@@ -163,6 +177,8 @@ export interface ZoneSetup {
   waypointMaps: WaypointMap[]; places: Place[];
   /** FUN_0042382c: records that get a controller */
   controllers: { record: number; at: number; cond: Cond[] }[];
+  /** the zone's blob shadows (`extractShadowSetup`); null = the zone never calls FUN_00444850: no blob shadows at all */
+  shadow: ShadowSetup | null;
   /** FUN_00442d90 calls of the set-up code in code order (`fog` below is the zone's block as found by zoneparams.ts) */
   fogCalls: FogSetup[];
   fog: FogSetup[];
@@ -442,6 +458,43 @@ function recordOf(v: Val | undefined): RecArg | null {
   return null;
 }
 
+/** z42BRP's FUN_00820a.. loop registers records through a switch on (index - 0xe): byte map 0x820aed -> jump table 0x820ae5, the case at 0x81fe6b is the registering one */
+const BRP_SWITCH = { first: 0xe, count: 0x42, bytes: 0x820aed, table: 0x820ae5, registerCase: 0x81fe6b, site: 0x81fe6f };
+
+/**
+ * The zone's blob shadows (Shadow.c): the call sites of FUN_00444850 and FUN_00444ed0(record) in the zone's code (its loop function, not the set-up tree). `null` when the zone
+ * never initialises the shadows. The record is the `push imm` right before the call (a register: z42BRP's loop over all records, resolved through its switch tables).
+ */
+export function extractShadowSetup(pe: Pe, code: { lo: number; hi: number }, starts: number[]): ShadowSetup | null {
+  const init: number[] = [], records: number[] = [];
+  let unresolved = 0;
+  const lo = fnIndex(starts, code.lo), hi = fnIndex(starts, Math.max(code.lo, code.hi - 1));
+  for (let fi = Math.max(0, lo); fi <= hi && fi < starts.length; fi++) {
+    const a = starts[fi], e = fnEndOf(starts, fi, a);
+    let prev: { op: number; imm: number } | null = null;
+    for (let at = a; at < e;) {
+      const ins = decode(pe.slice(at, 16) ?? new Uint8Array(16), 0, at);
+      if (!ins || ins.len <= 0) break;
+      if (ins.op === 0xe8) {
+        if (ins.rel === SHADOW_INIT) init.push(at);
+        else if (ins.rel === SHADOW_REGISTER) {
+          if (prev && (prev.op === 0x6a || prev.op === 0x68)) records.push(prev.imm >>> 0);
+          else if (at === BRP_SWITCH.site) {
+            for (let i = 0; i < BRP_SWITCH.count; i++) {
+              const k = pe.at(BRP_SWITCH.bytes + i), target = pe.u32(BRP_SWITCH.table + k * 4);
+              if (target === BRP_SWITCH.registerCase && BRP_SWITCH.first + i < 0x10000) records.push(BRP_SWITCH.first + i);
+            }
+          } else unresolved++;
+        }
+      }
+      prev = { op: ins.op, imm: ins.imm };
+      at += ins.len;
+    }
+  }
+  if (!init.length) return null;
+  return { init, records: [...new Set(records)].sort((x, y) => x - y), unresolved };
+}
+
 /** end of the function at `fn` */
 function fnEnd(ctx: Ctx, fn: number): number {
   const i = fnIndex(ctx.starts, fn);
@@ -530,6 +583,7 @@ function walk(ctx: Ctx, fn: number, params: (Val | undefined)[], base: Cond[], d
         case FN.BOX_RADIUS_HEIGHT: { const r = rec(a[0], 'box', e.at); add(out.boxes, 'box', r, { ...here(e, rch), record: r.record, kind: 'radiusHeight', dims: [asFloat(num(a[1]) ?? NaN), asFloat(num(a[2]) ?? NaN)] }, rch.guards); break; }
         case FN.BOX_DIMS: { const r = rec(a[0], 'box', e.at); add(out.boxes, 'box', r, { ...here(e, rch), record: r.record, kind: 'dims', dims: [asFloat(num(a[1]) ?? NaN), asFloat(num(a[2]) ?? NaN), asFloat(num(a[3]) ?? NaN)] }, rch.guards); break; }
         case FN.RENDER_MODE: { const r = rec(a[0], 'render mode', e.at); add(out.modes, 'mode', r, { ...here(e, rch), record: r.record, partMask: num(a[1]) ?? 0, mode: num(a[2]) ?? 0 }, rch.guards); break; }
+        case FN.SHINY: { const r = rec(a[0], 'shiny', e.at); add(out.shiny, 'shiny', r, { ...here(e, rch), record: r.record, on: (num(a[1]) ?? 1) !== 0 }, rch.guards); break; }
         case FN.CUTSCENE: {
           const s = (v: Val | undefined) => (v && v.k === 'imm' ? pe.cstr(v.v) : null);
           out.cutscenes.push({ ...here(e, rch), slot: num(a[0]), name: s(a[1]), messages: s(a[2]) });
@@ -626,8 +680,100 @@ function storeEntry(ctx: Ctx, e: StoreEv, b: Base, unres: (s: string) => void, c
 // ---------------------------------------------------------------------------------------------------
 // API
 
+/**
+ * The render calls (`FUN_00444550` modes, `FUN_004446c0` shiny) the CONSTRUCTORS of the attached nodes make: FUN_00423532 calls the node's constructor at once, so these calls run at set-up time, but
+ * the constructors are only referenced by address in the set-up code (neither the symbolic walk nor the emulation runs them). Each distinct (constructor, record) of `attaches` is interpreted with the
+ * record pointer as its first argument; the entries carry the attach site's conditions plus the paths inside the constructor. WP-RENDER R4.
+ */
+/**
+ * Render calls the symbolic walk cannot resolve because their record comes from DATA the walk does not follow: (1) the loops of the zone start functions that go through a table in the
+ * executable (`for (i = 0; table[i] != -1; i++) FUN_00444550(records + table[i] * 0x68, 0xff, 1)`: z15SSH FUN_00655de3, z17WAS FUN_00698963, z41MAP FUN_00811413, z60FRE FUN_00472... with a
+ * fixed count) are read here from the call site's own code (the table address, the terminator or count and the pushed mask / mode are decoded from the instructions in front of the call);
+ * (2) the z20DSP vehicle constructor FUN_006c6495 hands four records to FUN_00444550 through fields of its own data block (`+0x28`, `+0x6c`, `+0xb4`, `+0xf4` of the block at word 0xa2, set up
+ * earlier in the same function from `DAT_00983804 + 0xdd0 / 0xe38 / 0xea0 / 0xf08`, i.e. records 34..37, the four wheels): listed by hand (`FIELD_RECORDS`). WP-RENDER R4 (second pass).
+ * `known` = the call sites (`at`) the walk / emulation found already.
+ */
+const FIELD_RECORDS: Record<number, { record: number; mask: number; mode: number }> = {
+  0x6c6b4d: { record: 36, mask: 0xff, mode: 1 },   // local_24[0x1b] -> block word 0xbd = DAT_00983804 + 0xea0 (record 36, WEFR)
+  0x6c6b63: { record: 37, mask: 0xff, mode: 1 },   // local_24[10]   -> word 0xac = + 0xf08 (record 37, WEFL)
+  0x6c6b7c: { record: 34, mask: 0xff, mode: 1 },   // local_24[0x3d] -> word 0xdf = + 0xdd0 (record 34, WEBR)
+  0x6c6b95: { record: 35, mask: 0xff, mode: 1 },   // local_24[0x2c] -> word 0xce = + 0xe38 (record 35, WEBL)
+};
+export function extractUnwalkedRenderCalls(pe: Pe, code: ZoneCode, starts: number[], known: { at: number }[]): { modes: RenderMode[]; shiny: Shiny[] } {
+  const modes: RenderMode[] = [], shiny: Shiny[] = [];
+  const have = new Set(known.map((k) => k.at));
+  const t = pe.text, d = pe.data;
+  const lo = Math.max(code.lo, t.va), hi = Math.min(code.hi, t.va + t.rsize);
+  const fnOf = (a: number) => { let l = 0, h = starts.length - 1; while (l < h) { const m = (l + h + 1) >> 1; if (starts[m] <= a) l = m; else h = m - 1; } return starts[l]; };
+  const byte = (va: number) => d[t.roff + (va - t.va)];
+  const dword = (va: number) => (byte(va) | (byte(va + 1) << 8) | (byte(va + 2) << 16) | (byte(va + 3) << 24)) >>> 0;
+  const inData = (v: number) => v >= 0x890000 && v < 0x9c0000;
+  for (let va = lo; va < hi - 5; va++) {
+    if (byte(va) !== 0xe8) continue;
+    const target = (va + 5 + (dword(va + 1) | 0)) >>> 0;
+    const isMode = target === FN.RENDER_MODE, isShiny = target === FN.SHINY;
+    if (!isMode && !isShiny) continue;
+    if (have.has(va)) continue;
+    const field = FIELD_RECORDS[va];
+    if (field && isMode) { modes.push({ at: va, fn: fnOf(va), cond: [], record: field.record, partMask: field.mask, mode: field.mode }); continue; }
+    // the table load in front of the call: mov r32, [reg * 4 + T]  (8b modrm SIB disp32; mod 0, rm 4, SIB base 5, scale 4)
+    let table = -1;
+    for (let b = va - 4; b > va - 48 && table < 0; b--) {
+      if (byte(b) === 0x8b && (byte(b + 1) & 0xc7) === 0x04 && (byte(b + 2) & 0xc7) === 0x85 && (byte(b + 2) >> 6) === 2 && inData(dword(b + 3))) table = dword(b + 3);
+    }
+    if (table < 0) continue;
+    // the pushed arguments: `push mode` (6a ib) then `push mask` (68 id / 6a ib) for FUN_00444550, `push on` for FUN_004446c0
+    let mask = 0, mode = 0, on = true, found = false;
+    for (let b = va - 6; b > va - 64 && !found; b--) {
+      if (isMode && byte(b) === 0x6a && byte(b + 2) === 0x68 && b + 7 <= va) { mode = byte(b + 1); mask = dword(b + 3); found = true; }
+      else if (isMode && byte(b) === 0x6a && byte(b + 2) === 0x6a && b + 4 <= va) { mode = byte(b + 1); mask = byte(b + 3) === 0xff ? 0xffffffff : byte(b + 3); found = true; }
+      else if (isShiny && byte(b) === 0x6a && b + 2 <= va) { on = byte(b + 1) !== 0; found = true; }
+    }
+    if (!found) continue;
+    // the loop bound: `cmp dword [reg * 4 + T], -1` (83 3c SIB T ff) or `cmp dword [ebp - n], count` (83 7d dd ib)
+    let count = -1;
+    for (let b = va - 4; b > va - 200 && count < 0; b--) {
+      if (byte(b) === 0x83 && byte(b + 1) === 0x3c && (byte(b + 2) & 0xc7) === 0x85 && dword(b + 3) === table && byte(b + 7) === 0xff) count = 0;   // terminated by -1
+      else if (byte(b) === 0x83 && byte(b + 1) === 0x7d && b + 4 <= va && byte(b + 3) < 0x80 && byte(b + 3) > 0 && (byte(b + 2) & 0x80)) count = byte(b + 3);
+    }
+    if (count < 0) continue;
+    const entries: number[] = [];
+    for (let i = 0; i < 256; i++) {
+      const v = pe.u32(table + i * 4) | 0;
+      if (count === 0 ? v === -1 : i >= count) break;
+      entries.push(v);
+    }
+    for (const rec of entries) {
+      if (isMode) modes.push({ at: va, fn: fnOf(va), cond: [], record: rec, partMask: mask >>> 0, mode });
+      else shiny.push({ at: va, fn: fnOf(va), cond: [], record: rec, on });
+    }
+  }
+  return { modes, shiny };
+}
+
+export function extractCtorRenderCalls(pe: Pe, code: ZoneCode, starts: number[], attaches: Attach[], known: { modes: RenderMode[]; shiny: Shiny[] } = { modes: [], shiny: [] }): { modes: RenderMode[]; shiny: Shiny[] } {
+  const modes: RenderMode[] = [], shiny: Shiny[] = [];
+  const done = new Set<string>();
+  for (const a of attaches) {
+    if (a.record < 0 || !a.ctor || a.loop) continue;
+    const key = `${a.ctor}|${a.record}|${condKey(a.cond)}`;
+    if (done.has(key)) continue;
+    done.add(key);
+    const tmp: ZoneSetup = { zone: code.zone, root: code.root, region: [code.lo, code.hi], functions: [], subgame: -1, variants: [], attaches: [], flagWrites: [], hide: [], show: [], fieldWrites: [], boxes: [], modes: [], shiny: [], ctorModes: [], ctorShiny: [], cutscenes: [], hudHints: [],
+      globalWrites: [], varWrites: [], ctrlFlags: [], waypointMaps: [], places: [], controllers: [], shadow: null, fogCalls: [], fog: [], seaLevel: null, gravity: null, groundRecord: null, groundName: null, focusRecord: null, accessoryRecord: null, dynamic: {}, unresolved: [] };
+    const ctx: Ctx = { pe, starts, code, out: tmp, visits: new Map(), seen: new Set(), names: new Map(), places: new Set(), notes: new Set() };
+    try { walk(ctx, a.ctor, [{ k: 'gptr', a: GLOBALS.RECORDS, o: a.record * RECORD_STRIDE } as Val], a.cond, 1); } catch { continue; }
+    for (const m of tmp.modes) if (m.record >= 0) modes.push(m);
+    for (const m of tmp.shiny) if (m.record >= 0) shiny.push(m);
+  }
+  // calls whose record comes from data (tables, fields of a constructor's block)
+  const extra = extractUnwalkedRenderCalls(pe, code, starts, [...known.modes, ...known.shiny, ...modes, ...shiny]);
+  modes.push(...extra.modes); shiny.push(...extra.shiny);
+  return { modes, shiny };
+}
+
 /** Interprets the set-up of `zone` (archive name, e.g. 'z02LGI'). `scene` (the zone's `extractZone` result) only adds names / bounds checks. `starts` = `pe.functionStarts()`. */
-export function extractZoneSetup(pe: Pe, zone: string, scene?: ZoneScene, starts: number[] = pe.functionStarts()): ZoneSetup {
+export function extractZoneSetup(pe: Pe, zone: string, scene?: ZoneScene, starts: number[] = pe.functionStarts(), opts: { ctorRender?: boolean } = {}): ZoneSetup {
   const index = zoneCodeIndex(pe, starts);
   const code = index.get(zone.toLowerCase());
   if (!code) throw new Error(`no zone code found for ${zone}`);
@@ -636,8 +782,8 @@ export function extractZoneSetup(pe: Pe, zone: string, scene?: ZoneScene, starts
   const sub = table.filter((t) => t.run >= code.lo && t.run < code.hi).map((t) => t.index);
   const out: ZoneSetup = {
     zone: code.zone, root: code.root, region: [code.lo, code.hi], functions: [], subgame: sub.length ? sub[0] : -1, variants: sub.slice(1),
-    attaches: [], flagWrites: [], hide: [], show: [], fieldWrites: [], boxes: [], modes: [], cutscenes: [], hudHints: [], globalWrites: [], varWrites: [], ctrlFlags: [], waypointMaps: [], places: [], controllers: [],
-    fogCalls: [], fog: [], seaLevel: null, gravity: null, groundRecord: null, groundName: null, focusRecord: null, accessoryRecord: null, dynamic: {}, unresolved: [],
+    attaches: [], flagWrites: [], hide: [], show: [], fieldWrites: [], boxes: [], modes: [], shiny: [], ctorModes: [], ctorShiny: [], cutscenes: [], hudHints: [], globalWrites: [], varWrites: [], ctrlFlags: [], waypointMaps: [], places: [], controllers: [],
+    shadow: null, fogCalls: [], fog: [], seaLevel: null, gravity: null, groundRecord: null, groundName: null, focusRecord: null, accessoryRecord: null, dynamic: {}, unresolved: [],
   };
   const ctx: Ctx = { pe, starts, code, out, visits: new Map(), seen: new Set(), names: new Map(), places: new Set(), notes: new Set() };
   walk(ctx, code.root, [], [], 0);
@@ -664,6 +810,9 @@ export function extractZoneSetup(pe: Pe, zone: string, scene?: ZoneScene, starts
   const foc = pick(GLOBALS.FOCUS); if (foc && foc.recordPtr !== null) out.focusRecord = Math.floor(foc.recordPtr / RECORD_STRIDE);
   const acc = pick(GLOBALS.ACCESSORY); if (acc && acc.value !== null && (acc.value | 0) >= 0) out.accessoryRecord = acc.value | 0;   // -1 = none (z21FSH)
   try { out.fog = extractRenderParams(pe, code.builder).fog; } catch { /* keep empty */ }
+  out.shadow = extractShadowSetup(pe, code, starts);
+  // render modes / shiny switches the attached nodes' constructors make while FUN_00423532 builds them (appended after the set-up code's own: the constructor runs at its attach site)
+  if (opts.ctorRender) { const ctorRender = extractCtorRenderCalls(pe, code, starts, out.attaches, { modes: out.modes, shiny: out.shiny }); out.ctorModes = ctorRender.modes; out.ctorShiny = ctorRender.shiny; }
   if (scene) out.groundName = out.groundRecord !== null ? scene.records[out.groundRecord]?.name ?? null : null;
   return out;
 }

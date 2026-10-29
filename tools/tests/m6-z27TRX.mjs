@@ -76,7 +76,7 @@ export default {
 
     // ============================================================ fixtures
     const fresh = (seed = 1) => {
-      let s = seed; const rng = makeRandom(() => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x80000000; });
+      let s = seed; const rng = makeRandom(() => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x80000000; }, () => 32767);
       const L = loadZone(ctx, 'z27TRX');
       const snd = new NullSound();
       const g = prepareTrx(L.world, L.pepper, { rigs: { TREX: rig('TREX'), MFIG: rig('MFIG'), TRIC: rig('TRIC'), STEG: rig('STEG'), BREX: rig('BREX'), BRON: rig('BRON') }, models: L.scene.models, pe, sound: snd, rng, say: () => true });
@@ -119,8 +119,8 @@ export default {
     {
       const F = fresh(); F.tick();
       const sp = []; for (let i = 0; i < 45; i++) { F.tick(B.RIGHT); sp.push(F.n.speed); if (F.n.stunned) break; }
-      near(sp[0], 0.62, 1e-9, 'RIGHT: +0.02 per tick'); ok(sp[39] <= 1.4 + 1e-9 && sp[40] === 1.4, `speed caps at 1.4 after 40 ticks: ${sp[39]}`);
-      F.n.speed = 1.0; F.tick(B.LEFT); near(F.n.speed, 0.92, 1e-9, 'LEFT: -0.08 per tick'); for (let i = 0; i < 20; i++) F.tick(B.LEFT); near(F.n.speed, 0.6, 1e-9, 'LEFT stops at 0.6');
+      near(sp[0], 0.62, 1e-6, 'RIGHT: +0.02 per tick'); ok(sp[39] <= Math.fround(1.4) + 1e-9 && sp[40] === Math.fround(1.4), `speed caps at 1.4 after 40 ticks: ${sp[39]}`);
+      F.n.speed = 1.0; F.tick(B.LEFT); near(F.n.speed, 0.92, 1e-6, 'LEFT: -0.08 per tick'); for (let i = 0; i < 20; i++) F.tick(B.LEFT); near(F.n.speed, 0.6, 1e-6, 'LEFT stops at 0.6');
       const G = fresh(); G.tick(); G.put(1500); ghost(G);
       G.tick(B.UP); G.tick(); G.tick();
       ok(G.n.lane === -1, 'UP press: lane -1 (the left lane)');
@@ -141,7 +141,7 @@ export default {
       near(peak, 7 + 0.1 - 0.1, 0.35, `peak height ~7 (${peak})`); ok(Math.abs(peakAt - 15) <= 2, `peak at tick ${peakAt}`);
       ok(!F.n.jumping && F.snd.count('play', SND.LANDGRAVEL) === 1 && F.snd.count('play', SND.CATCHBREATH) === 1 && F.snd.count('stop', SND.BREATHE) === 1, 'landing sound, catch-breath sound');
       ok([SND.SHOUT1, SND.SHOUT2].some((i) => F.snd.count('play', i) === 1) && [SND.JUMP1, SND.JUMP2].some((i) => F.snd.count('play', i) === 1), 'shout and jump sounds');
-      const G = fresh(); G.tick(); G.put(1500, 0); ghost(G); G.tick(B.CTRL); ok(G.n.jumping, 'CTRL (the key the help names) also jumps');
+      const G = fresh(); G.tick(); G.put(1500, 0); ghost(G); G.tick(B.CTRL); ok(!G.n.jumping, 'CTRL (the key the help names) does not jump: the code tests bit 0x20 only');
       G.tick(); G.tick(B.ALT); ok(G.n.jumpTime > 0 && G.n.jumpTime < 4, 'a press in the air does not restart the jump');
       const R = fresh(); R.tick(); R.put(1500, 0); ghost(R); R.tick(B.SHIFT); ok(R.p.anim.clip === 3, 'SHIFT: roar clip 3');
       ok([SND.ROAR1, SND.ROAR2, SND.ROAR3, SND.ROAR4].some((i) => R.snd.count('play', i) === 1), 'a roar sound');
@@ -173,7 +173,7 @@ export default {
     {
       const F = fresh(); F.tick(); const r = lonely(F, 'BURN', 0, 900) ?? F.by('BURN').find((q) => Math.abs(q.x - 16) < 1 && q.z > 900);
       F.put(r.z - 30, 0); F.n.speed = 1.2; let k = 0; while (!F.n.burning && k < 60) { F.tick(B.RIGHT); k++; }
-      ok(F.n.burning && F.n.hits === 1 && F.p.anim.clip === 5 && F.n.speed === 0.6, 'BURN: clip 5, speed to the minimum, one hit');
+      ok(F.n.burning && F.n.hits === 1 && F.p.anim.clip === 5 && F.n.speed === Math.fround(0.6), 'BURN: clip 5, speed to the minimum, one hit');
       F.ticks(8, B.RIGHT); ok(F.n.hits === 1, 'standing in the fire costs one hit only');
       F.n.speed = 1.4; F.put(r.z + 60, 0); F.ticks(70, B.RIGHT); ok(!F.n.burning || F.n.hits >= 1, 'leaving the fire');
     }

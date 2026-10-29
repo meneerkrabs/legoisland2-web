@@ -2,7 +2,8 @@
 // draw hook FUN_007b1a1b: the arm record TRAI turns about the vertical axis, the chair (CHAI) and the counter weight (WEIG) hang at its ends and tilt outward with
 // the power, Pepper sits in the chair. The hook also draws motion-blur copies of all four behind the real parts; `trail` is how far such a copy is turned back.
 import { buildMatrix } from '../../formats/matrix.ts';
-import { mul } from '../../render/math.ts';
+import { mul, mulGame, transformPointGame } from '../../render/math.ts';
+import { euler24 } from '../common/x87.ts';
 import { f32 } from './util.ts';
 
 export type V3 = [number, number, number];
@@ -19,8 +20,10 @@ export interface CntLayout {
 
 export const SEAT: V3 = [0, f32(0xc04ccccd), f32(0x3fcccccd)];
 
+const F = Math.fround;
 export function layoutFrom(tr: V3, chair: V3, weight: V3): CntLayout {
-  return { arm: tr, chair: [chair[0] - tr[0], chair[1] - tr[1], chair[2] - tr[2]], weight: [weight[0] - tr[0], weight[1] - tr[1], weight[2] - tr[2]], seat: SEAT };
+  // the offsets are float differences (24-bit x87: rounded)
+  return { arm: tr, chair: [F(chair[0] - tr[0]), F(chair[1] - tr[1]), F(chair[2] - tr[2])], weight: [F(weight[0] - tr[0]), F(weight[1] - tr[1]), F(weight[2] - tr[2])], seat: SEAT };
 }
 
 /** FUN_0043a9e5(dst, a, b) computes dst = b * a: `then(local, parent)` = apply `local` first, then `parent` (render/math `mul(local, parent)`) */
@@ -32,6 +35,53 @@ export function turnY(m: Float32Array, a: number) {
   const x0 = m[0], x4 = m[4], x8 = m[8];
   m[0] = s * m[2] + c * m[0]; m[4] = s * m[6] + c * m[4]; m[8] = s * m[10] + c * m[8];
   m[2] = c * m[2] - s * x0; m[6] = c * m[6] - s * x4; m[10] = c * m[10] - s * x8;
+}
+
+/**
+ * FUN_0043ad29 in 24-bit x87 (asm 0x43ad29): c / s are the CRT's cos / sin of the float argument stored as floats; per row r (elements 0 / 4 / 8): m[r] = c m[r] + s m[r + 2],
+ * m[r + 2] = c m[r + 2] + (-s) m[r], every product and the sum rounded to a float; the new values are stored after all six are computed.
+ */
+export function turnY24(m: Float32Array, a: number) {
+  a = F(a);
+  const c = F(Math.cos(a)), s = F(Math.sin(a));
+  const out = new Float32Array(6);
+  for (let k = 0; k < 3; k++) {
+    const x0 = m[4 * k], x2 = m[4 * k + 2];
+    out[k] = F(F(c * x0) + F(s * x2));
+    out[3 + k] = F(F(c * x2) + F(-s * x0));
+  }
+  for (let k = 0; k < 3; k++) { m[4 * k] = out[k]; m[4 * k + 2] = out[3 + k]; }
+}
+
+/** one iteration of the hook's loop: the four matrices and the alpha (0..255) the models are drawn with (255 = the real copy: draw mode 1; below: mode 7) */
+export interface BlurCopy { arm: Float32Array; chair: Float32Array; weight: Float32Array; pepper: Float32Array; alpha: number }
+
+/**
+ * FUN_007b1a1b's loop, instruction for instruction (24-bit x87, float32 locals): `arm` = the TRAI record's matrix (the hook copies it), `power` = the controller's float at +0x114.
+ * N = ftol(5 power) + 1 copies (one when DAT_00987660 is set, but the turn-back step still uses the unreduced count); the working copy is turned by a = 0.2 power N and then by -a / N
+ * before every draw, so copy j (N - 1 .. 0) sits j steps back and the real one (j = 0) carries the accumulated float noise; alpha(j) = 70 - ftol(j 60 / N), 255 for j = 0.
+ * Returned in draw order (j = N - 1 first, the real copy last).
+ */
+export function blurCopies(l: CntLayout, arm: Float32Array, power: number, lowDetail = false): BlurCopy[] {
+  power = F(power);
+  const n0 = Math.trunc(F(F(5) * power)) + 1;
+  const a94 = F(F(F(0.2) * power) * n0);
+  const tilt = F(power * F(1.5707964));
+  const n = lowDetail ? 1 : n0;
+  const alphaStep = F(60 / n);
+  const m = Float32Array.from(arm);
+  turnY24(m, a94);
+  const e0 = F(a94 / n);
+  const seat = euler24(0, 0, 0, l.seat[0], l.seat[1], l.seat[2]);
+  const out: BlurCopy[] = [];
+  for (let j = n - 1; j >= 0; j--) {
+    turnY24(m, -e0);
+    const weight = mulGame(euler24(0, 0, -tilt, l.weight[0], l.weight[1], l.weight[2]), m);
+    const chair = mulGame(euler24(0, 0, tilt, l.chair[0], l.chair[1], l.chair[2]), m);
+    const pepper = mulGame(seat, chair);
+    out.push({ arm: Float32Array.from(m), chair, weight, pepper, alpha: j === 0 ? 255 : 0x46 - Math.trunc(F(j * alphaStep)) });
+  }
+  return out;
 }
 
 export interface CntPose {
@@ -76,18 +126,15 @@ export const SHADOW_POINTS: V3[] = [
 ];
 export const SHADOW_ORDER = [1, 0, 2, 3, 4];
 
-/** the two shadow polygons (15 floats each) for an arm matrix */
+/** the two shadow polygons (15 floats each) for an arm matrix: FUN_0043ab72 per point through the matrix, then the matrix turned by pi (FUN_0043ad29), both in 24-bit x87 */
 export function armShadows(arm: Float32Array): number[][] {
   const out: number[][] = [];
-  const m = arm.slice();
+  const m = Float32Array.from(arm);
   for (let k = 0; k < 2; k++) {
     const pts: number[] = [];
-    for (const i of SHADOW_ORDER) {
-      const v = SHADOW_POINTS[i];
-      pts.push(v[0] * m[0] + v[1] * m[4] + v[2] * m[8] + m[12], v[0] * m[1] + v[1] * m[5] + v[2] * m[9] + m[13], v[0] * m[2] + v[1] * m[6] + v[2] * m[10] + m[14]);
-    }
+    for (const i of SHADOW_ORDER) pts.push(...transformPointGame(m, SHADOW_POINTS[i]));
     out.push(pts);
-    turnY(m, f32(0x40490fdb));
+    turnY24(m, f32(0x40490fdb));
   }
   return out;
 }

@@ -106,9 +106,9 @@ export const K = {
   /** FUN_005f56d9: aiming step per tick (_DAT_00892718), the pitch limits (-0.5 / 0.3), the pitch after entering, the cannon is lifted to y = 16 */
   AIM_STEP: f32(0x3b23d70a), PITCH_MIN: -0.5, PITCH_MAX: f32(0x3e99999a), PITCH_FIRST: f32(0xbe99999a), CANNON_Y: 16,
   /** FUN_005f56d9 camera: the zoom while aiming (DAT_0090bb48), the eye (DAT_0090bb50) and the target (DAT_0090bb60) in the cannon's frame */
-  AIM_FOV: f32(0x3e570a3d), AIM_EYE: [0, 3.878, 0] as readonly number[], AIM_TARGET: [0, 5.17, 3.209] as readonly number[],
+  AIM_FOV: f32(0x3e570a3d), AIM_EYE: [0, Math.fround(3.878), 0] as readonly number[], AIM_TARGET: [0, Math.fround(5.17), Math.fround(3.209)] as readonly number[],
   /** FUN_005f6120: the muzzle (DAT_0090bb78) in the cannon's frame, the shot speed scale (DAT_0090bb84: 8 first, then 6), the pitch of the ball 2.5 * rx + 0.8, the reload (100 ticks) */
-  MUZZLE: [0, 4.8, 11.2] as readonly number[], SHOT_SCALE_FIRST: 8, SHOT_SCALE: 6, PITCH_K: 2.5, PITCH_0: f32(0x3f4ccccd), RELOAD: 100,
+  MUZZLE: [0, Math.fround(4.8), Math.fround(11.2)] as readonly number[], SHOT_SCALE_FIRST: 8, SHOT_SCALE: 6, PITCH_K: 2.5, PITCH_0: f32(0x3f4ccccd), RELOAD: 100,
   /** the gauge in a cannon: 0 .. 100 (the reload), else 0 .. 12 (the cannons left) */
   GAUGE_RELOAD: 100, GAUGE_CANNONS: 12,
   /** the invulnerability after a hit: DAT_0090bdf8 starts at 3.0 and falls by (1/30) * dt^2 per tick */

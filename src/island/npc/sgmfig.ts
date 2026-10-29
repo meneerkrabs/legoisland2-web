@@ -19,6 +19,7 @@ import type { GameRecord } from '../../game/record.ts';
 import { RF_ENABLED, RF_NPC } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { B } from '../../game/input.ts';
+import { alignRecordToGround } from '../../game/walk.ts';
 import { AnimInstance } from '../../game/anim.ts';
 import { parseBlk } from '../../formats/anim.ts';
 import type { Blk } from '../../formats/anim.ts';
@@ -26,9 +27,12 @@ import { waypoints, MAP_PATH, NPC_SPEED, NPC_TURN_RATE, NPC_RADIUS_MIN, NPC_RADI
 import type { StepOut } from '../../game/walker.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import type { Pe } from '../../formats/exe.ts';
+import { rand, randTrunc } from '../rng.ts';
 import { ArgView } from '../args.ts';
 import { tryCtx } from '../ctx.ts';
-import { PI, actorCamera, ctrlExtra, groupVarOp, inView, npcGlobals, orVar, pepperSide, probeResult, probeSet, runProbe } from './globals.ts';
+import { ad, sb, ml, fr, sq, fromBits } from '../../zones/common/f32.ts';
+import { eulerRotation } from '../../zones/exact.ts';
+import { PI, wrapPi, nextSeq, actorCamera, ctrlExtra, groupVarOp, inView, npcGlobals, orVar, pepperSide, probeResult, probeSet } from './globals.ts';
 import { incomingPizza } from '../pizza/pizza.ts';
 import { customerReward, customerVarOp } from '../pizza/delivery.ts';
 
@@ -39,19 +43,19 @@ export const CTOR_SGMFIG = 0x426151;
 export const ANIM_SET_VA = 0x8adcf8, ANIM_SET_STRIDE = 0x14;
 const ANIM_SET_DEFAULT = { catchHigh: 113, catchLow: 121, talk: 130, point: 129, fall: 0.032 };
 /** _DAT_008920c0: squared distance at which an NPC pushed back by Pepper returns to its place (2.08^2) */
-const RESTORE_DIST2 = 4.3264;
+const RESTORE_DIST2 = fromBits(0x408a71de);
 /** _DAT_008920b8: Pepper closer than this pushes the NPC back (FUN_004252c3) */
-const PUSH_DIST = 1.28;
+const PUSH_DIST = fromBits(0x3fa3d70a);
 /** _DAT_008920ac / _DAT_008920a8: the pizza reaction needs the NPC near Pepper (squared) or Pepper above it */
-const CATCH_DIST2 = 1.6384, CATCH_HEIGHT = 2.4;
+const CATCH_DIST2 = fromBits(0x3fd1b717), CATCH_HEIGHT = fromBits(0x4019999a);
 /** FUN_00425902: cone of "Pepper in front" (0x3f860a63 = 60 degrees) */
-const FRONT_CONE = 1.0472;
+const FRONT_CONE = fromBits(0x3f860a63);
 /** FUN_004254a5: conversation timer start (0x42b40000) */
 const TALK_TIME = 90;
 /** FUN_004249a6: the conversation may end below 30, the point animation is played back from frame 29 - timer below 15 (_DAT_00892038 / _DAT_00892074 / _DAT_008920b4) */
 const TALK_MIN = 30, TALK_POINT = 15, TALK_POINT_FRAME = 29;
 /** the camera of the conversation: FUN_00422f21(npc, Pepper's yaw + PI, side 1, 3.2, DAT_008add78) and back behind Pepper (side 2, DAT_008add88) */
-const CAM_HEIGHT = 3.2;
+const CAM_HEIGHT = fromBits(0x404ccccd);
 const CAM_NPC_VA = 0x8add78, CAM_PEP_VA = 0x8add88;
 const CAM_NPC_DEFAULT = [4, 2, -10], CAM_PEP_DEFAULT = [0, 4, -20];
 /** Pepper's clips: talk pose 0x78 (FUN_004254a5), idle 0x1b at the end (FUN_004249a6) */
@@ -122,6 +126,7 @@ export class SgmfigNode implements BehaviourNode {
   readonly kind = 'SGMFIG';
   /** the constructor address (the objective's default target looks for it: src/zones/z02LGI/objective.ts) */
   readonly ctor = CTOR_SGMFIG;
+  /** attach order */ readonly seq = nextSeq();
   var = 0; mask = 0; value = 0;
   stamp = 0xfffffffe;
   readonly args: SgmfigArgs;
@@ -157,8 +162,8 @@ export class SgmfigNode implements BehaviourNode {
     if (!rec.anim) { const rig = npcRig(w); if (rig) rec.anim = new AnimInstance(rig); }
     rec.flags |= RF_NPC;
     g.best = 1e38; g.target = null;
-    this.talkR2 = a.talkR >= 0 ? (a.talkR * 8) ** 2 : a.talkR;
-    this.nearR2 = (a.nearR * 8) ** 2;
+    { const p = ml(a.talkR, 8); this.talkR2 = a.talkR >= 0 ? ml(p, p) : a.talkR; }
+    { const p = ml(a.nearR, 8); this.nearR2 = ml(p, p); }
     this.fallVel = FALL_START; this.talk = 0;
     this.needMask = a.mask;
     this.animSetIndex = a.animSet; this.set = readAnimSet(ctx?.pe, a.animSet);
@@ -181,10 +186,10 @@ export class SgmfigNode implements BehaviourNode {
     }
     this.sound = a.sound;
     // onto the ground: terrain height below + 4, then a probe down to it (mask 1)
-    const from = [rec.x, rec.y + 4, rec.z];
+    const from = [rec.x, ad(rec.y, 4), rec.z];
     let dy = -128;
     const th = w.col.terrainHeight(from[0], from[1], from[2], 0);
-    if (-1e38 < th) dy = th - from[1];
+    if (-1e38 < th) dy = sb(th, from[1]);
     const hit = w.col.probe(rec, from, [0, dy, 0], 1);
     if (!hit) { if (-1e38 < th) rec.y = th; } else { rec.x = hit.point[0]; rec.y = hit.point[1]; rec.z = hit.point[2]; }
     rec.savePrev();
@@ -197,9 +202,10 @@ export class SgmfigNode implements BehaviourNode {
     let v = w.vars.get(this.var);
     if (v & 0x4000) { rec.flags &= ~RF_ENABLED; return NODE_STOP; }
     if (!(rec.flags & RF_ENABLED)) return NODE_STOP;
-    // the reward of the cutscene played on the first Shift (slot -> -10 at the start, -20, -30 = done); the original's update pass does not run
-    // while the cutscene does (AI off): approximated by waiting for the cutscene to end
-    if (!ctx?.cutsceneActive()) {
+    // the reward of the cutscene played on the first Shift (slot -> -10 at the start, -20, -30 = done): one step per update. The original has no cutscene test here:
+    // the update pass (FUN_0042226e) skips the controllers whose flag 2 is clear, and the cutscene manager clears it for its actors (FUN_00458fa6: AI off), so a customer
+    // that is an actor of his own cutscene advances after it, and one that is not an actor advances during it (controller.ts `updatePass` does the same skip).
+    {
       if (this.slot === -10) this.slot = -20;
       else if (this.slot === -20) {
         this.slot = -30;
@@ -210,8 +216,8 @@ export class SgmfigNode implements BehaviourNode {
       }
     }
     if (this.pushed && RESTORE_DIST2 < ctrl.distSq) { rec.x = this.saved[0]; rec.y = this.saved[1]; rec.z = this.saved[2]; this.pushed = 0; }
-    // the ground probe of this tick (run after the update pass: `runProbe` from the pre-render hook)
-    const dyp = this.falling ? -(this.fallVel * w.dt + 4) : -4.4;
+    // the ground probe of this tick (run by the shared probe pass after the update pass)
+    const dyp = this.falling ? -ad(ml(this.fallVel, fr(w.dt)), 4) : fr(-4.4);
     const mask = (ctrl.flags & 0x40) === 0 ? 0x43 : 3;
     if (!this.falling) probeSet(ctrl, [0, 4, 0], [0, dyp, 0], mask, 0xa110);
     else { ctrlExtra(ctrl).f14 |= 0x10; probeSet(ctrl, [0, 4, 0], [0, dyp, 0], mask, 0x2110); }
@@ -236,7 +242,6 @@ export class SgmfigNode implements BehaviourNode {
 
   // ----------------------------------------------------------------------------------------------- FUN_00426014
   prerender(w: World, rec: GameRecord, ctrl: Controller) {
-    runProbe(w, rec, ctrl);
     const v = w.vars.get(this.var);
     this.separate(w, rec, ctrl);
     if (!inView(w, rec)) { if (v & 0xe00) w.vars.andNot(this.var, 0xe00); }
@@ -259,21 +264,23 @@ export class SgmfigNode implements BehaviourNode {
   // ----------------------------------------------------------------------------------------------- FUN_00424526
   private separate(w: World, rec: GameRecord, ctrl: Controller) {
     if (ctrl.flags & 0x40) {
-      // a pizza customer standing on another one's spot steps forward
+      // a pizza customer standing on another one's spot steps forward (every difference and sum a float32; |d| is compared with the double 0.1 at 0x8920a0)
       for (const o of w.records) {
         if ((o.flags & RF_NPC) !== 0 || !o.ctrl || (o.ctrl.flags & 0x40) === 0 || o.ctrl === ctrl) continue;
-        if (Math.abs(rec.x - o.x) < 0.1 && Math.abs(rec.z - o.z) < 0.1 && rec.y - o.y < 0) {
-          rec.x += rec.fx; rec.y += rec.fy; rec.z += rec.fz;
+        const dx = sb(rec.x, o.x), dy = sb(rec.y, o.y), dz = sb(rec.z, o.z);
+        if (Math.abs(dx) < 0.1 && Math.abs(dz) < 0.1 && dy < 0) {
+          const fx = rec.m[8], fy = rec.m[9], fz = rec.m[10];       // (* 1.0f at 0x892020)
+          rec.x = ad(fx, rec.x); rec.y = ad(fy, rec.y); rec.z = ad(fz, rec.z);
         }
       }
     }
     if (probeResult(ctrl) === 0) {
       // nothing below: fall (not below the sea)
       this.falling = 1;
-      let y = rec.y - this.fallVel;
-      if (y < w.seaLevel) { y = w.seaLevel; this.fallVel = 0; }
+      let y = sb(rec.y, this.fallVel);
+      if (y < fr(w.seaLevel)) { y = fr(w.seaLevel); this.fallVel = 0; }
       rec.y = y;
-      this.fallVel += this.set.fall * w.dt;
+      this.fallVel = ad(ml(this.set.fall, fr(w.dt)), this.fallVel);
       if (FALL_MAX < this.fallVel) this.fallVel = FALL_MAX;
     } else { this.fallVel = 0; this.falling = 0; }
   }
@@ -282,7 +289,7 @@ export class SgmfigNode implements BehaviourNode {
   private pizzaReaction(w: World, rec: GameRecord, ctrl: Controller, v: number): boolean {
     if (v & 0x40000000) return false;
     const pep = w.focus;
-    if (!((ctrl.flags & 0x40) !== 0 || CATCH_DIST2 <= ctrl.distSq || (pep && pep.y <= rec.y + CATCH_HEIGHT))) return false;
+    if (!((ctrl.flags & 0x40) !== 0 || CATCH_DIST2 <= ctrl.distSq || (pep && pep.y <= ad(rec.y, CATCH_HEIGHT)))) return false;
     const hit = incomingPizza(w, rec);     // FUN_00429183 (WP5)
     let r: boolean;
     if (hit.kind === 0) {
@@ -356,19 +363,19 @@ export class SgmfigNode implements BehaviourNode {
   private faceEachOther(w: World, rec: GameRecord) {
     const pep = w.focus;
     if (!pep) return;
-    const dx = rec.x - pep.x, dz = rec.z - pep.z;
-    const yaw = Math.atan2(dx, dz);
+    const dx = sb(rec.x, pep.x), dz = sb(rec.z, pep.z);
     const aiming = (w.vars.get(PC) & 0x10) !== 0;
     if (!aiming) {
-      pep.ry = yaw < -PI ? yaw + 2 * PI : yaw > PI ? yaw - 2 * PI : yaw;
-      pep.setEuler(0, pep.ry, 0, pep.x, pep.y, pep.z);
+      pep.ry = wrapPi(fr(Math.atan2(dx, dz)));
+      eulerRotation(pep.m, 0, pep.ry, 0);           // FUN_0043a4a1(pepper + 0xc, 0, yaw, 0): the rotation part only
+      accessoryAlign(w, pep);                       // FUN_00429e00: Pepper's slope alignment (D7)
     }
-    const d = Math.sqrt(dz * dz + dx * dx);
+    const d = sq(ad(ad(ml(dz, dz), ml(dx, dx)), 0));
     if (d < PUSH_DIST) {
-      const k = PUSH_DIST - d;
+      const k = sb(PUSH_DIST, d);
       if (!this.pushed) this.saved = [rec.x, rec.y, rec.z];
       this.pushed = 1;
-      rec.x -= rec.fx * k; rec.y -= rec.fy * k; rec.z -= rec.fz * k;
+      rec.x = sb(rec.x, ml(rec.m[8], k)); rec.y = sb(rec.y, ml(rec.m[9], k)); rec.z = sb(rec.z, ml(rec.m[10], k));
     }
     if (!aiming) w.vars.set(PC, 1);
   }
@@ -387,12 +394,11 @@ export class SgmfigNode implements BehaviourNode {
     const aiming = (w.vars.get(PC) & 0x10) !== 0;
     if (pep && !aiming) {
       // Pepper onto the ground (terrain below + 4, else 160 down; the probe with mask 0x43 wins)
-      const from = [pep.x, pep.y + 4, pep.z];
+      const from = [pep.x, ad(pep.y, 4), pep.z];
       let h = w.col.terrainHeight(pep.x, pep.y, pep.z, 4), dy: number;
-      if (-80 <= h) dy = h - from[1]; else { h = pep.y; dy = -160; }
+      if (-80 <= h) dy = sb(h, from[1]); else { h = pep.y; dy = -160; }
       const hit = w.col.probe(pep, from, [0, dy, 0], 0x43);
-      pep.y = hit ? hit.point[1] : h;
-      pep.setEuler(pep.rx, pep.ry, pep.rz, pep.x, pep.y, pep.z);
+      pep.y = hit ? hit.point[1] : h;       // (the matrix keeps its rotation: only the translation's y is written)
     }
     this.camDue = 1;
     this.talks = (this.talks + 1) & 0x7f;
@@ -430,7 +436,7 @@ export class SgmfigNode implements BehaviourNode {
     let end: boolean;
     if ((w.input.pressed & SHIFT) === 0) {
       if (!this.pending) {
-        this.timer -= w.dt;
+        this.timer = sb(this.timer, ml(1, fr(w.dt)));
         if (TALK_MIN <= this.timer) end = false;
         else {
           end = speechOn ? (ctx?.speechIdle() ?? true) : this.timer < 0;
@@ -454,7 +460,7 @@ export class SgmfigNode implements BehaviourNode {
     }
     if (this.camDue) {
       this.camDue = 0;
-      if (pep) actorCamera(w, rec, pep.ry + PI, 1, CAM_HEIGHT, readVec(ctx?.pe, CAM_NPC_VA, CAM_NPC_DEFAULT));
+      if (pep) actorCamera(w, rec, ad(pep.ry, PI), 1, CAM_HEIGHT, readVec(ctx?.pe, CAM_NPC_VA, CAM_NPC_DEFAULT));
     }
     if ((this.talk & 2) === 0) rec.anim?.advance(1, w.dt);
     else {
@@ -482,16 +488,18 @@ export class SgmfigNode implements BehaviourNode {
       return false;
     }
     // the face of the speaking NPC
-    g.exprTimer -= w.dt;
+    g.exprTimer = sb(g.exprTimer, ml(1, fr(w.dt)));
     if (g.exprTimer <= 0) {
-      if (Math.random() * 100 <= EXPR_MOUTH_CHANCE) { g.exprTimer = 6; ctx?.expression?.(rec, Math.trunc(Math.random() * 6)); }
-      else { g.exprTimer = 2; ctx?.expression?.(rec, Math.trunc(Math.random() * 4) + 6); }
+      if (rand(100) <= EXPR_MOUTH_CHANCE) { g.exprTimer = 6; ctx?.expression?.(rec, randTrunc(6)); }
+      else { g.exprTimer = 2; ctx?.expression?.(rec, randTrunc(4) + 6); }
     }
     return true;
   }
 }
 
 /** DAT_009daa7c: the record hidden while walking (the skateboard of the island): the one Pepper's walk node holds */
+function accessoryAlign(w: World, pep: GameRecord) { alignRecordToGround(w, pep); }
+
 function accessoryOf(w: World): GameRecord | null {
   const n = w.focus?.ctrl?.nodes.find((x) => x.kind === 'SGwalk') as { accessory?: GameRecord | null } | undefined;
   return n?.accessory ?? null;

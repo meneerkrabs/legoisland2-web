@@ -1,7 +1,7 @@
 // Small helpers of the zone's code (the Brick Dive set of FUN_005bxxxx functions): angles, the shape rotation, the segment / sphere test, the free-running clock.
 import { C } from './consts.ts';
 
-const fr = Math.fround;
+import { fr, ad, sb, ml, dv, sq } from '../common/f32.ts';
 
 /** FUN_005bb164: an angle wrapped into [0, 2 pi) (two loops, like the original) */
 export function wrapAngle(a: number): number {
@@ -25,8 +25,8 @@ export function angleDelta(a: number, b: number): AngleDelta {
 
 /** FUN_005bbb02 / the inline sums of squares: squared distance of two points */
 export function dist2(a: ArrayLike<number>, b: ArrayLike<number>): number {
-  const x = a[0] - b[0], y = a[1] - b[1], z = a[2] - b[2];
-  return fr(fr(z * z) + fr(y * y) + fr(x * x));
+  const x = sb(a[0], b[0]), y = sb(a[1], b[1]), z = sb(a[2], b[2]);
+  return ad(ad(ml(z, z), ml(y, y)), ml(x, x));
 }
 
 /**
@@ -38,7 +38,7 @@ export function rotateShape(shape: readonly (readonly number[])[], n: number, an
   const out: number[][] = [];
   for (let i = 0; i < n; i++) {
     const p = shape[i];
-    out.push([fr((c * p[1] + s * p[0]) * 1), -fr((c * p[0] - s * p[1]) * 1), p[2]]);
+    out.push([ml(ad(ml(c, p[1]), ml(s, p[0])), 1), -ml(sb(ml(c, p[0]), ml(s, p[1])), 1), p[2]]);
   }
   return out;
 }
@@ -48,27 +48,28 @@ export function rotateShape(shape: readonly (readonly number[])[], n: number, an
  * discriminant the result is the smaller root when it lies in [0, larger root], else the larger root; -1 when the line misses the sphere. Callers accept 0 < t <= 1.
  */
 export function segmentSphere(p0: ArrayLike<number>, p1: ArrayLike<number>, c: ArrayLike<number>, r: number): number {
-  const ox = p0[0] - c[0], oy = p0[1] - c[1], oz = p0[2] - c[2];
-  const dx = p1[0] - p0[0], dy = p1[1] - p0[1], dz = p1[2] - p0[2];
-  const a = dz * dz + dy * dy + dx * dx;
-  const inv = 1 / (2 * a);
-  let b = dz * oz + dy * oy + dx * ox;
-  b = b + b;
-  const disc = b * b - a * ((oz * oz + oy * oy + ox * ox) - r * r) * 4;
-  let t = -1;
-  if (disc > 0) {
-    const sq = Math.sqrt(disc);
-    const t1 = (-b - sq) * inv, t2 = (-b + sq) * inv;
-    t = t2;
-    if (t1 >= 0 && t1 <= t2) t = t1;
-  }
-  return t;
+  // asm 0x43d159 .. 0x43d2ab: every named quantity is a float32 local; sums run x, y, z; the quadratic's discriminant is b^2 - a c 4
+  const ox = sb(p0[0], c[0]), oy = sb(p0[1], c[1]), oz = sb(p0[2], c[2]);
+  const dx = sb(p1[0], p0[0]), dy = sb(p1[1], p0[1]), dz = sb(p1[2], p0[2]);
+  const a = ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz));
+  const inv = dv(1, ml(2, a));
+  const b = ml(2, ad(ad(ml(dx, ox), ml(dy, oy)), ml(dz, oz)));
+  const cc = sb(ad(ad(ml(ox, ox), ml(oy, oy)), ml(oz, oz)), ml(r, r));
+  const disc = sb(ml(b, b), ml(ml(a, cc), 4));
+  if (!(0 < disc)) return -1;
+  const rt = sq(disc);
+  const t1 = ml(sb(-b, rt), inv), t2 = ml(ad(-b, rt), inv);
+  return t1 >= 0 && t1 <= t2 ? t1 : t2;
 }
 
-/** FUN_0043cec0: normalise in place (a zero vector stays zero) */
+/**
+ * FUN_0043cec0: normalise in place. The vector lives in float32 memory in the original: len2 = f32((x*x + y*y) + z*z), k = f32(1 / sqrt(len2)), v = f32(k * v); a zero
+ * length changes nothing. (Near +-1 the result matters: asin of a normalised component turns a 6e-8 difference into 3e-4.)
+ */
 export function normalize3(v: number[]): number[] {
-  const l = v[2] * v[2] + v[1] * v[1] + v[0] * v[0];
-  if (l !== 0) { const k = 1 / Math.sqrt(l); v[0] *= k; v[1] *= k; v[2] *= k; }
+  v[0] = fr(v[0]); v[1] = fr(v[1]); v[2] = fr(v[2]);
+  const l = ad(ad(ml(v[0], v[0]), ml(v[1], v[1])), ml(v[2], v[2]));
+  if (l !== 0) { const k = dv(1, sq(l)); v[0] = ml(k, v[0]); v[1] = ml(k, v[1]); v[2] = ml(k, v[2]); }
   return v;
 }
 
@@ -82,8 +83,8 @@ export class ZoneClock {
   dt: number = C.TICK_SECONDS;
   phase = 0;
   /** FUN_005baf8f, once per frame of mode 2 */
-  tick() {
-    this.dt = fr(C.ONE * 1 * C.TICK_SECONDS);
+  tick(stepDt = 1) {
+    this.dt = ml(ml(C.ONE, stepDt), C.TICK_SECONDS);     // _DAT_00892020 * DAT_008b1718 * _DAT_008922ac
     this.phase = fr(this.phase + this.dt);
     while (C.ONE < this.phase) this.phase = fr(this.phase - C.ONE);
   }

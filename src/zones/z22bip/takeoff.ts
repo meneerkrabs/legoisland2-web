@@ -43,7 +43,7 @@ export class TakeoffNode implements BehaviourNode {
   count: number = TAKEOFF.RUN;  // +0x20
   progress = 0;                 // +0x2c: where on the course the plane is
   step: number = TAKEOFF.STEP;  // +0x30
-  propPhase = 0;                // +0xb4 (2 once the climb starts; the spinning-up of the propeller, FUN_0070bca0 is never called)
+  propPhase = 1;                // +0xb4 (1 from the constructor, 2 once the climb starts; the spinning-up of the propeller, FUN_0070bca0 is never called)
   climb = 0;                    // +0xc8
   climbSpeed = 0;               // +0xcc
   /** Runwaystart.SRC: +0x34 / +0x4c / +0x40 / +0x58 (not used by the update) */

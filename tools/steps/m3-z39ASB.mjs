@@ -1,9 +1,10 @@
 // M3 z39ASB (Asteroid Belt), headless and muted, with REAL key input: intro -> help -> flight; a dodging bot flies the whole course (WIN: banner, medal, result menu,
 // Continue -> story node 63); then a second run flies without steering (LOSS: five hits, banner, result menu page 19 -> Retry -> a fresh run -> Abort -> back to the hub).
 // Also: pause menu (Esc) page 18 and the end of the first-run variables.
-//   node tools/browse.mjs "http://localhost:5499/?zone=z39ASB&mute=1" tools/steps/m3-z39ASB.mjs --size 1280x800 --out /tmp/m3/z39ASB
+//   node tools/browse.mjs "http://localhost:5499/?zone=z39ASB&mute=1&debug=1" tools/steps/m3-z39ASB.mjs --size 1280x800 --out /tmp/m3/z39ASB
 // (other workers' edits make the dev server reload the page; a run of ~5 minutes wants a server without HMR / file watching: docs/re/m3/z39ASB.md "How to run")
 // (env ASB_QUICK=1 uses the test aids F9 / F10 instead of flying the whole course; the default plays the full course with the bot)
+import { installPageBot } from './lib-pagebot.mjs';
 export default async ({ page, shot, wait, log, key }) => {
   const fail = [];
   const expect = (name, cond, extra = '') => { log(cond ? 'ok  ' : 'FAIL', name, extra); if (!cond) fail.push(name); };
@@ -36,6 +37,30 @@ export default async ({ page, shot, wait, log, key }) => {
     if (needX <= needY * 1.2) return worst.dx >= 0 ? (shut.x < 16 ? 'R' : 'L') : (shut.x > -16 ? 'L' : 'R');
     return worst.dy >= 0 ? (shut.y < 12 ? 'D' : 'U') : (shut.y > -12 ? 'U' : 'D');
   });
+  // the same dodging decision inside the page (lib-pagebot.mjs: decided every 4 ms, no round trip: the reaction time in ticks no longer depends on the load of the machine)
+  const decideSrc = `(() => {
+    const KEY = { L: 'ArrowLeft', R: 'ArrowRight', U: 'ArrowUp', D: 'ArrowDown' };
+    return (w) => {
+      const out = new Set();
+      const b = w.__zone?.game?.belt;
+      if (!b || b.state !== 1 || w.__zone.machine.mode !== 2) return out;
+      const shut = b.recs.shut, cam = b.cam;
+      let worst = null;
+      for (const a of b.recs.asteroids) {
+        const dz = a.z - cam[2];
+        if (dz < -2 || dz > 75) continue;
+        const dx = cam[0] - a.x, dy = cam[1] - a.y;
+        if (Math.abs(dx) < 5.8 && Math.abs(dy) < 5.5 && (!worst || dz < worst.dz)) worst = { dz, dx, dy };
+      }
+      if (!worst) return out;
+      const needX = 5.8 - Math.abs(worst.dx), needY = 5.5 - Math.abs(worst.dy);
+      let k;
+      if (needX <= needY * 1.2) k = worst.dx >= 0 ? (shut.x < 16 ? 'R' : 'L') : (shut.x > -16 ? 'L' : 'R');
+      else k = worst.dy >= 0 ? (shut.y < 12 ? 'D' : 'U') : (shut.y > -12 ? 'U' : 'D');
+      out.add(KEY[k]);
+      return out;
+    };
+  })()`;
   const KEY = { L: 'ArrowLeft', R: 'ArrowRight', U: 'ArrowUp', D: 'ArrowDown' };
   let down = '';
   const hold = async (want) => {
@@ -50,7 +75,8 @@ export default async ({ page, shot, wait, log, key }) => {
   await waitZone('z39ASB', 1);
   let s = await st();
   expect('z39ASB starts at story node 62, the Shuttle attach is handled (no skipped attaches)', s.node === 62 && s.skipped === 0, JSON.stringify(s));
-  expect('intro state: score 10000, hull 1000, shuttle at z -768, camera 400 behind', s.score === 10000 && s.hull === 1000 && Math.abs(s.z + 768) < 1e-3 && Math.abs(s.eyeZ + 1168) < 1e-3, JSON.stringify(s));
+  // FUN_007b63f6 runs ONE update of the shuttle node (FUN_0042226e(records + 0x68, 1)) before the loop: z = -768 + speed 2.4 = -765.6; the eye is at z + camera offset (-400)
+  expect('intro state: score 10000, hull 1000, shuttle at z -765.6 (one update before the loop), camera 396 behind', s.score === 10000 && s.hull === 1000 && Math.abs(s.z + 765.6) < 1e-3 && Math.abs(s.eyeZ + 1165.6) < 1e-3, JSON.stringify(s));
   await wait(700);
   await shot('asb-1-intro');
   await press('Enter'); await wait(500);
@@ -91,14 +117,17 @@ export default async ({ page, shot, wait, log, key }) => {
 
   if (quick) { await key('F9'); }
   let shots = 0, lastShot = 0, t0 = Date.now(), hitShot = false;
+  const bot = quick ? null : await installPageBot(page, 'asb', decideSrc);
+  if (bot) await bot.start();
   for (let guard = 0; guard < 12000; guard++) {
     s = await st();
     if (!s || s.mode !== 2) break;
-    if (!quick) await hold(await decide()); else await wait(100);
+    if (quick) await wait(100); else await wait(60);
     if (s.z > lastShot + 1500 && shots < 4) { lastShot = s.z; shots++; await shot(`asb-6-flight-${shots}`); }
     if (s.hits > 0 && !hitShot && s.state === 2) { hitShot = true; await shot('asb-6-hit'); }
     if (Date.now() - t0 > 600000) break;
   }
+  if (bot) { log('page bot', JSON.stringify(await bot.info())); await bot.stop(); }
   await release();
   s = await st();
   log('end of run 1', JSON.stringify(s));

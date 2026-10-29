@@ -58,7 +58,7 @@ export class MonkeyNode implements BehaviourNode {
       if (MONKEY.WAKE2 <= d2) this.state = 0;
       else if (this.state === 0) { anim?.start(this.clipActive, 0); this.state = 1; }
     }
-    anim?.advance(1);
+    anim?.advance(1, w.dt);
     const frame = Math.trunc(anim?.frame ?? 0);
     if (this.state === 1) {
       // a chatter sound now and then (ftol(FUN_004388ae(GetTickCount - start)) % 90 hits one of three values)
@@ -85,6 +85,7 @@ export class MonkeyNode implements BehaviourNode {
       const l = Math.hypot(v[0], v[1], v[2]) || 1;
       m.vx = F(v[0] / l); m.vy = F(v[1] / l); m.vz = F(v[2] / l);
       run.sound.at('chimpThrow', [rec.x, rec.y, rec.z]);
+      run.cue?.('bip-melon-throw', [rec.x, rec.y, rec.z]);
       return;
     }
   }
@@ -116,7 +117,7 @@ export class MonkeyNode implements BehaviourNode {
   }
 
   /** FUN_0070f6ec (the draw): the monkey turns to face the plane (forward = the direction to it, up = world up, right = their horizontal cross) at twice its size */
-  private face(rec: GameRecord, pl: GameRecord) {
+  face(rec: GameRecord, pl: GameRecord) {
     const d = [pl.x - rec.x, pl.y - rec.y, pl.z - rec.z];
     const l = Math.hypot(d[0], d[1], d[2]) || 1;
     const f = [d[0] / l, d[1] / l, d[2] / l];

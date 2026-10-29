@@ -18,7 +18,7 @@ Browser: `tools/steps/m3-z38PAR.mjs`.
 | 0x4684ec | canopy | `ParCanopy` (scales to 0.55 at bone 8, shadow quad) |
 | 0x4681c0 | plane | `ParPlane` (loops radius 70 around (-49.7, 705.5, -110)) |
 | 0x467fae | balloon | `ParBalloon` (bounces the pilot, 400..460) |
-| 0x467d38 | birds | `ParBirds` (3 Lissajous birds around (35.8, 29.5), call sounds at 50 %) |
+| 0x467d38 | birds | `ParBirds` (3 Lissajous birds around (35.8, 29.5), a call sound with a 1 in 50 chance per tick and bird: `FUN_004388ae(50.0) < 1.0`; the first M3 text said 50 %) |
 | 0x4676cd | boat | `ParBoat` (circle radius 400, +0.003/tick) |
 | 0x468590 | segment vs record box | `segmentHitsRecordBox` (box centre is ADDED) |
 | 0x467370 | sounds | 28 slots (`PAR_SOUNDS`; the test checks the ids against the EXE loads) |
@@ -46,7 +46,7 @@ silver 04 + 05, bronze 06 + 07 (+ 08 queued), failed 09 + 10 (+ 11 queued). Musi
 
 ## 5. Known differences
 
-- Particles (spray, footsmoke) not ported. The SHAD shadow is a flat quad, not terrain-deformed. SeaAmin / seabed animation skipped.
+- Particles: wired (WP-PART-WIRE, see the last section). The SHAD shadow is the terrain-following 5-vertex patch since WP-MINI. SeaAmin: the foam's texture wobble is ported (`uvScroll`); the seabed animation is not.
 - Music starts at zone entry, not after the help screen. `plane_flyoff` (played by the original only on the mode-0 button-skip path) is not played.
 - The ground probe uses the stale `groundY` over the sea, like the original.
 - The browser bot has 2-4 ticks of latency, so the browser run expects >= 2 rings (node tests: all three, gold ~5956).
@@ -67,3 +67,46 @@ Browser run (own vite on 5488, WIN score 4193 silver, trophy 2, return to island
 ## M4 notes
 
 The island exit to PAR needs nothing special: the zone game is registered by `registerZoneGame('z38PAR')`; result 1/2 goes through `story.miniGameExit`.
+
+## Differential test (WP-VERIFY)
+
+`node tools/test-formats.mjs --only m7-z38PAR-emu` (tools/tests/m7-z38PAR-emu.mjs + tools/lib/m7-z38PAR-emu.mjs on tools/lib/m7-zone-emu.mjs; about 10.6 M checks, 20 s; `PAR_FULL=1` runs every natural scenario at both dt):
+the ORIGINAL's whole update pass of the zone runs in the x86 emulation next to `World.tick()`: pilot `FUN_004686a3` (constructor `FUN_0046a926`), birds `FUN_004677a0`, balloon `FUN_00467e40`, seaplane `FUN_00468040`,
+boat `FUN_00467520`, the canopy's draw hook `FUN_00468338` (all through their vtable slots, constructors 0x4676cd / 0x467d38 / 0x467fae / 0x4681c0 / 0x4684ec), the HUD feed `FUN_00466f50` and the end block of the loop
+(case 2 of `FUN_00465d39`, run from the middle of the function on a prepared frame). Same buttons, same random numbers (`FUN_004388ae`, scripted); compared tick by tick: every record's matrix / Euler / visibility,
+the nodes' fields (pilot +0x30..+0x80, boat angle / heading, bird phases, balloon flag, canopy scale), animation clip / frame (Pepper, 4 PTER), the run globals, the camera, the HUD values and every sound / speech call by sound-slot
+identity (the loader `FUN_00467370` stores one handle per global; the log names it). The collision queries (sweep, probe, ground ray) are answered by the port's `CollisionWorld` over a world whose records mirror the original's
+own emulated record array (the collision engine is not the subject). dt is a parameter of both sides: every scenario runs at dt 1 and dt 0.5. Scenarios: 8 natural jumps (bots: rings 3-2-1 / 3-1 / no chute / no dive / land on 1, 2, 3; 3 random-button
+jumps) and 23 staged starts (pilot put into free fall next to the balloon, the plane, the birds (hit by the sweep and by the box test), rings 1 / 2 / 3, the dive bonus, the targets without chute, the sea with / without chute, landings).
+`FUN_00468590` (segment against a pterodactyl's box) runs natively on 12000 random segments against `segmentHitsRecordBox`; the loop's end block over 418 cases (score x stored hiscore x stale trophy) against `parFinish` / `parResultSpeech`
+(speech, queued line, vars 0xaa / 0xd1, result). Coverage printed in the notes: states 1..5 and 7, all three rings hit / missed, bounces (balloon, plane, birds, rings), all four landings, splash / big splash.
+
+Deviations found and FIXED in the port (evidence = the oracle at the tick named):
+* `par-props.ts` `ParBirds`: the call sound is `rand(50) < 1` (asm 0x4677d8 `push 0x42480000`), the port had `rand(2) < 1` (a call every other tick): the rand streams ran out of step at tick 3.
+* `par-props.ts` `ParCanopy` (`FUN_00468338`): the matrix is built with the scale of this moment and the scale moves on afterwards; the port moved it first (the canopy was one step ahead: scale 0.05 against 0 at the first tick of the opening).
+* float32 fidelity of the props (boat angle / heading / the float locals, bird phases and positions, balloon y, seaplane rx, canopy scale): all are float node / record fields in the original, the port accumulated doubles
+  (bird phases drifted by about 1e-5 rad after a few thousand ticks, the boat heading by 4e-6 at once).
+* `par-pilot.ts` `ground()`: `FUN_00442a70` is the centre ray plus the four corner rays of the blob shadow (`shadowPoints` of apo-pilot.ts); the corner rays move the engine's hit cache, so the single centre ray of the port
+  returned another polygon at an edge (groundY 0.0 against -0.001 at tick 86 of the bot jump). The port now calls `shadowPoints` and reads pts[4] / pts[3..5].
+  (`tools/tests/m5-audit-z38PAR-emu.mjs`: its `ground` host now calls `shadowPoints` too; `tools/tests/m3-z38PAR.mjs`: the "50 %" assertion became 1 in 50.)
+
+Deviations RECORDED (not fixed, listed in the notes of the test with counts):
+* dt 0.5: `ParPilot` / `ParBirds` call `anim.advance(rate)` without `w.dt` (the original's `FUN_0043b76a` steps by rate * DAT_008b1718): at dt 0.5 the animations run twice as fast; the test passes the world's dt for those calls (227615 of them
+  in the full matrix) so that the rest of the dt 0.5 run is still compared.
+* dt 0.5: `src/zones/z38PAR.ts` calls `hud.update(run, pep.ry)` without `world.dt` (the ring-icon blink counters step by `1 * DAT_008b1718`).
+* the altitude gauge: `FUN_00466f50` does not clamp `DAT_05d4e138 = 204 - local_20` below (it exceeds 204 when the pilot is above the altitude where the gauge last was in its first phase, e.g. after a bounce); the port clamps the marker to the bar.
+* the SHAD record: the original shows it only inside the canopy's draw hook (flags |= 2, draw, flags &= ~2) with the five vertices `DAT_05d57da8`; the port keeps a flat quad visible while `DAT_05d57de4` is set (known, render only).
+* `FUN_00468590`: the hit POINT the original returns is overwritten by the range checks of later faces (`FUN_0043d5ec` assigns before its conditions are complete): the port returns the clean point; the callers use the normal only (normal agrees on 649 / 649 crossings).
+
+UNCERTAIN: whether the original's canopy record PARA is solid (scene flags 2, collision box 7.5 x 6.2 x 3.8, zero-scale matrix until the chute opens); the port sets 0x10 | 0x8000 on it, the oracle world gets the same flag.
+
+## WP-PART-WIRE / WP-MINI (2026-10-29)
+
+Emitters (derived from the original's call sites; `src/zones/parachute/par-fx.ts`, wired in `z38PAR.ts` after `startParRun`, `ZoneParticles.create` = the zone's own archive: `Particle/` has cloud01 / footsmoke / James01 / spray01):
+* `FUN_0046a926` (the pilot's constructor, first of the zone's attaches, record 8): `footsmoke.par` (0x46a99b) on the static matrix `DAT_05d57de8` (= bone 7 of the pilot's pose x his record matrix), `footsmoke.par` (0x46a9cb) on `DAT_05d57e28` (bone 5), `spray01` (0x46aa13) on record 3 (LAND, 0x144) at (92.803, 71.484, -126.834) (`DAT_00987660 == 0`, the default display); all offset 0 (except spray01), rotation -pi/2 about x, gate (2, 1, 1) = on. A second call of the constructor (restart of the node) switches the three on again (0x46aa6b / 83 / a4).
+* `FUN_004676cd` (the boat, record 40): `James01` (0x467729) on the BOAT's live matrix, offset 0, gate on; `FUN_00467520` (its update) calls `FUN_00442a00(handle, record + 0xc)` first (`ParBoat.update`, `boatTick`).
+* `FUN_004686a3` (the pilot's update): states 4 / 5 switch both footsmokes off (0x46a734 / 0x46a74f, handles +0x88 then +0x84), every other tick refreshes the two bone matrices from the pose of the LAST DRAW (`src/zones/common/pose.ts`: `poseAt` of the (clip, frame) at the start of the update, `composeBone32` = `FUN_0043a9e5` in float32 steps); state 5 (`case 5`) switches `spray01` off (0x469d1c).
+* `cloud01` and `Volcano01` (the file `spray01.par`: the first line decides) are in the archive; the original's code never starts `cloud01`. (The stale-appearance finding of the particle oracle used cloud01 as a test effect.)
+Not exact: the initial content of the two bone matrices before the first update tick (the original composes them in the constructor from the animation buffer before any draw: unknown content; the port uses the record's own matrix; the first engine update happens after the first node update, so nothing is emitted from it). Verified: node test `m8-wire-z38PAR` (start order / arguments / gate sequence of a whole scripted game), headless screenshots (`tools/steps/m3-z38PAR.mjs`: the purple footsmoke trails at the body in the free fall and under the chute: `par-4-ring3`, `par-6-glide`).
+
+Residuals closed (WP-MINI): the animation advances of the pilot, the birds and the end banner scale with `dt` (`FUN_0043b76a` steps by rate * `DAT_008b1718`: `anim.advance(rate, dt)`), the HUD ring blink counters step `1 * dt` as float32 (`FUN_00466f50`), the gauge value `DAT_05d4e138` is kept unclamped in `ParHudFrame.gauge.value` (the draw function `FUN_00460214` clamps its ratio to 0..1, which `marker` does), the SHAD patch (`FUN_00468250`: shown only while `DAT_05d57de4`, vertices = `DAT_05d57da8`, `GameRenderer.vertexOverride`). `rand()` defaults to the C runtime generator (`// RNG:`, `common/tickrand.ts`).

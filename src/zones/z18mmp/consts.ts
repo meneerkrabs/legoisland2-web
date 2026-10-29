@@ -129,7 +129,7 @@ export const K = {
   WALK_SPEED: f32(0.32), HIT_RADIUS: f32(2.88),
   STICK_X_LIMIT: 4, STICK_Z_FROM: 200,
   CHASE_VZ: f32(-0.9), TURN_STEP: f32(0.349064), HIT_PUSH: f32(0.64),
-  WALL_X: f32(4.4), GATE_Y: f32(8.47), GATE_STEP: f32(0.4), ARRIVE: f32(0.8), FACING: f32(0.95), TURN_SNAP: f32(0.9), ROCK_NEAR: f32(3.2), SPEED_RUN: f32(0.576), SPEED_WALK: f32(0.256), SPEED_SNEAK: f32(0.128), TURN_BACK_VZ: f32(-0.4), RATE: f32(0.125),
+  WALL_X: 4.4 /* the double 4.4 pushed as an argument (0x40119999 0x9999999a), not a float32 */, GATE_Y: f32(8.47), GATE_STEP: f32(0.4), ARRIVE: f32(0.8), FACING: f32(0.95), TURN_SNAP: f32(0.9), ROCK_NEAR: f32(3.2), SPEED_RUN: f32(0.576), SPEED_WALK: f32(0.256), SPEED_SNEAK: f32(0.128), TURN_BACK_VZ: f32(-0.4), RATE: f32(0.125),
   GRAVITY: f32(0.08), RESPAWN_Y: f32(-12.5), RESPAWN_TOP: f32(187.5),
   SWEEP_Y: f32(2.8),
   /** FUN_006a3861 moves Pepper 15 forward (z += 15.0, 0x892074) after the builder placed him at z = -67.122 */

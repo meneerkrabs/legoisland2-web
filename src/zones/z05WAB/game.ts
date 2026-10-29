@@ -6,8 +6,16 @@ import type { Ui2D } from '../../ui/renderer2d.ts';
 import { expandMessage } from '../../ui/strings.ts';
 import type { BannerSpec } from '../../shell/helpscreen.ts';
 import { MODE } from '../../shell/loopmachine.ts';
-import { ALL_SOUNDS, BotNode, CTOR, LINE, PepNode, REC, SND, WAB, WabShared, initCamera, medalOfScore, scoreOf } from './wab.ts';
-import type { WabHost } from './wab.ts';
+import { B } from '../../game/input.ts';
+import { BotNode, CTOR, LINE, PepNode, REC, SND, WAB, WabShared, initCamera, medalOfScore, scoreOf } from './wab.ts';
+import type { WabFx, WabHost } from './wab.ts';
+import { msClock, tickPick } from '../common/tickrand.ts';
+import type { SoundSlot } from '../../audio/sfx.ts';
+import { GATE_OFF, type ZoneParticles } from '../../fx/particles/zone.ts';
+import { restoreHooks } from '../../restore/flag.ts';
+
+/** FUN_00569dd0 loads these three through FUN_004433b0 (3D, played with FUN_004433f0 at the active hole's position); the other twelve are 2D */
+const SOUNDS_3D: readonly number[] = [SND.HIT_BOT, SND.HIT_INFO, SND.MISS];
 
 /** HISCORE_WAB / TROPHY_WAB (tools/gamevars.tsv: SWITCH_GME_HISCORE_WAB 0x20, SWITCH_GME_TROPHY_WAB 0x40) */
 export const VAR = { HISCORE: 0x20, TROPHY: 0x40 } as const;
@@ -40,29 +48,62 @@ function frameHost(ctx: ZoneGameCtx): Pick<WabHost, 'setFrame' | 'scrollV'> {
   };
 }
 
-export function createWabGame(ctx: ZoneGameCtx): ZoneGame {
+/**
+ * FUN_0056b2d5: the emitters of the zone: wabswirl.swl on the Infomaniac record (INFO), bolts01.par x 4 on the resting bot of each hole at (0, 5, 0), all with the
+ * LAND record in their collision list, all started OFF (gate 1, 1, 1); `bolts[k]` is switched on by a hit (FUN_00569f50), the swirl by hitting the Infomaniac
+ */
+export function wabEffects(ctx: ZoneGameCtx, fx: ZoneParticles): WabFx {
+  const HALF = -1.5707964;
+  const w = ctx.world;
+  const swirl = fx.startSwirl('wabswirl.swl', [0, 0, 0], [HALF, 0, 0], GATE_OFF);
+  const bolts = REC.HOLE.map((i) => {
+    const h = fx.start('bolts01.par', w.records[i].m, [0, 5, 0], [HALF, 0, 0], GATE_OFF);
+    fx.collideWith(h, w.records[REC.LAND]);
+    return h;
+  });
+  for (const h of bolts) fx.off(h);      // the constructor's FUN_00442a20(h, 1, 1, 1) on the four bolts, then the swirl (0x56b88b..0x56b8eb)
+  fx.off(swirl);
+  fx.finish();
+  return {
+    hitBot: (hole) => fx.on(bolts[hole]),
+    // FUN_0043b00b(local, base record + 0xc) copies the hole's matrix, then local[13] = 5.5 (0x40b00000, the y of the swirl); FUN_00442a00 gives the swirl its own copy
+    hitInfo: (hole) => { const m = new Float32Array(w.records[REC.HOLE[hole]].m); m[13] = 5.5; fx.setMatrix(swirl, m); fx.on(swirl); },
+    clear: () => { for (const h of bolts) fx.off(h); fx.off(swirl); },
+  };
+}
+
+export function createWabGame(ctx: ZoneGameCtx, fx: ZoneParticles | null = null): ZoneGame {
   const { world, hud, sh } = ctx;
   const shared = takeShared();
   if (!shared?.bot || !shared.pep) throw new Error('z05WAB: the behaviour nodes were not attached by the zone set-up');
+  // the three positional sounds go through GameAudio's 3D slots (the listener = the fixed camera, FUN_004434d0); muted / no audio: silent
+  const ga = sh.audio.ga;
+  const slots3 = new Map<number, SoundSlot>();
+  if (ga) {
+    for (const id of SOUNDS_3D) ga.sfx.load3D(id).then((s) => slots3.set(id, s)).catch(() => { /* silent */ });
+  }
   const host: WabHost = {
     play: (id) => ctx.sfx(id),
     stop: (id) => sh.audio.stop(id),
-    play3d: (id, pos) => { if (pos) ctx.sfx(id); },
+    play3d: (id, pos) => { restoreHooks.cue?.(id === SND.HIT_BOT ? 'wab-hit' : id === SND.HIT_INFO ? 'wab-info' : 'wab-miss', ctx); const s = slots3.get(id); if (pos && s && ga) { try { ga.sfx.play3D(s, { x: pos[0], y: pos[1], z: pos[2] }); } catch { /* silent */ } } },
     say: (id) => { ctx.say(id); },
-    random: (n) => Math.floor(Math.random() * n),
+    random: (n) => tickPick(msClock(world), n),     // RNG: ftol(FUN_004388ae(FUN_00435c91())) & 3 / & 7 / % 3 (src/zones/common/tickrand.ts)
     ...frameHost(ctx),
   };
+  if (fx) host.fx = wabEffects(ctx, fx);
   shared.host = host;
   const pepper = world.records[REC.PEPP];
-  // the music starts when play starts (mode 9 -> 2: FUN_004432c0), not with the zone: drop what the runner started (this also forgets the sounds it loaded)
-  sh.audio.leaveZone();
-  // the zone's sounds are loaded at set-up (FUN_00569dd0); `play` of a sound that is not loaded yet only starts the load (the first play of an id is dropped)
-  for (const id of ALL_SOUNDS) sh.audio.play(id);
+  // the zone's sounds (FUN_00569dd0) are loaded and the music (Z05WAB1, mode 9 -> 2: FUN_004432c0) is started by the audio host (src/shell/audiohost.ts)
   // node constructors: record 0 (pepwab) and 1 (botwab); the first update does the same, the first frames of the intro already show the start state
   const bot = shared.bot, pep = shared.pep;
   pep.init(world, pepper);
   bot.init(world);
   initCamera(world, pepper);
+  if (ga) {   // the listener is the camera, which never moves in this zone
+    const c = world.camera.c;
+    const f = [c[3] - c[0], c[4] - c[1], c[5] - c[2]], l = Math.hypot(f[0], f[1], f[2]) || 1;
+    ga.sfx.setListener({ x: c[0], y: c[1], z: c[2] }, { x: f[0] / l, y: f[1] / l, z: f[2] / l }, { x: 0, y: 1, z: 0 });
+  }
   hud.left = { tex: 0, tint: 0xffffffff }; hud.right = { tex: 1, tint: 0xffffffff };   // FUN_00569b80: DAT_05d4dd14 = 0, DAT_05d4dd38 = 1
   hud.leftText = '0'; hud.rightText = '0'; hud.centreText = bot.timeText;
   hud.visible = false;       // the HUD is drawn in mode 2 only (FUN_0046055f in the loop's case 2)
@@ -71,10 +112,9 @@ export function createWabGame(ctx: ZoneGameCtx): ZoneGame {
   const game: ZoneGame = {
     introId: LINE.INTRO,
     helpControls: 4,
-    onStart() {
-      hud.visible = true;
-      sh.audio.enterZone('z05WAB');
-    },
+    /** FUN_0056905a mode 4 leaves for the result menu when ANY button is HELD (`DAT_0098383c != 0`, not just pressed: the banner is skipped at once while a key is down; M5 audit) */
+    skipBanner() { return (sh.input.held & ~B.ESC) !== 0; },
+    onStart() { hud.visible = true; },
     update() {
       hud.leftText = bot.hitsText; hud.rightText = bot.missText; hud.centreText = bot.timeText;
       if (!shared.over) return 0;
@@ -84,21 +124,25 @@ export function createWabGame(ctx: ZoneGameCtx): ZoneGame {
       hud.visible = false;
       ctx.stopSpeech();
       host.stop(SND.AMBIENT);
+      sh.audio.playMusic('Z05WAB1');   // 103970: the end of the game plays the segment again (FUN_004432c0(DAT_05d5881c), from its start)
       const score = shared.score;
-      // the trophy and the hiscore are only ever raised (FUN_00417575 / FUN_00417597 in the draw code of mode 4)
-      if (!scoreWritten) {
-        scoreWritten = true;
-        if (ctx.vars.get(VAR.HISCORE) < score) ctx.vars.set(VAR.HISCORE, score);
-        const medal = medalOfScore(score);
-        if (ctx.vars.get(VAR.TROPHY) < medal) ctx.vars.set(VAR.TROPHY, medal);
-      }
       if (score >= WAB.GOLD) ctx.say(LINE.GOLD);
       else if (score >= WAB.SILVER) ctx.say(LINE.SILVER);
       else if (score >= WAB.BRONZE) ctx.say(LINE.BRONZE);
       else ctx.say(LINE.NEAR1, LINE.NEAR2);
       void result;
     },
-    bannerTick() { pepper.anim?.advance(1); },     // FUN_0043b76a(Pepper, 1.0) while the banner is up: the win / lose clip plays on
+    bannerTick() {
+      pepper.anim?.advance(1, world.dt);
+      // the trophy and the hiscore are only ever raised, in the draw code of the FIRST banner frame (FUN_00417575 / FUN_00417597 in mode 4): the tick after the one that switched the mode
+      if (!scoreWritten) {
+        scoreWritten = true;
+        const score = shared.score;
+        if (ctx.vars.get(VAR.HISCORE) < score) ctx.vars.set(VAR.HISCORE, score);
+        const medal = medalOfScore(score);
+        if (ctx.vars.get(VAR.TROPHY) < medal) ctx.vars.set(VAR.TROPHY, medal);
+      }
+    },     // FUN_0043b76a(Pepper, 1.0) while the banner is up: the win / lose clip plays on
     draw2d(ui: Ui2D, _dt: number, mode: number) {
       if (mode === MODE.PLAY && !shared.over) ui.text(1, expandMessage(bot.pctText), 320, 400, { colour: 0, maxChars: 30 });
     },

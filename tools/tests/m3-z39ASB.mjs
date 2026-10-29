@@ -136,6 +136,9 @@ export default {
         while (belt.state === ST.INTRO && n < 500) { belt.update({ held: 0 }); n++; }
         ok(n === 99 && belt.state === ST.FLY && belt.camOff === -8, `fly-in lasts ${n} ticks (-400 + 4 n > -8 at n = 99), then offset -8`);
         ok(events.some((e) => e.type === 'state' && e.from === ST.INTRO && e.to === ST.FLY), 'state event INTRO -> FLY');
+        // (M7 oracle: the tick that switches to flight clears SHUT's enabled bit (`flags &= 0xfffd`); the next update sets it again)
+        ok(!(shut.flags & RF_ENABLED), 'the switch to flight hides SHUT for that tick (FUN_007b82dd flags &= 0xfffd)');
+        belt.update({ held: 0 });
         ok((hull.flags & RF_ENABLED) && !(hull.flags & RF_NO_DRAW) && (shut.flags & RF_ENABLED) && (shut.flags & RF_NO_DRAW), 'flying: HULL shown, SHUT enabled (flags |= 3 every tick) but not drawn (the hook draws HULL instead)');
         ok(Math.abs(hull.x - shut.x) < 1e-6 && Math.abs(hull.y - (shut.y - 5.5)) < 1e-5 && Math.abs(hull.z - (shut.z - 22)) < 1e-3, 'HULL at the shuttle + (0, -5.5, -22)');
         ok(Math.abs(hull.m[0] - 1.3) < 1e-6 && Math.abs(hull.m[5] - 1.5) < 1e-6 && Math.abs(hull.m[10] - 1.2) < 1e-6, 'HULL scale (1.3, 1.5, 1.2)');
@@ -220,7 +223,7 @@ export default {
         events.length = 0; belt.update({ held: 0 });
         const hitEv = events.find((e) => e.type === 'hit');
         ok(hitEv && hitEv.hits === 1 && hitEv.slot === 4, 'collision: hit event, 1 hit, the top icon (slot 4) greys');
-        ok(belt.state === ST.HIT && belt.score === sc - 2000 && belt.hits === 1 && belt.slotTint[4] === 0xff7f7f7f && belt.slotTint[3] === 0xffffffff, 'state HIT, score -2000, icon tint 0xff7f7f7f');
+        ok(belt.state === ST.HIT && belt.score === sc - 2000 && belt.hits === 1 && belt.slotTint[4] === 0xff7f7f7f && belt.slotTint[3] === 0xffffff, 'state HIT, score -2000, icon tint 0xff7f7f7f');
         ok(belt.hitTimer === 29 || belt.hitTimer === 30 || belt.hitTimer === 29, `hit timer ~30 (${belt.hitTimer})`);
         // shaking: the camera x offset jumps between +-0.16 for 30 ticks, controls ignored, no second hit
         const xs = [];
@@ -434,8 +437,8 @@ export default {
         while (belt.state === ST.INTRO) belt.update({ held: 0 });
         for (const a of belt.recs.asteroids) a.x = 100;
         belt.hull = 149; belt.update({ held: 0 });
-        ok(belt.frameTint === 0xff7f7f7f || belt.frameTint === 0xffffffff, 'frame tint set below 150');
-        belt.hull = 0; belt.update({ held: 0 }); ok(belt.frameTint === 0xff7f7f7f, 'frame tint grey at hull 0');
+        ok(belt.frameTint === 0x7f7f7f || belt.frameTint === 0xffffff, 'frame tint set below 150 (the executable stores 0x7f7f7f / 0xffffff)');
+        belt.hull = 0; belt.update({ held: 0 }); ok(belt.frameTint === 0x7f7f7f, 'frame tint grey at hull 0');
         ok(belt.scoreText === String(belt.score), 'score text = "%d"');
       }
 

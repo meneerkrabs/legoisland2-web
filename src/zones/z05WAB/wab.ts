@@ -128,6 +128,16 @@ export interface WabHost {
   scrollV?(group: number, dv: number): void;
   /** `ftol(random(ticks)) % n`: an integer in [0, n) */
   random(n: number): number;
+  /** the particle emitters of FUN_0056b2d5 (src/zones/z05WAB/game.ts): bolts01 x 4 on the resting bots, wabswirl on the Infomaniac */
+  fx?: WabFx;
+}
+export interface WabFx {
+  /** a bot was hit in hole `hole`: FUN_00442a20(bolts[hole], 2, 1, 1) */
+  hitBot(hole: number): void;
+  /** the Infomaniac was hit in hole `hole`: the swirl gets a copy of the hole's matrix (FUN_00442a00) and is switched on */
+  hitInfo(hole: number): void;
+  /** no bot is up: every emitter is switched off (gate 1, 1, 1) */
+  clear(): void;
 }
 /** a host that does nothing (the default until the zone game binds the real one); `random` is a small seedable generator */
 export class NullHost implements WabHost {
@@ -184,7 +194,7 @@ export class PepNode implements BehaviourNode {
     const sh = this.sh;
     if (sh.over !== 1) {
       rec.rebuildYaw();                                     // FUN_0043a5e4(rec + 0xc, 0, ry, 0, x, y, z)
-      this.ret = rec.anim ? rec.anim.advance(1) : 0;        // FUN_0043b76a(anim, 1.0)
+      this.ret = rec.anim ? rec.anim.advance(1, w.dt) : 0;  // FUN_0043b76a(anim, 1.0): steps by 1.0 * DAT_008b1718
       if (this.ret === 2 && this.clip !== WAB.CLIP.IDLE) {
         this.clip = WAB.CLIP.IDLE;
         if (sh.stun <= 0) { this.busy = 0; sh.stun = 0; }
@@ -193,7 +203,7 @@ export class PepNode implements BehaviourNode {
         sh.clip = this.clip;
       }
       if (0 < sh.stun) {
-        sh.stun = f32(sh.stun - 1);
+        sh.stun = f32(sh.stun - f32(1 * w.dt));      // 1.0 * DAT_008b1718
         if (0 < sh.stun) this.busy = 1; else { this.busy = 0; sh.stun = 0; }
       }
       const pressed = w.input.pressed;
@@ -294,9 +304,9 @@ export class BotNode implements BehaviourNode {
     this.ticks++;
     this.presentation(w);                                      // FUN_0056bb20
     host.play(SND.AMBIENT);
-    if (this.hitStage >= 0) this.hitAnimation();               // FUN_0056c6a5
+    if (this.hitStage >= 0) this.hitAnimation(w);               // FUN_0056c6a5
     if (this.timeLeft < WAB.ALARM_AT) {
-      this.c168 = f32(this.c168 + 1);                          // FUN_0056c8f1: the flashing light of FLSH
+      this.c168 = f32(this.c168 + f32(1 * w.dt));                       // FUN_0056c8f1: the flashing light of FLSH
       host.setFrame('flsh', 0, Math.trunc(this.c168) % 6);
       host.play(SND.ALARM1); host.play(SND.ALARM2);
     }
@@ -312,21 +322,23 @@ export class BotNode implements BehaviourNode {
     for (let i = 0; i < 4; i++) { this.cur[i].y = WAB.BASE_Y; }
     this.rec(REC.LIDL).m[14] = LID.END_Z.LIDL; this.rec(REC.LIDR).m[14] = LID.END_Z.LIDR;
     this.rec(REC.LIDU).m[14] = LID.END_Z.LIDU; this.rec(REC.LIDD).m[14] = LID.END_Z.LIDD;
+    host.fx?.clear();                                          // FUN_00442a20(bolts / swirl, 1, 1, 1)
     this.sh.over = 1;
     for (let i = 0; i < 4; i++) this.cur[i].flags = 0;         // FUN_0056b1dc
     this.sh.pct = percentOf(this.hits, this.misses);
     host.stop(SND.ALARM1); host.stop(SND.ALARM2);
     const pep = w.records[REC.PEPP];
     if (WAB.WIN_PCT <= this.sh.pct) pep.anim?.start(WAB.CLIP.WIN, 0); else pep.anim?.start(WAB.CLIP.STUN, 0);
-    this.sh.clip = WAB.CLIP.IDLE;
+    // DAT_008f6c00 (the swing clip the hit test reads) is left as it was: FUN_00569f50 does not touch it here (M5 audit, oracle test)
   }
 
   /** the running part of FUN_00569f50 (time left > 0); `snap` = the tick counter at the start of the call (`local_5c`) */
   private playTick(w: World, snap: number) {
     const sh = this.sh, host = sh.host;
     const R = WAB.RANGE, base = WAB.BASE_Y;
-    this.timeLeft = f32(this.timeLeft - 1);
-    this.elapsed = f32(this.elapsed + 1);
+    const dt = w.dt, step1 = f32(1 * dt);                        // local_44 = 1.0 * DAT_008b1718
+    this.timeLeft = f32(this.timeLeft - step1);
+    this.elapsed = f32(this.elapsed + step1);
     // the HUD strings
     if (!this.clockOn) this.timeText = '';
     else { const secs = Math.trunc(this.timeLeft / 30); this.timeText = `${String(Math.trunc(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`; }
@@ -350,7 +362,7 @@ export class BotNode implements BehaviourNode {
       pos = [this.cur[i].x, this.cur[i].y, this.cur[i].z];
       active++;
       if (st === 1) {
-        this.y[i] = f32(this.y[i] + (R / WAB.RISE) * 1);
+        this.y[i] = f32(this.y[i] + f32(f32(R / WAB.RISE) * dt));
         if (base + R <= this.y[i]) { this.y[i] = f32(base + R); this.state[i] = 2; this.tUp[i] = Math.trunc(snap); }
         this.cur[i].y = this.y[i];
       } else if (st === 2) {
@@ -359,8 +371,8 @@ export class BotNode implements BehaviourNode {
           host.play(CLOSE_SOUND[i]);
         }
       } else if (st === 3) {
-        const d = R / WAB.FALL;
-        this.y[i] = f32(this.y[i] - (d + d) * 1);
+        const d = f32(R / WAB.FALL);
+        this.y[i] = f32(this.y[i] - f32(f32(d + d) * dt));
         this.cur[i].y = this.y[i];
         if (this.y[i] <= base && this.closeT === -1 && this.lidDone === 0) { this.closeT = 0; this.closeHole = i; }
         if (this.y[i] <= base) {
@@ -381,18 +393,19 @@ export class BotNode implements BehaviourNode {
     }
     if (active === 0) {
       for (let i = 0; i < 4; i++) { this.cur[i].flags = 0; this.cur[i] = this.base[i]; }
+      host.fx?.clear();
       if (this.lastDown + this.gap < this.elapsed) this.spawn();
     }
 
     // Pepper's hammer lands on frame 12 of a swing
     const pep = w.records[REC.PEPP];
     const frame = pep.anim?.frame ?? 0;
-    if (WAB.HIT_FRAME <= frame && frame < 1 + WAB.HIT_FRAME && sh.clip !== WAB.CLIP.IDLE) {
+    if (WAB.HIT_FRAME <= frame && frame < f32(1 * dt) + WAB.HIT_FRAME && sh.clip !== WAB.CLIP.IDLE) {
       const hole = [3, 0, 1, 2][sh.clip - 4] ?? -1;            // clip 4 (down) -> hole 3, 5 (up) -> 0, 6 (left) -> 1, 7 (right) -> 2
       if (hole >= 0) this.whack(hole, pos);
     }
     // (the original's +0x18c / +0x18d counters after a hit only feed an unused local)
-    host.scrollV?.(23, f32(0.0003 * 1));
+    host.scrollV?.(23, f32(0.0003 * w.dt));
   }
 
   /** a bot comes out of a random hole (FUN_00569f50: `random & 3` picks the hole, `random & 7 == 0` makes it the Infomaniac) */
@@ -425,8 +438,10 @@ export class BotNode implements BehaviourNode {
       this.reactT = 0; this.reactKind = hole;
       this.hitStage = 0; this.hitT = 0;
       host.play3d(SND.HIT_BOT, pos);
+      host.fx?.hitBot(hole);
     } else {
       host.play3d(SND.HIT_INFO, pos);
+      host.fx?.hitInfo(hole);
       const r = host.random(3);
       host.say(r === 0 ? LINE.INFO_SORRY : r === 1 ? LINE.INFO_LOOK : LINE.INFO_BREATH);
       sh.stun = WAB.STUN;
@@ -439,7 +454,7 @@ export class BotNode implements BehaviourNode {
   }
 
   /** FUN_0056c6a5: the stage of the whack animation swaps the model of the hole's bot (BOT1.. / INF1..) and moves the timer on */
-  private hitAnimation() {
+  private hitAnimation(w: World) {
     let h = -1;
     for (let i = 0; i < 4; i++) if (this.state[i] !== 0) h = i;
     if (h >= 0) {
@@ -450,7 +465,7 @@ export class BotNode implements BehaviourNode {
       this.cur[h] = r;
       r.flags |= 1; r.flags |= 2;
     }
-    this.hitT = f32(this.hitT + 1);
+    this.hitT = f32(this.hitT + f32(1 * w.dt));
     this.hitStage = Math.trunc(this.hitT);
     if (WAB.HIT_STAGES < this.hitStage) { this.hitStage = -1; this.hitT = -1; }
   }
@@ -458,18 +473,19 @@ export class BotNode implements BehaviourNode {
   /** FUN_0056bb20: the room's animations, every 2nd tick: spinning gears, the Infomaniac's TV, the radar, the lids */
   private presentation(w: World) {
     const host = this.sh.host;
-    this.c16c = f32(this.c16c - 1);
+    const dt = w.dt, step1 = f32(1 * dt);
+    this.c16c = f32(this.c16c - step1);
     if (this.c16c > 0) return;
-    this.c158 = f32(this.c158 + 1); this.c15c = f32(this.c15c + 1); this.c160 = f32(this.c160 + 1);
+    this.c158 = f32(this.c158 + step1); this.c15c = f32(this.c15c + step1); this.c160 = f32(this.c160 + step1);
     let pct = 0;
     if (this.hits !== 0 || this.misses !== 0) pct = percentOf(this.hits, this.misses);
     const pep = w.records[REC.PEPP];
     const stunned = pep.anim?.clip === WAB.CLIP.STUN;
     if (!stunned) {
-      this.c164 = f32(this.c164 + 2.25);
+      this.c164 = f32(this.c164 + f32(2.25 * dt));
       if (8 < this.c164) this.c164 = 0;
       for (const g of [this.rec(REC.G000), this.rec(REC.G001)]) {
-        g.rz = f32(g.rz + 0.009 * pct * 1);
+        g.rz = f32(g.rz + f32(f32(0.009 * pct) * dt));
         g.setEuler(g.rx, g.ry, g.rz, g.x, g.y, g.z);
       }
     }
@@ -486,42 +502,42 @@ export class BotNode implements BehaviourNode {
         case 3: host.setFrame('land', 10, n % 3 + 9); break;
         case 4: host.setFrame('land', 10, n % 5 + 0x12); break;
       }
-      this.reactT = f32(this.reactT + 1);
+      this.reactT = f32(this.reactT + step1);
       if (9 < this.reactT) this.reactT = -1;
     }
     if (this.openT >= 0) {
-      this.moveLid(this.openHole, true);
-      this.openT = f32(this.openT + 1);
+      this.moveLid(this.openHole, true, dt);
+      this.openT = f32(this.openT + step1);
       if (2 < this.openT) { this.openT = -1; this.lidDone = 0; }
     }
     if (this.closeT >= 0) {
-      this.moveLid(this.closeHole, false);
-      this.closeT = f32(this.closeT + 1);
+      this.moveLid(this.closeHole, false, dt);
+      this.closeT = f32(this.closeT + step1);
       if (2 < this.closeT) { this.closeT = -1; this.lidDone = 1; }
     }
     this.c16c = 2;
   }
 
   /** one step of a lid opening (away from the hole) or closing */
-  private moveLid(hole: number, open: boolean) {
+  private moveLid(hole: number, open: boolean, dt: number) {
     const lid = this.rec(LID_OF_HOLE[hole]);
-    const step = (WAB.RANGE / WAB.RISE) * 1 * 8;
+    const step = f32(f32(f32(WAB.RANGE / WAB.RISE) * dt) * 8), yStep = f32(LID.Y_STEP * dt);
     const axis = hole === 0 || hole === 3 ? 14 : 12;               // LIDU / LIDD slide in z, LIDL / LIDR in x
     let v = lid.m[axis];
     let y = lid.m[13];
     if (open) {
       // hole 0: z grows to 5.888; 1: x falls to 0; 2: x grows to 0; 3: z falls to 5.75
-      if (hole === 0) { v = v + step; if (LID.OPEN[0] < v) v = LID.OPEN[0]; }
-      else if (hole === 1) { v = v - step; if (v < 0) v = 0; }
-      else if (hole === 2) { v = v + step; if (0 < v) v = 0; }
-      else { v = v - step; if (v < LID.OPEN[3]) v = LID.OPEN[3]; }
-      y = y - LID.Y_STEP; if (y < LID.OPEN_Y) y = LID.OPEN_Y;
+      if (hole === 0) { v = f32(v + step); if (LID.OPEN[0] < v) v = LID.OPEN[0]; }
+      else if (hole === 1) { v = f32(v - step); if (v < 0) v = 0; }
+      else if (hole === 2) { v = f32(v + step); if (0 < v) v = 0; }
+      else { v = f32(v - step); if (v < LID.OPEN[3]) v = LID.OPEN[3]; }
+      y = f32(y - yStep); if (y < LID.OPEN_Y) y = LID.OPEN_Y;
     } else {
-      if (hole === 0) { v = v - step; if (v < LID.CLOSED[0]) v = LID.CLOSED[0]; }
-      else if (hole === 1) { v = v + step; if (LID.LIDL_LIMIT < v) v = LID.CLOSED[1]; }
-      else if (hole === 2) { v = v - step; if (v < LID.CLOSED[2]) v = LID.CLOSED[2]; }
-      else { v = v + step; if (LID.CLOSED[3] < v) v = LID.CLOSED[3]; }
-      y = y + LID.Y_STEP; if (LID.CLOSED_Y < y) y = LID.CLOSED_Y;
+      if (hole === 0) { v = f32(v - step); if (v < LID.CLOSED[0]) v = LID.CLOSED[0]; }
+      else if (hole === 1) { v = f32(v + step); if (LID.LIDL_LIMIT < v) v = LID.CLOSED[1]; }
+      else if (hole === 2) { v = f32(v - step); if (v < LID.CLOSED[2]) v = LID.CLOSED[2]; }
+      else { v = f32(v + step); if (LID.CLOSED[3] < v) v = LID.CLOSED[3]; }
+      y = f32(y + yStep); if (LID.CLOSED_Y < y) y = LID.CLOSED_Y;
     }
     lid.m[axis] = v; lid.m[13] = y;
   }

@@ -1,7 +1,9 @@
 // The state the nodes of z18MMP share (the original's globals) and the services they call (sound, music, speech, random numbers).
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
+import type { ZoneParticles } from '../../fx/particles/zone.ts';
 import { REC, K } from './consts.ts';
+import { normalise3 } from '../exact.ts';
 
 /** a position for the 3D sounds */
 export interface P3 { x: number; y: number; z: number }
@@ -29,6 +31,7 @@ export interface MmpRng {
   /** a uniform integer 0 .. n-1 */
   int(n: number): number;
 }
+// RNG: the default source (the original's rand() / the clock); the tests and the bots inject a seeded one (`sh.rng`)
 export const mathRng: MmpRng = { float: (x) => Math.random() * x, int: (n) => Math.floor(Math.random() * n) };
 export const silentSounds: MmpSounds = { play2D() {}, stop2D() {}, play3D() {}, stop3D() {}, idle3D: () => true, music() {}, say() {} };
 
@@ -50,8 +53,8 @@ export class MmpShared {
   poof = 0;
   /** DAT_05d5bff4 (the walk animation wrapped), DAT_05d5bffc (footstep phase), DAT_05d5c000 (round robin of the step sounds) */
   stepWrap = false; stepPhase = 0; stepRr = 0;
-  /** the torch sound position of this tick (all torches share the handle: the last one wins) */
-  torchAt: P3 | null = null;
+  /** the zone's particle engine (FUN_00442900 in FUN_006a489a); null in node tests without one */
+  fx: ZoneParticles | null = null;
   sounds: MmpSounds = silentSounds;
   rng: MmpRng = mathRng;
   /** the records of the zone (filled by `prepareMmp`) */
@@ -63,10 +66,15 @@ export class MmpShared {
   hit() { this.danger = Math.fround(this.danger + K.DANGER_HIT); if (K.DANGER_MAX < this.danger) this.danger = K.DANGER_MAX; }
 }
 
-/** FUN_0043cec0: normalise a 3-vector in place (a null vector stays null) */
+/**
+ * FUN_0043cec0: normalise a 3-vector (float32 in memory) in place, store by store as the compiled code does: the squared length is stored as a float32, the factor
+ * `1 / sqrt(len2)` too, each component is `factor * component` rounded to float32 (x87 arithmetic at 53 bits in between); a null vector stays as it is. The input is rounded
+ * to float32 first (the original's operands are float32 locals).
+ */
 export function normalise(v: number[]): number[] {
-  const l = Math.hypot(v[0], v[1], v[2]);
-  if (l > 0) { v[0] /= l; v[1] /= l; v[2] /= l; } else { v[0] = 0; v[1] = 0; v[2] = 0; }
+  const f = Math.fround;
+  v[0] = f(v[0]); v[1] = f(v[1]); v[2] = f(v[2]);
+  normalise3(v);      // (src/zones/exact.ts: the x87 runs in 24-bit precision, every operation rounds)
   return v;
 }
 

@@ -48,10 +48,10 @@ export default {
     // ============================================================ executable: constants
     ok(near(CAM.EYE_Y, f32(0x40e147ae), 1e-6) && near(CAM.EYE_Z, f32(0xc099999a), 1e-6) && near(CAM.FAR_Z, f32(0x40e66666), 1e-6), 'camera heights / depths');
     ok(f32(pe.u32(0x8921a4)) === CAM.START_X, 'start x 24.0 at 0x8921a4');
-    ok(near(f32(pe.u32(0x892624)) * f32(pe.u32(0x892090)), CAM.SLIDE, 1e-6), 'slide per tick 0.15 * 8 (0x892624 * 0x892090)');
-    ok(near(f32(pe.u32(0x892620)) * f32(pe.u32(0x892090)), CAM.ZOOM, 1e-6), 'zoom per tick 0.065 * 8 (0x892620 * 0x892090)');
+    ok(f32(pe.u32(0x892624)) === CAM.SLIDE && f32(pe.u32(0x892090)) === CAM.EIGHT, 'slide factor 0.15 and 8 (0x892624, 0x892090)');
+    ok(f32(pe.u32(0x892620)) === CAM.ZOOM, 'zoom factor 0.065 (0x892620)');
     ok(f32(pe.u32(0x89261c)) === CAM.FAR_Z && f32(pe.u32(0x892618)) === CAM.EYE_Z, 'far z 7.2 / near z -4.8 at 0x89261c / 0x892618');
-    ok(f32(pe.u32(0x89207c)) === CAM.PI && f32(pe.u32(0x89237c)) === CAM.TURN_DIV && f32(pe.u32(0x892610)) === CAM.TURN_Z, 'pi, 20, -2 at 0x89207c / 0x89237c / 0x892610');
+    ok(f32(pe.u32(0x89207c)) === CAM.PI && f32(pe.u32(0x89237c)) === CAM.TURN_DIV && f64(pe.u32(0x892610), pe.u32(0x892614)) === CAM.TURN_Z, 'pi, 20, 7.2 (a double: fsubr qword) at 0x89207c / 0x89237c / 0x892610');
     ok(near(f64(0x80000000, 0x3ff41b2f), CAM.HOLD, 0), 'state 8 holds the angle of the double 0x3ff41b2f80000000');
     ok(f32(pe.u32(0x8920d8)) === DOOR.DEG && f32(pe.u32(0x892070)) === DOOR.RATE && f32(pe.u32(0x892628)) === DOOR.OPEN, 'door: 0.01745 deg to rad, 5 per tick, -90');
     ok(near(f32(0x418e5604), DOOR.X, 0) && near(f32(0x408e8f5c), DOOR.Y, 0) && near(f32(0xbf0f1aa0), DOOR.Z, 0), 'door position immediates of FUN_0054caa1');
@@ -284,13 +284,13 @@ export default {
     ok(room.exitAsk === 0 && room.doorWanted === 0, 'no exit question yet');
     tick(B.LEFT);
     ok(room.state === ST.TURN && room.doorWanted === 1 && room.cnt === 1, 'Left at the far view starts the turn and wants the door open');
-    ok(near(room.target[0], 0) && near(room.target[2], -3, 1e-6) && near(room.eye[2], 7.2, 1e-6), 'turn tick 0: target (0, -3)');
+    ok(near(room.target[0], 0) && near(room.target[2], CAM.TURN_Z - 1, 1e-6) && near(room.eye[2], 7.2, 1e-6), 'turn tick 0: target (0, 6.2)');
     tick(0, 7);
     ok(room.state === ST.TURN && room.exitAsk === 0, 'turn tick 7');
-    ok(near(room.target[0], Math.sin((7 * CAM.PI) / 20), 1e-5) && near(room.target[2], -2 - Math.cos((7 * CAM.PI) / 20), 1e-5), 'turn tick 7: target on the unit circle around (0, -2)');
+    ok(near(room.target[0], Math.sin((7 * CAM.PI) / 20), 1e-5) && near(room.target[2], CAM.TURN_Z - Math.cos((7 * CAM.PI) / 20), 1e-5), 'turn tick 7: target on the unit circle around (0, 7.2)');
     tick(0);
     ok(room.state === ST.TURNED && room.exitAsk === 1, 'after 9 ticks (8 < cnt) the exit question is due (DAT_05d587cc = 1) and state 8');
-    ok(near(room.target[0], Math.sin(CAM.HOLD), 1e-6) && near(room.target[2], -2 - Math.cos(CAM.HOLD), 1e-6), 'state 8 holds the angle of the double constant');
+    ok(near(room.target[0], Math.sin(CAM.HOLD), 1e-6) && near(room.target[2], CAM.TURN_Z - Math.cos(CAM.HOLD), 1e-6), 'state 8 holds the angle of the double constant');
     ok(room.state === ST.TURNED, 'held');
     // the door opens by 5 degrees per tick while it is wanted: 18 ticks to -90 (a 19th tick stays there)
     {
