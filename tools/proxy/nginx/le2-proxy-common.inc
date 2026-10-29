@@ -1,5 +1,9 @@
 # shared by the /ia/ location and the redirect follower of le2-proxy.conf
 proxy_buffering off;
+# GitHub's redirect responses carry large headers (long signed Location + CSP)
+proxy_buffer_size 32k;
+proxy_buffers 4 32k;
+proxy_busy_buffers_size 32k;
 proxy_request_buffering off;
 proxy_max_temp_file_size 0;
 proxy_connect_timeout 15s;
