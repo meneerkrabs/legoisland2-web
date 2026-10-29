@@ -198,12 +198,17 @@ export default {
       const w = I.world;
       ok(nodesOf(w, BotHitNode).every((e) => e.n.mask === 0), 'era 3: the hit node runs always (the wave gag)');
       tick(I, 30);
-      const bot = w.records.find((r) => r.name === 'BBY0' && r.enabled) ?? w.records.find((r) => /^BBT/.test(r.name) && r.enabled);
-      const V = moveVar(bot);
+      // WP17: BOTMUSIC (before the walker nodes in the chain) now returns 0 when the bot does not dance, so the bots walk in era 3 and a follower's
+      // BotFollow pre-render sets 0x20000 every frame, which (like in the original) blocks the wave gag for that bot: try the bots until one is free
+      let bot = null, V = 0, waved = false;
+      for (const cand of w.records.filter((r) => /^BB[YBGRT]/.test(r.name) && r.enabled)) {
+        bot = cand; V = moveVar(bot);
+        for (let t = 0; t < 90 && !waved; t++) { facePepper(I, bot, 20); tick(I, 1); if (bot.anim.clip === BOT_CLIP.SURPRISED) waved = true; }
+        if (waved) break;
+      }
       // Pepper waves (SGMFIG's 0x200: in front, within the near radius): the bot plays BB surprised (0x70)
-      let waved = false;
-      for (let t = 0; t < 90 && !waved; t++) { facePepper(I, bot, 20); tick(I, 1); if (bot.anim.clip === BOT_CLIP.SURPRISED) waved = true; }
-      ok(waved, `era 3: ${bot.name} answers Pepper in front with clip 0x70 (MOVE ${hex(w.vars.get(V))})`);
+      ok(waved, `era 3: ${bot?.name} answers Pepper in front with clip 0x70 (MOVE ${hex(w.vars.get(V))})`);
+      notes.push(`era 3 wave gag: ${bot?.name}`);
       const t = throwAt(I, bot);
       ok(t < 0 && w.vars.get(NUM_BOT_HEADS) === 0, 'era 3 (node >= 0x34): pizzas no longer hit the bots (FUN_00429556)');
     }

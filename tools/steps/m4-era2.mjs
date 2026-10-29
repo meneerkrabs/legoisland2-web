@@ -197,7 +197,8 @@ export default async (h) => {
   });
   await wait(500);
   await S.tap('ControlLeft', 120);
-  const landed = await S.until(async () => ((await S.state()).ctrl & 0x1ff) === 1, 15000, 100);
+  // landed = Pepper on foot (node 52 complete): the node-53 cutscene may start the same frame, so the node counts too
+  const landed = await S.until(async () => { const t = await S.state(); return (t.ctrl & 0x1ff) === 1 || t.node >= 53; }, 30000, 100);
   await S.until(async () => (await S.state()).node === 53, 4000);
   await cs();
   s = await S.state();

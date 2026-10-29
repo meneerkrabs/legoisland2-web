@@ -7,7 +7,7 @@
 //   node tools/browse.mjs "http://localhost:5497/?start=frontend&mute=1" tools/steps/m4-chapter1.mjs --size 1280x800 --out /tmp/m4-ch1
 // Long walks are teleports (Pepper is put near the target, facing it; the keys do the actions: talk, throw, walk in, skip cutscenes, menus).
 // Env: FROM=island skips the front end (URL ?zone=z02LGI&mute=1), STOP=<phase name> ends after that phase.
-import { island, pathNode, teleportTo } from './lib-island.mjs';
+import { island, pathNode, teleportTo, collectHead } from './lib-island.mjs';
 
 export default async (h) => {
   const { page, wait, log, shot, key } = h;
@@ -108,25 +108,10 @@ export default async (h) => {
 
   // ---- era 1: the coloured bot heads
   if (phase('heads')) return;
-  const BOTS = [['BBY0', 0x8a], ['BBB0', 0x2b], ['BBG0', 0xc9], ['BBR0', 0x0f]];
-  const hitOf = (name) => page.evaluate((n) => { const r = window.__zone.world.records.find((x) => x.name === n); const hn = r?.ctrl?.nodes.find((x) => x.kind === 'BotHit'); return hn ? { armed: hn.armed } : null; }, name);
-  for (const [name] of BOTS) {
-    let hit = false;
-    for (let k = 0; k < 12 && !hit; k++) {
-      const ang = [0, Math.PI, Math.PI / 2, -Math.PI / 2][k % 4];
-      await S.teleportNear(name, 12 + 4 * Math.floor(k / 4), ang); await wait(250);
-      await S.teleportNear(name, 12 + 4 * Math.floor(k / 4), ang);
-      await S.tap('Space', 80);
-      hit = await S.until(async () => (await hitOf(name))?.armed === 0, 3500, 50);
-      if (!hit) await wait(800);
-    }
-    const h0 = (await S.state()).heads;
-    await S.teleportNear(name, 4, 0);
-    await page.keyboard.down('ArrowUp');
-    const got = await S.until(async () => (await S.state()).heads > h0, 4000, 30);
-    await page.keyboard.up('ArrowUp');
-    expect(`bot head ${name}`, hit && got, `heads ${(await S.state()).heads}`);
-    await wait(500);
+  for (const [name, bit] of [['BBY0', 1], ['BBR0', 2], ['BBG0', 4], ['BBB0', 8]]) {      // COLORED_BOTHEADS bits: 1 yellow, 2 red, 4 green, 8 blue
+    const ok = await collectHead(S, page, wait, name, bit, log);
+    expect(`bot head ${name}`, ok, `heads ${(await S.state()).heads} colours ${(await S.vars([0x8e]))[0x8e]}`);
+    await wait(300);
   }
   await S.until(async () => (await S.state()).node >= 9, 6000);
   await cs();

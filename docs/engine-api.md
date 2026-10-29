@@ -326,3 +326,24 @@ Details, ported addresses and approximations: docs/re/engine-m2.md (+ shell-m2.m
 
 A ported zone: `registerZoneRunner('z05WAB', async (shell, info) => ...)` returning the next zone index (-1 front end, -2 quit), or reuse `LoopMachine` + `nextAfterExit`;
 behaviours attach by constructor address with `registerCtor(address, factory)` (src/game/setup.ts, `Loaded.setup.attaches`).
+
+
+## The island (`src/island/`, `src/zones/z02LGI/`, M4)
+
+Design, modules, ported functions, findings, approximations: docs/re/engine-m4.md (+ docs/re/m4/*.md; the set-up emulation: docs/re/m4/emu.md).
+
+```ts
+// the island's set-up, run out of the executable for the live game variables (era = var 0x58); the result also feeds setupZone
+const profile = profileFor('z02LGI', pe, scene, starts, { islandVars: vars, archive });   // profile.island: IslandSetup (attaches with argument blocks, dictionaries, ...)
+import '../island/index.ts';                       // registers every behaviour constructor (registerCtor by address)
+const ictx = ctxOf(world);                         // IslandCtx: cutscene start / active, say, text tables of the story handler, sfx, dictionaries, objective, music ...
+```
+
+| URL | what |
+|---|---|
+| `?zone=z02LGI&node=N&mute=1` | the island at story node N (era from N: nodes < 7 era 0 = zone id 2, < 0x1e id 31, < 0x34 id 32, < 0x3d id 33, else id 2); mode 1 waits for a button like the original |
+| `?start=frontend&mute=1` | front end -> Starten -> Nieuw spel -> chapter 1 |
+
+Debug: `window.__zone.game.debug()` (node, era, texts, objective, cutscene, attaches), `window.__zone.game.ictx`, `window.__zone.world`; bots: `tools/steps/m4-*.mjs`, helpers `tools/steps/lib-island.mjs`
+(`island(h)`: `start`, `skipCutscenes`, `teleportNear`, `tap` / `hold` in game ticks, `collectHead`), node tests `tools/lib/island-load.mjs` (`loadIsland(ctx, { node })`, `tick`, `press`, `hold`),
+snapshot server `sh tools/m4-snapshot-server.sh 5497` (no HMR, for long runs), `THROTTLE=4` (CPU throttle for `tools/browse.mjs`), `&hold=1` / `NOPRESS=1` (do not tap the island's start key).

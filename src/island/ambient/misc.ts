@@ -109,9 +109,12 @@ export class BotMusicNode extends Node {
     const val = w.vars.get(this.var);
     const ctx = tryCtx(w);
     const emit = (mode: number) => ctx?.particles?.('music01.par', mode, bonePos(rec, BONE_HAND), rec.index);
+    // return values as in the executable (0x536a8f / 0x536b1a: `xor eax, eax`, 0x536d4f: 1 only while dancing). Returning 0 when the bot does not dance
+    // lets its walker nodes run and leaves the stamp (+8) alone, so the first dancing frame resets the dance timer (WP17: the port returned 1 always: the
+    // bots stood still and the timer, counted down by 5 per tick while Pepper was away, never reached the 0x1000000 'danced out' state)
     if (w.vars.get(RADIO_VAR) === 0) {
       if (val & 0x4000000) w.vars.andNot(this.var, 0x4000000);
-      return 1;
+      return 0;
     }
     let near = c.distSq <= 576;
     if (!near) { this.timer -= 5 * w.dt; near = 0 < this.timer; }
@@ -133,12 +136,14 @@ export class BotMusicNode extends Node {
       emit(0);
       if (n < 6) anim?.advance(n, w.dt);
       else { w.vars.or(this.var, 0x1000000); this.timer = 0; emit(1); }
-    } else if (val & 0x4000000) {
+      return 1;
+    }
+    if (val & 0x4000000) {
       w.vars.andNot(this.var, 0x4000000);
       ctx?.expression?.(rec, 0);
       emit(1);
     }
-    return 1;
+    return 0;
   }
 }
 

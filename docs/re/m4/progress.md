@@ -161,3 +161,32 @@ boat + front-end load -> node 14 PORS -> z07CSI .. z10RGB stubs with F9 / Enter 
 test `m4-wp15-era1` (19). Nodes 11..14 needed no fix. **Fixed**: a save made in a vehicle loaded with Pepper frozen at sea in mode 8 (no current vehicle)
 while the parked boat drove off by itself: `src/zones/z02LGI/savevehicle.ts` + optional set-up hooks `saveEntities` / `restoreSave` (`zonegame.ts`), the
 save writes the vehicle's entity after PEPP (`shell.ts` LiveGame.capture `entities`), playzone's `restore` calls the hook. Doc `docs/re/m4/wp15-era1.md`.
+
+### WP16 (era 2: story nodes 30..51, zone id 32) - 2026-10-29: plays end to end, no fix needed
+
+Bot `tools/steps/m4-era2.mjs` (real keys; `FROM=castle` starts at z07CSI node 29 and arrives by boat at PORS, `FROM=stubs` only 33..52): era intro LGIBR05 ->
+PAG1 / PAG2 (LGIBR06 / LGIBR07, buildings fall back in) -> POLB trigger (LGI08, S277 = 2) -> Ctrl at PHEL, fly into PORA (S281 |= 2, var 5 = 10) -> z13CAI and the
+stubs with F9 (z17WAS played by the m3 bot) -> island era 3 node 52, arrival in PHEL at PORA, Ctrl lands on a helipad (node 53 / 54). Test `m4-wp16-era2` (16).
+Findings (faithful, not changed): LGIBR07's loader stops at the missing actor FECM, so the Brickster stays visible at the police station; hidden talking NPCs
+fall to sea level (NICK). Doc `docs/re/m4/wp16-era2.md`.
+
+### M6 (remaining mini-games) - started 2026-10-29
+
+Separate log: `docs/re/m6/progress.md`. Touches (additive only): `src/zones/index.ts` imports, `src/zones/<zone>*`, tiny hooks in `src/shell/zonegame.ts` / `playzone.ts` / `src/game/*` listed in each zone doc. Does not touch `src/island/`, `src/zones/z02LGI/`.
+
+### WP17 (era 3 / era 4: story nodes 52..71, zone ids 33 / 2) - 2026-10-29: plays end to end (one fix)
+
+Bot `tools/steps/m4-era3.mjs` (real keys; 52 -> 58 -> z36CNT -> z38PAR -> island 61 -> z39ASB (F9) -> z40aPO -> z40OGL / z41MAP -> z42BRP (stops there now that
+M6 ported it; as a stub: outro movie -> credits -> island node 68) ; FROM=radio / tower / cnt / era4 / asb / end / abort), test `m4-wp17-era3` (36), doc `docs/re/m4/wp17-era3.md`.
+**Fixed**: BOTMUSIC (`src/island/ambient/misc.ts`, FUN_00536a44) returned 1 on every path; the executable returns 0 unless the bot dances: the era-3 bots
+stood still and the dance timer (counted down while Pepper was away) never reached the danced-out state, so node 56 (the four bot heads) could not be
+completed. `m4-wp11-brickbot`'s era-3 wave check adapted (followers keep 0x20000 now that BotFollow runs). Faithful oddities: SHTL hidden after the 4th
+page until the island reloads (no SPACESHUTTLE brick effect in era 3); LGI11 (slot 7) never started; aborts of z36CNT / z38PAR arrive on PATH 0xff.
+
+### Lead (2026-10-29): final state of M4
+
+All WPs are done and integrated; `npx tsc`, `npx vite build` and `node tools/test-formats.mjs` (all tests, incl. 29 M4 test files, ~3.6k checks) pass. Bots with real key input:
+`m4-chapter1.mjs` (front end -> new game -> chapter 1 -> Whack-A-Bot -> back on the island at node 11; also passes with `THROTTLE=2`), `m4-era1.mjs` (11 -> castle stub -> 30), `m4-era2.mjs`
+(30 -> 52), `m4-era3.mjs` (52 -> 68). The live-site failure of the head collection (four heads, three collected) was bot timing on a slow page, not the game: the bot now waits in game
+ticks, taps keys for >= 3 ticks and repeats a missed throw / collect cycle (`collectHead` in `tools/steps/lib-island.mjs`; `THROTTLE=6` still collects all four, with retries).
+Open points are listed in docs/re/engine-m4.md ("Approximations / not ported"). M5: other hubs.

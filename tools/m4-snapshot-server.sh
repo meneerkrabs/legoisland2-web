@@ -5,6 +5,7 @@ set -e
 PORT=${1:-5497}
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 SNAP=/tmp/m4snap-$PORT
+pkill -f "m4snap-$PORT" 2>/dev/null || true; sleep 1
 rm -rf "$SNAP"; mkdir -p "$SNAP"
 cp -R "$SRC/src" "$SRC/index.html" "$SRC/package.json" "$SRC/tsconfig.json" "$SRC/vite.config.ts" "$SNAP/"
 ln -s "$SRC/node_modules" "$SNAP/node_modules"

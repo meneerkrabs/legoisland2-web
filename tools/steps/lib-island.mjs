@@ -8,13 +8,24 @@ export function island({ page, wait, log, shot }) {
       pizzas: v.get(0xb0), bricks: v.get(0x4f), pages: v.get(0xa5), heads: v.get(0x52), phase: v.get(0xad), s277: v.get(0x115), s303: v.get(0x12f), sub: v.get(0x59), next: v.get(5) };
   });
   S.until = async (fn, ms = 60000, step = 100) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await wait(step); } return false; };
+  /** the zone's simulation tick counter (game time: the bots wait in ticks so that a slow page does not make them miss things) */
+  S.ticks = () => page.evaluate(() => window.__zone?.world.tickCount ?? -1);
+  /** poll `fn` until it is true or `maxTicks` simulation ticks passed (30 per second of game time) */
+  S.untilTicks = async (fn, maxTicks, poll = 40) => { const t0 = await S.ticks(); for (;;) { if (await fn()) return true; await wait(poll); const t = await S.ticks(); if (t < 0 || t < t0 - 2 || t - t0 > maxTicks) return false; } };   // (t < t0: the zone changed under us, its tick counter starts again)
   S.waitIsland = async () => { await page.waitForFunction(() => window.__zone && window.__zone.info.archive === 'z02LGI' && (window.__zone.machine.mode === 1 || window.__zone.machine.mode === 2), null, { timeout: 300000 }); };
   S.start = async () => { await S.waitIsland(); if ((await S.state()).mode === 1) await page.keyboard.press('ArrowLeft'); await S.until(async () => (await S.state()).mode === 2, 5000); };
   /** hold Shift taps (the cutscene skip) until no script runs; returns the number of taps */
   S.skipCutscenes = async (max = 80) => { let n = 0; for (; n < max; n++) { const s = await S.state(); if (!s || !s.cs) { await wait(250); if (!(await S.state())?.cs) break; continue; } await tap('ShiftLeft', 60); await wait(120); } return n; };
-  const tap = async (k, ms = 80) => { await page.keyboard.down(k); await wait(ms); await page.keyboard.up(k); };
+  // keys are held for game ticks (30 per second of game time): a tap shorter than one tick of a slow page (the live site, THROTTLE=4) would be lost between two
+  // simulation ticks; without a running zone the wall clock is used
+  const holdTicks = async (k, ticks, ms) => {
+    await page.keyboard.down(k);
+    if ((await S.ticks()) >= 0) await S.untilTicks(async () => false, ticks, 15); else await wait(ms);
+    await page.keyboard.up(k);
+  };
+  const tap = (k, ms = 80) => holdTicks(k, 3, ms);
   S.tap = tap;
-  S.hold = async (k, ms) => { await page.keyboard.down(k); await wait(ms); await page.keyboard.up(k); };
+  S.hold = (k, ms) => holdTicks(k, Math.round((ms * 30) / 1000), ms);
   /** put Pepper `dist` units from the record (on the side towards where it is), facing it, camera behind */
   S.teleportNear = (name, dist = 5, ang = 0) => page.evaluate(([n, d, a]) => {
     const z = window.__zone, w = z.world, p = z.loaded.pepper;
@@ -52,3 +63,33 @@ export const teleportTo = (page, x, z, fx, fz) => page.evaluate(([x, z, fx, fz])
   p.x = x; p.z = z; const g = w.col.groundRay(x, 200, z); if (g > -1e30) p.y = g;
   p.ry = Math.atan2(fx - x, fz - z); p.rebuildYaw(); p.savePrev(); w.camera.init(p);
 }, [x, z, fx, fz]);
+
+/**
+ * Era 1 / 3 bot heads (story node 8): throw a pizza at the Brickbot `name` (Space), and when it sits dazed walk into it; waits in game ticks (a slow page or the live
+ * site renders few frames: the bot must not give up early) and repeats the whole cycle until the bot's bit is in COLORED_BOTHEADS (var 0x8e).
+ */
+export async function collectHead(S, page, wait, name, bit, log = () => {}) {
+  const have = async () => (((await S.vars([0x8e]))[0x8e]) & bit) !== 0;
+  const hitOf = (n) => page.evaluate((nm) => { const r = window.__zone.world.records.find((x) => x.name === nm); const hn = r?.ctrl?.nodes.find((x) => x.kind === 'BotHit'); return hn ? { armed: hn.armed } : null; }, n);
+  for (let cycle = 0; cycle < 10; cycle++) {
+    if (await have()) return true;
+    let hit = false;
+    for (let k = 0; k < 6 && !hit && !(await have()); k++) {
+      const ang = [0, Math.PI, Math.PI / 2, -Math.PI / 2][(k + cycle) % 4], d = 12 + 4 * ((k + cycle) % 3);
+      await S.teleportNear(name, d, ang); await wait(150);
+      await S.teleportNear(name, d, ang);
+      await S.tap('Space', 80);
+      hit = await S.untilTicks(async () => (await hitOf(name))?.armed === 0, 90, 30);
+      if (!hit) await S.untilTicks(async () => false, 25, 30);
+    }
+    if (await have()) return true;
+    if (!hit) { log(name, 'no hit in cycle', cycle); continue; }
+    await S.teleportNear(name, 3, 0);
+    await page.keyboard.down('ArrowUp');
+    const got = await S.untilTicks(have, 150, 30);
+    await page.keyboard.up('ArrowUp');
+    if (got) return true;
+    log(name, 'hit but not collected in cycle', cycle);
+  }
+  return have();
+}

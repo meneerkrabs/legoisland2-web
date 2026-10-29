@@ -13,7 +13,7 @@ Browser bot `tools/steps/m4-era2.mjs` (real key input; long walks / flights are 
 | 29 -> 30 | castle hub (stub, F9: NEXT_SUBGAME = 32) | arrival FUN_004c2d22 with PREV_SUBGAME 6: on SPBT at PORS (control 8); Ctrl at a dock puts Pepper ashore |
 | 30 `NUM_PAGES & 2` | texts lifsm10 / lihol5, objective PAG1..4 (mode 4); era set FUN_004c015e hides SKTP, GRGE, HOSP, POLB, PCAR, PHEL, JAIL, FECL; StartCSM on SKTP (gate 0x54 & 2 == 0, no waypoint) fires at once (also on the boat): LGIBR05 (the Brickster takes the skate park / garage apart), var 0x54 \|= 2 | PAG1 (FUN_00534d98, pickup) -> slot 1 LGIBR06 (hospital falls in: BRICKFX_HOSPITAL), PAG2 -> slot 2 LGIBR07 (police station: BRICKFX_SPACETOWER is POLB's slot in era 2; PCAR / PHEL / JAIL / FECL shown) |
 | 31 `S277 == 2` | hologram alert, objective POLB, texts lifsm10 / lihol10 | StartCSM on POLB (gate node 0x1f, 5 PATH waypoints, r 2): slot 3 LGI08 "NICK_CHOPPER", then var 0x115 = 2 |
-| 32 `S281 == 2` | objective pair (record 160 / PHEL), texts lifsm10 / lihol9 | Ctrl at PHEL (SGHeli), fly into PORA (box portal, gate node 0x20, table row 2 = PHEL only in era 2): S281 \|= 2, var 5 = 10 |
+| 32 `S281 == 2` | objective pair PORA / PHEL (radius 8), texts lifsm10 / lihol9 | Ctrl at PHEL (SGHeli), fly into PORA (box portal, gate node 0x20, table row 2 = PHEL only in era 2): S281 \|= 2, var 5 = 10 |
 | 33..51 | stub zones (z13CAI, OSD, SSH, PYA, WAS (ported: the m3 Whack-A-Snake bot plays it), MMP, DSP, FSH, BIP, DIP, TRX, HAT) | F9 per zone |
 | 51 -> 52 | z13CAI -> island era 3 (zone 33), PREV_SUBGAME 10 | arrival at 48.8 from PORA in PHEL (control 8); after the era-3 intro Ctrl near a free helipad lands, Pepper walks (node 52 `PC == 1` -> 53 -> 54) |
 

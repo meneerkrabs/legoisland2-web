@@ -41,6 +41,8 @@ const browser = profile
   ? await chromium.launchPersistentContext(profile, { headless: true, args: launchArgs, viewport: { width: w, height: h } })
   : await chromium.launch({ headless: true, args: launchArgs });
 const page = profile ? (browser.pages()[0] ?? (await browser.newPage())) : await browser.newPage({ viewport: { width: w, height: h } });
+// THROTTLE=4: CPU throttling (a slow machine / the live site): the bots must wait in game ticks, not wall time
+if (process.env.THROTTLE) { const cdp = await page.context().newCDPSession(page); await cdp.send('Emulation.setCPUThrottlingRate', { rate: +process.env.THROTTLE }); }
 page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') console.log(`[${m.type()}] ${m.text()}`);
 });
