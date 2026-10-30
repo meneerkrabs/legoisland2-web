@@ -30,7 +30,7 @@ import { decodeSave, readSaveHeader, slotFileName, newSaveFromGame, applySaveVar
 import { captureWorld } from './saveworld.ts';
 import type { World } from '../game/world.ts';
 import { AudioHost } from './audiohost.ts';
-import { resetDecor } from '../island/decor.ts';
+import { resetDecor, decorStore } from '../island/decor.ts';
 import { stopLoading } from './loading.ts';
 import { MenuUi, MR } from './menuui.ts';
 import type { MenuContext } from './menuui.ts';
@@ -110,6 +110,7 @@ export class Shell {
 
   private constructor(root: HTMLElement, files: GameFiles, params: ShellParams, data: GameData, pe: Pe, canvas: HTMLCanvasElement, wrap: HTMLDivElement, gl: Renderer, ui: Ui2D) {
     this.root = root; this.files = files; this.params = params; this.data = data; this.pe = pe;
+    decorStore.startProcess(pe);   // the stored decor of a process without a game yet: the defaults, not zeros (src/island/decor.ts)
     this.canvas = canvas; this.wrap = wrap; this.gl = gl; this.ui = ui;
     this.zones = readZoneTable(pe);
     this.nodes = readStoryFsm(pe);

@@ -112,8 +112,9 @@ export class SaveStore {
   }
   /** import of an original `.lgo` file: loads like the original's reader (no checksum check); returns Dutch warnings for a wrong checksum / marker; throws SaveError for what the reader cannot read */
   async importLgo(slot: number, bytes: Uint8Array): Promise<string[]> {
-    decodeSave(bytes);
+    const g = decodeSave(bytes);
     const warnings = saveWarnings(bytes);
+    if (g.decor.every((x) => x === 0)) warnings.push('Dit bestand komt van een oudere versie van deze port en bevat geen uitrusting van de bewoners en voorwerpen; bij het laden worden die hersteld naar de standaard.');
     await this.backend.put(slotFileName(slot), bytes);
     return warnings;
   }

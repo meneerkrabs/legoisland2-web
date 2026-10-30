@@ -255,8 +255,44 @@ class DecorStore {
   ensureDefaults(pe: Pe): void { if (this.pending) this.blob = defaultDecor(pe); }
   /** FUN_00421fa0(1): all 0x1c0 entries to the defaults of the exe (the records are re-applied by the caller, `applyDecor`) */
   reset(pe: Pe): void { this.mem.set(defaultDecor(pe)); }
-  /** FUN_00421f7b: copy 0x380 bytes in (the flag is NOT cleared) */
-  loadRaw(b: Uint8Array): void { if (b.length === DECOR_BLOB_BYTES) this.mem.set(b); }
+  /**
+   * FUN_00421f7b: copy 0x380 bytes in (the flag is NOT cleared). Port only: a group whose entries are ALL { 0, 0 } is repaired to the exe's defaults (`repairDecorBlob`), see there.
+   * Returns the number of groups repaired.
+   */
+  loadRaw(b: Uint8Array): number {
+    if (b.length !== DECOR_BLOB_BYTES) return 0;
+    this.mem.set(b);
+    return this.pe ? repairDecorBlob(this.mem, this.pe) : 0;
+  }
+  /** the executable (set by the shell at start-up): lets `loadRaw` repair a damaged blob and `startProcess` give the BSS its content */
+  pe: Pe | null = null;
+  /**
+   * Port only (the shell calls it once at start-up): the decor blob of a process that has not started a game yet. The original's BSS is zeros there, but a game can only be entered through a new game
+   * (FUN_00421fa0(1): the defaults) or a load (FUN_00421f7b: the file's bytes), so zeros are never observable (never saved) in it; the port can be entered in more ways (?zone=, ?save=, the dev corner),
+   * a save written there must not hold zeros either. The flag stays set (the zone set-ups still run their one-time copy).
+   */
+  startProcess(pe: Pe): void { this.pe = pe; this.mem.set(defaultDecor(pe)); this.pending = true; }
+}
+
+/**
+ * Port only. A save with a decor section whose group is all zero ({ set 0, variant 0 } in every entry of the group) was written by an older build of this port that did not capture the stored decor
+ * (or by a process that had not started a game): the original can not produce it (a group's defaults are not all zero; to get there every single entry of the group would have to be swapped to
+ * set 0 variant 0), and it would turn every NPC / sign / flower of the island into the pine tree (set 0 variant 0 = MRPineTree). Such a group is replaced by the exe's defaults. Returns the number of groups repaired.
+ */
+export function repairDecorBlob(blob: Uint8Array, pe: Pe): number {
+  const t = readDecorTables(pe), def = defaultDecor(pe);
+  let n = 0;
+  for (const g of t.groups) {
+    let zero = g.count > 0;
+    for (let i = g.first; i < g.first + g.count && zero; i++) if (blob[i * 2] | blob[i * 2 + 1]) zero = false;
+    if (!zero) continue;
+    let differs = false;
+    for (let i = g.first; i < g.first + g.count; i++) if (def[i * 2] | def[i * 2 + 1]) differs = true;
+    if (!differs) continue;   // (the defaults of this group are zero themselves: nothing to repair)
+    blob.set(def.subarray(g.first * 2, (g.first + g.count) * 2), g.first * 2);
+    n++;
+  }
+  return n;
 }
 export const decorStore = new DecorStore();
 
@@ -287,7 +323,8 @@ export function captureDecor(w: World): Uint8Array {
 
 /** FUN_00421f7b + the menu's FUN_00421bbe(-1): the save's blob replaces the stored decor and is applied to the records of the running zone */
 export function applyDecor(w: World, blob: Uint8Array): void {
-  decorStore.loadRaw(blob);
+  const repaired = decorStore.loadRaw(blob);
+  if (repaired) console.warn(`Opslag: de uitrusting van ${repaired} decorgroep(en) ontbrak in dit bestand (een oudere versie van deze port); hersteld naar de standaard.`);
   const pe = (w.ext.get(DECOR_KEY) as DecorState | undefined)?.pe ?? tryCtx(w)?.pe;
   if (pe) applyDecorToRecords(w, pe, -1);
 }
