@@ -1,50 +1,64 @@
-# LEGO Eiland 2: De Wraak van Dondersteen in de browser
+# LEGO Island 2: The Brickster's Revenge in the browser
 
-Een web-port van *LEGO Eiland 2: De Wraak van Dondersteen* (LEGO Island 2: The Brickster's Revenge, Silicon Dreams, 2001;
-Nederlandse uitgave 2002), in TypeScript en Vite.
+**English** · [Nederlands](README.nl.md)
 
-Status: in ontwikkeling. Het startscherm leidt naar de echte spelstroom (films, hoofdmenu, verhaal, opslaan/laden); 23 van de 30 zones zijn gepoort (de 6 hubs z07CSI, z13CAI, z14OSD, z16PYA, z23DIP, z40OGL nog niet volledig; zie docs/re/gaps.md en docs/re/engine-m2.md).
+A web port of the Dutch release *LEGO Eiland 2: De Wraak van Dondersteen* (LEGO Island 2: The Brickster's Revenge, Silicon Dreams, 2001;
+Dutch edition 2002), written in TypeScript with Vite. Play it at **https://meneerkrabs.github.io/legoeiland2-web/**.
 
-**Er zitten geen spelbestanden in deze repo.** De app haalt de bestanden uit de ISO op
-[archive.org](https://archive.org/details/legoeiland2dutch) (of uit je eigen ISO of cd) en bewaart ze in de browser.
+Status: playable from start to finish. Every zone is ported (the island, the six hubs, all mini-games and rooms); a bot plays the whole story from "Nieuw spel" (new game)
+to the end. The port is now being made exact against the original step by step (differential tests run the original's code in an x86 emulator next to the port; see
+docs/re/gaps.md). The game itself is in Dutch, as the edition it is based on.
 
-## Waar de spelbestanden vandaan komen
+**This repository contains no game files.** The app fetches them from the ISO on [archive.org](https://archive.org/details/legoeiland2dutch) (or from your own ISO
+or CD) and keeps them in the browser.
 
-Het spel staat op de cd in een InstallShield-cabinet (`LEGO Eiland 2/data1.hdr`, `data1.cab`, `data2.cab`); de vier films
-(`IntroFmv`, `LegoSoftware`, `SdLogo`, `outroFmv`) staan als losse MPEG-1-bestanden in `LEGO Eiland 2/Movies/`.
-`src/engine/installshield.ts` leest die cabinet rechtstreeks in de browser (een port van de benodigde delen van
-[unshield](https://github.com/twogood/unshield)), zodat de bestanden verschijnen zoals het installatieprogramma ze zou
-neerzetten: `_data/z02LGI.bob`, `LEGO eiland 2.exe`, enzovoort.
+## Where the game files come from
 
-Bronnen (in volgorde van voorkeur, zie `src/library.ts`):
+On the CD the game sits in an InstallShield cabinet (`LEGO Eiland 2/data1.hdr`, `data1.cab`, `data2.cab`); the four movies (`IntroFmv`, `LegoSoftware`, `SdLogo`,
+`outroFmv`) are separate MPEG-1 files in `LEGO Eiland 2/Movies/`. `src/engine/installshield.ts` reads that cabinet directly in the browser (a port of the needed parts
+of [unshield](https://github.com/twogood/unshield)), so the files appear the way the installer would place them: `_data/z02LGI.bob`, `LEGO eiland 2.exe`, and so on.
 
-1. **Eigen ISO**: via "Eigen cd of ISO gebruiken" op het startscherm; de ISO wordt in de browser bewaard (Origin Private File System, ongeveer 450 MB).
-2. **Eigen cd-map**: een map met de cd (of de map `LEGO Eiland 2` ervan, of een geinstalleerde spelmap); alleen voor die sessie.
-3. **Ontwikkelmap** (alleen `npm run dev`): `public/data/le2/` (de uitgepakte spelmap) en `public/data/le2-movies/` (de films).
-4. **archive.org** (standaard): via een CORS-proxy worden alleen de benodigde stukken van de ISO opgehaald (ongeveer 30 MB bij de eerste start, `tools/proxy/`); zonder proxy worden `data1.hdr`, `data1.cab` en `data2.cab` (samen ongeveer 342 MB) in een keer gedownload terwijl je al kunt beginnen. Alles blijft daarna in de browser; de films worden gestreamd.
+Sources, in order of preference (see `src/library.ts`):
 
-Op archive.org staan twee Nederlandse ISO's met dezelfde indeling en identieke cabinet-bestanden
-(`legoeiland2dutch` en `legoeiland2`); de eerste is de standaard, de tweede de reserve.
+1. **Your own ISO**: "Eigen cd of ISO gebruiken" on the start screen; the ISO is kept in the browser (Origin Private File System, about 450 MB).
+2. **Your own CD folder**: a folder with the CD (or its `LEGO Eiland 2` folder, or an installed game folder); for that session only.
+3. **Development folder** (`npm run dev` only): `public/data/le2/` (the unpacked game folder) and `public/data/le2-movies/` (the movies).
+4. **archive.org** (default): through a CORS relay only the needed parts of the ISO are fetched (about 30 MB on the first start, `tools/proxy/`); without the relay
+   `data1.hdr`, `data1.cab` and `data2.cab` (about 342 MB together) are downloaded at once while you can already start playing. Everything stays in the browser
+   afterwards; the movies are streamed.
 
-## Beeld, introfilms en mods
+archive.org has two Dutch ISOs with the same layout and identical cabinet files (`legoeiland2dutch` and `legoeiland2`); the first is the default, the second the fallback.
 
-Op het beginscherm: **Beeld** (4:3 zoals het origineel, of breedbeeld: de 3D-wereld toont dan meer aan de zijkanten, menu's en films blijven 4:3; ook te kiezen in
-Opties > Afbeeldingen, zie [docs/re/widescreen.md](docs/re/widescreen.md)), **Introfilms overslaan**, **Debugmenu** (het verhaalpuntenmenu van de ontwikkelaars) en **Mods**:
-importeer een mod in het formaat van de [LI2 Mod Manager](https://github.com/JeffRuLz/LI2-Mod-Manager) (een zip, een rar of een map; bestandsvervangers en patches van het programma,
-ook de 2 GB grote HD Texture Pack). Mods worden in je browser bewaard en gelden bij de volgende keer Spelen, zie [docs/re/mods.md](docs/re/mods.md).
+## Display, intro movies and mods
 
-De **Mod-catalogus** (in het mods-onderdeel) laat de bekende community-mods met één klik toevoegen, met de namen van de makers en een link naar hun oorspronkelijke topic op
-Rock Raiders United. **Geen enkele mod staat in deze repo of op de website**: bij "Toevoegen" haalt je browser de mod rechtstreeks op bij de plek waar de maker hem publiceerde
-(MEGA, Rock Raiders United, GitHub, archive.org; de laatste drie via dezelfde doorgeefserver als de ISO). Niets staat vanzelf aan. "IXS-look" wordt in je browser gemaakt van
-de schijf van LEGO Island Xtreme Stunts op archive.org (alleen de vijf benodigde texturebanken, minder dan een halve MB, worden gelezen).
+On the start screen: **Beeld** (display: 4:3 like the original, or widescreen, where the 3D world shows more at the sides while menus and movies stay 4:3; also in
+Opties > Afbeeldingen, see [docs/re/widescreen.md](docs/re/widescreen.md)), **Introfilms overslaan** (skip intro movies), **Debugmenu** (the developers' story-checkpoint
+menu) and **Mods**: import a mod in the format of the [LI2 Mod Manager](https://github.com/JeffRuLz/LI2-Mod-Manager) (a zip, a rar or a folder; file replacements and
+patches of the executable, including the 2 GB HD Texture Pack). Mods are kept in your browser and apply the next time you play, see [docs/re/mods.md](docs/re/mods.md).
 
-### Debug-opties (alleen met Debugmenu aan)
+The **mod catalogue** (in the mods section) adds the known community mods with one click, with the authors' names and a link to their original topic on Rock Raiders
+United. **No mod is stored in this repository or on the website**: on "Toevoegen" (add) your browser fetches the mod directly from where its author published it (MEGA,
+Rock Raiders United, GitHub, archive.org; the last three through the same relay as the ISO). Nothing is switched on by itself. "IXS-look" is built in your browser from
+the LEGO Island Xtreme Stunts disc on archive.org (only the five texture banks it needs, less than half a MB, are read).
 
-Alles wat niet in het origineel zit staat achter de **Debugmenu**-optie van het beginscherm (of `?debug=1` in de URL). Naast het verhaalpuntenmenu en de F9 / F10-hulpjes in de mini-games:
-* **F8** (in de zones met een kijkvlak: z10RGB en z22BIP) of `?debug=1&viewplane` / `?debug=1&viewplane=<n>`: de getextureerde pass van het kijkvlak (`FUN_0087f01e`) die het origineel nooit draait
-  (een oneindige vloer op het niveau van de zone met een langzaam golvende texture, `n` = het texturenummer; zie [docs/re/rendering.md](docs/re/rendering.md) sectie 10). Standaard uit: het spel is dan precies het origineel.
+Saves use the original's `.lgo` format byte for byte; the load page can import and export them, so saves can move between the port and the original game
+([docs/re/save.md](docs/re/save.md)).
 
-## Ontwikkelen
+### Debug options (only with Debugmenu on)
+
+Everything that is not in the original is behind the start screen's **Debugmenu** option (or `?debug=1` in the URL):
+
+* **Ontwikkelaarshoek** (developer corner): button on the start screen or the **`** key in the game. Twelve sections: jump to any story node and zone, all 319 game
+  variables, cheats and secrets, the original's free camera, debug drawing and autoplay, objects, galleries of unused models, textures, sounds, texts and cutscenes, and
+  flying with the station master (see [docs/re/devcorner.md](docs/re/devcorner.md) and [docs/re/unused.md](docs/re/unused.md)).
+* **F8** (in the zones with a view plane: z10RGB and z22BIP) or `?debug=1&viewplane` / `?debug=1&viewplane=<n>`: the textured pass of the view plane
+  (`FUN_0087f01e`) that the original never runs (an endless floor at the zone's level with a slowly waving texture, `n` = the texture number; see
+  [docs/re/rendering.md](docs/re/rendering.md) section 10). Off by default: the game is then exactly the original.
+
+**Herstelde inhoud** (restored content; an option on the start screen, off by default): cut content of the original back in the game, such as an unused cutscene, the
+radio battery quest, the objective arrow and Darren's tips; for every item the docs say what is original and what is reconstructed ([docs/re/restore.md](docs/re/restore.md)).
+
+## Development
 
 ```bash
 npm install
@@ -52,31 +66,33 @@ npm run dev          # http://localhost:5499
 npm run build        # tsc + vite build
 ```
 
-Voor snelle lokale tests: pak de cabinet uit met `unshield` en zet de map `Game` als `public/data/le2` en de films als
-`public/data/le2-movies` (symlinks mogen; `public/data/` wordt door git genegeerd en niet gebouwd).
+For quick local tests: unpack the cabinet with `unshield` and put the `Game` folder at `public/data/le2` and the movies at `public/data/le2-movies` (symlinks are fine;
+`public/data/` is ignored by git and not built).
 
 Tests:
 
 ```bash
-node tools/test-installshield.mjs [cab-map] [unshield-uitvoer]   # alle bestanden uit de cabinet, byte voor byte vergeleken met unshield
-node tools/test-mpeg.mjs <film.mpg>                              # decodeert een film en vergelijkt met ffmpeg (beeld en geluid)
-node tools/browse.mjs "<url>" tools/steps/movie.mjs               # headless, gedempte browser (zie de kop van tools/browse.mjs)
+node tools/test-formats.mjs                                       # all node tests (parsers, ports, oracle tests against the original's code)
+node tools/test-installshield.mjs [cab-dir] [unshield-output]     # every file from the cabinet, compared byte for byte with unshield
+node tools/test-mpeg.mjs <movie.mpg>                              # decodes a movie and compares it with ffmpeg (picture and sound)
+node tools/browse.mjs "<url>" tools/steps/movie.mjs               # headless, muted browser (see the header of tools/browse.mjs)
 ```
 
-Zie [docs/engine-api.md](docs/engine-api.md) voor de modules.
+See [docs/engine-api.md](docs/engine-api.md) for the modules; the reverse-engineering notes are in [docs/re/](docs/re/).
 
-## Credits en licenties
+## Credits and licences
 
-- [JSMpeg](https://github.com/phoboslab/jsmpeg) (MIT, Dominic Szablewski): MPEG-1 video- en MP2-audiodecoder, aangepast voor B-frames
-  (zie `src/vendor/jsmpeg/`, ook [pl_mpeg](https://github.com/phoboslab/pl_mpeg)).
-- [unshield](https://github.com/twogood/unshield) (MIT, David Eriksson): naslag voor het InstallShield-cabinetformaat.
-- Mods in de catalogus (alleen verwijzingen, de bestanden zelf worden bij het toevoegen bij de bron opgehaald): HD Texture Pack door webfischi; Island Grass, Legal Tracks,
-  Nicer Skies en Bi-Plane Fuel Fix door Xiron (en JappaWakka voor de Nederlandse varianten); Skeleton Mod door Terrev; HD Font door EDlTOR; de Mod Manager zelf door
-  [JeffRuLz](https://github.com/JeffRuLz/LI2-Mod-Manager). Zie [Rock Raiders United](https://rockraidersunited.com/topic/8970-mods-collected-for-all-languages/).
-  "IXS-look" gebruikt textures van *LEGO Island Xtreme Stunts* (Silicon Dreams / LEGO Interactive, 2002) die uit de schijf op archive.org worden gelezen; ze worden niet bewaard of gehost.
-- RAR-bestanden worden gelezen met [node-unrar-js](https://github.com/YuJianrong/node-unrar.js) (MIT, Jianrong Yu), een WebAssembly-versie van de officiele UnRAR-broncode
-  (`unrar.wasm`, apart geladen zodra je een RAR gebruikt). UnRAR-licentie (RARLAB, Alexander L. Roshal), de bepaling die voor ons geldt:
+- [JSMpeg](https://github.com/phoboslab/jsmpeg) (MIT, Dominic Szablewski): MPEG-1 video and MP2 audio decoder, adapted for B-frames
+  (see `src/vendor/jsmpeg/`, also [pl_mpeg](https://github.com/phoboslab/pl_mpeg)).
+- [unshield](https://github.com/twogood/unshield) (MIT, David Eriksson): reference for the InstallShield cabinet format.
+- Mods in the catalogue (references only; the files themselves are fetched from their source when added): HD Texture Pack by webfischi; Island Grass, Legal Tracks,
+  Nicer Skies and Bi-Plane Fuel Fix by Xiron (and JappaWakka for the Dutch versions); Skeleton Mod by Terrev; HD Font by EDlTOR; the Mod Manager itself by
+  [JeffRuLz](https://github.com/JeffRuLz/LI2-Mod-Manager). See [Rock Raiders United](https://rockraidersunited.com/topic/8970-mods-collected-for-all-languages/).
+  "IXS-look" uses textures of *LEGO Island Xtreme Stunts* (Silicon Dreams / LEGO Interactive, 2002) read from the disc on archive.org; they are not stored or hosted.
+- RAR files are read with [node-unrar-js](https://github.com/YuJianrong/node-unrar.js) (MIT, Jianrong Yu), a WebAssembly build of the official UnRAR source code
+  (`unrar.wasm`, loaded separately as soon as you use a RAR). UnRAR licence (RARLAB, Alexander L. Roshal), the provision that applies here:
   *"UnRAR source code may be used in any software to handle RAR archives without limitations free of charge, but cannot be used to develop RAR (WinRAR) compatible archiver and to
   re-create RAR compression algorithm, which is proprietary. Distribution of modified UnRAR source code in separate form or as a part of other software is permitted, provided that
   full text of this paragraph, starting from "UnRAR source code" words, is included in license, or in documentation if license is not available, and in source code comments of
-  resulting package."* Hier wordt alleen uitgepakt, niets ingepakt.
+  resulting package."* Only extraction is done here, no compression.
+- LEGO, the LEGO logo and LEGO Island are trademarks of the LEGO Group, which does not sponsor, authorise or endorse this project.
