@@ -7,6 +7,8 @@
 //   +0x58 collision pointer, +0x5c controller pointer, +0x60 flags (u16) / +0x62 (u16) -> vertex 2: heap addresses and a flag word read as float32
 //   +0x64 variant, +0x68 = 0xbadfebad (the sentinel), +0x6c = 0xfdfdfdfd (the guard)  -> vertex 3 = (variant, -0.00170..., -4.2e37)
 //   +0x70 padding of the heap block, +0x74 / +0x78 the next heap entry's header words                            -> vertex 4
+// The ONE undetermined word is +0x70: the 4 bytes between the 0xfd guard and the next heap entry (the block is rounded up to the heap's 8-byte granularity; the CRT does not fill them). The port assumes 0
+// (fresh / zeroed memory); stale data from an earlier use of that memory (a freed zone's arrays) would put vertex 4's x elsewhere. Everything else is derived above.
 // Every word that is a heap address, flag, small integer or heap header (< 2^28 as a bit pattern) is a float32 below 2^-60: it cannot move a projected position, so the port uses 0 for them (the
 // emulator test checks |value| < 1e-18 against the real words); the words that DO matter (y, z, 1.0, rx, ry, rz, 0xbadfebad, 0xfdfdfdfd) are exact.
 import type { GameRecord } from '../../game/record.ts';

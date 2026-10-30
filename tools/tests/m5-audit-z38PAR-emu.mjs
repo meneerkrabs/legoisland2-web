@@ -34,7 +34,7 @@ export default {
       // ---- the port
       let inPilot = false, nIn = 0, nOut = 0, tickNo = 0, initFrac = 0;
       setRandomSource(() => (inPilot ? gen(tickNo, nIn++) : (tickNo === 0 && nOut === 0 ? (initFrac = gen(seed, 99)) : gen(tickNo + 100000, nOut++))));
-      const L = loadZone(ctx, 'z38PAR');
+      const L = loadZone(ctx, 'z38PAR', { pe: loadExe(ctx.dataRoot) });
       const w = L.world;
       const run = startParRun(w, L.archive);
       const pepp = run.recs.pepp, pilot = pepp.ctrl.find('ParPilot');
@@ -42,7 +42,7 @@ export default {
       const spoken = [];
       run.say = (id) => spoken.push(`say ${id}`);
       // ---- the oracle: its own world (records, animation), the collision answered by the port's world
-      const L2 = loadZone(ctx, 'z38PAR');
+      const L2 = loadZone(ctx, 'z38PAR', { pe: loadExe(ctx.dataRoot) });
       const R2 = L2.world.records;
       const recs = R2.map((r) => ({ name: r.name, m: Array.from(r.m), flags: r.flags, rx: r.rx, ry: r.ry, rz: r.rz }));
       let oracleFrac = () => initFrac;

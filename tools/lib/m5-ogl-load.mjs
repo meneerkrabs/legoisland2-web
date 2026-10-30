@@ -4,8 +4,10 @@ import '../../src/zones/index.ts';
 import '../../src/zones/z40OGL/peppswit/index.ts';
 import { loadHub } from './hub-load.mjs';
 import { FakeFx } from './fake-fx.mjs';
+import { decorStore } from '../../src/island/decor.ts';
 
 export function loadOgl(ctx, opts = {}) {
+  decorStore.blob = null;   // the stored decor / outfit state is process-wide (the game's saved state): every load here is a new game, whatever the tests before left in it
   const H = loadHub(ctx, { zone: 'z40OGL', node: opts.node ?? 64, vars: opts.vars });
   const ic = H.ictx;
   H.log = [];

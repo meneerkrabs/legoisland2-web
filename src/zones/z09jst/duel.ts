@@ -39,7 +39,8 @@ export class MsvcRng implements DuelRng {
   // RNG: the original seeds the CRT with the clock (srand(time)); tests pass a fixed seed
   constructor(seed = (Date.now() & 0xffffffff) >>> 0) { this.seed = seed >>> 0; }
   next(): number { this.seed = (Math.imul(this.seed, 214013) + 2531011) >>> 0; return (this.seed >>> 16) & 0x7fff; }
-  range(range: number): number { return range <= 0 ? 0 : (this.next() / 32767) * range; }
+  /** FUN_004388ae: `fild rand; fdiv 32767.0f; fmul range; fst float`: 24-bit x87 (control word 0x7f), every step a float32 */
+  range(range: number): number { return range <= 0 ? 0 : Math.fround(Math.fround(this.next() / 32767) * Math.fround(range)); }
 }
 
 export interface DuelHost {

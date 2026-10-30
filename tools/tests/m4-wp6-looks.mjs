@@ -2,7 +2,7 @@ import { loadIsland, tick, press } from '../lib/island-load.mjs';
 import { waypoints } from '../../src/game/walker.ts';
 import { looksOf, ROSTER_VA, SWAP_VA, readLookGroup, nextLook, lookWord, nearestLookRecord, VehicleLooks, changeLookWith, tickLooksWith } from '../../src/island/vehicles/looks.ts';
 import { islandBrickFx, setBrickRandom } from '../../src/fx/bricks/index.ts';
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 // M4 WP6 / gaps S2: the vehicles' "change the look" (Enter): FUN_0051db5c / FUN_00420404 / FUN_00420590 / FUN_004202ef, the cycler FUN_00443b00 / FUN_004439f0 and the roster 0x8e9b28 / swap table 0x8b5028
 // of the executable. Run: node tools/test-formats.mjs --only m4-wp6-looks -v
@@ -48,7 +48,7 @@ export default {
 
     // the cycler against the ORIGINAL FUN_00443b00 (+ FUN_004439f0, FUN_0043eb70) run in the x86 interpreter on the executable's own swap table: 40 steps per set
     {
-      const cpu = createCpu(pe), mem = cpu.mem;
+      const cpu = createGameCpu(pe), mem = cpu.mem;
       const HEAP = 0x20000000; mem.addRegion({ lo: HEAP, hi: HEAP + 0x40000, name: 'heap' });
       cpu.exec = [[0x4439c0, 0x443b70], [0x43eb70, 0x43eb90]];
       cpu.fallback = (a) => { throw new Error('call to 0x' + a.toString(16)); };
@@ -74,7 +74,7 @@ export default {
     // FUN_00420404 + FUN_00420590 (the Enter and the per-tick release) against the original run in the interpreter: 10 roster records, the busy list DAT_009da590, record flags,
     // the game variables written (FUN_00417597), for a script of Enters / brick-effect states
     {
-      const cpu = createCpu(pe), mem = cpu.mem;
+      const cpu = createGameCpu(pe), mem = cpu.mem;
       const HEAP = 0x20000000, RB = 0x10000000;
       mem.addRegion({ lo: HEAP, hi: HEAP + 0x80000, name: 'heap' });
       mem.addRegion({ lo: RB, hi: RB + 0x10000, name: 'records' });

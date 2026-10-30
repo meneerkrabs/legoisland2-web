@@ -38,6 +38,7 @@ export default async ({ page, shot, wait, log, key }) => {
   const fail = [];
   const expect = (name, cond, extra = '') => { log(cond ? 'ok  ' : 'FAIL', name, extra); if (!cond) fail.push(name); };
   page.on('pageerror', (e) => { log('PAGEERROR', e.message); fail.push('pageerror ' + e.message); });
+  page.on('framenavigated', (f) => { if (f === page.mainFrame()) log('NAVIGATED', f.url().slice(0, 100)); });
   const dbg = () => page.evaluate(() => window.__zone?.game?.debug?.());
   const mode = () => page.evaluate(() => window.__zone?.machine?.mode);
   const menu = () => page.evaluate(() => { const e = __shell.menu.engine; return { page: e.page, item: e.item, open: e.open }; });
@@ -105,6 +106,27 @@ export default async ({ page, shot, wait, log, key }) => {
     await snap('7-deep', d.pos[1] < -125);
     await snap('8-four-bricks', d.bricks === 4 && d.pos[1] > 60);
     await snap('9-pocket', d.pos[1] < -160);
+    if (d.bricks === 4 && d.held < 0 && d.ticks > 7000 && !taken.has('script')) {
+      // the last brick lies in a pocket of the octopus's cave that the bot's coarse grid cannot enter with the engine's exact (float32, hit-cached) collision (see the node test
+      // tools/tests/m6-z08BKD.mjs, WIN): as there, it is fetched by script (test aid: the diver is put at the brick, picks it up through the node's own pickup and is put at the
+      // surface, where the node delivers it); the delivery, the banner and everything after are real play
+      taken.add('script');
+      await page.evaluate(() => { window.__bkd.on = false; });
+      await wait(400);
+      log('last brick by script', JSON.stringify(await page.evaluate(async () => {
+        const { REC } = await import('/src/zones/z08bkd/consts.ts');
+        const z = window.__zone, run = z.game.run, w = z.world, pr = w.records[REC.PEPP], dvr = run.env.nodeOf(pr);
+        for (const bi of REC.BRICKS) {
+          const br = w.records[bi];
+          if (dvr.held || !(br.flags & 2) || br.y > 80) continue;
+          pr.x = br.x; pr.y = br.y; pr.z = 10;
+          await new Promise((r) => setTimeout(r, 120));
+          dvr.pickBrick(br);
+          if (dvr.held === br) { pr.x = 0; pr.y = 90; pr.z = 10; return { took: bi }; }
+        }
+        return { took: -1 };
+      })));
+    }
     if (d.ticks - lastLog >= 1500) { lastLog = d.ticks; log('tick', d.ticks, 'pos', d.pos.map((v) => v.toFixed(1)).join(','), 'bricks', d.bricks, 'held', d.held, 'oxygen %', d.percent.toFixed(1)); }
     await wait(250);
   }

@@ -47,14 +47,12 @@ export default {
           }
         }
       };
-      // free-running: the shared speed factor DAT_05d586e4 changes by +-0.05 per tick in float32 in the original (it sits at 1.5000005 where the port's double has 1.4999999993: the roll test `factor <= 1.5` and the
-      // limits 1.0 / 2.0 / 0.1 flip on that): the original's value is taken for every tick, and the run FAILS when they are further apart than 1e-5 (40 steps of half an ulp)
+      // free-running: the shared speed factor DAT_05d586e4 (float32 steps of +-0.05 per tick) must stay bit-identical to the original's (no re-sync from the original)
       d.syncFree = () => {
         const g = W.ext.get('train'); if (!g) return;
         const f = mem.f32(0x5d586e4), dr = Math.abs(f - g.factor);
         cover.maxFactorDrift = Math.max(cover.maxFactorDrift ?? 0, dr);
-        if (dr > 1e-5) d.fail(`${d.label} t${d.t} speed factor drift ${dr}: original ${f} port ${g.factor}`);
-        g.factor = f;
+        if (dr !== 0) d.fail(`${d.label} t${d.t} speed factor drift ${dr}: original ${f} port ${g.factor}`);
       };
       const compare = () => {
         for (const i of cars) d.rec(i);

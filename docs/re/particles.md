@@ -109,6 +109,6 @@ Not exact: where the original passes a dead stack slot as the matrix (none found
 
 * `ComputeSphereVisibility` and `ProcessVertices` are Direct3D internals (not in the executable): re-implemented (plane layout, inclusivity at the boundary inferred; the flag rule `(flags & 0xf) == flags` is the executable's). A sprite exactly on a frustum boundary may differ.
 * The GL draw is not a bit-exact rasteriser (z precision, interpolation of the 8-bit diffuse in the shader); geometry, colours, sorting, clipping are exact.
-* FPU precision is assumed 53 bit (the executable's control word was not checked per call site).
+* FPU precision: 24 bit (control word 0x7f, Direct3D 7; see gaps.md 'x87 control word'). The first version of the port assumed 53 bit; every operation of the engine, the sources, the actions, the sprite build / clip, the swirls and the `mat.ts` helpers now rounds like the 24-bit x87 (`r24` in `core.ts` for the values that reach the float range's denormals: the extended exponent range rounds first, the `fstp` store second). The oracle (`tools/lib/particle-emu.mjs`) runs at 0x7f and `PARTICLES_FULL=1` (every effect x scenario, 637 M comparisons) has 0 differences.
 * An immortal sub-particle (`[EMITS]` with `fLifespan < 0`) loops forever in the original; the port throws. No shipped effect has it.
 * `DAT_05d478f8` (sprite mirror modes), `DAT_05d3b0d4` (matrix override) and model particles are never active in the shipped data; model particles throw.

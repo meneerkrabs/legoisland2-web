@@ -144,6 +144,14 @@ export default {
         if (![REC.RODD, REC.FLOT, REC.SPLH].includes(r.index)) eq(r.flags & 0xfffe, q.flags & 0xfffe, `${label}: record ${r.index} ${r.name} flags`);
       }
       for (const r of [rs[REC.PEPP]]) { const q = o.recs[r.index]; num(r.ry, q.e[1], `${label}: Pepper ry`, 'euler'); }
+      // the Fisherman node (FUN_006f9090 with the walker of Common\WayPt run natively), its walker struct, the HUD the hook of the FSwitch node writes (FUN_006f514c -> FUN_00705c64)
+      cmpObj(H.tsFisherman(), o.fisherman, `${label}: Fisherman`, 'node');
+      cmpObj(H.tsWalker(), o.walker, `${label}: walker`, 'node');
+      { const th = H.tsHud(), oh = o.hud;
+        eq(th.leftText, oh.leftText, `${label}: HUD left text`); eq(th.rightText, oh.rightText, `${label}: HUD right text`); eq(th.centreText, oh.centreText, `${label}: HUD centre text`);
+        eq(th.gaugeOn, oh.gaugeOn, `${label}: HUD gauge on`);
+        if (oh.gaugeOn) { eq(th.marker, oh.marker, `${label}: HUD gauge marker`); num(th.gaugeValue, oh.gaugeValue, `${label}: HUD gauge value`, 'node'); }
+        if (th.column0 !== null) eq(th.column0, oh.column0, `${label}: HUD column slot 0`); else eq(-1, oh.column0 | 0, `${label}: HUD column slot 0 (unset)`); }
       // the nodes
       cmpObj(H.tsFishing(F), o.fishing, `${label}: Fishing`, 'node');
       const st = H.tsShoal();
@@ -255,6 +263,9 @@ export default {
         const F = E.W.S.fishing;
         hit(`state ${F.state}`); if (F.state === ST.CAST) hit(`cast sub ${F.sub}`);
         if (F.state !== prevState) hit(`transition ${prevState} -> ${F.state}`);
+        { const fn = E.W.w.records[7].ctrl.nodes.find((n) => n.kind === 'Fisherman'); hit(`fisherman state ${fn.state}`); const wk = E.W.walker; void wk;
+          if (fn.state !== (E.fprev ?? fn.state)) hit(`fisherman transition ${E.fprev} -> ${fn.state}`); E.fprev = fn.state; }
+        { const g = E.W.hud.gauge; if (g) hit(`HUD gauge marker ${g.marker}`); if (E.W.hud.centreText !== '0' && E.W.hud.centreText) hit('HUD score counting'); }
         if (F.state === ST.FIGHT && F.bite === 2) hit('fight: line lost');
         if (F.hooked?.bertha && F.state === ST.LANDED) hit('Bertha landed');
         for (const p of E.W.S.popups.slots) if (p.active && p.visible && p.timer === p.on - 0) hit(`popup ${(p.text ?? p.id).slice(0, 12).trim()}`);

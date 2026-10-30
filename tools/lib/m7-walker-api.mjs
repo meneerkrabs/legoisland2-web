@@ -75,7 +75,8 @@ function runApi(E, archive, WaypointSystem, GameRecord, rng, seed, stat, at) {
     const rec = new GameRecord(tag); rec.flags = 2; rec.index = i;
     const nd = sys.node(map, r.int(sys.mapCount(map)));
     const ry = fr((r() - 0.5) * 14);      // wider than +-pi: the heading wrap
-    rec.setEuler(0, ry, 0, fr(nd.x + (r() - 0.5) * 120), fr(nd.y + (r() - 0.5) * 20), fr(nd.z + (r() - 0.5) * 120)); rec.ry = ry;
+    const rx = r() < 0.5 ? fr((r() - 0.5) * 0.4) : 0, rz = r() < 0.5 ? fr((r() - 0.5) * 0.4) : 0;      // a record on a slope keeps its pitch / roll (the apply rebuilds the rotation from all three angles)
+    rec.setEuler(rx, ry, rz, fr(nd.x + (r() - 0.5) * 120), fr(nd.y + (r() - 0.5) * 20), fr(nd.z + (r() - 0.5) * 120)); rec.ry = ry; rec.rx = rx; rec.rz = rz;
     recs.push(rec);
     E.writeRec(i, rec);
     const nh = E.n.create(map, i, start), ph = sys.create(map, rec, start);

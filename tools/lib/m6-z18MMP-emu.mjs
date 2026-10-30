@@ -3,7 +3,7 @@
 // on a mirror of the records / nodes in emulated memory (the engine services are hosted: game variables and animation instances operate on the port's own objects, the
 // collision sweep calls the port's `CollisionWorld`, the matrix builders, vector normalisation and the C runtime run natively), once with the port's nodes; the records,
 // nodes, globals, camera, variables, animation state and the sound / speech / music calls must agree.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 import { loadExe } from './engine-load.mjs';
 import { REC } from '../../src/zones/z18mmp/consts.ts';
 
@@ -19,7 +19,7 @@ const bitsOf = (v) => { F32[0] = v; return U32[0]; };
 
 export function createHarness(ctx, G) {
   const pe = loadExe(ctx.dataRoot);
-  const cpu = createCpu(pe);
+  const cpu = createGameCpu(pe);
   const mem = cpu.mem;
   for (const [lo, n] of [[RB, NREC * 0x68], [NB, NREC * NODE_SIZE], [CB, NREC * 0x80], [AB, NREC * 0x40], [MB, 0x10000]]) mem.addRegion({ lo, hi: lo + n + 0x100, name: 'h' });
   mem.w32(0x983804, RB); mem.w32(0x983800, NREC);

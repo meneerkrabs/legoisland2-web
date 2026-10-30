@@ -48,18 +48,19 @@ export class ApoHud {
     f.groups = [icon[2], icon[1], icon[0]];
     f.tints = [tint[2], tint[1], tint[0]];
     f.chuteIcon = run.chuteOk ? APO_HUD.CHUTE_OK : APO_HUD.CHUTE_NO;
-    let local = 204 - (run.y / run.startAlt) * 204;
+    const r = Math.fround;   // 24-bit x87: every + - * / rounds to float32
+    let local = r(204 - r(r(run.y / run.startAlt) * 204));
     let upper: number;
     if (153 <= local) {
       upper = APO_HUD.GAUGE_LOW;
-      local = 204 - (run.height / run.refAlt) * 204;
+      local = r(204 - r(r(run.height / run.refAlt) * 204));
       run.chuteOk = true;
     } else { upper = APO_HUD.GAUGE_HIGH; run.refAlt = run.y; }
     f.gauge.segments = Array.from({ length: 12 }, (_, i) => (i < 3 ? APO_HUD.GAUGE_LOW : upper));
     if (local > 204) local = 204;
     // DAT_05d4e138 = 204 - local is NOT clamped below (height > refAlt after a bounce gives > 204); the gauge draw FUN_00460214 clamps its ratio to 0..1
-    f.gauge.value = 204 - local;
-    f.gauge.marker = Math.min(1, Math.max(0, f.gauge.value / 204));
+    f.gauge.value = Math.fround(204 - local);
+    f.gauge.marker = Math.min(1, Math.max(0, Math.fround(f.gauge.value / 204)));
     return f;
   }
 }

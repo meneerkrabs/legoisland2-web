@@ -1,13 +1,13 @@
 // The ORIGINAL collision sweep FUN_00441270 run in the x86 interpreter on records the caller describes (gaps S5, tests m4-s5-colshapes): the collision objects are laid out in the
 // emulated memory exactly as the loaders FUN_0043f370 (polygons) / FUN_0043f700 (header only) build them from the `.col` file, the records are the 0x68-byte structs the sweep reads
 // (name, matrix +0x0c, flags +0x60, collision object +0x58). Pure math: the CRT and the matrix / collision functions execute natively.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 const HEAP = 0x20000000, RECS = 0x10000000;
 
 export class ColOracle {
   constructor(pe) {
-    this.cpu = createCpu(pe); this.mem = this.cpu.mem;
+    this.cpu = createGameCpu(pe); this.mem = this.cpu.mem;
     this.mem.addRegion({ lo: HEAP, hi: HEAP + 0x4000000, name: 'heap' });
     this.mem.addRegion({ lo: RECS, hi: RECS + 0x20000, name: 'records' });
     this.heap = HEAP;

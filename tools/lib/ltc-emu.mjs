@@ -1,7 +1,7 @@
 // z50LTC: the original's people / pepswitc code run in the x86 interpreter as an ORACLE for the port (tools/tests/m5-audit-z50LTC-emu.mjs).
 // Native: People update FUN_00839e20 / pre-render FUN_0083a292, pepswitc FUN_0083ab7b / 0083a9e0 / 0083aa48 / 0083aa8d, the sound loader FUN_00839560, matrices, atan2 / sqrt (CRT).
 // Host (records the calls): variables, animation instances (the port's AnimInstance), emitters, letterbox, sounds, the ground alignment FUN_00429e00, allocation.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const RECORDS_BASE = 0x10000000, HEAP_BASE = 0x20000000;
 const REC = 0x68;
@@ -12,7 +12,7 @@ export const G = { TOGGLE: 0x5d5f6dc, TIMER: 0x5d5f6e0, CAND: 0x9daa80, CAND_DIS
 export class LtcEmu {
   /** recs [{name, m, flags}], anims Map(record index -> AnimInstance of the oracle's own world) */
   constructor(pe, recs, anims) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = cpu.mem;
     this.pe = pe;
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x400000, name: 'heap' });

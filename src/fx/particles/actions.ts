@@ -5,7 +5,7 @@
 //
 // Time: an action has a window of FRAMES `[start, end]` = `[frame + trunc(30 t0), start + trunc(30 t1)]` measured on the game's frame counter DAT_009da5cc
 // (one count per logic frame; `FrameClock.frame`), it executes once per update while `start <= frame <= end`.
-import { type Rec, ftol, type PState } from './core.ts';
+import { type Rec, ftol, r24, type PState } from './core.ts';
 import { K, keyId } from './keys.ts';
 import type { ParticleDefs } from './defs.ts';
 import { AP, EM, BK, APP_SIZE } from './layout.ts';
@@ -62,8 +62,8 @@ export abstract class Action {
   }
   /** FUN_00457390 (and the first half of every reset): `start = frame - ftol(t0 * -30)`, `end = start - ftol(t1 * -30)` */
   rebase(): void {
-    this.start = (this.clock.frame - ftol(this.t0 * -30)) | 0;
-    this.end = (this.start - ftol(this.t1 * -30)) | 0;
+    this.start = (this.clock.frame - ftol(f32(this.t0 * -30))) | 0;
+    this.end = (this.start - ftol(f32(this.t1 * -30))) | 0;
   }
   abstract exec(): void;
   /** vtable[1] */
@@ -155,8 +155,8 @@ export class FloatAction extends Action {
   }
   /** FUN_00457930 */
   private init(): void {
-    const diff = this.b - this.a;
-    if (0 < this.t1) { this.cur = this.a; this.step = f32(diff / (this.t1 * 30)); }
+    const diff = f32(this.b - this.a);
+    if (0 < this.t1) { this.cur = this.a; this.step = f32(diff / f32(this.t1 * 30)); }
     else { this.step = f32(diff); this.cur = this.a; }
   }
   exec(): void {
@@ -179,7 +179,7 @@ export class IntAction extends Action {
   }
   /** FUN_00457a60 */
   private init(): void {
-    if (0 < this.t1) { this.cur = this.a; this.step = ftol((this.b - this.a) / (this.t1 * 30)); }
+    if (0 < this.t1) { this.cur = this.a; this.step = ftol(f32((this.b - this.a) / f32(this.t1 * 30))); }
     else { this.cur = this.a; this.step = (this.b - this.a) | 0; }
   }
   exec(): void {
@@ -203,14 +203,14 @@ export class Vec3Action extends Action {
   /** FUN_00457c10 */
   private init(): void {
     if (0 < this.t1) {
-      const den = this.t1 * 30;
-      for (let i = 0; i < 3; i++) this.step[i] = (this.e[i] - this.s[i]) / den;
-    } else for (let i = 0; i < 3; i++) this.step[i] = this.e[i] - this.s[i];
+      const den = f32(this.t1 * 30);
+      for (let i = 0; i < 3; i++) this.step[i] = f32(f32(this.e[i] - this.s[i]) / den);
+    } else for (let i = 0; i < 3; i++) this.step[i] = f32(this.e[i] - this.s[i]);
   }
   exec(): void {
     if (this.clock.frame === this.start) this.cur.set(this.s);
     if (this.clock.frame === this.end) this.cur.set(this.e);
-    else for (let i = 0; i < 3; i++) this.cur[i] = this.step[i] + this.cur[i];
+    else for (let i = 0; i < 3; i++) this.cur[i] = f32(this.step[i] + this.cur[i]);
     for (let i = 0; i < 3; i++) this.target.rec.f[this.target.d + i] = this.cur[i];
   }
   reset(): void { super.reset(); this.cur.set(this.s); }
@@ -230,8 +230,8 @@ export class ColourAction extends Action {
   private init(): void {
     if (this.t1 <= 0) for (let i = 0; i < 4; i++) this.step[i] = (this.e[i] - this.s[i]) | 0;
     else {
-      const den = this.t1 * 30;
-      for (let i = 0; i < 4; i++) this.step[i] = ftol((this.e[i] - this.s[i]) / den);
+      const den = f32(this.t1 * 30);
+      for (let i = 0; i < 4; i++) this.step[i] = ftol(f32((this.e[i] - this.s[i]) / den));
     }
     this.cur.set(this.s);
   }
@@ -490,32 +490,32 @@ function primitiveAction(clock: FrameClock, host: ActionHost, tm: Block, t0: num
 function colourAll(p: Particle, ps: PState, inv: number): void {
   const a = p.app, ai = a.i, af = a.f;
   if (0 <= af[AP.VSCOL]) {
-    const m = ps.rnd() * af[AP.VSCOL] + (1.0 - af[AP.VSCOL]);
-    ai[AP.CR] = ftol(ai[AP.CR] * m); ai[AP.CG] = ftol(ai[AP.CG] * m); ai[AP.CB] = ftol(ai[AP.CB] * m);
+    const m = f32(f32(ps.rnd() * af[AP.VSCOL]) + f32(1.0 - af[AP.VSCOL]));
+    ai[AP.CR] = ftol(f32(ai[AP.CR] * m)); ai[AP.CG] = ftol(f32(ai[AP.CG] * m)); ai[AP.CB] = ftol(f32(ai[AP.CB] * m));
   }
   if (0 <= af[AP.VECOL]) {
-    const m = ps.rnd() * af[AP.VECOL] + (1.0 - af[AP.VECOL]);
-    ai[AP.ER] = ftol(ai[AP.ER] * m); ai[AP.EG] = ftol(ai[AP.EG] * m); ai[AP.EB] = ftol(ai[AP.EB] * m);
+    const m = f32(f32(ps.rnd() * af[AP.VECOL]) + f32(1.0 - af[AP.VECOL]));
+    ai[AP.ER] = ftol(f32(ai[AP.ER] * m)); ai[AP.EG] = ftol(f32(ai[AP.EG] * m)); ai[AP.EB] = ftol(f32(ai[AP.EB] * m));
   }
-  ai[AP.DR] = ftol((ai[AP.ER] - ai[AP.CR]) * inv);
-  ai[AP.DG] = ftol((ai[AP.EG] - ai[AP.CG]) * inv);
-  ai[AP.DB] = ftol((ai[AP.EB] - ai[AP.CB]) * inv);
+  ai[AP.DR] = ftol(f32((ai[AP.ER] - ai[AP.CR]) * inv));
+  ai[AP.DG] = ftol(f32((ai[AP.EG] - ai[AP.CG]) * inv));
+  ai[AP.DB] = ftol(f32((ai[AP.EB] - ai[AP.CB]) * inv));
 }
 
 /** the alpha variation of a ForAll alpha action */
 function alphaAll(p: Particle, ps: PState, inv: number): void {
   const a = p.app, ai = a.i, af = a.f;
-  if (0 <= af[AP.VSALPHA]) ai[AP.CA] = ftol(((ps.rnd() * af[AP.VSALPHA]) + (1.0 - af[AP.VSALPHA])) * ai[AP.CA]);
-  if (0 <= af[AP.VEALPHA]) ai[AP.EA] = ftol(((ps.rnd() * af[AP.VEALPHA]) + (1.0 - af[AP.VEALPHA])) * ai[AP.EA]);
-  ai[AP.DA] = ftol((ai[AP.EA] - ai[AP.CA]) * inv);
+  if (0 <= af[AP.VSALPHA]) ai[AP.CA] = ftol(f32(f32(f32(ps.rnd() * af[AP.VSALPHA]) + f32(1.0 - af[AP.VSALPHA])) * ai[AP.CA]));
+  if (0 <= af[AP.VEALPHA]) ai[AP.EA] = ftol(f32(f32(f32(ps.rnd() * af[AP.VEALPHA]) + f32(1.0 - af[AP.VEALPHA])) * ai[AP.EA]));
+  ai[AP.DA] = ftol(f32((ai[AP.EA] - ai[AP.CA]) * inv));
 }
 
 /** the size variations of a ForAll size action; the per tick change is recomputed from the REMAINING life */
 function sizeAll(p: Particle, ps: PState, inv: number): void {
   const af = p.app.f;
-  if (0 <= af[AP.VSSIZE]) af[AP.SIZE] = ((1.0 - af[AP.VSSIZE]) + ps.rnd() * af[AP.VSSIZE]) * af[AP.SIZE];
-  if (0 <= af[AP.VESIZE]) af[AP.ESIZE] = ((1.0 - af[AP.VESIZE]) + ps.rnd() * af[AP.VESIZE]) * af[AP.ESIZE];
-  af[AP.DSIZE] = (af[AP.ESIZE] - af[AP.SIZE]) * inv;
+  if (0 <= af[AP.VSSIZE]) af[AP.SIZE] = f32(f32(f32(1.0 - af[AP.VSSIZE]) + f32(ps.rnd() * af[AP.VSSIZE])) * af[AP.SIZE]);
+  if (0 <= af[AP.VESIZE]) af[AP.ESIZE] = f32(f32(f32(1.0 - af[AP.VESIZE]) + f32(ps.rnd() * af[AP.VESIZE])) * af[AP.ESIZE]);
+  af[AP.DSIZE] = f32(f32(af[AP.ESIZE] - af[AP.SIZE]) * inv);
 }
 
 /** FUN_00454780: execute every action whose window contains the current frame; `ForAll` actions then write their (post step) value into all live particles */
@@ -538,7 +538,7 @@ function forAll(a: Action, host: ActionHost): void {
   const ccur = (a as ColourAction).cur;
   for (let p: Particle | null = host.tmpl.head; p; p = p.next) {
     const af = p.app.f, ai = p.app.i, mf = p.mov.f;
-    const lifeInv = 1.0 / p.rec.f[0x2f4 >> 2];           // register value `fld 1.0 / fdiv life`
+    const lifeInv = f32(1.0 / p.rec.f[0x2f4 >> 2]);           // register value `fld 1.0 / fdiv life`
     switch (a.keyId) {
       case K.SSIZE: af[AP.SIZE] = fcur; sizeAll(p, ps, lifeInv); break;
       case K.ESIZE: af[AP.ESIZE] = fcur; sizeAll(p, ps, lifeInv); break;
@@ -561,9 +561,9 @@ function forAll(a: Action, host: ActionHost): void {
       case K.SPEEDSCALE: {
         mf[(0x148 - 0xf8) >> 2] = fcur;
         const s = mf[(0x148 - 0xf8) >> 2];
-        mf[(0x1f0 - 0xf8) >> 2] = s * mf[(0x208 - 0xf8) >> 2];
-        mf[(0x1f4 - 0xf8) >> 2] = s * mf[(0x20c - 0xf8) >> 2];
-        mf[(0x1f8 - 0xf8) >> 2] = s * mf[(0x210 - 0xf8) >> 2];
+        mf[(0x1f0 - 0xf8) >> 2] = r24(s * mf[(0x208 - 0xf8) >> 2]);
+        mf[(0x1f4 - 0xf8) >> 2] = r24(s * mf[(0x20c - 0xf8) >> 2]);
+        mf[(0x1f8 - 0xf8) >> 2] = r24(s * mf[(0x210 - 0xf8) >> 2]);
         break;
       }
       case K.EXECUTESCRIPT: (a as ExecuteScript).applyTo(p); break;

@@ -8,8 +8,8 @@ import type { Ui2D } from '../ui/renderer2d.ts';
 import type { SoundSlot } from '../audio/sfx.ts';
 import { GameRecord } from '../game/record.ts';
 import type { World } from '../game/world.ts';
-import { checkRecords, REC, ST, K, SOUNDS_2D, SOUNDS_3D, randF } from './z21fsh/rules.ts';
-import { prepareFsh, dropShared } from './z21fsh/nodes.ts';
+import { checkRecords, REC, ST, K, SOUNDS_2D, SOUNDS_3D } from './z21fsh/rules.ts';
+import { prepareFsh, dropShared, hudHook } from './z21fsh/nodes.ts';
 import type { FshEnv, FshShared } from './z21fsh/nodes.ts';
 import './z21fsh/nodes.ts';
 import { MODE } from '../shell/loopmachine.ts';
@@ -20,8 +20,7 @@ import { installCtx } from '../island/ctx.ts';
 import { makeFshCtx } from './z21fsh/ctx.ts';
 
 /** HUD texture indices of Overlays/Z21FSH (FUN_00705b60): left icon 4 (casts left), right icon 5 (fish caught), the gauge's segments 1 / 2 / 3, markers 6 (cast power) / 7 (tension) */
-const HUD_TEX = { CASTS: 4, FISH: 5, MARKER_POWER: 6, MARKER_TENSION: 7 } as const;
-const GAUGE_SEGMENTS = [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3];
+const HUD_TEX = { CASTS: 4, FISH: 5 } as const;
 const WHITE = 0xffffffff;
 
 /** the intro cutscene slots (FUN_006f4623: `FUN_0045c366("z21fsh", "ai")`, `FUN_0045c397(0, "ADV04", "ADV04")`, `(1, "ADV11", "ADV11")`) */
@@ -143,21 +142,8 @@ registerZoneGame('z21FSH', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   hud.left = { tex: HUD_TEX.CASTS, tint: WHITE };
   hud.right = { tex: HUD_TEX.FISH, tint: WHITE };
 
-  /** FUN_00705c64 (the FSwitch node's draw hook): the HUD texts, the counting score, the gauge */
-  const syncHud = () => {
-    const st = F.state;
-    hud.visible = st !== ST.DONE && st < ST.SCORE;
-    hud.leftText = `x${F.casts}`;
-    hud.rightText = `x${F.count}`;
-    hud.centreText = String(F.shown);
-    if (F.shown < F.total) {
-      F.shown = Math.trunc(Math.fround(F.shown + randF(S.rng, K.SCORE_STEP)));      // FUN_004388ae(20), fild + fadd (24-bit: rounded), __ftol
-      if (F.total < F.shown) F.shown = F.total;
-    }
-    if (st === ST.FIGHT || st === ST.CAST) {
-      hud.gauge = { value: st === ST.CAST ? F.power : F.tension, min: 0, max: K.GAUGE_MAX, segments: GAUGE_SEGMENTS, marker: st === ST.CAST ? HUD_TEX.MARKER_POWER : HUD_TEX.MARKER_TENSION, icon: -1 };
-    } else hud.gauge = null;
-  };
+  /** FUN_006f514c / FUN_00705c64 (the FSwitch node's draw hook, src/zones/z21fsh/nodes.ts `hudHook`): the HUD of mode 2 shows what the hook last wrote; the opening cutscene (mode 1) draws it too */
+  const syncHud = () => { hudHook(S, hud); };
 
   const game: ZoneGame = {
     config: { intro: true, help: true, skipBanner: true },
@@ -166,12 +152,15 @@ registerZoneGame('z21FSH', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
     /** the opening cutscene runs in mode 1 (FUN_0045c402 every frame; the rod follows the actor's hand: FUN_0042226e(RODD, 1)) */
     introHold: () => ctx.cutscene.active(),
     introTick() {
+      // mode 1 draws the HUD (FUN_0046055f) only while the opening cutscene runs: the icons with empty texts (the hook has not run yet)
+      hud.visible = ctx.cutscene.active();
       if (ctx.cutscene.active()) { ctx.cutscene.tick(); tickRod(world); }
     },
     beforeTick() { if (ctx.cutscene.active()) ctx.cutscene.tick(); },
-    onStart() { /* the zone's music runs from the zone entry */ },
+    onStart() { hud.visible = true; },        // mode 2 draws the HUD every tick (FUN_0046055f), also at state 13 / 14 / 0 where the hook no longer updates it
     update() {
       syncHud();
+      if (S.result) hud.visible = false;      // the result menu (mode 5) does not draw it
       return S.result || undefined;
     },
     draw2d(ui: Ui2D, _dt: number, mode: number) {

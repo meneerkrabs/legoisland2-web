@@ -67,6 +67,8 @@ export class FshShared {
   env: FshEnv = silentEnv;
   rng: Rng = mathRng;
   tables: Tables | null = null;
+  /** _DAT_05d4e144: the HUD icon column's slot 0 texture the hook writes (not drawn here), null until the hook ran */
+  column0: number | null = null;
   fishing: FishingNode | null = null;
   bertha: BerthaNode | null = null;
   shoal: ShoalNode | null = null;
@@ -573,6 +575,37 @@ export class FishingNode extends FshNode implements FishingView {
       S.splash.on = true; S.splash.x = this.bx; S.splash.y = f32(K.SPLASH_LIFT + this.by); S.splash.z = this.bz;
     }
   }
+}
+
+// ------------------------------------------------------------------------------------------------ the HUD hook (FUN_006f514c -> FUN_00705c64)
+
+/** HUD texture indices of Overlays/Z21FSH (FUN_00705b60): left icon 4 (casts left), right icon 5 (fish caught), the gauge's segments 1 / 2 / 3, markers 6 (cast power) / 7 (tension), the icon column's slot 0: 8 */
+export const HUD_TEX = { CASTS: 4, FISH: 5, MARKER_POWER: 6, MARKER_TENSION: 7, COLUMN0: 8 } as const;
+export const GAUGE_SEGMENTS = [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3];
+/** what the hook writes (the shell's Hud has these members) */
+export interface HudLike {
+  leftText?: string; rightText?: string; centreText?: string;
+  gauge: { value: number; min: number; max: number; segments: number[]; marker: number; icon: number } | null;
+}
+/**
+ * FUN_006f514c: the draw hook of the FSwitch node runs FUN_00705c64 only while 0 < state < 13 (otherwise the HUD keeps what it shows): "x%d" casts left, "x%d" fish caught, "%d" the counting score
+ * (texts first, then the score moves up by FUN_004388ae(20)), the icon column's slot 0 (texture DAT_05d5cbd0 + 8 = 8, DAT_05d5cbd0 is never written: kept in `S.column0`; the column is not drawn in this zone), the gauge
+ * (state 7: the cast power with marker 6, state 11: the tension with marker 7; off in the other states).
+ */
+export function hudHook(S: FshShared, hud: HudLike) {
+  const F = S.fishing;
+  if (!F || !(F.state < 13 && F.state !== 0)) return;
+  hud.leftText = `x${F.casts}`;
+  hud.rightText = `x${F.count}`;
+  hud.centreText = String(F.shown);
+  if (F.shown < F.total) {
+    F.shown = Math.trunc(f32(F.shown + randF(S.rng, K.SCORE_STEP)));      // FUN_004388ae(20), fild + fadd (24-bit: rounded), __ftol
+    if (F.total < F.shown) F.shown = F.total;
+  }
+  S.column0 = HUD_TEX.COLUMN0;      // written, never drawn: the column's enable flag DAT_05d4e13c is only set by the island / hub HUD set-ups, not by this zone
+  if (F.state === ST.FIGHT || F.state === ST.CAST) {
+    hud.gauge = { value: F.state === ST.CAST ? F.power : F.tension, min: 0, max: K.GAUGE_MAX, segments: GAUGE_SEGMENTS, marker: F.state === ST.CAST ? HUD_TEX.MARKER_POWER : HUD_TEX.MARKER_TENSION, icon: -1 };
+  } else hud.gauge = null;
 }
 
 // ------------------------------------------------------------------------------------------------ the switch (FUN_006f51e6 / FUN_006f4bfa)

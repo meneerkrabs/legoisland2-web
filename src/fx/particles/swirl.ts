@@ -91,7 +91,7 @@ function placePoint(p: { rec: Rec; mov: Rec }, m: Float32Array, dt: number): voi
   const f = p.rec.f, a = f[0x154 >> 2], r = f[0x14c >> 2];
   const v = new Float32Array([Math.sin(a) * r, Math.cos(a) * r, 0]);
   transformPoint(p.mov.f.subarray(MV.POS, MV.POS + 3) as Float32Array, 0, m, 0, v, 0);
-  f[0x154 >> 2] = f[0x158 >> 2] * dt + f[0x154 >> 2];
+  f[0x154 >> 2] = f32(f32(f[0x158 >> 2] * dt) + f[0x154 >> 2]);
 }
 
 /** FUN_004517f0 */
@@ -106,9 +106,9 @@ export function updateSwirl(s: Swirl, eng: EngineHost): void {
         const p = r.pool.alloc()!;
         if (r.app) p.app.u8.set(r.app.u8.subarray(0, APP_SIZE));
         matIdentity(p.mov.f.subarray(0xac >> 2, 0xac / 4 + 16) as Float32Array, 0);
-        const life = ((ps.rnd() * p.emi.f[0x5c >> 2]) + p.emi.f[0x58 >> 2]) * 30;
+        const life = f32(f32(f32(ps.rnd() * p.emi.f[0x5c >> 2]) + p.emi.f[0x58 >> 2]) * 30);
         p.rec.f[PT.LIFE_D] = life;
-        const inv = p.emi.u8[0x54] === 0 ? 1.0 / (life + 1.0) : 1.0;
+        const inv = p.emi.u8[0x54] === 0 ? f32(1.0 / f32(life + 1.0)) : 1.0;
         p.rec.f[PT.INVLIFE_D] = inv;
         colourInit(p.app, inv, ps);
         alphaInit(p.app, p.rec.f[PT.INVLIFE_D], ps);
@@ -116,7 +116,7 @@ export function updateSwirl(s: Swirl, eng: EngineHost): void {
         spriteInit(p.app, ps);
         p.mov.u8[0x137] = 1;
         p.rec.f[0x14c >> 2] = r.f[4];
-        p.rec.f[0x154 >> 2] = j * step + yaw;
+        p.rec.f[0x154 >> 2] = f32(f32(j * step) + yaw);
         p.rec.f[0x158 >> 2] = r.i[2] * r.f[3];
       }
     }

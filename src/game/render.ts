@@ -470,6 +470,7 @@ export class GameRenderer {
     const viewProj = mul(view, projection(setup, aspect));
     r.begin(setup.clear, viewProj);
     this.planes = clipPlanes(viewProj, this.planes ?? new Float32Array(24));
+    this.lastViewProj = viewProj;
     this.backdrop?.(r, eye, [fx, fy, fz]);
     const range = Math.min(setup.far, setup.fog.enabled ? setup.fog.end : setup.far);
     const seaLevel = world.seaLevel;
@@ -551,6 +552,7 @@ export class GameRenderer {
       const fogKeep = r.fog;
       if (domeOn) r.fog = { ...fogKeep, enabled: false };     // FUN_00442d50(0)
       r.drawMesh(drawMesh, world_, (g) => this.texFor(part, g, swap), opts);
+      if (this.trackWorld.has(rec)) this.lastWorld.set(rec, world_.slice());
       if (domeOn) r.fog = fogKeep;
       if (rv.attach.length && !bones) {
         if (rv.bindBones === undefined) {
@@ -577,7 +579,9 @@ export class GameRenderer {
           // attachments are drawn by FUN_0088b4c0 with mode 1: lit at every draw (static variant)
           const ao: DrawOpts = { mode: 1 };
           if (rv.face && rv.face.slot === at.slot) this.applyFace(rv, cp, li, ao);
-          r.drawMesh(cm, mul(loc ? mul(loc, bm) : bm, wm), (g) => this.texFor(cp, g), ao);
+          const am = mul(loc ? mul(loc, bm) : bm, wm);
+          r.drawMesh(cm, am, (g) => this.texFor(cp, g), ao);
+          if (this.trackWorld.has(rec)) this.lastWorld.set(rec, am.slice());
         }
       };
       drawAttach(world_);
@@ -620,6 +624,15 @@ export class GameRenderer {
     if (g.shiny !== m.shiny) this.renderer.setShiny(g, m.shiny);
     this.renderer.drawMesh(g, this.interp(rec, alpha).slice(), (q) => this.texFor(part, q), { mode: part.mode, skinned: false, noZ });
   }
+
+  /**
+   * The D3D world matrix a record's draw leaves behind = the matrix of the LAST mesh it drew (the base mesh, then its attachments in slot order: FUN_004440f0). Draw hooks that project a point afterwards
+   * (z09JST's aim marker FUN_005d2814: FUN_004445c0 with the local point (0, 0, 0)) read it. Only records in `trackWorld` are recorded; `lastWorld` holds the matrix of the last frame drawn.
+   */
+  readonly trackWorld = new Set<GameRecord>();
+  readonly lastWorld = new Map<GameRecord, Float32Array>();
+  /** the view * projection matrix of the last frame (D3D's transform state for a draw hook's FUN_004445c0 projection) */
+  lastViewProj: Float32Array = new Float32Array(16);
 
   /** a draw hook's direct draw of a record with live vertices (FUN_0043ebe0(model, 2, points, 0) + FUN_00444480(rec)), optionally with the z test off (FUN_0040cc4d(0)): z28HAT's balloon shadow */
   drawRecordLive(rec: GameRecord, verts: Float32Array, noZ: boolean) { this.drawLiveMesh(rec, verts, 1, noZ); }

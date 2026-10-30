@@ -47,7 +47,7 @@ export default {
       const t0 = Date.now();
       let sp = seed, so = seed;
       setRandomSource(() => { sp = nx(sp); return (sp >> 8 & 0x7fff) / 32768; });
-      const rngO = { range: (x) => { so = nx(so); return ((so >> 8 & 0x7fff) / 32767) * x; } };
+      const rngO = { range: (x) => { so = nx(so); return Math.fround(Math.fround((so >> 8 & 0x7fff) / 32767) * x); } };   // FUN_004388ae at 24-bit precision: the division and the product round to float32
       // ---- the port
       const L = loadZone(ctx, 'z40aPO');
       const W = L.world; W.dt = dt;

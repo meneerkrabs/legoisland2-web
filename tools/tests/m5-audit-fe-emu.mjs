@@ -16,10 +16,13 @@ import { FePepperNode, FeFigureNode, FeTrainNode, FeBricksterNode, feTables, rng
 
 /** a seeded rand(): the MSVC LCG (FUN_0085daf0: seed * 214013 + 2531011, bits 16..30) */
 class Lcg {
-  constructor(seed) { this.s = seed >>> 0; }
+  constructor(seed, exact = false) { this.s = seed >>> 0; this.exact = exact; }
   int() { this.s = (Math.imul(this.s, 214013) + 2531011) >>> 0; return (this.s >>> 16) & 0x7fff; }
   next() { return this.int() / 32767; }
-  range(x) { return x <= 0 ? 0 : this.next() * x; }
+  /** `exact`: FUN_004388ae(max) = (float)rand() / 32767 * max, both operations rounded to float32 (0 and no draw for max <= 0), as the island's rng.ts draws it; else the shell nodes' unrounded product */
+  range(x) { if (x <= 0) return 0; return this.exact ? Math.fround(Math.fround(this.int() / 32767) * Math.fround(x)) : this.next() * x; }
+  /** the same draw as the island rng's source value in [0, 1) (rng.ts: rand() = floor(v * 32768)) */
+  source() { return (this.int() + 0.5) / 32768; }
 }
 
 const NODE_RECORDS = [FE_REC.PEPPER, FE_REC.BRICKSTER, FE_REC.FIGURE, FE_REC.TRAIN];
@@ -150,10 +153,10 @@ export default {
       const portRecs = stage(), emuRecs = stage();
       const w = new World(); w.records = portRecs; w.ext.set('frustum', true); w.focus = portRecs[0];
       const inp = { pressed: 0 }; w.input = inp;
-      const rngP = new Lcg(seed), rngO = new Lcg(seed ^ 0x5a5a);
+      const rngP = new Lcg(seed), rngO = new Lcg(seed ^ 0x5a5a, true);
       const rngSim = new Lcg(seed + 1);
       rngO.s = rngP.s;                              // both draw the same sequence
-      setAmbientRandom(() => rngP.next());
+      setAmbientRandom(() => rngP.source());
       const emu = new FeEmu(pe, emuRecs.map((r) => ({ name: r.name, m: Array.from(r.m), flags: r.flags })), new Map(), { rng: rngO });
       const mem = emu.cpu.mem;
       const arg = emu.alloc(0x80); mem.wf32(arg, 8);
@@ -210,7 +213,7 @@ export default {
         }
         for (const i of ids) {
           const om = emu.matrix(i), pm = portRecs[i].m;
-          for (let k = 0; k < 16; k++) cmp(t, `bf${i}.m${k}`, om[k], pm[k], 2e-4);   // the butterflies are the island ButterflyNode (src/island, not exact at 24-bit yet: finding)
+          for (let k = 0; k < 16; k++) cmp(t, `bf${i}.m${k}`, om[k], pm[k], 0);   // the butterflies are the island ButterflyNode (src/island: float32 per operation since WP-ISLAND-FIX)
           const n = nodes.get('p' + i);
           cmp(t, `bf${i}.cnt`, emu.i(nodes.get(i) + 0x3c), n.cnt, 0);
           cmp(t, `bf${i}.cnt2`, emu.i(nodes.get(i) + 0x40), n.cnt2, 0);

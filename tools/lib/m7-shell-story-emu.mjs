@@ -3,7 +3,7 @@
 // 00404c07 (jump to a node), 00423bad (the per-frame check of the hubs / mini-games), 00404d14 (mini-game exit), 004176c1 (variable class), 004177ed (zone locals),
 // 0041ad43 (pending override), 0041adb5 (zone set-up: apply a load), 00419bb9 (load decision), 0041a8f9 (new game) and the zone loop FUN_00404dc9 itself. Hosted: the file
 // calls (the sw.dat snapshot is a host copy: FUN_00417820 writes it, FUN_0041786a reads it back), the zone run functions (scripted), the loop's engine calls.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const HEAP_BASE = 0x20000000;
 const CRT = [0x858d30, 0x873e00];
@@ -13,7 +13,7 @@ export const A = {
 
 export class StoryEmu {
   constructor(pe) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = (this.mem = cpu.mem);
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x400000, name: 'heap' });
     this.brk = HEAP_BASE;

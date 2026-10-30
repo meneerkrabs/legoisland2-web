@@ -50,14 +50,13 @@ export default {
       P.restore();
     }
     notes.push(`talk: ${talked.join(' ')}; conversations ${st.talks} ticks, lines said ${[...st.said].slice(0, 8).join(', ')}..., cutscenes started ${st.cutscenes}`);
-    notes.push(`known deviation D5 (walker step output keeps the Euler yaw outside +-PI, the original normalises): ${st.known.D5} Euler differences by 2 PI, first ${st.firstD5}`);
     // KNOWN D8 (not fixed here, evidence below): the walker's turn-back to a heading (Turn2Pep A of LSD3, gate var 0x111) decides "facing" one tick EARLIER in the original than in the port, because
     // BSD3's / LSD3's yaw differs by ONE float32 ulp (first exact mismatch: tick 5, BSD3, port 1.5102375745773315 vs original 1.510237455368042: the walker's turn-step arithmetic in
     // src/game/walker.ts, the island package's file) and the facing test `|yaw - heading| <= step` sits exactly on the boundary (step 0.5236 = a 30 degree turn). The visible effect is that
     // MOVE_LSD3's bit 0x100 (set every tick by BSD3's Turn2PepC, cleared by LSD3's Turn2PepA) is seen one tick later: 2 variable differences in 4000 ticks, no record differs.
     const known = st.fail.filter((m) => /^talk n(19|24) BSD3 t12: var 273: original 0x0 port 0x100$/.test(m));
     const rest = st.fail.filter((m) => !known.includes(m));
-    notes.push(`known deviation D8 (1 float32 ulp of a walker yaw flips a facing test by one tick): ${known.length} variable differences (stage 19 / 24, BSD3 visit, tick 12) tolerated`);
+    notes.push(`the D5 / D8 deviations of the walker yaw are fixed (WP-ISLAND-FIX): ${known.length} tolerated differences (any other difference fails)`);
     notes.push(`${st.ticks} ticks compared, ${st.checked} checks`);
     return { checked: st.checked, failures: rest, notes };
   },

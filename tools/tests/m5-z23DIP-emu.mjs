@@ -34,7 +34,7 @@ function terrainOf(seed) {
   };
 }
 
-export default {
+const inner = {
   name: 'm5-z23DIP-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -214,5 +214,16 @@ export default {
     }
     setIslandRandom(null);
     return { checked, failures, notes };
+  },
+};
+
+// the executable runs the x87 in 24-bit mode (Direct3D 7 leaves control word 0x7f): the emulator is created with it for this test only (the Cpu reads M7_CW when it is created; a
+// module-level assignment would leak into every test that runs later in the same process, e.g. the default-control-word test of x86emu)
+export default {
+  name: inner.name,
+  run(ctx) {
+    const old = process.env.M7_CW;
+    process.env.M7_CW = '127';
+    try { return inner.run(ctx); } finally { if (old === undefined) delete process.env.M7_CW; else process.env.M7_CW = old; }
   },
 };

@@ -11,7 +11,7 @@ import { startDuel, readTables, checkRecords, giveAnimations, JstGameNode, FlagN
 import { JoustDuel, MsvcRng, bspline, ST } from '../../src/zones/z09jst/duel.ts';
 import { MfigMan } from '../../src/zones/z09jst/mfig.ts';
 import { CTOR, REC, NAMES, K, S2D, S3D, SAY, VAR, RIG_OF, START_CLIPS, SPECTATORS, ALL_2D, ALL_3D, hexf, readClipTable, TABLE_PLAYER_VA, TABLE_ENEMY_VA } from '../../src/zones/z09jst/consts.ts';
-import { project, markerSegments } from '../../src/zones/z09jst/game.ts';
+import { markLines, reticleLines, reticleMode } from '../../src/zones/z09jst/marker.ts';
 import { JoustSound } from '../../src/zones/z09jst/sound.ts';
 import { KEY, jstKeys } from '../lib/jst-bot.mjs';
 import { loadExe, loadZone } from '../lib/engine-load.mjs';
@@ -673,21 +673,14 @@ export default {
 
     // ============================================================================================================= the zone game's pure parts
     {
-      // projection: a point straight ahead is the screen centre, one to the right of the view is right of it, behind the camera: null
-      const c = [0, 0, 0, 0, 0, 10];
-      const p = project(c, 1.0, [0, 0, 20]);
-      ok(near(p[0], 320, 1e-6) && near(p[1], 240, 1e-6), 'project: straight ahead = the centre of the 640x480 grid');
-      const q = project(c, 1.0, [5, 3, 20]);
-      ok(q[0] > 320 && q[1] < 240, 'project: right and up of the view = right of and above the centre');
-      ok(project(c, 1.0, [0, 0, -5]) === null, 'project: behind the camera = null');
-      const t = Math.tan(0.5);
-      ok(near(project(c, 1.0, [0, t * 20, 20])[1], 0, 1e-6), 'project: the top edge at tan(fov / 2) * distance (vertical field of view 1.0)');
-      ok(near(project(c, 1.0, [t * 20 * (4 / 3), 0, 20])[0], 640, 1e-6), 'project: 4:3');
-      const segs = markerSegments(100, 100, 20);
-      ok(segs.length === 8 && segs.every((s) => Math.abs(s[0] - 100) <= 20 && Math.abs(s[2] - 100) <= 20 && Math.abs(s[1] - 100) <= 20 && Math.abs(s[3] - 100) <= 20), 'marker: 8 corner segments within +-20');
-      ok(segs[0].join() === [80, 100 - 20 / 3, 80, 80].join() && segs[3].join() === [120, 80, 120, 100 - 20 / 3].join() && segs[4].join() === [120, 100 + 20 / 3, 120, 120].join(), 'marker segments: the short third of each side at the corners');
-      const sum = (a) => a.reduce((s, v) => s + Math.hypot(v[2] - v[0], v[3] - v[1]), 0);
-      ok(near(sum(segs), 8 * (20 - 20 / 3), 1e-6), 'marker: 8 segments of 2/3 of the half size');
+      // the marker FUN_005d2814: 2 marks x 8 lines; the short part of a side is the INTEGER size / 3 (6 for 20, 10 for 30); white 20, yellow 30 (red inside sqrt(40)); not in the modes 3 / 9
+      const segs = markLines(100, 100, 20, 0xffffffff);
+      ok(segs.length === 8 && segs.every((s) => Math.abs(s.x0 - 100) <= 20 && Math.abs(s.x1 - 100) <= 20 && Math.abs(s.y0 - 100) <= 20 && Math.abs(s.y1 - 100) <= 20), 'marker: 8 corner segments within +-20');
+      ok([segs[0].x0, segs[0].y0, segs[0].x1, segs[0].y1].join() === [80, 94, 80, 80].join() && [segs[3].x0, segs[3].y0, segs[3].x1, segs[3].y1].join() === [120, 80, 120, 94].join() && [segs[4].x0, segs[4].y0, segs[4].x1, segs[4].y1].join() === [120, 106, 120, 120].join(), 'marker segments: the short part is the int 20 / 3 = 6 at the corners');
+      const L = reticleLines(300, 200, 3, 4), M = reticleLines(300, 200, 7, 0);
+      ok(L.length === 16 && L[0].color === 0xffffffff && L[8].color === 0xffff0000 && M[8].color === 0xffffff00, 'marker: 16 lines, white fixed marks, the aim marks red inside the squared radius 40 (3^2 + 4^2 = 25), else yellow (49)');
+      ok(L[8].x0 === 300 + 3 - 30 && L[8].y0 === 200 + 4 - 10 && L[8].y1 === 200 + 4 - 30, 'marker: the aim marks are centred on the projected point + the aim, short part 30 / 3 = 10');
+      ok(reticleMode(2) && reticleMode(1) && reticleMode(4) && !reticleMode(3) && !reticleMode(9), 'marker: drawn in every loop mode except 3 (pause) and 9 (controls help)');
     }
     // the sound layer on a fake sound engine: every sound of FUN_005d24b0 is loaded (17 2D with load2D, 26 3D with load3D) and the calls reach the engine
     {

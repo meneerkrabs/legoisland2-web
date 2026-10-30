@@ -33,7 +33,8 @@ export default {
       let sp = seed, so = seed;
       const nx = (s) => (Math.imul(s, 1103515245) + 12345) & 0x7fffffff;
       const portRng = () => { sp = nx(sp); return ((sp >> 8) & 0x7fff) / 32768; };
-      const rngO = { range: (x) => { so = nx(so); return (((so >> 8) & 0x7fff) / 32767) * x; } };
+      // FUN_004388ae at 24-bit precision (control word 0x7f): `rand() / 32767` and the product with `x` each round to float32
+      const rngO = { range: (x) => { so = nx(so); return f32(f32(((so >> 8) & 0x7fff) / 32767) * x); } };
       // ---- the port (its constructors draw the asteroids' random speeds first: 28 numbers)
       setRandomSource(portRng);
       const L = loadZone(ctx, 'z40aPO');
@@ -76,7 +77,7 @@ export default {
       const nf = (o) => mem.f32(node + o), ni = (o) => mem.r32(node + o) | 0;
       const hudP = new ApoHud();
 
-      const TOLK = +(process.env.APO_TOL ?? 0.02);
+      const TOLK = +(process.env.APO_TOL ?? 0);       // bit exact: the port rounds every operation like the 24-bit x87 (APO_TOL scales the old tolerances for comparisons)
       const cmp = (tick, name, orig, port, tol = 2e-3) => {
         tol *= TOLK;
         checked++;
@@ -116,7 +117,7 @@ export default {
           const a = RECORDS_BASE + i * REC, r = W.records[i], name = r.name;
           const isPilot = i === 6 || name === 'SHTL' || name === 'PARA';
           for (const k of (isPilot || full) ? [...Array(16).keys()] : [12, 13, 14]) cmp(T, `${name} m[${k}]`, mem.f32(a + 0xc + 4 * k), r.m[k]);
-          if (isPilot) { cmp(T, `${name} rx`, mem.f32(a + 0x4c), r.rx); cmp(T, `${name} ry`, mem.f32(a + 0x50), r.ry); cmp(T, `${name} rz`, mem.f32(a + 0x54), r.rz); }
+          if (isPilot || name.startsWith('RK')) { cmp(T, `${name} rx`, mem.f32(a + 0x4c), r.rx); cmp(T, `${name} ry`, mem.f32(a + 0x50), r.ry); cmp(T, `${name} rz`, mem.f32(a + 0x54), r.rz); }
           eq(T, `${name} enabled`, mem.r16(a + 0x60) & 2, r.flags & 2);
         }
         // the wing's scale (the port keeps it in the record; the original in the node)
@@ -142,7 +143,7 @@ export default {
         eq(T, 'HUD group icons / tints', [0x5d4e144, 0x5d4e14c, 0x5d4e154].map((a) => mem.r32(a)).join() + '/' + [0x5d4e148, 0x5d4e150, 0x5d4e158].map((a) => mem.r32(a) >>> 0).join(), hf.groups.join() + '/' + hf.tints.join());
         eq(T, 'HUD wing icon', mem.r32(0x5d4dd38) | 0, hf.chuteIcon);
         eq(T, 'HUD gauge segments', Array.from({ length: 12 }, (_, i) => mem.r32(0x5d4e0c8 + i * 8) | 0).join(), hf.gauge.segments.join());
-        cmp(T, 'HUD gauge marker', Math.min(1, Math.max(0, mem.f32(0x5d4e138) / 204)), hf.gauge.marker, 1e-3);
+        cmp(T, 'HUD gauge marker', Math.min(1, Math.max(0, f32(mem.f32(0x5d4e138) / 204))), hf.gauge.marker, 1e-3);
         for (let g = 0; g < 3; g++) cmp(T, `HUD spin ${g}`, mem.f32(0x94a0d8 - 4 * g), hudP.spin[g], 1e-6);
         // the camera
         for (let k = 0; k < 6; k++) cmp(T, `camera[${k}]`, mem.f32(0x9da5e8 + 4 * k), W.camera.c[k], 1e-3);

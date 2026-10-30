@@ -6,6 +6,7 @@ import { JstEmu } from '../lib/jst-emu.mjs';
 import { jstKeys, KEY } from '../lib/jst-bot.mjs';
 import '../../src/zones/z09JST.ts';
 import { startDuel, giveAnimations, INTRO_CAMERA } from '../../src/zones/z09jst/rig.ts';
+import { reticleLines, reticleMode } from '../../src/zones/z09jst/marker.ts';
 import { MsvcRng } from '../../src/zones/z09jst/duel.ts';
 import { RIG_OF } from '../../src/zones/z09jst/consts.ts';
 import { popupLines, finalLines } from '../../src/zones/z09jst/screens.ts';
@@ -172,6 +173,32 @@ export default {
     // glancing blows without the wobble (aim squared distance 49), more tournaments with other seeds until every reaction was seen
     run('glance', 41, botKeys('glance'), 2200, () => false, flat);
     for (const seed of [2, 10, 12, 13]) { run(`win-s${seed}`, seed, botKeys('win'), 6000); run(`loss-s${seed}`, seed + 100, botKeys('loss'), 6000); }
+    // ---- the aim marker FUN_005d2814 run natively: the 16 lines (pixel coordinates, colours), the point it projects, the modes in which it draws
+    {
+      const L2 = loadZone(ctx, 'z09JST');
+      giveAnimations(L2.world, L2.archive);
+      const anims = new Map();
+      for (const i of Object.keys(RIG_OF)) anims.set(+i, L2.world.records[+i].anim);
+      const recs = L2.world.records.map((r) => ({ name: r.name, m: Array.from(r.m), flags: r.flags }));
+      const emu = new JstEmu(pe, recs, anims, { rng: new MsvcRng(5) });
+      emu.loadSounds(); emu.construct();
+      let s = 99, n = 0;
+      const rnd = () => { s = (Math.imul(s, 1103515245) + 12345) >>> 0; return s / 4294967296; };
+      const eqLine = (a, b) => a.x0 === b.x0 && a.y0 === b.y0 && a.x1 === b.x1 && a.y1 === b.y1 && a.color === b.color && a.color2 === b.color;
+      for (let k = 0; k < 400; k++) {
+        const o = { mode: [2, 2, 2, 1, 4, 5, 3, 9, 7][k % 9], reticle: k % 11 !== 0, aimX: Math.fround((rnd() - 0.5) * 24), aimY: Math.fround((rnd() - 0.5) * 24), visible: k % 7 !== 0, px: Math.fround(rnd() * 640), py: Math.fround(rnd() * 480), pz: 0.4 };
+        if (k % 5 === 0) { o.aimX = Math.fround((rnd() - 0.5) * 8); o.aimY = Math.fround((rnd() - 0.5) * 8); }
+        const r = emu.reticle(o);
+        const drawn = o.reticle && o.mode !== 3 && o.mode !== 9 && o.visible;
+        checked++;
+        if (r.projected.length !== (o.reticle && o.mode !== 3 && o.mode !== 9 ? 1 : 0) || (r.projected[0] && (r.projected[0][0] !== 0 || r.projected[0][1] !== 0 || r.projected[0][2] !== 0))) failures.push(`marker ${k}: projected points ${JSON.stringify(r.projected)} (mode ${o.mode}, reticle ${o.reticle}): the origin (0, 0, 0) of the last world matrix is projected once`);
+        const mine = reticleMode(o.mode) && o.reticle && o.visible ? reticleLines(o.px, o.py, o.aimX, o.aimY) : [];
+        checked++;
+        if (mine.length !== r.lines.length || mine.some((l, i) => !eqLine(r.lines[i], l))) { if (failures.length < 12) failures.push(`marker ${k}: lines differ: original ${JSON.stringify(r.lines.slice(0, 3))}... port ${JSON.stringify(mine.slice(0, 3))}...`); }
+        if (drawn) n++;
+      }
+      notes.push(`aim marker: ${n} drawn markers (16 lines each) compared with FUN_005d2814 run natively`);
+    }
     const want = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xb, 0xc, 0xe, 0xf, 0x10, 0x11, 0x12, 0x13, 0x14, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1f, 0x20, 0x21, 0x22, 0x23];
     const missing = want.filter((s) => !visited.has(s));
     notes.push(`particle calls compared with the original's: ${stats.fxCalls}`);

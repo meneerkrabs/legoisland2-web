@@ -11,9 +11,10 @@ import { B } from '../../game/input.ts';
 import { parRun, RING_HIT, RING_MISSED } from './par-run.ts';
 import type { ParRun } from './par-run.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
-import { TWO_PI, ftol, nameStarts, rand, reflect, segmentHitsRecordBox, steerYaw, transformPoint } from './util.ts';
+import { buildMatrixF32 } from '../../formats/matrixf32.ts';
+import { TWO_PI, ftol, nameStarts, rand, steerYaw, transformPoint } from './util.ts';
 import type { Vec3 } from './util.ts';
-import { shadowPoints } from './apo-pilot.ts';
+import { shadowPoints, reflect32, rockBoxHit } from './apo-pilot.ts';
 
 /** the node, the records and the locals of the original are 32-bit floats: every store rounds (the x87 computes the expression in extended precision, one rounding per store) */
 const f32 = Math.fround;
@@ -115,7 +116,7 @@ export class ParPilot implements BehaviourNode {
     const dTar3 = dist(R.targets[2]), dTar2 = dist(R.targets[1]), dTar1 = dist(R.targets[0]);   // local_cc / local_c4 / local_bc
     // the wind wanders: DAT_05d57d04 += (rand(2) - 1) / 32; the drift is the fall speed times the wind direction times 0.36
     run.windDir = f32(run.windDir + f32((rand(2) - 1) / 32));
-    const wm = buildMatrix(0, run.windDir, 0, 0, 0, 0);       // FUN_0043a5e4(local_144, 0, windDir, 0, 0, 0, 0): row 2 = the wind's direction
+    const wm = buildMatrixF32(0, run.windDir, 0, 0, 0, 0);    // FUN_0043a5e4(local_144, 0, windDir, 0, 0, 0, 0): row 2 = the wind's direction (sin / cos stored as float32 first)
     this.windX = f32(f32(this.fall * wm[8]) * PILOT.WIND_FACTOR);
     this.windZ = f32(f32(this.fall * wm[10]) * PILOT.WIND_FACTOR);
 
@@ -356,14 +357,14 @@ export class ParPilot implements BehaviourNode {
     if (!hit) {
       for (let i = 0; i < 3 && !bird; i++) {
         const b = R.birds[i];
-        if (b && segmentHitsRecordBox(b, prev, cur, point, normal)) bird = true;
+        if (b && rockBoxHit(b, prev, cur, point, normal, 1)) bird = true;      // FUN_00468590 (same code as FUN_007d3050 without the 1.2)
       }
     }
     if (!hit && !bird) return;
     const n: Vec3 = hit ? [hit.normal[0], hit.normal[1], hit.normal[2]] : normal;
-    if (n[0] === 0 && n[2] === 0) { n[0] = rand(2) - 1; n[2] = rand(2) - 1; }
-    reflect(delta, n, this.bounce);
-    this.bounce[1] = -0.2;
+    if (n[0] === 0 && n[2] === 0) { n[0] = f32(rand(2) - 1); n[2] = f32(rand(2) - 1); }
+    reflect32(delta, n, this.bounce);      // FUN_0043cfee: the node fields +0x78 / +0x7c / +0x80 are float32 (the dot product is stored as a float first)
+    this.bounce[1] = f32(-0.2);
     rec.anim?.start(CLIP.BOUNCE, 0);
     this.state = S.BOUNCE;
     if (!hit) snd.play('hitBird');

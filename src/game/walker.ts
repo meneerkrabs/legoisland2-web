@@ -923,8 +923,10 @@ export class WaypointSystem {
 
 /** yaw only matrix rebuild at the record's position (FUN_0043a5e4 / FUN_0043a4a1) */
 function setYaw(rec: WalkerRecord) {
-  if (rec.rebuildYaw) { rec.rebuildYaw(); return; }
-  rec.m.set(buildMatrix(rec.rx ?? 0, rec.ry, rec.rz ?? 0, rec.x, rec.y, rec.z));
+  // FUN_0043a4a1(rec + 0xc, +0x4c, +0x50, +0x54): the rotation from the record's own Euler angles (a record standing on a slope keeps its pitch / roll), the translation of the matrix kept
+  const set = (rec as { setEuler?: (rx: number, ry: number, rz: number, x: number, y: number, z: number) => void }).setEuler;
+  if (set) { set.call(rec, rec.rx ?? 0, rec.ry, rec.rz ?? 0, rec.m[12], rec.m[13], rec.m[14]); return; }
+  rec.m.set(buildMatrix(rec.rx ?? 0, rec.ry, rec.rz ?? 0, rec.m[12], rec.m[13], rec.m[14]));
 }
 
 /** the original's single table (globals at 0x5d4e1b0 / 0x5d500b0) */

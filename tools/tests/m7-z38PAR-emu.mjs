@@ -39,9 +39,9 @@ export default {
       let sp = seed, so = seed;
       const dr = { p: [], o: [] };
       setRandomSource(() => { sp = nx(sp); dr.p.push(sp >> 8 & 0x7fff); return (sp >> 8 & 0x7fff) / 32768; });
-      const rngO = { range: (x) => { if (x <= 0) return 0; so = nx(so); dr.o.push([so >> 8 & 0x7fff, x]); return ((so >> 8 & 0x7fff) / 32767) * x; } };
+      const rngO = { range: (x) => { if (x <= 0) return 0; so = nx(so); dr.o.push([so >> 8 & 0x7fff, x]); return Math.fround(Math.fround((so >> 8 & 0x7fff) / 32767) * x); } };   // FUN_004388ae at 24-bit precision: the division and the product round to float32
       // ---- the port
-      const L = loadZone(ctx, 'z38PAR');
+      const L = loadZone(ctx, 'z38PAR', { pe: loadExe(ctx.dataRoot) });
       const W = L.world; W.dt = dt;
       const run = startParRun(W, L.archive);
       const R = run.recs;
@@ -63,12 +63,12 @@ export default {
       wrap('at', (n, p) => plog.push(['p3', n, p[0], p[1], p[2]])); wrap('rate', (n, hz) => plog.push(['r', n, hz | 0]));
       run.say = (s) => { plog.push(['say', s]); return true; };
       // ---- the oracle world and the original
-      const L2 = loadZone(ctx, 'z38PAR');
+      const L2 = loadZone(ctx, 'z38PAR', { pe: loadExe(ctx.dataRoot) });
       giveAnimations(L2.world, L2.archive, 'PTER', 'PTER');
       const o2 = L2.world.records;
-      // the port's start-up makes the canopy record non-solid (startParRun: flags |= 0x10 | 0x8000); the oracle world is the loaded scene without that: UNCERTAIN whether the original's
-      // PARA (a zero-scale matrix until the chute opens) collides, see the notes
-      for (const r of o2) if (r.name === 'PARA') r.flags |= 0x10;
+      // the canopy record PARA keeps the scene's flags 2 in both worlds (PARA_Chute.col is header-only in the original's loader: no sweep finds a polygon, tools/tests/m8-para-collision.mjs)
+      for (const r of o2) if (r.name === 'SEAE') r.flags |= 0x10;       // the constructor of SeaAmin (FUN_004b1212: `flags |= 0x10`) is not run by the oracle: the port sets the bit in its first update, the oracle world gets it here
+      o2.find((r) => r.name === 'PARA').flags |= 0x8000;     // (the port's own 'zero scale, do not draw' bit, as startParRun sets it)
       const pi = R.pepp.index;
       const anims = new Map([[pi, o2[pi].anim]]);
       for (const r of o2) if (r.name === 'PTER') anims.set(r.index, r.anim);
@@ -234,7 +234,7 @@ export default {
       } else if (s.state === 3) mask |= parBotStep(s, { land: 3 });
       return mask;
     };
-    const Lq = loadZone(ctx, 'z38PAR');
+    const Lq = loadZone(ctx, 'z38PAR', { pe: loadExe(ctx.dataRoot) });
     const rec = (n, k = 0) => Lq.world.records.filter((r) => r.name === n)[k];
     /** a staged start `d` metres from a record, `up` above it, from the bearing `deg`, heading at it */
     const at = (r, d, up, deg) => { const a = (deg * Math.PI) / 180, x = r.x + d * Math.sin(a), z = r.z + d * Math.cos(a); return { pos: [x, r.y + up, z], ry: Math.atan2(r.x - x, r.z - z), rx: 0.785 }; };
@@ -284,7 +284,7 @@ export default {
 
     // ---- FUN_00468590 (the segment against a pterodactyl's box) run natively on random segments, against `segmentHitsRecordBox`
     {
-      const Lf = loadZone(ctx, 'z38PAR'), o3 = Lf.world.records;
+      const Lf = loadZone(ctx, 'z38PAR', { pe: loadExe(ctx.dataRoot) }), o3 = Lf.world.records;
       giveAnimations(Lf.world, Lf.archive, 'PTER', 'PTER');
       const pidx = o3.findIndex((r) => r.name === 'PEPP');
       const emu = new ParWorldEmu(pe, { world: Lf.world, records: o3, anims: new Map([[pidx, o3[pidx].anim]]), pepperIndex: pidx }, { rng: { range: () => 0 }, dt: 1, nodeRecords: {}, shadow: () => null });
@@ -318,7 +318,7 @@ export default {
 
     // ---- the end of a game: the loop's case 2 (FUN_00465d39 0x466127 ..) run from the middle of the function on a prepared frame, against `parFinish` / `parResultSpeech`
     {
-      const Le = loadZone(ctx, 'z38PAR');
+      const Le = loadZone(ctx, 'z38PAR', { pe: loadExe(ctx.dataRoot) });
       const pidx = Le.world.records.findIndex((r) => r.name === 'PEPP');
       const emu = new ParWorldEmu(pe, { world: Le.world, records: Le.world.records, anims: new Map([[pidx, Le.world.records[pidx].anim]]), pepperIndex: pidx }, { rng: { range: () => 0 }, dt: 1, nodeRecords: {}, shadow: () => null });
       let n = 0;

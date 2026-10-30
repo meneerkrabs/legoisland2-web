@@ -4,7 +4,7 @@
 //
 // Every statement was checked against the disassembly; the order of the random table draws is the order of the original (the oracle test compares the table
 // index as well as every byte of the records).
-import { type Rec, ftol, type PState, U_TABLE, V_TABLE } from './core.ts';
+import { type Rec, ftol, r24, type PState, U_TABLE, V_TABLE } from './core.ts';
 import type { ParDef, ParticleDefs } from './defs.ts';
 import { AP, EM, BK, MV, PT, APP_SIZE, EMI_SIZE, MOV_SIZE } from './layout.ts';
 import { Block, type Particle, Pool } from './pool.ts';
@@ -101,39 +101,39 @@ export class Source implements ActionHost {
 export function colourInit(a: Rec, inv: number, ps: PState): void {
   const ai = a.i, af = a.f;
   if (0 <= af[AP.VSCOL]) {
-    const m = ps.rnd() * af[AP.VSCOL] + (1.0 - af[AP.VSCOL]);
-    ai[AP.CR] = ftol(ai[AP.CR] * m); ai[AP.CG] = ftol(ai[AP.CG] * m); ai[AP.CB] = ftol(ai[AP.CB] * m);
+    const m = f32(f32(ps.rnd() * af[AP.VSCOL]) + f32(1.0 - af[AP.VSCOL]));
+    ai[AP.CR] = ftol(f32(ai[AP.CR] * m)); ai[AP.CG] = ftol(f32(ai[AP.CG] * m)); ai[AP.CB] = ftol(f32(ai[AP.CB] * m));
   }
   if (0 <= af[AP.VECOL]) {
-    const m = ps.rnd() * af[AP.VECOL] + (1.0 - af[AP.VECOL]);
-    ai[AP.ER] = ftol(ai[AP.ER] * m); ai[AP.EG] = ftol(ai[AP.EG] * m); ai[AP.EB] = ftol(ai[AP.EB] * m);
+    const m = f32(f32(ps.rnd() * af[AP.VECOL]) + f32(1.0 - af[AP.VECOL]));
+    ai[AP.ER] = ftol(f32(ai[AP.ER] * m)); ai[AP.EG] = ftol(f32(ai[AP.EG] * m)); ai[AP.EB] = ftol(f32(ai[AP.EB] * m));
   }
-  ai[AP.DR] = ftol((ai[AP.ER] - ai[AP.CR]) * inv);
-  ai[AP.DG] = ftol((ai[AP.EG] - ai[AP.CG]) * inv);
-  ai[AP.DB] = ftol((ai[AP.EB] - ai[AP.CB]) * inv);
+  ai[AP.DR] = ftol(f32((ai[AP.ER] - ai[AP.CR]) * inv));
+  ai[AP.DG] = ftol(f32((ai[AP.EG] - ai[AP.CG]) * inv));
+  ai[AP.DB] = ftol(f32((ai[AP.EB] - ai[AP.CB]) * inv));
 }
 
 /** the alpha part that follows FUN_00453220 in FUN_00452300 / FUN_00453410 (`inv` is the float32 loaded back from the particle) */
 export function alphaInit(a: Rec, inv: number, ps: PState): void {
   const ai = a.i, af = a.f;
-  if (0 <= af[AP.VSALPHA]) ai[AP.CA] = ftol(((ps.rnd() * af[AP.VSALPHA]) + (1.0 - af[AP.VSALPHA])) * ai[AP.CA]);
-  if (0 <= af[AP.VEALPHA]) ai[AP.EA] = ftol(((ps.rnd() * af[AP.VEALPHA]) + (1.0 - af[AP.VEALPHA])) * ai[AP.EA]);
-  ai[AP.DA] = ftol((ai[AP.EA] - ai[AP.CA]) * inv);
+  if (0 <= af[AP.VSALPHA]) ai[AP.CA] = ftol(f32(f32(f32(ps.rnd() * af[AP.VSALPHA]) + f32(1.0 - af[AP.VSALPHA])) * ai[AP.CA]));
+  if (0 <= af[AP.VEALPHA]) ai[AP.EA] = ftol(f32(f32(f32(ps.rnd() * af[AP.VEALPHA]) + f32(1.0 - af[AP.VEALPHA])) * ai[AP.EA]));
+  ai[AP.DA] = ftol(f32((ai[AP.EA] - ai[AP.CA]) * inv));
 }
 
 /** FUN_00453360(app, inv): size variation and size change per tick */
 export function sizeInit(a: Rec, inv: number, ps: PState): void {
   const af = a.f;
-  if (0 <= af[AP.VSSIZE]) af[AP.SIZE] = ((ps.rnd() * af[AP.VSSIZE]) + (1.0 - af[AP.VSSIZE])) * af[AP.SIZE];
-  if (0 <= af[AP.VESIZE]) af[AP.ESIZE] = ((ps.rnd() * af[AP.VESIZE]) + (1.0 - af[AP.VESIZE])) * af[AP.ESIZE];
-  af[AP.DSIZE] = (af[AP.ESIZE] - af[AP.SIZE]) * inv;
+  if (0 <= af[AP.VSSIZE]) af[AP.SIZE] = f32(f32(f32(ps.rnd() * af[AP.VSSIZE]) + f32(1.0 - af[AP.VSSIZE])) * af[AP.SIZE]);
+  if (0 <= af[AP.VESIZE]) af[AP.ESIZE] = f32(f32(f32(ps.rnd() * af[AP.VESIZE]) + f32(1.0 - af[AP.VESIZE])) * af[AP.ESIZE]);
+  af[AP.DSIZE] = f32(f32(af[AP.ESIZE] - af[AP.SIZE]) * inv);
 }
 
 /** FUN_00451ca0(app): pick the sprite (`ftol((e - s + 1) * rnd) + s`) and its four corner texture coordinates. (The mirror modes of DAT_05d478f8 are dead code: the variable is never written.) */
 export function spriteInit(a: Rec, ps: PState): void {
   const ai = a.i, af = a.f;
   const s = ai[AP.SPRITE], e = ai[AP.ESPRITE];
-  ai[AP.SPRITE] = (ftol((e - s + 1) * ps.rnd()) + s) | 0;   // note: the random draw happens first (idx++), then the multiplication
+  ai[AP.SPRITE] = (ftol(f32((e - s + 1) * ps.rnd())) + s) | 0;   // note: the random draw happens first (idx++), then the multiplication
   const n = ai[AP.SPRITE];
   const col = n & 7, row = n >> 3;
   const u0 = U_TABLE[col], u1 = U_TABLE[col + 1], vA = V_TABLE[row], vB = V_TABLE[row + 1];
@@ -158,7 +158,7 @@ function coneDirection(emi: Rec, mov: Rec, ps: PState): void {
   const m = new Float32Array(16);
   matIdentity(m);
   const a = ps.rnd();
-  matRotY(m, 0, f32((emi.f[EM.INC] - emi.f[EM.EXC]) * a + emi.f[EM.EXC]));
+  matRotY(m, 0, f32(f32(f32(emi.f[EM.INC] - emi.f[EM.EXC]) * a) + emi.f[EM.EXC]));
   matRotZ(m, 0, f32(ps.rnd() * TWO_PI32));
   mov.f[MV.DIR] = m[8]; mov.f[MV.DIR + 1] = m[9]; mov.f[MV.DIR + 2] = m[10];
 }
@@ -171,14 +171,14 @@ export function emitPrimitive(blk: Block, emi: Rec, mov: Rec, ps: PState): void 
   const pos = MV.POS;
   switch (Pi[PRIM_D]) {
     case 1: {                                                                          // Line: FUN_00456f00
-      const dx = P[q(0x28)] - P[q(0x1c)];
+      const dx = f32(P[q(0x28)] - P[q(0x1c)]);
       const dy = f32(P[q(0x2c)] - P[q(0x20)]);
       const dz = f32(P[q(0x30)] - P[q(0x24)]);
       const r = ps.rnd();
       const yy = f32(r * dy), zz = f32(r * dz);
-      mov.f[pos] = dx * r + P[q(0x1c)];
-      mov.f[pos + 1] = yy + P[q(0x20)];
-      mov.f[pos + 2] = zz + P[q(0x24)];
+      mov.f[pos] = f32(f32(dx * r) + P[q(0x1c)]);
+      mov.f[pos + 1] = f32(yy + P[q(0x20)]);
+      mov.f[pos + 2] = f32(zz + P[q(0x24)]);
       coneDirection(emi, mov, ps);
       break;
     }
@@ -206,20 +206,20 @@ export function emitPrimitive(blk: Block, emi: Rec, mov: Rec, ps: PState): void 
       break;
     }
     case 3: {                                                                          // Ring: FUN_00457140
-      if (Pi[q(0x20)] !== 0xd) P[q(0x28)] = ps.rnd() * TWO_PI32 - PI32;
+      if (Pi[q(0x20)] !== 0xd) P[q(0x28)] = f32(f32(ps.rnd() * TWO_PI32) - PI32);
       else {
-        const v = POINTS[Pi[q(0x30)]] + P[q(0x2c)] + P[q(0x28)];
+        const v = f32(f32(POINTS[Pi[q(0x30)]] + P[q(0x2c)]) + P[q(0x28)]);
         P[q(0x28)] = v;
-        if (v > PI32) P[q(0x28)] = v - TWO_PI32;
-        else if (v < -PI32) P[q(0x28)] = v + TWO_PI32;
+        if (v > PI32) P[q(0x28)] = f32(v - TWO_PI32);
+        else if (v < -PI32) P[q(0x28)] = f32(v + TWO_PI32);
       }
       const m = new Float32Array(16);
       matIdentity(m);
       const a = ps.rnd();
-      matRotY(m, 0, f32((emi.f[EM.INC] - emi.f[EM.EXC]) * a + emi.f[EM.EXC]));
+      matRotY(m, 0, f32(f32(f32(emi.f[EM.INC] - emi.f[EM.EXC]) * a) + emi.f[EM.EXC]));
       matRotZ(m, 0, P[q(0x28)]);
       mov.f[MV.DIR] = m[8]; mov.f[MV.DIR + 1] = m[9]; mov.f[MV.DIR + 2] = m[10];
-      const idx = ftol((P[q(0x28)] + PI32) * INV_TWO_PI32 * 256);
+      const idx = ftol(f32(f32(f32(P[q(0x28)] + PI32) * INV_TWO_PI32) * 256));
       mov.f[pos] = ps.mem[idx] * P[q(0x24)];
       mov.f[pos + 1] = ps.mem[256 + idx] * P[q(0x24)];
       mov.f[pos + 2] = 0;
@@ -234,18 +234,18 @@ export function emitPrimitive(blk: Block, emi: Rec, mov: Rec, ps: PState): void 
       const m = new Float32Array(16);
       matIdentity(m);
       const a = ps.rnd();
-      matRotY(m, 0, f32((emi.f[EM.INC] - emi.f[EM.EXC]) * a + emi.f[EM.EXC]));
+      matRotY(m, 0, f32(f32(f32(emi.f[EM.INC] - emi.f[EM.EXC]) * a) + emi.f[EM.EXC]));
       matRotZ(m, 0, f32(ps.rnd() * TWO_PI32));
       mov.f[MV.DIR] = m[8]; mov.f[MV.DIR + 1] = m[9]; mov.f[MV.DIR + 2] = m[10];
       break;
     }
     default: {                                                                         // Box: FUN_00456de0
       const r1 = ps.rnd();
-      const X = f32((r1 * P[q(0x1c)]) * 2 - P[q(0x1c)]);
+      const X = f32(f32(f32(r1 * P[q(0x1c)]) * 2) - P[q(0x1c)]);
       const r2 = ps.rnd();
-      const Y = f32((r2 * P[q(0x20)]) * 2 - P[q(0x20)]);
+      const Y = f32(f32(f32(r2 * P[q(0x20)]) * 2) - P[q(0x20)]);
       const r3 = ps.rnd();
-      const Z = f32((r3 * P[q(0x24)]) * 2 - P[q(0x24)]);
+      const Z = f32(f32(f32(r3 * P[q(0x24)]) * 2) - P[q(0x24)]);
       mov.f[pos] = X; mov.f[pos + 1] = Y; mov.f[pos + 2] = Z;
       coneDirection(emi, mov, ps);
     }
@@ -298,8 +298,8 @@ export function initSource(src: Source, script: ParDef | null, matrix: MatrixSou
 function emissionScale(src: Source, eng: EngineHost): number {
   if (!eng.lod) return 1.0;
   const m = src.parent(eng.identity);
-  const dx = m[12] - eng.camera[0], dy = m[13] - eng.camera[1], dz = m[14] - eng.camera[2];
-  const dist = Math.sqrt(dz * dz + dy * dy + dx * dx);
+  const dx = f32(m[12] - eng.camera[0]), dy = f32(m[13] - eng.camera[1]), dz = f32(m[14] - eng.camera[2]);
+  const dist = f32(Math.sqrt(f32(f32(f32(dz * dz) + f32(dy * dy)) + f32(dx * dx))));
   // thresholds DAT_05d37070 / 74 / 78 = 50 / 25 / 15 (x 8)
   if (!(dist <= 50 * 8)) return 0;
   if (!(dist <= 25 * 8)) return 0.25;
@@ -335,9 +335,9 @@ function applyOverrides(src: Source): void {
 /** random factor `rnd * dev + base` applied to the three physics fields of a new particle and the gravity deviation */
 function randomiseMovement(mov: Rec, ps: PState): void {
   const f = mov.f;
-  f[MV.AIR] = ps.rnd() * f[MV.DAIR] + f[MV.AIR];
-  f[MV.GROUND] = ps.rnd() * f[MV.DGROUND] + f[MV.GROUND];
-  f[MV.BOUNCE] = ps.rnd() * f[MV.DBOUNCE] + f[MV.BOUNCE];
+  f[MV.AIR] = f32(f32(ps.rnd() * f[MV.DAIR]) + f[MV.AIR]);
+  f[MV.GROUND] = f32(f32(ps.rnd() * f[MV.DGROUND]) + f[MV.GROUND]);
+  f[MV.BOUNCE] = f32(f32(ps.rnd() * f[MV.DBOUNCE]) + f[MV.BOUNCE]);
 }
 
 export function updateSource(src: Source, eng: EngineHost): void {
@@ -351,7 +351,7 @@ export function updateSource(src: Source, eng: EngineHost): void {
     matMul(src.world, 0, src.parent(eng.identity), 0, src.local, 0);
     const v = src.vel;
     v[0] = src.prevWorld[12] - src.world[12]; v[1] = src.prevWorld[13] - src.world[13]; v[2] = src.prevWorld[14] - src.world[14];
-    const len = Math.sqrt(v[2] * v[2] + v[1] * v[1] + v[0] * v[0]);
+    const len = f32(Math.sqrt(f32(f32(f32(v[2] * v[2]) + f32(v[1] * v[1])) + f32(v[0] * v[0]))));
     src.speed = len;
     if (!(len <= 15)) {
       src.speed = 15;
@@ -372,13 +372,13 @@ function emit(src: Source, eng: EngineHost, scale: number): void {
   const tm = src.tmpl;
   const E = tm.emi, TF = tm.rec.f;
   // accumulated fractional count
-  TF[BK.ACC_D] = (ps.rnd() * E.f[EM.DDENS] + E.f[EM.DENS]) * dt + TF[BK.ACC_D];
-  let n = ftol(scale * TF[BK.ACC_D]);
+  TF[BK.ACC_D] = f32(f32(f32(f32(ps.rnd() * E.f[EM.DDENS]) + E.f[EM.DENS]) * dt) + TF[BK.ACC_D]);
+  let n = ftol(f32(scale * TF[BK.ACC_D]));
   const room = E.i[EM.MAX] - tm.rec.i[BK.COUNT_D];
   if (n >= room) n = room;
   TF[BK.ACC_D] = TF[BK.ACC_D] - n;
   // movement dependent extra
-  let total = ftol((E.f[EM.DENS] * dt + n) * src.speed) + n;
+  let total = ftol(f32(f32(f32(E.f[EM.DENS] * dt) + n) * src.speed)) + n;
   if (total >= E.i[EM.MAX]) total = E.i[EM.MAX];
   while (total > 0) {
     const p = tm.allocParticle();
@@ -401,10 +401,10 @@ function spawn(src: Source, eng: EngineHost, p: Particle): void {
   const app = p.app, emi = p.emi, mov = p.mov;
   if (app.i[AP.USEMODEL] !== 0) throw new Error('particle models (iUseModel) are not supported: the shipped effects never use them');
   // life
-  const lifeD = ((ps.rnd() * emi.f[EM.DLIFE]) + emi.f[EM.LIFE]) * 30;
+  const lifeD = f32(f32(f32(ps.rnd() * emi.f[EM.DLIFE]) + emi.f[EM.LIFE]) * 30);
   pf[PT.LIFE_D] = lifeD;
   let inv: number;
-  if (emi.u8[EM.IMMORTAL_B] !== 0) inv = 1.0; else inv = 1.0 / (lifeD + 1.0);
+  if (emi.u8[EM.IMMORTAL_B] !== 0) inv = 1.0; else inv = f32(1.0 / f32(lifeD + 1.0));
   const inv32 = f32(inv);
   pf[PT.INVLIFE_D] = inv32;
   colourInit(app, inv32, ps);
@@ -425,32 +425,32 @@ function spawn(src: Source, eng: EngineHost, p: Particle): void {
   tmp.set(pos); transformPoint(pos, 0, src.world, 0, tmp, 0);
   tmp.set(dir); transformDir(dir, 0, src.world, 0, tmp, 0);
   // velocity = speed * direction
-  const speed = ps.rnd() * emi.f[EM.DFORCE] + emi.f[EM.FORCE];
+  const speed = f32(f32(ps.rnd() * emi.f[EM.DFORCE]) + emi.f[EM.FORCE]);
   const vel = mov.f.subarray(MV.VEL, MV.VEL + 3);
   vel[0] = speed * dir[0]; vel[1] = speed * dir[1]; vel[2] = speed * dir[2];
   // spread along the velocity over one tick
-  const r1 = ps.rnd() * vel[0];
-  const r2 = ps.rnd() * vel[1];
-  const r3 = ps.rnd() * vel[2];
-  const y = f32(dt * f32(r2)), z = f32(dt * f32(r3));
-  pos[0] = r1 * dt + pos[0];
-  pos[1] = y + pos[1]; pos[2] = z + pos[2];
+  const r1 = f32(ps.rnd() * vel[0]);
+  const r2 = f32(ps.rnd() * vel[1]);
+  const r3 = f32(ps.rnd() * vel[2]);
+  const y = f32(dt * r2), z = f32(dt * r3);
+  pos[0] = f32(f32(r1 * dt) + pos[0]);
+  pos[1] = f32(y + pos[1]); pos[2] = f32(z + pos[2]);
   // inherit the source's movement
   const k = ps.rnd();
   const sv = src.vel;
   const a = f32(k * sv[0]), b = f32(k * sv[1]), c = f32(k * sv[2]);
-  pos[0] = a + pos[0]; pos[1] = b + pos[1]; pos[2] = c + pos[2];
+  pos[0] = f32(a + pos[0]); pos[1] = f32(b + pos[1]); pos[2] = f32(c + pos[2]);
   randomiseMovement(mov, ps);
   // gravity deviation: (r1 - r4) * dg
   const g = mov.f, G = MV.GRAV, DG = MV.DGRAV;
   const d1 = f32(ps.rnd() * g[DG]);
   const d2 = f32(ps.rnd() * g[DG + 1]);
   const d3 = f32(ps.rnd() * g[DG + 2]);
-  const d4 = ps.rnd() * g[DG];
+  const d4 = f32(ps.rnd() * g[DG]);
   const d5 = f32(ps.rnd() * g[DG + 1]);
   const d6 = f32(ps.rnd() * g[DG + 2]);
   const gx = f32(d1 - d4), gy = f32(d2 - d5), gz = f32(d3 - d6);
-  g[G] = gx + g[G]; g[G + 1] = gy + g[G + 1]; g[G + 2] = gz + g[G + 2];
+  g[G] = f32(gx + g[G]); g[G + 1] = f32(gy + g[G + 1]); g[G + 2] = f32(gz + g[G + 2]);
   void pi;
 }
 
@@ -498,8 +498,8 @@ function collide(src: Source, eng: EngineHost, p: Particle, appArg: Rec = p.app)
     posF[0] = pt[0]; posF[1] = pt[1]; posF[2] = pt[2];
     const bounce = mov.f[MV.BOUNCE];
     if (0 < bounce) {
-      velF[0] = bounce * velF[0]; velF[1] = bounce * velF[1]; velF[2] = bounce * velF[2];
-      const l2 = velF[0] * velF[0] + velF[1] * velF[1] + velF[2] * velF[2];
+      velF[0] = r24(bounce * velF[0]); velF[1] = r24(bounce * velF[1]); velF[2] = r24(bounce * velF[2]);
+      const l2 = f32(f32(f32(velF[0] * velF[0]) + f32(velF[1] * velF[1])) + f32(velF[2] * velF[2]));
       if (l2 < f32(0.0015)) {
         velF[2] = 0; velF[1] = 0; velF[0] = 0; mov.f[MV.BOUNCE] = 0; app.f[AP.SCTINC] = 0;
         if (mov.u8[0x137] !== 0) mov.u8[0x137] = 0;
@@ -509,7 +509,7 @@ function collide(src: Source, eng: EngineHost, p: Particle, appArg: Rec = p.app)
     app.f[AP.SCTINC] = 0;
     const was = mov.u8[0x137];
     const g = mov.f[MV.GROUND];
-    velF[0] = g * velF[0]; velF[1] = g * velF[1]; velF[2] = g * velF[2];
+    velF[0] = r24(g * velF[0]); velF[1] = r24(g * velF[1]); velF[2] = r24(g * velF[2]);
     if (was !== 0) { mov.u8[0x137] = 0; return 1; }
     return 0;
   }
@@ -519,17 +519,17 @@ function collide(src: Source, eng: EngineHost, p: Particle, appArg: Rec = p.app)
 /** colour / size ageing of a live particle (the common block of FUN_00452300 and FUN_00453410) */
 function ageParticle(p: Particle, dt: number): void {
   const a = p.app, ai = a.i, af = a.f;
-  ai[AP.CR] = (ai[AP.CR] + ftol(ai[AP.DR] * dt)) | 0;
-  ai[AP.CG] = (ai[AP.CG] + ftol(ai[AP.DG] * dt)) | 0;
-  ai[AP.CB] = (ai[AP.CB] + ftol(ai[AP.DB] * dt)) | 0;
+  ai[AP.CR] = (ai[AP.CR] + ftol(f32(ai[AP.DR] * dt))) | 0;
+  ai[AP.CG] = (ai[AP.CG] + ftol(f32(ai[AP.DG] * dt))) | 0;
+  ai[AP.CB] = (ai[AP.CB] + ftol(f32(ai[AP.DB] * dt))) | 0;
   const clamp = (cur: number, end: number, d: number) => (d > 0 ? (end < cur ? end : cur) : (end > cur ? end : cur));
   const dR = ai[AP.DR], dG = ai[AP.DG], dB = ai[AP.DB];
   ai[AP.CR] = clamp(ai[AP.CR], ai[AP.ER], dR);
   ai[AP.CG] = clamp(ai[AP.CG], ai[AP.EG], dG);
   ai[AP.CB] = clamp(ai[AP.CB], ai[AP.EB], dB);
-  ai[AP.CA] = (ai[AP.CA] + ftol(ai[AP.DA] * dt)) | 0;
+  ai[AP.CA] = (ai[AP.CA] + ftol(f32(ai[AP.DA] * dt))) | 0;
   ai[AP.CA] = clamp(ai[AP.CA], ai[AP.EA], ai[AP.DA]);
-  af[AP.SIZE] = af[AP.DSIZE] * dt + af[AP.SIZE];
+  af[AP.SIZE] = f32(f32(af[AP.DSIZE] * dt) + af[AP.SIZE]);
 }
 
 /**
@@ -539,25 +539,24 @@ function ageParticle(p: Particle, dt: number): void {
 function moveParticle(p: Particle, dt: number, between: (() => void) | null): void {
   const mov = p.mov, f = mov.f;
   const G = MV.GRAV, V = MV.VEL, P = MV.POS;
-  const dtgx = dt * f[G];
-  const gy = f32(dt * f[G + 1]), gz = f32(dt * f[G + 2]);
+  const dtgx = r24(dt * f[G]);
+  const gy = r24(dt * f[G + 1]), gz = r24(dt * f[G + 2]);
   const air = f[MV.AIR];
-  const vxD = (dtgx + f[V]) * air;
+  const vxD = r24(r24(dtgx + f[V]) * air);
   f[V] = vxD;
-  const vyD = (gy + f[V + 1]) * air; f[V + 1] = vyD;
-  const vzD = (gz + f[V + 2]) * air; f[V + 2] = vzD;
+  const vyD = r24(r24(gy + f[V + 1]) * air); f[V + 1] = vyD;
+  const vzD = r24(r24(gz + f[V + 2]) * air); f[V + 2] = vzD;
   if (between) {
     between();
-    f[P] = (dt * f[V]) + f[P];
-    f[P + 1] = f32(dt * f[V + 1]) + f[P + 1];
-    f[P + 2] = f32(dt * f[V + 2]) + f[P + 2];
+    f[P] = r24(r24(dt * f[V]) + f[P]);
+    f[P + 1] = r24(r24(dt * f[V + 1]) + f[P + 1]);
+    f[P + 2] = r24(r24(dt * f[V + 2]) + f[P + 2]);
     return;
   }
-  const vy32 = f32(vyD), vz32 = f32(vzD);
-  const dy = f32(dt * vy32), dz = f32(dt * vz32);
-  f[P] = vxD * dt + f[P];
-  f[P + 1] = dy + f[P + 1];
-  f[P + 2] = dz + f[P + 2];
+  const dy = r24(dt * f[V + 1]), dz = r24(dt * f[V + 2]);   // (x uses the register value, y / z the stored floats)
+  f[P] = r24(r24(vxD * dt) + f[P]);
+  f[P + 1] = r24(dy + f[P + 1]);
+  f[P + 2] = r24(dz + f[P + 2]);
 }
 
 /** the particle loop at the end of FUN_00452300 */
@@ -610,7 +609,7 @@ function updateSubBlocks(src: Source, eng: EngineHost, p: Particle): void {
       let n = 0;
       if (b.rec.i[BK.COUNT_D] < b.emi.i[EM.MAX]) {
         const E = b.emi;
-        const accD = ps.rnd() * E.f[EM.DDENS] + E.f[EM.DENS] + b.rec.f[BK.ACC_D];
+        const accD = f32(f32(f32(ps.rnd() * E.f[EM.DDENS]) + E.f[EM.DENS]) + b.rec.f[BK.ACC_D]);
         b.rec.f[BK.ACC_D] = accD;
         n = ftol(accD);
         const room = E.i[EM.MAX] - b.rec.i[BK.COUNT_D];
@@ -651,11 +650,11 @@ function spawnSub(src: Source, eng: EngineHost, parent: Particle, b: Block, q: P
   q.emi.u8.set(b.emi.u8.subarray(0, EMI_SIZE));
   q.mov.u8.set(b.mov.u8.subarray(0, MOV_SIZE));
   const app = q.app, emi = q.emi, mov = q.mov, pf = q.rec.f;
-  const dl = ftol(ps.rnd() * emi.f[EM.DLIFE]);
-  const lifeD = (dl + emi.f[EM.LIFE]) * 30;
+  const dl = ftol(f32(ps.rnd() * emi.f[EM.DLIFE]));
+  const lifeD = f32(f32(dl + emi.f[EM.LIFE]) * 30);
   pf[PT.LIFE_D] = lifeD;
   const li = ftol(lifeD) - 1;
-  const invD = 1.0 / li;
+  const invD = f32(1.0 / li);
   pf[PT.INVLIFE_D] = invD;
   const inv32 = pf[PT.INVLIFE_D];
   colourInit(app, invD, ps);                           // (the colour deltas use the register value, not the stored float)
@@ -664,7 +663,7 @@ function spawnSub(src: Source, eng: EngineHost, parent: Particle, b: Block, q: P
   spriteInit(app, ps);
   if (app.u8[AP.SPIN_B] !== 0) {
     if ((ps.rand() & 1) === 0) app.f[AP.SCTINC] = ps.rnd() * app.f[AP.SCTINC];
-    else app.f[AP.SCTINC] = 256 - ps.rnd() * app.f[AP.SCTINC];
+    else app.f[AP.SCTINC] = f32(256 - f32(ps.rnd() * app.f[AP.SCTINC]));
   }
   mov.u8[0x135] = 0; mov.i[0x13c >> 2] = 0;
   matIdentity(mov.f.subarray(0xac >> 2, 0xac / 4 + 16) as Float32Array, 0);
@@ -677,14 +676,14 @@ function spawnSub(src: Source, eng: EngineHost, parent: Particle, b: Block, q: P
   // + rnd * the parent's velocity, once before and once after the direction / speed step
   const x1 = f32(ps.rnd() * pv[0]);
   const y1 = f32(ps.rnd() * pv[1]), z1 = f32(ps.rnd() * pv[2]);
-  pos[0] = x1 + pos[0]; pos[1] = y1 + pos[1]; pos[2] = z1 + pos[2];
+  pos[0] = f32(x1 + pos[0]); pos[1] = f32(y1 + pos[1]); pos[2] = f32(z1 + pos[2]);
   // (the first x product is stored as float32 in the original: `fstp [esp+0x34]`)
   tmp.set(dir); transformDir(dir, 0, pm, 0, tmp, 0);
   const vel = mov.f.subarray(MV.VEL, MV.VEL + 3);
-  for (let i = 0; i < 3; i++) vel[i] = (ps.rnd() * emi.f[EM.DFORCE] + emi.f[EM.FORCE]) * vel[i];
+  for (let i = 0; i < 3; i++) vel[i] = f32(f32(f32(ps.rnd() * emi.f[EM.DFORCE]) + emi.f[EM.FORCE]) * vel[i]);
   const r1 = ps.rnd(), r2 = ps.rnd(), r3 = ps.rnd();
-  const xx = r1 * pv[0];
+  const xx = f32(r1 * pv[0]);
   const yy = f32(r2 * pv[1]), zz = f32(r3 * pv[2]);
-  pos[0] = xx + pos[0]; pos[1] = yy + pos[1]; pos[2] = zz + pos[2];
-  mov.f[MV.AIR] = ps.rnd() * mov.f[MV.DAIR] + mov.f[MV.AIR];
+  pos[0] = f32(xx + pos[0]); pos[1] = f32(yy + pos[1]); pos[2] = f32(zz + pos[2]);
+  mov.f[MV.AIR] = f32(f32(ps.rnd() * mov.f[MV.DAIR]) + mov.f[MV.AIR]);
 }

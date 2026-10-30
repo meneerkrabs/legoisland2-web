@@ -83,7 +83,7 @@ export default {
     ok(Object.values(PAR_CTOR).every((a) => registeredCtors().includes(a)), 'six constructors registered');
 
     // ============================================================ the zone loads
-    const fresh = (seedv = 1) => { seeded(seedv); const L = loadZone(ctx, 'z38PAR'); const run = startParRun(L.world, L.archive); const pilot = L.pepper.ctrl.find('ParPilot'); return { L, w: L.world, run, pilot, p: L.pepper, hud: new ParHud() }; };
+    const fresh = (seedv = 1) => { seeded(seedv); const L = loadZone(ctx, 'z38PAR', { pe: loadExe(ctx.dataRoot) }); const run = startParRun(L.world, L.archive); const pilot = L.pepper.ctrl.find('ParPilot'); return { L, w: L.world, run, pilot, p: L.pepper, hud: new ParHud() }; };
     const step = (G, mask = 0) => { G.w.input.setVirtual(mask); G.w.tick(); if (!G.run.over) G.hud.update(G.run, G.p.ry); };
     {
       const G = fresh();
@@ -234,7 +234,7 @@ export default {
       let hit = -1; for (let t = 0; t < 3000 && !G.run.over && hit < 0; t++) { step(G, parBotStep(parSnapshot(G.w), { ring1Offset: [0, 0] })); if (G.pilot.state === S.BOUNCE) hit = t; }
       ok(hit >= 0, `diving through the middle of ring 1 hits the balloon: bounce (state 7) after ${hit} ticks`);
       ok(G.run.sound.count('play', 'hitBalloon') === 1 && G.p.anim.clip === CLIP.BOUNCE, 'hit_balloon played, bounce clip 7');
-      ok(G.pilot.bounce[1] === -0.2, 'the bounce velocity y is -0.2');
+      ok(G.pilot.bounce[1] === Math.fround(-0.2), 'the bounce velocity y is -0.2 (a float32 node field, +0x7c)');
       const bounce = [...G.pilot.bounce];
       ok(Math.hypot(bounce[0], bounce[2]) > 0, `the bounce vector is the reflected sweep: ${bounce.map((v) => v.toFixed(2))}`);
       let n = 0; while (G.pilot.state === S.BOUNCE && n < 80) { step(G); n++; }
@@ -245,8 +245,8 @@ export default {
       const b = H.run.recs.birds[0];
       H.p.x = b.x; H.p.z = b.z; H.p.y = b.y + 1.0; H.run.y = H.p.y; H.pilot.state = S.FALL;   // FUN_00468590 ADDS the box centre (1.63) to the local point: the box it tests is the mirror image, its top face is at local y 0.8
       step(H);
-      ok(H.pilot.state === S.BOUNCE, 'touching a pterodactyl: bounce (its mesh is in the sweep, mask 3; FUN_004686a3 plays no sound for that hit)');
-      ok(H.run.sound.count('play', 'hitBird') === 0, 'the sweep hit of a pterodactyl is silent (only the box test, FUN_00468590, plays hit_pterodactyl)');
+      ok(H.pilot.state === S.BOUNCE, 'touching a pterodactyl: bounce (Pterodactyl.col is loaded header-only by the loader FUN_0043f700: no polygons in the sweep, the box test FUN_00468590 does it)');
+      ok(H.run.sound.count('play', 'hitBird') === 1, 'the box test (FUN_00468590) is the only hit of a pterodactyl and plays hit_pterodactyl');
       const pt = [0, 0, 0], nm = [0, 0, 0];
       ok(segmentHitsRecordBox(b, [b.x, b.y + 1.0, b.z], [b.x, b.y + 0.6, b.z], pt, nm) && nm[1] === 1, 'the pterodactyl box test: a segment entering through the top face hits (normal +y)');
       ok(!segmentHitsRecordBox(b, [b.x, b.y + 5, b.z], [b.x, b.y + 4.6, b.z], pt, nm), 'a segment above the box misses');

@@ -6,7 +6,7 @@
 // nodes of src/zones/z10rgb/. After every tick the records, the node fields, the globals, the variables, the animation state, the camera, the random-number use and every sound /
 // speech call must agree. The walk node is switched off on both sides: Pepper is moved by the script (and by PepSwitc / PeppHit themselves).
 import fs from 'node:fs';
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 import { loadExe, loadZone } from '../lib/engine-load.mjs';
 import * as Z from '../../src/zones/z10RGB.ts';
 import { initRgb, bindRigs } from '../../src/zones/z10rgb/game.ts';
@@ -70,7 +70,7 @@ export default {
     /** the original: the emulated memory with the records, the hosted services and the constructors run natively */
     const emulate = (S) => {
       const { ow, w, st } = S;
-      const cpu = createCpu(pe), mem = cpu.mem;
+      const cpu = createGameCpu(pe), mem = cpu.mem;
       mem.addRegion({ lo: RB, hi: RB + NREC * 0x68 + 0x100, name: 'rec' });
       mem.addRegion({ lo: HEAP, hi: HEAP + 0x100000, name: 'heap' });
       mem.addRegion({ lo: MB, hi: MB + 0x10000, name: 'misc' });

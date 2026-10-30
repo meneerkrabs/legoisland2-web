@@ -3,7 +3,7 @@
 // user's own executable. The engine is a host table: the animation instance of Pepper is the port's `AnimInstance` (both sides animate the same rig), the collision calls
 // (FUN_00441270 sweep, FUN_00442a70 ground probe, FUN_007d3050 segment vs rock-monster box) are answered by the port's collision code on the same record state (the oracle
 // verifies the pilot's decisions and arithmetic, not the collision engine), sounds / speech / particles only record their calls. Nothing of the executable is stored here.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const RECORDS_BASE = 0x10000000, HEAP_BASE = 0x20000000;
 const REC = 0x68;
@@ -22,7 +22,7 @@ export class ApoEmu {
    *          records are synchronised from this memory at every call (so the oracle's nodes see their own record state)
    */
   constructor(pe, recs, anims, o) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = cpu.mem;
     this.pe = pe; this.recs = recs; this.o = o;
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x400000, name: 'heap' });

@@ -1,5 +1,5 @@
 // The particle system (src/fx/particles): the port against the ORIGINAL engine code (FX_Particle.c, LE2.EXE 0x44e860..0x458b00) run in the x86 interpreter.
-//  1. exact numbers: particle counts / first particle / RNG index of five effects after N ticks, read once from the original (seed 7, dt 1, matrix [3 2 -5])
+//  1. exact numbers: particle counts / first particle / RNG index of five effects after N ticks, read from the original at control word 0x7f (24-bit x87, as the game runs; seed 7, dt 1, matrix [3 2 -5])
 //  2. loaders: every .app / .emi / .mov / .par record of three archives byte for byte (+ the max particle counts, [EMITS] blocks)
 //  3. scenarios (original vs port every frame: all draw list particles, emitter blocks, matrices, RNG index): move, dt 0.5 .. 1.3, gates, parameter overrides, stop,
 //     floor / PCOL collision, pause, distance LOD; swirls; the draw functions (quad, clip, sort)
@@ -13,11 +13,11 @@ import { runScenario } from '../lib/particle-oracle.mjs';
 import { runDrawOracle } from '../lib/particle-draw-oracle.mjs';
 
 const GOLD = [
-  ['z02LGI', 'trainsmoke01.par', 40, 5, 1818, ['4015656a', '413323be', 'c0a80000'], '40300000', '40e00000'],
+  ['z02LGI', 'trainsmoke01.par', 40, 5, 1818, ['40156568', '413323be', 'c0a80000'], '40300000', '40e00000'],
   ['z02LGI', 'explode01.par', 6, 50, 2631, ['4042271f', '408e9482', 'c0a33ed4'], '3e4ccccd', '41900000'],
   ['z02LGI', 'twinkle01.par', 30, 30, 2674, ['3fd50a9a', '40c00f7c', 'c0e0c52e'], '3eb3bea2', '41940000'],
   ['z02LGI', 'rocket01.par', 40, 29, 1080, ['405d9849', '40720af4', 'c0a80000'], '3f0d7681', '408a7c95'],
-  ['z05WAB', 'bolts01.par', 20, 10, 1751, ['40506c72', 'c0ad3446', 'c05908f7'], '3dcccccd', '42200000'],
+  ['z05WAB', 'bolts01.par', 20, 10, 1751, ['40506c72', 'c0ad3448', 'c05908f7'], '3dcccccd', '42200000'],
 ];
 const SC = {
   move: { frames: 60, move: (f, M) => { M[12] = 3 + f * 0.37; M[13] = 2 + Math.sin(f * 0.2) * 1.5; M[14] = -5 + f * 0.11; } },

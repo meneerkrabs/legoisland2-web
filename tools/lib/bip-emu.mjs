@@ -2,7 +2,7 @@
 // The functions of the zone (0x706bee .. 0x710400), the C runtime and a few pure engine functions (matrix builders, the path object, the node-list helper) run
 // natively from the user's executable; everything else (sound, speech, input, collision sweeps, variables, allocation) is a host function that records its call.
 // Nothing of the executable is stored here, only addresses.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const RECORDS_BASE = 0x10000000, HEAP_BASE = 0x20000000;
 const REC = 0x68;
@@ -23,7 +23,7 @@ export class BipEmu {
    * @param recs [{ name, x, y, z, ctrl?: { node: number } }] the record array (record i at RECORDS_BASE + i * 0x68)
    */
   constructor(pe, spline, recs) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = cpu.mem;
     this.pe = pe;
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x400000, name: 'heap' });

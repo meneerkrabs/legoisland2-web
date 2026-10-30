@@ -2,7 +2,7 @@
 // 0x5401e0 / 0x5402ac, camera 0x540733), the door (0x540db1 / 0x540b96), the trophies (0x54116c / 0x5413c4), the trophy browser (0x541b79 / 0x5414b0 / 0x5419dc), the map view
 // (0x541f94 / 0x541c98 / 0x541e71), PeppComp's position and camera (0x53ff69 / 0x53ffa1), FUN_0053fed3 and the sound loader FUN_0053e7c0. The computer MENU (0x53fbc0, the UI engine) is
 // not run: the host leaves the computer by writing var 0x5e. The engine is a host table that records its calls.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const RECORDS_BASE = 0x10000000, HEAP_BASE = 0x20000000;
 const REC = 0x68;
@@ -12,7 +12,7 @@ export const G = { LEAVE: 0x5d587b0, DOOR: 0x5d587ac, ICON: 0x5d4e144, CAM: 0x9d
 
 export class PphEmu {
   constructor(pe, recs) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = cpu.mem;
     this.pe = pe;
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x400000, name: 'heap' });

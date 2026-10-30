@@ -15,7 +15,7 @@ import { V } from '../game/vars.ts';
 import { buildMatrix } from '../formats/matrix.ts';
 import type { Ui2D } from '../ui/renderer2d.ts';
 import type { GameAudio } from '../audio/index.ts';
-import { CentrifugeSim, REC, REC_NAMES, SND, MEDAL_SILVER, MEDAL_GOLD, readFrameTable, TWO_PI, PI } from './z36cnt/sim.ts';
+import { CentrifugeSim, REC, REC_NAMES, SND, MEDAL_SILVER, MEDAL_GOLD, readFrameTable } from './z36cnt/sim.ts';
 import type { CntHost } from './z36cnt/sim.ts';
 import { layoutFrom, blurCopies, armShadows, SHADOW_TYPE } from './z36cnt/pose.ts';
 import type { BlurCopy } from './z36cnt/pose.ts';
@@ -116,11 +116,9 @@ registerZoneGame('z36CNT', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   };
   const sim = new CentrifugeSim(host, readFrameTable((va) => sh.pe.u32(va)));
 
-  // arm angle / power of the previous tick for the render interpolation
-  let prevAngle = 0, prevPower = 0;
   const traiNode = trai.ctrl?.find<CntNode>('TRAI');
   const bobNode = bobRec.ctrl?.find<CntNode>('TBOB');
-  if (traiNode) { traiNode.run = (_w, pressed) => { prevAngle = sim.angle; prevPower = sim.power; sim.step(pressed); placeParts(1); }; traiNode.onDestroy = () => sim.destroy(); }
+  if (traiNode) { traiNode.run = (_w, pressed) => { sim.step(pressed); placeParts(); }; traiNode.onDestroy = () => sim.destroy(); }
   else console.warn('z36CNT: the TRAI controller was not attached');
   if (bobNode) bobNode.run = () => sim.bobStep();
   else console.warn('z36CNT: the Bob controller was not attached');
@@ -131,15 +129,12 @@ registerZoneGame('z36CNT', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   const setMonitor = (frame: number) => { if (monitorTex >= 0) gr.renderer.setTextureFrame(ctx.archive, monitorTex, 2, frame); };
 
   /**
-   * the machine at the arm angle between the last two ticks: the loop of FUN_007b1a1b (`blurCopies`, 24-bit x87) leaves the real copy's matrices in the records and the copies for the draw
-   * hook below. The original draws once per update; the port interpolates the angle / power by the render fraction (display only, at alpha 1 the numbers are the original's).
+   * the machine at the arm angle / power of the last tick: the loop of FUN_007b1a1b (`blurCopies`, 24-bit x87) leaves the real copy's matrices in the records and the copies for the draw
+   * hook below.
    */
   let copies: BlurCopy[] = [];
-  function placeParts(alpha: number) {
-    let da = sim.angle - prevAngle;
-    if (da < -PI) da += TWO_PI; else if (da > PI) da -= TWO_PI;
-    const angle = prevAngle + da * alpha;
-    const power = prevPower + (sim.power - prevPower) * alpha;
+  function placeParts() {
+    const angle = sim.angle, power = sim.power;   // the hook reads the controller's +0x110 / +0x114 as they are: no interpolation between ticks
     const set = (r: GameRecord, m: Float32Array) => { r.m.set(m); r.prev.set(m); };
     // FUN_007b0c6e's last matrix call: TRAI = FUN_0043a5e4(0, -angle, 0, position)
     const base = euler24(0, -angle, 0, layout.arm[0], layout.arm[1], layout.arm[2]);
@@ -161,7 +156,7 @@ registerZoneGame('z36CNT', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
     return 0;
   };
   if (traiNode) traiNode.draw = () => drawHook();
-  placeParts(1);
+  placeParts();
 
   const hudOn = (on: boolean) => { hud.visible = on; };
   hudOn(false);
@@ -185,7 +180,6 @@ registerZoneGame('z36CNT', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
       else if (m === 2) ctx.say('LESGCE04');
       else ctx.say('LESGCE02', 'LESGCE03');
     },
-    beforeRender(alpha) { placeParts(alpha); },
     draw2d(ui: Ui2D, dt: number, mode: number) {
       if (mode === 0 || mode === 1) setMonitor(MONITOR_IDLE_FRAME);
       if (mode === 2) {

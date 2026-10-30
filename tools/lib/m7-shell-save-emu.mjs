@@ -5,7 +5,7 @@
 // FUN_0043a4a1 matrix) and the C runtime (memcpy / memset / time-less parts). Hosted (replaced): the file calls (fopen / fwrite / fread / fclose / sprintf / time), the brick
 // reader FUN_00449be0 and the walker follow-up FUN_00463f9d (they rebuild live engine objects), and the node serializers / loaders reached through the vtable (+0x14 / +0x10),
 // whose payload is synthetic. Nothing of the executable is stored here, only addresses.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const RECORDS_BASE = 0x10000000, HEAP_BASE = 0x20000000;
 export const REC = 0x68;
@@ -20,7 +20,7 @@ const BRICK_LO = A.BRICK0 - 0x1710, BRICK_HI = A.BRICK0 + 63 * A.BRICK_STRIDE + 
 export class SaveEmu {
   /** @param pe the executable; @param o { time } the value time() returns */
   constructor(pe, o = {}) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = (this.mem = cpu.mem);
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x800000, name: 'heap' });
     mem.addRegion({ lo: RECORDS_BASE, hi: RECORDS_BASE + 0x40000, name: 'records' });

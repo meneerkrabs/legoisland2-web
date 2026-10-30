@@ -29,6 +29,7 @@ export class ParticleEmu {
   constructor(ctx, files, opts = {}) {
     const pe = (this.pe = loadExe(ctx.dataRoot));
     const cpu = (this.cpu = createCpu(pe));
+    cpu.cw = process.env.M7_CW ? Number(process.env.M7_CW) : 0x7f;   // the original runs the x87 in 24-bit precision (Direct3D 7: the particle engine is built when a zone loads, after the device exists)
     const mem = (this.mem = cpu.mem);
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + HEAP_SIZE, name: 'heap' });
     this.brk = HEAP_BASE;

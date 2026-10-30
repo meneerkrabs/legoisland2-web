@@ -246,6 +246,8 @@ export const f32 = (v) => { F32[0] = v; return F32[0]; };
 export class Duel {
   constructor(ctx, o = {}) {
     this.o = o;
+    /** bit-exact comparison (tolerance 0): the default of the island tests; the hub duels that borrow `Duel.prototype` (tools/lib/m5-z*-emu.mjs) do not run this constructor and keep their own tolerances */
+    this.exactDefault = true;
     this.dt = o.dt ?? 1;
     // the walker table (60 slots) is a process-wide singleton: the previous sessions' walkers are dead, free them (a full table made later sessions of a long shared-runner run get no walker)
     waypoints.reset();
@@ -362,7 +364,7 @@ export class Duel {
    * of a few terms such as the eased camera or a matrix translation = 3e-4); quantities near 0 that are differences of such coordinates need it.
    */
   cmp(name, orig, port, tol, idx = '', abs = 1e-6) {
-    if (this.o.exact !== false) { tol = 0; abs = 0; }       // WP-ISLAND-FIX: bit for bit (the port's island code is float32 per operation like the original's 24-bit x87)
+    if (this.exactDefault && this.o.exact !== false) { tol = 0; abs = 0; }       // WP-ISLAND-FIX: bit for bit (the port's island code is float32 per operation like the original's 24-bit x87)
     tol ??= this.syncMode ? 5e-6 : (this.o.tolFree ?? 2e-5);
     this.checked++;
     const d = Math.abs(orig - port);
@@ -381,7 +383,7 @@ export class Duel {
     const nm = r.name + '.m';
     // rotation elements: the Euler angles are accumulated unwrapped in float32 (ulp = 1.2e-7 * angle), so sin / cos of them carry an absolute error ~ 25 ulps of the angle; translations 3e-4 (float32 noise of a coordinate)
     // (sync mode: the port's state is set to the original's before every tick, so only one step of float noise is left: far tighter bounds)
-    const rotAbs = this.o.exact !== false ? 0 : this.syncMode ? (this.o.rotAbsSync ?? 5e-7) : 3e-6 * (1 + Math.abs(r.rx) + Math.abs(r.ry) + Math.abs(r.rz));
+    const rotAbs = this.exactDefault && this.o.exact !== false ? 0 : this.syncMode ? (this.o.rotAbsSync ?? 5e-7) : 3e-6 * (1 + Math.abs(r.rx) + Math.abs(r.ry) + Math.abs(r.rz));
     for (let k = 0; k < 16; k++) this.cmp(nm, mem.f32(a + 0xc + 4 * k), r.m[k], tol, `[${k}]`, k >= 12 ? (this.syncMode ? 1e-4 : 3e-4) : k === 3 || k === 7 || k === 11 ? 1e-6 : rotAbs);
     this.cmp(r.name + '.rx', mem.f32(a + 0x4c), r.rx, tol); this.cmp(r.name + '.ry', mem.f32(a + 0x50), r.ry, tol); this.cmp(r.name + '.rz', mem.f32(a + 0x54), r.rz, tol);
     this.eq(r.name + '.flags', mem.r16(a + 0x60) & flagMask, r.flags & flagMask);
@@ -427,7 +429,7 @@ export class Duel {
     // the same for calls only the ORIGINAL makes (`origOnly(line, portLines)` -> deviation id)
     if (this.origOnly) for (let i = o.length - 1; i >= 0; i--) { const id = this.origOnly(o[i], p); if (id) { this.deviation(id, `original-only '${o[i]}'`); o.splice(i, 1); } }
     if (this.soundKnown) for (let i = 0; i < o.length && i < p.length; i++) { const id = this.soundKnown(o[i], p[i]); if (id) { this.deviation(id, `original '${o[i]}' port '${p[i]}'`); p[i] = o[i]; } }
-    const split = (l) => { let m = /^(p3 #\d+) (\S+)$/.exec(l); if (m) return [m[1], m[2].split(',').map(Number), 3e-4]; m = /^(r #\d+) (\d+)$/.exec(l); return m ? [m[1], [+m[2]], this.o.exact !== false ? 0 : 1] : [l, null, 0]; };
+    const split = (l) => { let m = /^(p3 #\d+) (\S+)$/.exec(l); if (m) return [m[1], m[2].split(',').map(Number), 3e-4]; m = /^(r #\d+) (\d+)$/.exec(l); return m ? [m[1], [+m[2]], this.exactDefault && this.o.exact !== false ? 0 : 1] : [l, null, 0]; };
     this.checked++;
     if (o.length !== p.length) { this.fail(`${this.label} t${this.t} sound calls: original ${o.join(' | ')} port ${p.join(' | ')}`); return; }
     for (let i = 0; i < o.length; i++) {

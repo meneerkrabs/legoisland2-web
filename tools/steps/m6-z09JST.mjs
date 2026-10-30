@@ -100,7 +100,7 @@ export default async ({ page, shot, wait, log, key }) => {
   s = await st(); expect('the dark knight threw the player off: round popup (0x21) for state 4, nobody scored', s.state === 0x21 && s.popup === 4 && s.hitsP === 0 && s.hitsE === 0, JSON.stringify(s));
   await wait(300); await shot('jst-5-too-slow-popup');
   await key('Enter'); await wait(500);
-  s = await st(); expect('the next round starts (state 0 / 1)', s.state <= 1 && s.mode === 2, JSON.stringify(s));
+  s = await st(); expect('the next round starts (state 0 / 1, or 2 when the Enter key is still down at state 1: it is the "any key" of that state)', s.state <= 2 && s.mode === 2, JSON.stringify(s));
 
   // ================================================================================================= run 1: a whole tournament, WIN
   const shots = { 9: 'jst-6-ride', 0xf: 'jst-7-hit', 0x12: 'jst-7-hit-b', 0x20: 'jst-7-glance', 0x16: 'jst-8-hurt', popup: 'jst-9-popup' };

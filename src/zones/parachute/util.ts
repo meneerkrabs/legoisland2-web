@@ -15,7 +15,7 @@ export function setRandomSource(f: (() => number) | null) { source = f ?? defaul
 export function rand(max: number): number {
   if (max <= 0) return 0;
   const r = Math.floor(source() * 32768);
-  return (r / 32767) * max;
+  return Math.fround(Math.fround(r / 32767) * max);   // 24-bit x87: the division and the product each round to float32
 }
 
 export type Vec3 = [number, number, number];
@@ -90,9 +90,9 @@ export function reflect(v: ArrayLike<number>, n: ArrayLike<number>, out: Vec3): 
 
 /** FUN_0043ab72: v * M + t for a row-vector 16-float matrix */
 export function transformPoint(m: ArrayLike<number>, v: ArrayLike<number>, out: Vec3 = [0, 0, 0]): Vec3 {
-  out[0] = v[0] * m[0] + v[1] * m[4] + v[2] * m[8] + m[12];
-  out[1] = v[0] * m[1] + v[1] * m[5] + v[2] * m[9] + m[13];
-  out[2] = v[0] * m[2] + v[1] * m[6] + v[2] * m[10] + m[14];
+  // FUN_0043ab72 at 24-bit precision: every product and sum rounds to float32 (the machine code adds x, y, z, then the translation)
+  const f = Math.fround;
+  for (let j = 0; j < 3; j++) out[j] = f(f(f(f(v[0] * m[j]) + f(v[1] * m[4 + j])) + f(v[2] * m[8 + j])) + m[12 + j]);
   return out;
 }
 

@@ -18,7 +18,7 @@ export default {
     // the executable: names and offsets of the three start calls (0x46a99b / 0x46a9cb / 0x46aa13) and of James01 (0x467729)
     ok(pe.cstr(0x8b991c) === 'footsmoke.par' && pe.cstr(0x8b992c) === 'footsmoke.par' && pe.cstr(0x8b993c) === 'spray01' && pe.cstr(0x8b9734) === 'James01', 'effect names in the executable');
     let seed = 3; setRandomSource(() => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x80000000; });
-    const L = loadZone(ctx, 'z38PAR');
+    const L = loadZone(ctx, 'z38PAR', { pe: loadExe(ctx.dataRoot) });
     const run = startParRun(L.world, L.archive);
     const calls = [];
     let nextH = 0;

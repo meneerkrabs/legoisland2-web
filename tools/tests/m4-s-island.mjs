@@ -7,7 +7,7 @@ import { shearMatrix, HoloNode } from '../../src/island/trigger/holo.ts';
 import { applyRosterRecords, applyDecorSets, decorSetsOf, tickLooks } from '../../src/island/vehicles/looks.ts';
 import { setIslandRandom } from '../../src/island/rng.ts';
 import { crashSoundId, parkSession, parkSlotOf, islandSlot2d } from '../../src/island/vehicles/crashsound.ts';
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 import { applyDecorEra, readDecorSetGroups, decorEraColumn } from '../../src/island/decorsets.ts';
 
 // WP-ISLAND (gaps S3 / S6 / S8 / S11): the kids' jump node (FUN_004bf329), Pepper's swim splash ring (FUN_0088d1f6 / FUN_0088cfcb), the hologram's shimmer (FUN_0088d666 state 3),
@@ -68,7 +68,7 @@ export default {
     {
       const I = loadIsland(ctx, { node: 2 });
       const pe = I.pe;
-      const cpu = createCpu(pe), mem = cpu.mem;
+      const cpu = createGameCpu(pe), mem = cpu.mem;
       const HEAP = 0x20000000;
       mem.addRegion({ lo: HEAP, hi: HEAP + 0x100000, name: 'heap' });
       let heap = HEAP;
@@ -135,7 +135,7 @@ export default {
       const I = loadIsland(ctx, { node: 2 });
       const W = I.world, splh = I.rec('SPLH'), pep = I.pepper;
       const node = splh.ctrl.nodes.find((n) => n.kind === 'swimSplash');
-      const cpu = createCpu(I.pe), mem = cpu.mem;
+      const cpu = createGameCpu(I.pe), mem = cpu.mem;
       const RB = 0x10000000; mem.addRegion({ lo: RB, hi: RB + 0x1000, name: 'recs' });
       const bits = (f) => { const b = new DataView(new ArrayBuffer(4)); b.setFloat32(0, f, true); return b.getUint32(0, true); };
       const vars = new Map(); let drawn = 0;
@@ -195,12 +195,12 @@ export default {
       // state 0, L = 0.5 (Pepper far away): shimmer when 9 < rand(10) <= 9.5, i.e. u * 10 in (9, 9.5]: u = 0.92; then rand(1) - 0.5 = u2 - 0.5
       const us = [0.92, 0.8];
       let i = 0;
-      setIslandRandom(() => us[i++] ?? 0.5);
+      setIslandRandom(() => (new Error().stack ?? '').includes('trigger/holo') ? (us[i++] ?? 0.5) : 0.5);   // (the island's other nodes draw too: only the hologram's draws are scripted)
       hn.st = 2; hn.show = 0; hn.scale = 0.75; hn.face = 3; hn.letter = 0x40;
       W.vars.set(0x58, 2);
       W.focus = I.pepper; holo.flags |= 2;
       W.camera.c[9] = 1; W.camera.c[17] = 1;      // the view basis: the hologram stands 4 to the left and 2 ahead of Pepper (squared distance 20: finding V8, the far rate 0.5)
-      tick(I, 1); console.log('DBG', hn.show, hn.shimmer, hn.st, i, W.camera.c.slice(9, 18), I.pepper.x, I.pepper.y, I.pepper.z);
+      tick(I, 1);
       ok(hn.show === 3 && near(hn.shimmer, 0.8 - 0.5, 1e-4), `state 0 -> shimmer (state 3) with node +0x48 = rand(1) - 0.5 = 0.3 (rand = floor(u * 32768) / 32767 (show ${hn.show}, shimmer ${hn.shimmer})`);
       setIslandRandom(null);
     }
@@ -253,7 +253,7 @@ export default {
     {
       const I = world(2);
       const pe = I.pe;
-      const cpu = createCpu(pe), mem = cpu.mem;
+      const cpu = createGameCpu(pe), mem = cpu.mem;
       cpu.exec = [[0x420674, 0x420837]];
       cpu.fallback = (a) => { throw new Error('call to 0x' + a.toString(16)); };
       cpu.hooks.set(0x85abc0, () => {});

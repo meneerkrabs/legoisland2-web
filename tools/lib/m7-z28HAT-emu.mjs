@@ -444,6 +444,7 @@ export function createHatHarness(ctx, G) {
     let cap = null;
     hook(0x40ccce, () => { cpu.eax = 0; }); hook(0x40cc4d, () => {});
     hook(0x43ebe0, (c) => { cap = { model: c.arg(0), mode: c.arg(1), ptr: c.arg(2), arg4: c.arg(3), words: Array.from({ length: 15 }, (_, i) => mem.u32(c.arg(2) + 4 * i)) }; });
+    cpu.invalidate();
     cpu.steps = 0; H.fx.length = 0;
     cpu.call(0x796d72, [bp, 0], { maxSteps: 100000 });
     return { cap, flags80: mem.r16(RB + 80 * 0x68 + 0x60), fx: H.fx.slice(), ptrOk: cap ? cap.ptr === bp + 0x40 : false };

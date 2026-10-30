@@ -1,7 +1,7 @@
 // z39ASB: the original's shuttle node (constructor FUN_007b96a0, update FUN_007b82dd with the hit test FUN_007b7f68, the layout FUN_007b9917 and the asteroid motion
 // FUN_007b91b9) run in the x86 interpreter as an ORACLE for the port's `AsteroidBelt` (tools/tests/m5-audit-z39ASB-emu.mjs). The zone's code and the C runtime run natively;
 // the engine is a host table that records sound / speech calls. Nothing of the executable is stored here, only addresses.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const RECORDS_BASE = 0x10000000, HEAP_BASE = 0x20000000;
 const REC = 0x68;
@@ -11,7 +11,7 @@ const NATIVE = [0x43a340, 0x43a4a1, 0x43a5e4, 0x43a9e5, 0x43ab72, 0x43abe6, 0x43
 export class AsbEmu {
   /** @param recs the zone's records ({ name, m, rx, ry, rz, flags }); o = { rng: { range(x) }, dummy: { range(x) } (the rand() calls of the hit test: tick-scaled in the original, not comparable) } */
   constructor(pe, recs, o) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = cpu.mem;
     this.pe = pe; this.o = o;
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x400000, name: 'heap' });

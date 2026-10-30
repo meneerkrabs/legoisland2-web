@@ -5,6 +5,7 @@ import type { World } from '../../game/world.ts';
 import type { BehaviourNode } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
+import { toWorld as toWorldExact } from '../exact.ts';
 import { apoRun } from './apo-run.ts';
 import type { ApoSound } from './apo-run.ts';
 import { ftol, rand } from './util.ts';
@@ -21,9 +22,9 @@ const f = Math.fround;
 
 /** FUN_0043cec0: the float32 normalise (the sum of squares and the reciprocal length are stored as floats; a zero vector stays as it is) */
 function normalize32(v: Vec3): Vec3 {
-  const sq = f(v[2] * v[2] + v[1] * v[1] + v[0] * v[0]);
+  const sq = f(f(f(v[0] * v[0]) + f(v[1] * v[1])) + f(v[2] * v[2]));      // (24-bit x87: every operation rounds; the machine code adds x, y, z)
   if (sq === 0) return [v[0], v[1], v[2]];
-  const k = f(1 / Math.sqrt(sq));
+  const k = f(1 / f(Math.sqrt(sq)));
   return [f(k * v[0]), f(k * v[1]), f(k * v[2])];
 }
 
@@ -36,15 +37,15 @@ export class ApoAsteroids extends PropNode {
     super();
     this.spin = [];
     // the constructor draws rx then ry of one record at a time (the argument-less FUN_004388ae(1.0) calls alternate)
-    for (let i = 0; i < 8; i++) this.spin.push([f((rand(1) - 0.5) / 15), f((rand(1) - 0.5) / 15)]);
-    for (let i = 0; i < 6; i++) this.spin.push([f((rand(1) - 0.5) / 50), f((rand(1) - 0.5) / 50)]);
+    for (let i = 0; i < 8; i++) this.spin.push([f(f(rand(1) - 0.5) / 15), f(f(rand(1) - 0.5) / 15)]);
+    for (let i = 0; i < 6; i++) this.spin.push([f(f(rand(1) - 0.5) / 50), f(f(rand(1) - 0.5) / 50)]);
   }
   update(w: World): number {
     const R = apoRun(w).recs;
     [...R.rka, ...R.rkb].forEach((r, i) => {
       const x = r.x, y = r.y, z = r.z;
-      r.rx = f(this.spin[i][0] * w.dt + r.rx);
-      r.ry = f(this.spin[i][1] * w.dt + r.ry);
+      r.rx = f(f(this.spin[i][0] * w.dt) + r.rx);
+      r.ry = f(f(this.spin[i][1] * w.dt) + r.ry);
       r.setEuler(r.rx, r.ry, r.rz, x, y, z);
     });
     return NODE_STOP;
@@ -106,7 +107,7 @@ export class ApoBots extends PropNode {
             const n: Vec3 = normalize32(d);
             const k = -(2 * dt);
             cur[0] = f(cur[0] + f(k * n[0])); cur[1] = f(cur[1] + f(k * n[1])); cur[2] = f(cur[2] + f(k * n[2]));
-            r.ry = f(f(0.3) * dt + r.ry);
+            r.ry = f(f(f(0.3) * dt) + r.ry);
             r.setEuler(r.rx, r.ry, r.rz, cur[0], cur[1], cur[2]);
           } else { b.flying = false; b.timer = 0; b.counter = 0; }
         }
@@ -187,7 +188,7 @@ export class ApoWing extends PropNode {
     const R = run.recs, pep = R.pepp;
     let pos: number[] = [pep.x, pep.y, pep.z];
     const pose = pep.anim?.pose(1);
-    if (pose && pose.length >= 9 * 16) pos = pep.toWorld([pose[8 * 16 + 12], pose[8 * 16 + 13], pose[8 * 16 + 14]]);
+    if (pose && pose.length >= 9 * 16) pos = toWorldExact(pep.m, [pose[8 * 16 + 12], pose[8 * 16 + 13], pose[8 * 16 + 14]]);   // FUN_0043ab72 at 24 bit
     // FUN_007d2cf0 (the shadow patch of the glide) comes first, then the matrix with the scale of this moment, then the scale moves on (DAT_05d5ee64: 1 opening, 2 closing)
     const sh = R.shad;
     if (sh) {

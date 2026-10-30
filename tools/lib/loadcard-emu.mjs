@@ -12,6 +12,7 @@ export const TEX = { pizza: 0x1111, cd: 0x2222, loading: 0x3333 };
 export class LoadCardEmu {
   constructor(pe) {
     const cpu = (this.cpu = createCpu(pe));
+    cpu.cw = process.env.M7_CW ? Number(process.env.M7_CW) : 0x7f;   // the original runs the x87 in 24-bit precision (Direct3D 7; the loading card is drawn while a zone loads, after the device exists)
     const mem = (this.mem = cpu.mem);
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x100000, name: 'heap' });
     this.brk = HEAP_BASE;

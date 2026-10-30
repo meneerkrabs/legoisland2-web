@@ -883,3 +883,14 @@ export function createCpu(img: ImageLike): Cpu {
   mem.mapImage(img);
   return new Cpu(mem);
 }
+
+/** the x87 control word the game runs with: Direct3D 7 leaves the FPU in 24-bit precision (no DDSCL_FPUPRESERVE anywhere in the executable), and every game-time computation of the original (zone set-up,
+ *  node updates, particles, the loading card, ...) runs after the device exists. The CRT start-up before that would run at 0x27f; nothing the tests compare happens there. */
+export const GAME_CW = 0x7f;
+/** a Cpu for code that the original runs during the game (control word `GAME_CW`; the env variable M7_CW overrides it for comparisons, as for `createCpu`) */
+export function createGameCpu(img: ImageLike): Cpu {
+  const cpu = createCpu(img);
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.M7_CW;
+  cpu.cw = env !== undefined ? Number(env) : GAME_CW;
+  return cpu;
+}

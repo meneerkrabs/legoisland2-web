@@ -2,7 +2,7 @@
 // Run from the user's executable: the panel FUN_00460a66, the controls help FUN_00461175, the CONTROLn line parser FUN_00460f31, the tile helpers FUN_00460720 / 00460868 / 004607c4 /
 // 00460917 (their coordinate arithmetic), the key label FUN_004384c9 -> FUN_0043839f with the layout renames FUN_00438212. Hosted: the sprite / text primitives (recorded:
 // FUN_0043c267, 0043a091 / 0043a25c / 0043a167), the text width, the message lookups (FUN_004396a0, FUN_00439788: scripted tables) and sprintf.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const HEAP_BASE = 0x20000000;
 const CRT = [0x858d30, 0x873e00];
@@ -11,7 +11,7 @@ export const FONT_MAIN = 0x1111, FONT_MENU = 0x2222;
 
 export class HelpEmu {
   constructor(pe) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = (this.mem = cpu.mem);
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x100000, name: 'heap' });
     this.brk = HEAP_BASE;

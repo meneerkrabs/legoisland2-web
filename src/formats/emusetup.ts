@@ -15,7 +15,7 @@
 // Nothing of the executable is stored in this file except addresses (with comments).
 import type { Pe, ZoneScene } from './exe.ts';
 import type { Archive } from './archive.ts';
-import { Cpu, Memory, createCpu, EmuError } from './x86emu.ts';
+import { Cpu, Memory, createGameCpu, EmuError } from './x86emu.ts';
 import type { HostFn } from './x86emu.ts';
 import { zoneCodeIndex, extractShadowSetup, extractCtorRenderCalls, readZoneTable, ctorName as ctorNameOf, RECORD_STRIDE, RF, GLOBALS, FN } from './zonesetup.ts';
 import type { ZoneSetup, Attach, FlagWrite, FieldWrite, Box, RenderMode, Shiny, Cutscene, HudHint, VarWrite, CtrlFlags, WaypointMap, Place } from './zonesetup.ts';
@@ -275,7 +275,7 @@ export function emulateZoneSetup(pe: Pe, scene: ZoneScene, env: EmuEnv, spec: Zo
   if (!code.root) throw new Error(`emusetup: ${spec.zone}: no set-up root`);
   const ROOT = spec.root ?? code.root, LOADER = code.loader, STORY = spec.story ?? -1;
   const zoneDirRe = new RegExp('^\\.?[\\\\/]*_data[\\\\/]+' + spec.zone.toLowerCase() + '[\\\\/]+', 'i');
-  const cpu = createCpu(pe);
+  const cpu = createGameCpu(pe);
   const mem = cpu.mem;
   const n = scene.records.length;
   mem.addRegion({ lo: RECORDS_BASE, hi: RECORDS_BASE + Math.max(1, n) * RECORD_STRIDE + 0x1000, name: 'records' });

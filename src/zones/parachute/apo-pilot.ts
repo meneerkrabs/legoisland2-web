@@ -76,10 +76,13 @@ const f = Math.fround;
 /** 2 pi / pi as the float32 constants 0x40c90fdb / 0x40490fdb of the node's comparisons */
 const F_TWO_PI = f(TWO_PI), F_PI = f(Math.PI);
 
-/** FUN_0043cfee with its float32 stores: the dot product is stored as a float before it scales the normal */
-function reflect32(v: ArrayLike<number>, n: ArrayLike<number>, out: Vec3): Vec3 {
-  const d = f(v[2] * n[2] + v[1] * n[1] + v[0] * n[0]);
-  out[0] = f(n[0] * -2 * d + v[0]); out[1] = f(f(n[1] * -2) * d + v[1]); out[2] = f(f(n[2] * -2) * d + v[2]);
+/**
+ * FUN_0043cfee(out, v, n) in the order of the machine code (the decompile's order is not it): d = float(v0 n0 + v1 n1 + v2 n2) (x87 sums, one store), then each component of n is
+ * multiplied by -2 and stored as a float, multiplied by d and stored as a float, and out = float(that + v). Three float stores per component.
+ */
+export function reflect32(v: ArrayLike<number>, n: ArrayLike<number>, out: Vec3): Vec3 {
+  const d = f(f(f(v[0] * n[0]) + f(v[1] * n[1])) + f(v[2] * n[2]));     // 24-bit x87: every product and sum rounds
+  for (let i = 0; i < 3; i++) out[i] = f(f(f(n[i] * -2) * d) + v[i]);
   return out;
 }
 
@@ -114,11 +117,11 @@ export function crossBox(a: ArrayLike<number>, b: ArrayLike<number>, h: ArrayLik
  * FUN_007d3050(rock monster record, prev, cur, point, normal): does the segment prev -> cur cross the record's collision box (centre and half extents of the `.col` box, the
  * half extents 20 % larger)? The point and the normal come back in the world frame.
  */
-export function rockBoxHit(rec: GameRecord, prev: ArrayLike<number>, cur: ArrayLike<number>, outPoint: Vec3, outNormal: Vec3): boolean {
+export function rockBoxHit(rec: GameRecord, prev: ArrayLike<number>, cur: ArrayLike<number>, outPoint: Vec3, outNormal: Vec3, scale = 1.2): boolean {
   const col = rec.colObj?.col;
   if (!col) return false;
   const c = [f(col.center[0]), f(col.center[1]), f(col.center[2])];
-  const h = [0, 1, 2].map((k) => f(f(col.halfExtents[k]) * f(1.2)));
+  const h = [0, 1, 2].map((k) => scale === 1 ? f(col.halfExtents[k]) : f(f(col.halfExtents[k]) * f(scale)));      // FUN_007d3050 multiplies the half extents by 1.2, FUN_00468590 (z38PAR's pterodactyls) does not
   const a = rec.toLocal(prev).map((v, k) => f(f(v) + c[k])), b = rec.toLocal(cur).map((v, k) => f(f(v) + c[k]));
   const P = new Float32Array(3), N = new Float32Array(3);
   const t = crossBox(a, b, h, P, N);
@@ -243,7 +246,7 @@ export class ApoPilot implements BehaviourNode {
         this.fallTarget = f(f(Math.abs(Math.sin(rec.rx) * f(0.4))) + f(0.4));
         const glide = f(Math.sin(2 * rec.rx));
         // FUN_00443600(accel, ftol((fall - 0.4) * 25840 + 32000)): the constants 0x892998 / 0x892994 (z38PAR has its own: 17215 / 9114)
-        snd.rate('accel', ftol((this.fallTarget - f(0.4)) * 25840 + 32000));
+        snd.rate('accel', ftol(f(f(f(this.fallTarget - f(0.4)) * 25840) + 32000)));   // (24-bit x87: every operation rounds to float32)
         snd.play('accel');
         // FUN_0043ac78 + FUN_0043ad29(matrix, ry): the third row of a y rotation (sin ry, 0, cos ry) as float32
         ex = f(ex + f(glide * dt * f(Math.sin(rec.ry))));
@@ -281,7 +284,7 @@ export class ApoPilot implements BehaviourNode {
       }
       case AS.GLIDE: {
         if (anim.clip === ACLIP.GLIDE) anim.advance(1, dt);
-        this.fwd = f(((ey + 50) * this.fall) / (APO.START_ALT + APO.GLIDE_REF));
+        this.fwd = f(f(f(ey + 50) * this.fall) / f(APO.START_ALT + APO.GLIDE_REF));
         if (!(held & B.UP)) {
           if (anim.clip === ACLIP.PULL) {
             anim.advance(-1, dt);
@@ -289,15 +292,16 @@ export class ApoPilot implements BehaviourNode {
             if (ftol(anim.frame) <= 0) anim.start(ACLIP.GLIDE, 0);
           }
         } else {
-          ey = f((this.fall / 2) * dt + ey);
+          ey = f(f(f(this.fall / 2) * dt) + ey);
           this.fwd = f(this.fwd * 4);
           if (anim.clip === ACLIP.GLIDE) anim.start(ACLIP.PULL, 0);
           else if (ftol(anim.frame) < 0xf) anim.advance(1, dt);
         }
         const m = rec.m;
-        const bx = f(this.fwd * dt * m[8] * 8), by = f(this.fwd * dt * m[9] * 8), bz = f(this.fwd * dt * m[10] * 8);
+        const fd = f(this.fwd * dt);
+        const bx = f(f(fd * m[8]) * 8), by = f(f(fd * m[9]) * 8), bz = f(f(fd * m[10]) * 8);
         ex = f(ex + bx);
-        ey = f(ey - this.fall * dt + by);
+        ey = f(f(ey - f(this.fall * dt)) + by);
         ez = f(ez + bz);
         // landing on a target whose group was passed: close enough and below its height
         const land = (g: number, d: number, r: number, limit: number, full: number) => {
@@ -426,9 +430,9 @@ export class ApoPilot implements BehaviourNode {
         if (nameStarts(hit.rec, 'BBT')) snd.play('hitBot');
       }
       const n: Vec3 = !monster && hit ? [hit.normal[0], hit.normal[1], hit.normal[2]] : normal;
-      if (n[0] === 0 && n[2] === 0) { n[0] = rand(2) - 1; n[2] = rand(2) - 1; }
+      if (n[0] === 0 && n[2] === 0) { n[0] = f(rand(2) - 1); n[2] = f(rand(2) - 1); }
       reflect32(delta, n, this.bounce);
-      this.bounce[1] = -0.2;
+      this.bounce[1] = f(-0.2);      // a float32 node field (+0x90)
       this.prevState = this.state;
       const clip = rec.anim?.clip ?? 0;
       if (clip !== ACLIP.BOUNCE) this.prevClip = clip;
@@ -443,8 +447,8 @@ export class ApoPilot implements BehaviourNode {
     // all float32: the offsets (+0x64 .. +0x6c plus 0, 13.6 and -1.6), the eye, the target (+0x74 * 8 above the pilot), the easing
     const eye = transformPoint(buildMatrix(0, rec.ry, rec.rz, ex, ey, ez), [f(this.camOff[0]), f(f(this.camOff[1]) + f(13.6)), f(f(this.camOff[2]) + f(-1.6))]).map(f);
     c[3] = f(ex); c[4] = f(f(f(APO.CAM_LIFT) * 8) + f(ey)); c[5] = f(ez);
-    c[0] = f((eye[0] - c[0]) * this.camLerp + c[0]);
-    c[2] = f((eye[2] - c[2]) * this.camLerp + c[2]);
-    c[1] = f((eye[1] - c[1]) * this.camLerp + c[1]);
+    c[0] = f(f(f(eye[0] - c[0]) * this.camLerp) + c[0]);
+    c[2] = f(f(f(eye[2] - c[2]) * this.camLerp) + c[2]);
+    c[1] = f(f(f(eye[1] - c[1]) * this.camLerp) + c[1]);
   }
 }

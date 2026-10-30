@@ -6,8 +6,7 @@
 import { emulateZoneSetup, emuSpecOf, RECORDS_BASE } from '../../src/formats/emusetup.ts';
 import { loadExe, sceneOf } from './engine-load.mjs';
 
-// the original runs x87 at 24-bit precision (Direct3D 7 sets control word 0x7f); the Cpu reads M7_CW when it is created
-process.env.M7_CW ??= '0x7f';
+// the original runs x87 at 24-bit precision (Direct3D 7 sets control word 0x7f); the Cpu reads M7_CW when it is created (tools/tests/m5-z23DIP-emu.mjs sets it for its run)
 export const STRIDE = 0x68;
 export const REC = { PEPP: 16, SKBD: 28, LOON: 199 };
 const varsOf = (init) => { const m = new Map(Object.entries(init).map(([k, v]) => [+k, v])); return { m, get: (i) => m.get(i) ?? 0, set: (i, v) => m.set(i, v) }; };

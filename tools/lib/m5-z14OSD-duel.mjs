@@ -315,7 +315,9 @@ export class OsdDuel {
     this.rngSeq(seed);
     this.olog = this.emu.passes(held, pressed, { hud: this.o.hud });
     setAmbientRandom(stream(seed));
-    W.tick();
+    // (the draw pass of the original zeroes every controller's +0x14 (finding D3, `afterTick` of the island's NPC package); the emulated passes here do not draw, so the port keeps the bits too)
+    const after = W.afterTick; W.afterTick = null;
+    try { W.tick(); } finally { W.afterTick = after; }
     if (this.o.hud) updateOsdHud(this.hud, W.vars, this.hudState, W.dt);
     this.t++;
   }

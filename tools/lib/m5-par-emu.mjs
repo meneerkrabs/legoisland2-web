@@ -3,7 +3,7 @@
 // the camera), the HUD feed FUN_00466f50, the sound loads FUN_00467370, the matrix helpers, the C runtime. Hosted: animation instances (the port's AnimInstance), sounds, speech,
 // random numbers, particles, the BIG engine queries (sweep FUN_00441270, probe FUN_00441ac0, the shadow's ground ray FUN_00442a70, the pterodactyl box FUN_00468590), which are
 // answered by the port's own collision code over the port's world (so they are NOT verified here: the oracle checks everything around them).
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const RECORDS_BASE = 0x10000000, HEAP_BASE = 0x20000000;
 const REC = 0x68;
@@ -33,7 +33,7 @@ export class ParEmu {
    * @param o { rand(range): number (the port's FUN_004388ae), col: { sweep(recIdx, from, delta, mask, r, s) -> {rec, point, normal} | null, probe(...), ground(from) -> point | null, box(recIdx, a, b, outP, outN) -> boolean } }
    */
   constructor(pe, recs, anims, o) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = cpu.mem;
     this.pe = pe;
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x100000, name: 'heap' });

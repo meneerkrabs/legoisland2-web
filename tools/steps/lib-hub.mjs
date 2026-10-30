@@ -66,6 +66,10 @@ export function hub({ page, wait, log = () => {}, shot = async () => {} }, archi
     p.x = px; p.z = pz; p.y = r.y + 1;
     const g = w.col.groundRay(px, r.y + 20, pz); if (g > -1e30) p.y = g;
     p.ry = Math.atan2(r.x - px, r.z - pz); p.rebuildYaw(); p.savePrev(); w.camera.init(p);
+    // a swimming Pepper (mode 2) put on dry ground walks again: the swim node is the exclusive node of her record and pins y to the sea level every tick, so the game's own exit (a probe
+    // one unit ahead, run by PepSwitc) never sees the new height; the state it would have after climbing out is set directly (mode 1, clip OUTOFWATER = 0x25)
+    const v = z.sh.vars, word = v.get(0x5e);
+    if ((word & 0xfff) === 2 && g > w.seaLevel) { v.set(0x5e, (word & ~0xfff) | 1); w.pep.mailbox = 0x25; p.anim?.start(0x25, 0); }
     return [r.x, r.y, r.z].map((x) => +x.toFixed(1));
   }, [name, dist, ang]);
   /** put Pepper at (x, z) on the ground facing (fx, fz), camera behind */
@@ -73,6 +77,8 @@ export function hub({ page, wait, log = () => {}, shot = async () => {} }, archi
     const zz = window.__zone, w = zz.world, p = zz.loaded.pepper;
     p.x = x; p.z = z; const g = w.col.groundRay(x, 200, z); if (g > -1e30) p.y = g;
     p.ry = Math.atan2(fx - x, fz - z); p.rebuildYaw(); p.savePrev(); w.camera.init(p);
+    const v = zz.sh.vars, word = v.get(0x5e);   // (a swimming Pepper put on dry ground walks again: see teleportNear)
+    if ((word & 0xfff) === 2 && g > w.seaLevel) { v.set(0x5e, (word & ~0xfff) | 1); w.pep.mailbox = 0x25; p.anim?.start(0x25, 0); }
   }, [x, z, fx, fz]);
   /** PATH map (FUN_00462be9(1, n)) position of node n */
   S.pathNode = (n) => page.evaluate((i) => { const p = window.__zone.game.ictx.pathPos(i); return p ? [...p] : null; }, n);

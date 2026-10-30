@@ -12,8 +12,10 @@ import { parseBlk } from '../../src/formats/anim.ts';
 import { AnimInstance } from '../../src/game/anim.ts';
 import { GameRecord } from '../../src/game/record.ts';
 import '../../src/zones/z21fsh/nodes.ts';
-import { prepareFsh, sharedOf, silentEnv } from '../../src/zones/z21fsh/nodes.ts';
+import { prepareFsh, sharedOf, silentEnv, hudHook } from '../../src/zones/z21fsh/nodes.ts';
 import { REC, TABLE } from '../../src/zones/z21fsh/rules.ts';
+import { waypoints, MAP_PATH, NPC_SPEED, NPC_TURN_RATE, NPC_RADIUS_MIN, NPC_RADIUS_MAX, NPC_RADIUS_LIMIT } from '../../src/game/walker.ts';
+import { FIELDS as WALKER_FIELDS, TABLE as WALKER_TABLE, STRIDE as WALKER_STRIDE } from './m7-walker-emu.mjs';
 
 export const RB = 0x30000000, NB = 0x31000000, AB = 0x33000000, MB = 0x34000000, HEAP = 0x20000000, HEAP_SIZE = 0x4000000;
 /** the node blocks (offsets from NB) */
@@ -36,11 +38,20 @@ export function loadFsh(ctx, { seed = 7, dt = 1 } = {}) {
   w.externalInput = true;
   w.dt = dt;
   const KEEP = new Set(['FSwitch', 'Fishing', 'Bertha', 'Shoal', 'Splash', 'rod', 'Fisherman']);
-  for (const r of w.records) if (r.ctrl) r.ctrl.nodes = r.ctrl.nodes.filter((n) => KEEP.has(n.kind) && n.kind !== 'Fisherman');
+  for (const r of w.records) if (r.ctrl) r.ctrl.nodes = r.ctrl.nodes.filter((n) => KEEP.has(n.kind));
+  // the fisherman's walker: what the generic talking node (SGMFIG) creates in its first update (FUN_00462d4f(1, rec, start -1) + speed / lane / turn rate / radii, apply), made here for both worlds
+  waypoints.unload(); waypoints.load(L.archive);
+  const frec = w.records[REC.FSHM];
+  const fh = waypoints.create(MAP_PATH, frec, -1);
+  waypoints.setSpeed(fh, NPC_SPEED); waypoints.setLane(fh, 0); waypoints.setTurnRate(fh, NPC_TURN_RATE);
+  waypoints.setRadiusMin(fh, NPC_RADIUS_MIN); waypoints.setRadiusMax(fh, NPC_RADIUS_MAX); waypoints.setRadiusLimit(fh, NPC_RADIUS_LIMIT);
+  waypoints.apply(fh, frec);
+  frec.ctrl.walker = fh;
   const rig = (n) => { const e = L.archive.find(`anim/${n}.blk`); return e ? parseBlk(L.archive.read(e)) : null; };
   const bigb = rig('BIGB'), rodd = rig('RODD');
   if (bigb) w.records[REC.BIGB].anim = new AnimInstance(bigb);
   if (rodd) w.records[REC.RODD].anim = new AnimInstance(rodd);
+  const mfig = rig('MFIG'); if (mfig && !w.records[REC.FSHM].anim) w.records[REC.FSHM].anim = new AnimInstance(mfig);
   const S = sharedOf(w);
   const rng = recordingRng(seed);
   S.rng = rng;
@@ -62,8 +73,10 @@ export function loadFsh(ctx, { seed = 7, dt = 1 } = {}) {
   const F = S.fishing;
   let prev = 0;
   /** one tick with the buttons `held` down (`pressed` = the buttons that went down this tick, derived) */
-  const step = (held = 0) => { const i = w.input; i.prevHeld = prev; i.held = held; i.pressed = (held ^ prev) & held; prev = held; w.tick(); };
-  return { L, w, S, F, pe, rng, seed, log, ctorDraws, step, held: () => prev };
+  // the HUD the hook of the FSwitch node writes (FUN_006f514c -> FUN_00705c64), run after the tick like the draw pass
+  const hud = { leftText: '', rightText: '', centreText: '', gauge: null };
+  const step = (held = 0) => { const i = w.input; i.prevHeld = prev; i.held = held; i.pressed = (held ^ prev) & held; prev = held; w.tick(); hudHook(S, hud); };
+  return { L, w, S, F, pe, rng, seed, log, ctorDraws, step, held: () => prev, hud, walker: fh };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------- the emulation
@@ -174,7 +187,13 @@ export function createHarness(ctx, W, opts = {}) {
   hook(0x4445e0, (c) => { const a = c.arg(0), b = c.arg(1); H.lines.push({ a: [0, 1, 2].map((i) => mem.f32(a + 4 * i)), b: [0, 1, 2].map((i) => mem.f32(b + 4 * i)) }); });
   hook(0x416885, () => {});
   const recOfPtr = (p) => ((p - RB) % 0x68 === 0 ? rs[(p - RB) / 0x68]?.index : -1);
-  cpu.exec = [[0x422b00, 0x422d00], [0x6f3000, 0x707000], [0x858d30, 0x873e00], [0x43a000, 0x43b100], [0x43cc00, 0x43d000], [0x43d000, 0x442b00]];
+  // ---- the waypoint walker (Common\WayPt, FUN_004630c0 loader / 004614d5 create / 004626d0 step ...) runs natively; hosted: the loader's file functions, the 24-bit sqrt
+  const wfiles = new Map(); let nextWFile = 0x100;
+  hook(0x43bfb7, (c) => { const e = L.archive.find(mem.cstr(c.arg(0)).replace(/\\/g, '/')); if (!e) { c.eax = 0; return; } const h = (nextWFile += 0x10); wfiles.set(h, { data: L.archive.read(e), pos: 0 }); c.eax = h; });
+  hook(0x43c1a0, (c) => { const f = wfiles.get(c.arg(0)), dst = c.arg(1), len = c.arg(2); if (!f) { c.eax = 0; return; } const k = Math.max(0, Math.min(len, f.data.length - f.pos)); mem.write(dst, f.data.subarray(f.pos, f.pos + k)); f.pos += k; c.eax = k; });
+  hook(0x43c22e, (c) => { wfiles.delete(c.arg(0)); });
+  hook(0x4388e7, (c) => { c.fpush(f32(Math.sqrt(c.argf(0)))); });
+  cpu.exec = [[0x422b00, 0x422d00], [0x6f3000, 0x707000], [0x858d30, 0x873e00], [0x43a000, 0x43b100], [0x43cc00, 0x43d000], [0x43d000, 0x442b00], [0x460e00, 0x466200]];
   cpu.fallback = (a) => { H.unhooked.add(a); throw new Error(`z21FSH emu: unhooked call to 0x${a.toString(16)} from 0x${cpu.callAt.toString(16)} (frames ${cpu.frames.slice(-12).map((f) => f.toString(16))}, last ${cpu.lastSteps().slice(-6).map((f) => f.toString(16))})`); };
   cpu.invalidate();
   H.recPtr = recPtr; H.recOf = recOf; H.recOfPtr = recOfPtr; H.animOf = animOf;
@@ -326,6 +345,24 @@ export function attachMirrors(H) {
     result: S.result, splashOn: S.splash.on ? 1 : 0, splash: [S.splash.x, S.splash.y, S.splash.z], cam: Array.from(w.camera.c).slice(0, 6), camPreset: [S.cam.x, S.cam.y, S.cam.z], camHeight: S.cam.h,
     rodTip: [...S.rodTip], best: S.pick.best, bestFish: ptrOfFish(S.pick.fish),
   });
+  // ---- the Fisherman node (FUN_006f9090): fields x y z +0x18.., yaw +0x24, state +0x28, route +0x2c; the walker table of the original (Common\WayPt)
+  const fnode = () => rs[REC.FSHM].ctrl.nodes.find((n) => n.kind === 'Fisherman');
+  H.writeFisherman = () => { const a = H.ptr.fisherman, n = fnode(); mem.wf32(a + 0x18, n.x); mem.wf32(a + 0x1c, n.y); mem.wf32(a + 0x20, n.z); mem.wf32(a + 0x24, n.yaw); mem.w32(a + 0x28, n.state); mem.w32(a + 0x2c, n.route); };
+  H.readFisherman = () => { const a = H.ptr.fisherman; return { x: mem.f32(a + 0x18), y: mem.f32(a + 0x1c), z: mem.f32(a + 0x20), yaw: mem.f32(a + 0x24), state: mem.r32(a + 0x28), route: mem.r32(a + 0x2c) }; };
+  H.tsFisherman = () => { const n = fnode(); return { x: n.x, y: n.y, z: n.z, yaw: n.yaw, state: n.state, route: n.route }; };
+  H.readWalker = () => {
+    const h = W.walker, p = WALKER_TABLE + (h - 1) * WALKER_STRIDE, o = {};
+    for (const [k, [off, t]] of Object.entries(WALKER_FIELDS)) o[k] = t === 'f32' ? mem.f32(p + off) : t === 'i16' ? (mem.r16(p + off) << 16) >> 16 : mem.u32(p + off);
+    return o;
+  };
+  H.tsWalker = () => {
+    const pw = waypoints.get(W.walker), o = {};
+    for (const k of Object.keys(WALKER_FIELDS)) { const pv = /^point\d$/.test(k) ? pw.point[+k[5]] : pw[k]; o[k] = k === 'flags' ? pv >>> 0 : pv; }
+    return o;
+  };
+  // ---- the HUD globals the hook FUN_00705c64 writes: the three texts, the gauge switch / marker / value, the icon column's slot 0
+  H.readHud = () => ({ leftText: mem.cstr(0x5d4dd20, 16), rightText: mem.cstr(0x5d4dd44, 16), centreText: mem.cstr(0x5d4dd60, 16), gaugeOn: mem.r32(0x5d4e0b8) !== 0 ? 1 : 0, marker: mem.r32(0x5d4e0c0) | 0, gaugeValue: mem.f32(0x5d4e138), column0: mem.r32(0x5d4e144) | 0 });
+  H.tsHud = () => { const h = W.hud, g = h.gauge; return { leftText: h.leftText, rightText: h.rightText, centreText: h.centreText, gaugeOn: g ? 1 : 0, marker: g ? g.marker : null, gaugeValue: g ? g.value : null, column0: S.column0 }; };
   H.reset = () => { const cpu = H.cpu; cpu.regs[4] = 0x7ff00000 - 0x100; cpu.top = 0; cpu.frames.length = 0; cpu.invalidate(); };
 }
 
@@ -357,13 +394,25 @@ export function runConstructors(H, tables) {
   call(CT.rod, REC.RODD, 0, P.rod, 2, 1, 1);
   call(CT.fswitch, REC.PEPP, 0, P.fswitch, 2, 1, 1);
   call(CT.fishing, REC.PEPP, A, P.fishing, 0xfb, 2, 2);
+  call(CT.fisherman, REC.FSHM, 0, P.fisherman, 2, 1, 1);
+  // the fisherman's walker, made like the port's (W.walker): reset, the PATH map (FUN_004630c0(1, ...)), FUN_004614d5 + the setters + apply
+  {
+    const wc = (a, args = []) => { H.reset(); cpu.steps = 0; return cpu.call(a, args, { maxSteps: 20000000 }); };
+    const str = MB + 0x10000, name = 'Waypoints/W_PATH'; for (let i = 0; i < name.length; i++) mem.w8(str + i, name.charCodeAt(i)); mem.w8(str + name.length, 0);
+    wc(0x4613d0); wc(0x4630c0, [1, str]);
+    const h = wc(0x4614d5, [1, RB + REC.FSHM * 0x68, 0xffffffff]);
+    if (h !== W.walker) throw new Error(`z21FSH emu: the original's walker handle ${h}, the port's ${W.walker}`);
+    for (const [fn, v] of [[0x462206, NPC_SPEED], [0x461ad6, 0], [0x462324, NPC_TURN_RATE], [0x4623aa, NPC_RADIUS_MIN], [0x4623cd, NPC_RADIUS_MAX], [0x462436, NPC_RADIUS_LIMIT]]) wc(fn, [h, bitsOf(v)]);
+    wc(0x461fe4, [h, RB + REC.FSHM * 0x68]);
+    P.ctrl7 = NB + 0x1540; mem.fill(P.ctrl7, 0x40, 0); mem.w32(P.ctrl7 + 0x10, h);
+  }
   H.ctorRandCalls = H.randCalls; H.randSource = null;
   // the controller links the switch reads (FUN_006f4bfa: DAT_05d5ca60 = *(*(node + 0x10) + 0x10) = the node at chain position 2)
   mem.w32(P.fswitch + 0x10, ctrl); mem.w32(ctrl + 0x10, P.fishing);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------- one pass
-const KIND = { FSwitch: 'fswitch', Fishing: 'fishing', Bertha: 'bertha', Shoal: 'shoal', Splash: 'splash', rod: 'rod' };
+const KIND = { FSwitch: 'fswitch', Fishing: 'fishing', Bertha: 'bertha', Shoal: 'shoal', Splash: 'splash', rod: 'rod', Fisherman: 'fisherman' };
 export function vtableOf(H, kind) { return [0x92f398, 0x92f588, 0x92f3e8, 0x92f488, 0x92f438, 0x92f780, 0x92f708].map((a) => a); }
 const VT = { fswitch: 0x92f398, fishing: 0x92f588, bertha: 0x92f3e8, shoal: 0x92f488, splash: 0x92f438, rod: 0x92f780, fisherman: 0x92f708 };
 
@@ -374,7 +423,7 @@ const VT = { fswitch: 0x92f398, fishing: 0x92f588, bertha: 0x92f3e8, shoal: 0x92
 export function emuPass(H, opts = {}) {
   const { cpu, mem, W } = H, { w, S, pe } = W;
   H.bones.length = 0; H.log.length = 0; H.texts.length = 0; H.lines.length = 0; H.parts.length = 0; H.draws.length = 0; H.randCalls = 0;
-  H.mirrorRecords(); H.writeGlobals(); H.writeSpots(); H.writePopups(); H.writeFishing(S.fishing); H.writeShoal(); H.writeBertha(); H.writeFishMats(); H.writeRod();
+  H.mirrorRecords(); H.writeFisherman(); H.writeGlobals(); H.writeSpots(); H.writePopups(); H.writeFishing(S.fishing); H.writeShoal(); H.writeBertha(); H.writeFishMats(); H.writeRod();
   const P = H.ptr;
   const ran = [], rets = {};
   const run = (fn, args) => { cpu.steps = 0; cpu.call(fn, args, { maxSteps: 4000000, trace: opts.trace }); return cpu.eax | 0; };
@@ -387,7 +436,7 @@ export function emuPass(H, opts = {}) {
       const k = KIND[n.kind];
       if (!k) continue;
       const fn = pe.u32(VT[k]);
-      const r = run(fn, [H.recPtr(rec), P[k], P.ctrl]);
+      const r = run(fn, [H.recPtr(rec), P[k], k === 'fisherman' ? P.ctrl7 : P.ctrl]);
       ran.push([rec.index, n.kind, i]); rets[`${rec.index}:${n.kind}`] = r;
       if (r === 0) continue;
       if (r === 1) break;
@@ -399,12 +448,13 @@ export function emuPass(H, opts = {}) {
   for (const [ri, kind] of ran) {
     const k = KIND[kind];
     const fn = pe.u32(VT[k] + 12);
-    if (!fn || !['shoal', 'splash', 'rod', 'bertha'].includes(k)) continue;
+    if (!fn || !['shoal', 'splash', 'rod', 'bertha', 'fswitch'].includes(k)) continue;
     run(fn, [H.recPtr(w.records[ri]), P[k], P.ctrl, 0]);
   }
   return {
     recs: w.records.map((r) => H.readRec(r)), fishing: H.readFishing(), shoal: H.readShoal(), bertha: H.readBertha(), rod: H.readRod(), popups: H.readPopups(), globals: H.readGlobals(), spots: H.readSpots(),
     fishMats: S.shoal.fish.map((_, i) => H.readFishMat(i)), vars: w.vars.a.slice(), log: H.log.slice(), texts: afterUpdate.texts.concat(H.texts), lines: H.lines.slice(), parts: H.parts.slice(), draws: H.draws.slice(),
+    fisherman: H.readFisherman(), walker: H.readWalker(), hud: H.readHud(),
     ran, rets, rand: H.randCalls, bones: H.bones.slice(),
     anims: Object.fromEntries(w.records.filter((r) => r.anim).map((r) => [r.index, { clip: r.anim.clip, frame: r.anim.frame }])),
   };
@@ -424,7 +474,9 @@ export function snapshotWorld(W) {
   const { w, S, rng } = W;
   const fish = [...S.shoal.fish, S.bertha.fish].map((f) => [f, { ...own(f), m: new Float32Array(f.m) }]);
   const fols = [S.shoal.follower, S.bertha.follower].map((f) => [f, { ...own(f), step: [...f.step], pos: [...f.pos] }]);
+  const fn = w.records[REC.FSHM].ctrl.nodes.find((n) => n.kind === 'Fisherman');
   return {
+    fn: { x: fn.x, y: fn.y, z: fn.z, yaw: fn.yaw, state: fn.state, route: fn.route }, hud: { leftText: W.hud.leftText, rightText: W.hud.rightText, centreText: W.hud.centreText, gauge: W.hud.gauge, },
     vars: w.vars.a.slice(), tickCount: w.tickCount, frame: w.frame, input: { ...own(w.input) },
     recs: w.records.map((r) => ({ m: new Float32Array(r.m), prev: new Float32Array(r.prev), rx: r.rx, ry: r.ry, rz: r.rz, flags: r.flags, anim: r.anim ? own(r.anim) : null })),
     F: own(S.fishing), shoalOwn: own(S.shoal), berthaOwn: own(S.bertha), rod: own(S.rod), fish, fols, popups: S.popups.slots.map((p) => ({ ...p })), shared: { result: S.result, splash: { ...S.splash }, rodTip: [...S.rodTip], cam: { ...S.cam }, pickBest: S.pick.best, pickFish: S.pick.fish, line: S.line },
@@ -433,6 +485,7 @@ export function snapshotWorld(W) {
 }
 export function restoreWorld(W, s) {
   const { w, S, rng } = W;
+  Object.assign(w.records[REC.FSHM].ctrl.nodes.find((n) => n.kind === 'Fisherman'), s.fn); Object.assign(W.hud, s.hud);
   w.vars.a.set(s.vars); w.tickCount = s.tickCount; w.frame = s.frame; Object.assign(w.input, s.input);
   s.recs.forEach((q, i) => { const r = w.records[i]; r.m.set(q.m); r.prev.set(q.prev); r.rx = q.rx; r.ry = q.ry; r.rz = q.rz; r.flags = q.flags; if (q.anim) Object.assign(r.anim, q.anim); });
   const F = S.fishing; for (const [k, v] of Object.entries(s.F)) F[k] = Array.isArray(v) ? v.slice() : v;

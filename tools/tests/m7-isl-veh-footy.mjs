@@ -37,16 +37,13 @@ export default {
         d.placePepper(-300, 30, -300, 0);
         const PN = ball >= 0 ? d.pnode(ball, 'Footy') : null;
         const ptr = (i, ctor) => d.onode(i, ctor);
-        // free-running: the ball's pose (position, spin angle rx) and the last offset are accumulated in float32 by the original (pos -= speed * dir each tick: half an ulp of a coordinate of 300 = 1.5e-5 per step, in one
-        // direction for a straight flight) and in doubles by the port: after a flight of 100+ steps they are up to ~5e-4 apart: rounding, not logic. Free-run therefore takes them from the original every tick and FAILS if
-        // the drift exceeds 5e-3 (the bound of 150 steps of half an ulp at 512); the sync sessions (same copy of the whole node state, 5e-6 bounds) test the logic strictly
+        // free-running: the ball's pose (position, spin angle rx) is accumulated in float32 on both sides and must stay bit-identical (no re-sync from the original; the sync sessions copy the whole node state every tick)
         d.syncFree = () => {
           if (ball < 0) return;
-          const a = ptr(ball, 0x53955e), r = W.records[ball], ra = 0x10000000 + ball * 0x68;
+          const r = W.records[ball], ra = 0x10000000 + ball * 0x68;
           const drift = Math.max(Math.abs(mem.f32(ra + 0x3c) - r.x), Math.abs(mem.f32(ra + 0x40) - r.y), Math.abs(mem.f32(ra + 0x44) - r.z), Math.abs(mem.f32(ra + 0x4c) - r.rx));
           cover.maxDrift = Math.max(cover.maxDrift ?? 0, drift);
-          if (drift > 5e-3) d.fail(`${d.label} t${d.t} ball pose drift ${drift}`);
-          d.recToPort(ball); void a;
+          if (drift !== 0) d.fail(`${d.label} t${d.t} ball pose drift ${drift}`);
         };
         d.syncPort = () => {
           if (ball >= 0) {

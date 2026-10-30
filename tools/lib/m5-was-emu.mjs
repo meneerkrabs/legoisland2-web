@@ -2,7 +2,7 @@
 // Native from the user's own executable: the constructors FUN_0069b337 (zonewas) / FUN_0069bf24 (pepwas), the updates FUN_00699e80 / FUN_0069b9b0, the matrix helpers and the C runtime.
 // Hosted engine: animation instances (the port's AnimInstance of the oracle's own world), the pose buffer (evaluated "by the renderer" after every tick, like the loop's draw),
 // sounds, texts, random numbers (a scripted integer), particles. Nothing of the executable is stored here, only addresses.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const RECORDS_BASE = 0x10000000, HEAP_BASE = 0x20000000;
 const REC = 0x68;
@@ -33,7 +33,7 @@ export class WasEmu {
    * @param o { rand(): number }
    */
   constructor(pe, recs, anims, o) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = cpu.mem;
     this.pe = pe;
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x100000, name: 'heap' });

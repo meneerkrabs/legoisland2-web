@@ -4,6 +4,8 @@
 import type { Ui2D } from '../../ui/renderer2d.ts';
 import { GATE_OFF, GATE_ON, ZoneParticles } from '../../fx/particles/zone.ts';
 import { MODE } from '../../shell/loopmachine.ts';
+import { frustumPlanes, projectPoint, visibleFlags } from '../../fx/particles/sprites.ts';
+import { reticleLines, reticleMode } from './marker.ts';
 import { drawIntroScreen } from '../../shell/helpscreen.ts';
 import type { ScreenLine } from '../../shell/helpscreen.ts';
 import type { ZoneGame, ZoneGameCtx } from '../../shell/zonegame.ts';
@@ -13,33 +15,6 @@ import { REC, SAY } from './consts.ts';
 import { JoustSound } from './sound.ts';
 import { finalLines, popupLines } from './screens.ts';
 import type { PanelLine } from './screens.ts';
-
-/** the 2D layer is the 640x480 virtual grid (the overlays and the aim marker are laid out in it) */
-const W = 640, H = 480;
-
-/** project a world point with the camera of the world (left-handed look-at, vertical field of view `fov`, 4:3) to the 640x480 grid; null behind the camera */
-export function project(c: ArrayLike<number>, fov: number, p: ArrayLike<number>): [number, number] | null {
-  let fx = c[3] - c[0], fy = c[4] - c[1], fz = c[5] - c[2];
-  const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
-  let rx = fz, rz = -fx;
-  const rl = Math.hypot(rx, rz) || 1; rx /= rl; rz /= rl;
-  const ux = fy * rz, uy = fz * rx - fx * rz, uz = -fy * rx;
-  const dx = p[0] - c[0], dy = p[1] - c[1], dz = p[2] - c[2];
-  const z = dx * fx + dy * fy + dz * fz;
-  if (z <= 0.1) return null;
-  const x = dx * rx + dz * rz, y = dx * ux + dy * uy + dz * uz;
-  const t = Math.tan(fov / 2);
-  return [(W / 2) * (1 + x / z / (t * (W / H))), (H / 2) * (1 - y / z / t)];
-}
-
-/** the 16 line segments of the two markers of FUN_005d2814 around (cx, cy): half size `s`, the short part `s / 3` of every side (the fixed corner marks 20, the aim marker 30) */
-export function markerSegments(cx: number, cy: number, s: number): [number, number, number, number][] {
-  const t = s / 3;
-  return [
-    [cx - s, cy - t, cx - s, cy - s], [cx - s, cy - s, cx - t, cy - s], [cx + t, cy - s, cx + s, cy - s], [cx + s, cy - s, cx + s, cy - t],
-    [cx + s, cy + t, cx + s, cy + s], [cx + s, cy + s, cx + t, cy + s], [cx - t, cy + s, cx - s, cy + s], [cx - s, cy + s, cx - s, cy + t],
-  ];
-}
 
 export async function createJstGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   const { world, gr, hud, archive } = ctx;
@@ -76,25 +51,25 @@ export async function createJstGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
 
   const toScreen = (l: PanelLine): ScreenLine => ({ text: l.table === 'raw' ? l.text : l.table === 'std' ? ctx.std.text(l.text) : (ctx.strings?.text(l.text) ?? l.text), y: l.y, wrap: l.wrap });
 
-  /** the aim marker (FUN_005d2814): fixed corner marks at the shield of the dark knight (white), the aim point = that + the aim offset (yellow, red inside radius sqrt(40)) */
+  /**
+   * the aim marker (FUN_005d2814, the dark knight's draw hook): the origin of the world matrix of the last mesh the record drew (the shield attachment; `GameRenderer.lastWorld`) is checked with
+   * ComputeSphereVisibility (radius 1.0: drawn only when completely inside the frustum) and projected to a point of the back buffer; the 16 lines (marker.ts) are in PIXELS of that back buffer
+   * (the original's display mode; here the 4:3 area of the canvas, `ui.view`), then scaled to the 640x480 grid of the 2D layer
+   */
+  gr.trackWorld.add(recs[REC.DRKK]);
   const drawReticle = (ui: Ui2D) => {
-    // the renderer shows the state between the last two ticks: the marker uses the same interpolated camera, record matrix and pose
-    const d = recs[REC.DRKK], cam = world.camera;
-    const c = [0, 1, 2, 3, 4, 5].map((i) => cam.prev[i] + (cam.c[i] - cam.prev[i]) * alpha);
-    const pose = d.anim?.pose(alpha);
-    const l = pose && pose.length >= 17 * 16 ? [pose[16 * 16 + 12], pose[16 * 16 + 13], pose[16 * 16 + 14]] : [0, 0, 0];
-    const m = d.m.map((v, i) => d.prev[i] + (v - d.prev[i]) * alpha);
-    const w = [l[0] * m[0] + l[1] * m[4] + l[2] * m[8] + m[12], l[0] * m[1] + l[1] * m[5] + l[2] * m[9] + m[13], l[0] * m[2] + l[1] * m[6] + l[2] * m[10] + m[14]];
-    const p = project(c, gr.fov, w);
-    if (!p) return;
-    const seg = (s: [number, number, number, number], argb: number) => {
-      const x0 = Math.min(s[0], s[2]) - 1, x1 = Math.max(s[0], s[2]) + 1, y0 = Math.min(s[1], s[3]) - 1, y1 = Math.max(s[1], s[3]) + 1;
-      ui.fillRect([x0, y0, x1, y1], argb);
-    };
-    for (const s of markerSegments(p[0], p[1], 20)) seg(s, 0xffffffff);
-    const col = duel.aimX * duel.aimX + duel.aimY * duel.aimY < 40 ? 0xffff0000 : 0xffffff00;
-    for (const s of markerSegments(p[0] + duel.aimX, p[1] + duel.aimY, 30)) seg(s, col);
+    const wm = gr.lastWorld.get(recs[REC.DRKK]);
+    if (!wm) return;
+    const vp = gr.lastViewProj, v = ui.view;
+    if (visibleFlags(frustumPlanes(vp, planes), wm[12], wm[13], wm[14], 1.0) !== 0) return;       // FUN_00416d1a returns (flags == 0)
+    projectPoint(vp, wm[12], wm[13], wm[14], v.w, v.h, scr, 0);
+    const k = 640 / v.w, ky = 480 / v.h;
+    for (const l of reticleLines(scr[0], scr[1], duel.aimX, duel.aimY)) {
+      const x0 = Math.min(l.x0, l.x1) * k, x1 = (Math.max(l.x0, l.x1) + 1) * k, y0 = Math.min(l.y0, l.y1) * ky, y1 = (Math.max(l.y0, l.y1) + 1) * ky;     // a 1 pixel line
+      ui.fillRect([x0, y0, x1, y1], l.color);
+    }
   };
+  const planes = new Float32Array(24), scr = new Float32Array(4);
 
   /** FUN_005d4467: the end panel (score, medal, the knights' verdict) */
   const finalBanner = (ui: Ui2D) => {
@@ -104,7 +79,6 @@ export async function createJstGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
 
   /** the HUD (FUN_0046055f) is drawn after the zone's popups: while a popup is up the runner's own HUD draw is switched off and `draw2d` draws it on top */
   let playing = false;
-  let alpha = 1;
   const game: ZoneGame & { duel: JoustDuel; node: JstGameNode | null; sound: JoustSound; gear: Gear } = {
     duel, node, sound, gear,
     introId: SAY.INTRO,
@@ -120,14 +94,13 @@ export async function createJstGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
     },
     onBanner() { playing = false; hud.visible = false; },
     bannerTick() { syncHud(); },
-    beforeRender(a) {
-      alpha = a;
+    beforeRender() {
       sound.listener(world.camera.c, [world.camera.c[3], world.camera.c[4], world.camera.c[5]]);
       hud.visible = playing && duel.state !== 0x21;
     },
     draw2d(ui, dt, mode) {
+      if (reticleMode(mode) && duel.reticle) drawReticle(ui);        // every loop mode but the pause menu and the controls help (DAT_05d5ad04 != 3 / 9)
       if (mode === MODE.PLAY) {
-        if (duel.reticle && duel.ticks > 0) drawReticle(ui);
         if (duel.state === 0x21) {
           drawIntroScreen(ui, ctx.panelEnv(), popupLines(duel).map(toScreen));
           hud.visible = true; hud.draw(ui, dt * 30); hud.visible = false;

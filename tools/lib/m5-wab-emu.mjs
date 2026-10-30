@@ -3,7 +3,7 @@
 // they call in the zone (FUN_0056bb20 presentation, FUN_0056c6a5 whack animation, FUN_0056c8f1 alarm light, FUN_0056b1dc), the camera helpers FUN_00422c7e / FUN_00422ddc, the
 // matrix builder, the C runtime. The engine (animation instances = the port's AnimInstance, sounds, speech, texture frames, random numbers, particles) is a host table that
 // records its calls. Nothing of the executable is stored here, only addresses.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const RECORDS_BASE = 0x10000000, HEAP_BASE = 0x20000000;
 const REC = 0x68;
@@ -36,7 +36,7 @@ export class WabEmu {
    * @param o { rand(): number } the scripted integer the random-number function returns (FUN_004388ae, the port draws `value % n` from the same sequence)
    */
   constructor(pe, recs, pepAnim, o) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = cpu.mem;
     this.pe = pe;
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x100000, name: 'heap' });

@@ -26,44 +26,44 @@ export interface ClipRect { left: number; top: number; right: number; bottom: nu
 export function buildQuad(p: Particle, scr: ArrayLike<number>, invZoom: number, sizeScale: number, ps: PState, df: Float32Array, di: Int32Array, o: number): void {
   const a = p.app, ai = a.i, af = a.f;
   const z = scr[2];
-  const R = invZoom * scr[3];                                  // x87 value (not rounded)
-  const Rf = f32(R);
+  const R = f32(invZoom * scr[3]);                             // 24-bit x87 value
+  const Rf = R;
   // diffuse = (a >> 8) << 24 | (r >> 8) << 16 | (g >> 8) << 8 | (b >> 8), assembled like the original (each term masked with 0xff00 first, the blue byte read as byte 1)
   const col = ((((ai[AP.CA] & 0xff00) << 8) + (ai[AP.CR] & 0xff00)) << 8) + ((ai[AP.CB] >> 8) & 0xff) + (ai[AP.CG] & 0xff00);
   const idx = ai[AP.ANGLE];
   const size = af[AP.SIZE];
-  const S = ps.mem[idx] * size * R * sizeScale;                // fld sin[idx]; fmul size; fmul R; fmul [engine + 0x38]
-  const C = f32(ps.mem[256 + idx] * size * R * sizeScale);     // stored as float32 before use
+  const S = f32(f32(f32(ps.mem[idx] * size) * R) * sizeScale);                // fld sin[idx]; fmul size; fmul R; fmul [engine + 0x38]
+  const C = f32(f32(f32(ps.mem[256 + idx] * size) * R) * sizeScale);     // stored as float32 before use
   const x = scr[0], y = scr[1];
   const u = AP.UV;
   // (x + C, y + S) (x - S, y + C) (x - C, y - S) (x + S, y - C)
-  df[o] = C + x; df[o + 1] = S + y; df[o + 2] = z; df[o + 3] = Rf; di[o + 4] = col; df[o + 5] = af[u]; df[o + 6] = af[u + 1];
-  df[o + 9] = x - S; df[o + 10] = C + y; df[o + 11] = z; df[o + 12] = Rf; di[o + 13] = col; df[o + 14] = af[u + 2]; df[o + 15] = af[u + 3];
-  df[o + 18] = x - C; df[o + 19] = y - S; df[o + 20] = z; df[o + 21] = Rf; di[o + 22] = col; df[o + 23] = af[u + 4]; df[o + 24] = af[u + 5];
-  df[o + 27] = S + x; df[o + 28] = y - C; df[o + 29] = z; df[o + 30] = Rf; di[o + 31] = col; df[o + 32] = af[u + 6]; df[o + 33] = af[u + 7];
+  df[o] = f32(C + x); df[o + 1] = f32(S + y); df[o + 2] = z; df[o + 3] = Rf; di[o + 4] = col; df[o + 5] = af[u]; df[o + 6] = af[u + 1];
+  df[o + 9] = f32(x - S); df[o + 10] = f32(C + y); df[o + 11] = z; df[o + 12] = Rf; di[o + 13] = col; df[o + 14] = af[u + 2]; df[o + 15] = af[u + 3];
+  df[o + 18] = f32(x - C); df[o + 19] = f32(y - S); df[o + 20] = z; df[o + 21] = Rf; di[o + 22] = col; df[o + 23] = af[u + 4]; df[o + 24] = af[u + 5];
+  df[o + 27] = f32(S + x); df[o + 28] = f32(y - C); df[o + 29] = z; df[o + 30] = Rf; di[o + 31] = col; df[o + 32] = af[u + 6]; df[o + 33] = af[u + 7];
 }
 
 /** FUN_00888aae: the vertex where edge a -> b crosses x = edge (all 9 dwords of the result; [4] = a's diffuse, [7] / [8] are left to the caller) */
 function crossX(a: Float32Array, ai: Int32Array, ao: number, b: Float32Array, bo: number, edge: number, out: Float32Array, oi: Int32Array, oo: number): void {
-  const t = f32((edge - a[ao]) / (b[bo] - a[ao]));
+  const t = f32(f32(edge - a[ao]) / f32(b[bo] - a[ao]));
   out[oo] = edge;
-  out[oo + 1] = (b[bo + 1] - a[ao + 1]) * t + a[ao + 1];
-  out[oo + 2] = (b[bo + 2] - a[ao + 2]) * t + a[ao + 2];
-  out[oo + 3] = (b[bo + 3] - a[ao + 3]) * t + a[ao + 3];
-  out[oo + 5] = (b[bo + 5] - a[ao + 5]) * t + a[ao + 5];
-  out[oo + 6] = (b[bo + 6] - a[ao + 6]) * t + a[ao + 6];
+  out[oo + 1] = f32(f32(f32(b[bo + 1] - a[ao + 1]) * t) + a[ao + 1]);
+  out[oo + 2] = f32(f32(f32(b[bo + 2] - a[ao + 2]) * t) + a[ao + 2]);
+  out[oo + 3] = f32(f32(f32(b[bo + 3] - a[ao + 3]) * t) + a[ao + 3]);
+  out[oo + 5] = f32(f32(f32(b[bo + 5] - a[ao + 5]) * t) + a[ao + 5]);
+  out[oo + 6] = f32(f32(f32(b[bo + 6] - a[ao + 6]) * t) + a[ao + 6]);
   oi[oo + 4] = ai[ao + 4];
   out[oo + 7] = 0; out[oo + 8] = 0;
 }
 /** FUN_00888b74: the same for a horizontal edge y = edge */
 function crossY(a: Float32Array, ai: Int32Array, ao: number, b: Float32Array, bo: number, edge: number, out: Float32Array, oi: Int32Array, oo: number): void {
-  const t = f32((edge - a[ao + 1]) / (b[bo + 1] - a[ao + 1]));
+  const t = f32(f32(edge - a[ao + 1]) / f32(b[bo + 1] - a[ao + 1]));
   out[oo + 1] = edge;
-  out[oo] = (b[bo] - a[ao]) * t + a[ao];
-  out[oo + 3] = (b[bo + 3] - a[ao + 3]) * t + a[ao + 3];
-  out[oo + 2] = (b[bo + 2] - a[ao + 2]) * t + a[ao + 2];
-  out[oo + 5] = (b[bo + 5] - a[ao + 5]) * t + a[ao + 5];
-  out[oo + 6] = (b[bo + 6] - a[ao + 6]) * t + a[ao + 6];
+  out[oo] = f32(f32(f32(b[bo] - a[ao]) * t) + a[ao]);
+  out[oo + 3] = f32(f32(f32(b[bo + 3] - a[ao + 3]) * t) + a[ao + 3]);
+  out[oo + 2] = f32(f32(f32(b[bo + 2] - a[ao + 2]) * t) + a[ao + 2]);
+  out[oo + 5] = f32(f32(f32(b[bo + 5] - a[ao + 5]) * t) + a[ao + 5]);
+  out[oo + 6] = f32(f32(f32(b[bo + 6] - a[ao + 6]) * t) + a[ao + 6]);
   oi[oo + 4] = ai[ao + 4];
   out[oo + 7] = 0; out[oo + 8] = 0;
 }
@@ -231,7 +231,7 @@ export function particlePos(p: Particle): [number, number, number] {
  */
 export function spinStep(p: Particle, dt: number): void {
   const a = p.app;
-  const sum = a.f[AP.SCTINC] * dt + a.f[AP.SCT];
+  const sum = f32(f32(a.f[AP.SCTINC] * dt) + a.f[AP.SCT]);
   a.f[AP.SCT] = sum;
-  a.i[AP.ANGLE] = ftol(sum + 256) % 256;
+  a.i[AP.ANGLE] = ftol(f32(sum + 256)) % 256;
 }

@@ -66,7 +66,7 @@ export function createWalkerEmu(ctx, zone) {
     const a = E.recPtr(i);
     for (let k = 0; k < 4; k++) mem.w8(a + k, r.name.charCodeAt(k) || 0x20);
     for (let k = 0; k < 16; k++) mem.wf32(a + 0xc + 4 * k, r.m[k]);
-    mem.wf32(a + 0x50, r.ry); mem.w16(a + 0x60, r.flags);
+    mem.wf32(a + 0x4c, r.rx ?? 0); mem.wf32(a + 0x50, r.ry); mem.wf32(a + 0x54, r.rz ?? 0); mem.w16(a + 0x60, r.flags);
   };
   E.readRec = (i) => { const a = E.recPtr(i); return { x: mem.f32(a + 0x3c), y: mem.f32(a + 0x40), z: mem.f32(a + 0x44), ry: mem.f32(a + 0x50), m: Array.from({ length: 16 }, (_, k) => mem.f32(a + 0xc + 4 * k)) }; };
   E.walkerPtr = (h) => TABLE + (h - 1) * STRIDE;

@@ -3,7 +3,7 @@
 // user's own executable; the engine (animation instances, sounds, speech, variables, allocation) is a host table that records its calls. The animation instances are the
 // port's `AnimInstance` objects (the clip / frame / advance functions of the engine are hosted with them), so both sides animate the same rigs. Nothing of the executable
 // is stored here, only addresses.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const RECORDS_BASE = 0x10000000, HEAP_BASE = 0x20000000;
 const REC = 0x68;
@@ -22,7 +22,7 @@ export class JstEmu {
    * @param o { rng: { range(x) }, tables: { points[][] } (the camera spline's control points are read from the executable by the original: nothing to pass) }
    */
   constructor(pe, recs, anims, o) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = cpu.mem;
     this.pe = pe;
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x400000, name: 'heap' });
@@ -150,6 +150,30 @@ export class JstEmu {
 
   /** FUN_005d24b0: the zone's sounds (the loaders are hosted: handles = ids); FUN_005d4add: the 8 rows of the final tableau into DAT_05d5b190 */
   loadSounds() { this.cpu.call(0x5d24b0, []); this.cpu.call(0x5d4add, []); }
+  /**
+   * the aim marker FUN_005d2814 (the dark knight's draw hook) run natively: `o` = { mode (DAT_05d5ad04), reticle (node +0x51), aimX / aimY (node +0xec / +0xf0), visible (FUN_004445c0's result),
+   * px / py / pz (what its ProcessVertices returns: the pixel position of the projected point) }; the engine calls are hosted: FUN_00444480 (the record draw), FUN_00442d60 / 00442d50 / 00445b90
+   * (state saves), FUN_004445c0 (the projection: records the point it was asked for), FUN_00445ba0 (the line: recorded). Returns { lines, projected: [[x, y, z]...] }.
+   */
+  reticle(o) {
+    const cpu = this.cpu, mem = cpu.mem, lines = [], projected = [];
+    const f = (a) => mem.f32(a);
+    cpu.hooks.set(0x444480, () => {}); cpu.hooks.set(0x442d60, () => {}); cpu.hooks.set(0x442d50, () => {}); cpu.hooks.set(0x445b90, () => {});
+    cpu.hooks.set(0x4445c0, (c) => {
+      const out = c.arg(0), pt = c.arg(1);
+      projected.push([f(pt), f(pt + 4), f(pt + 8)]);
+      if (o.visible) { mem.wf32(out, o.px); mem.wf32(out + 4, o.py); mem.wf32(out + 8, o.pz ?? 0.5); }
+      c.eax = o.visible ? 1 : 0;
+    });
+    cpu.hooks.set(0x445ba0, (c) => { const a = c.arg(0), b = c.arg(1); lines.push({ x0: f(a), y0: f(a + 4), x1: f(b), y1: f(b + 4), color: c.arg(2) >>> 0, color2: c.arg(3) >>> 0 }); });
+    cpu.invalidate();
+    mem.w8(this.node + 0x51, o.reticle ? 1 : 0); mem.wf32(this.node + 0xec, o.aimX); mem.wf32(this.node + 0xf0, o.aimY);
+    mem.w32(0x5d5ad04, o.mode);
+    cpu.steps = 0;
+    cpu.call(0x5d2814, [this.recPtr(11), 0, 0, 0], { maxSteps: 200000 });
+    return { lines, projected };
+  }
+
   /** the constructor FUN_005d1f64 as the attach calls it: (record 4, argument 0, node 0, var 2, mask 1, value 1) */
   construct() {
     this.cpu.steps = 0;

@@ -104,14 +104,14 @@ export function prepareActors(I, script) {
   const w = I.world, added = [];
   const find = (n) => w.records.find((r) => r.name.slice(0, 4) === n);
   const pep = I.pepper ?? find('PEPP');
-  if (pep?.ctrl && !waypoints.get(pep.ctrl.walker)) { pep.ctrl.walker = makeWalker(pep); added.push('PEPP walker'); }
+  if (pep?.ctrl && !(pep.ctrl.walker && waypoints.get(pep.ctrl.walker))) { pep.ctrl.walker = makeWalker(pep); added.push('PEPP walker'); }
   for (const c of script.commands) {
     const a = find(c.actor);
     if (!a) continue;
     const walks = (c.cmd === 6 && c.targetKind === 'waypoint') || c.cmd === 7;
     if (walks) {
       if (!a.ctrl) { a.ctrl = new Controller(); added.push(`${a.name} controller`); }
-      if (!waypoints.get(a.ctrl.walker)) { a.ctrl.walker = makeWalker(a); added.push(`${a.name} walker`); }
+      if (!(a.ctrl.walker && waypoints.get(a.ctrl.walker))) { a.ctrl.walker = makeWalker(a); added.push(`${a.name} walker`); }
     }
     if (c.cmd === 1 && !a.anim && pep?.anim) { a.anim = new AnimInstance(pep.anim.rig); added.push(`${a.name} anim`); }
   }

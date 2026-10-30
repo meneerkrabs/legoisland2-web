@@ -254,11 +254,11 @@ export default {
         play(S, 600, `shadow bot dt${dt}`, () => hatBotStep(hatSnapshot(S.w), plan), (i) => {
           if (i % 20 !== 0) return;
           const rec = S.G.S.recs.hotb;
-          const pad = { w12: [0, 0xcdcdcdcd, 0x1234][i % 3], w13: [0x07d80000, 0x00000f1c, 0][(i >> 2) % 3], w14: [1, 0x00010001, 0x0100][(i >> 3) % 3], col: [0x00c81230, 0x01234560, 0x0b100000][i % 3], ctrl: [0x00c9a410, 0x02345670, 0][(i >> 1) % 3] };
+          const pad = { w12: [0, 0x00001234, 0][i % 3], w13: [0x07d80000, 0x00000f1c, 0][(i >> 2) % 3], w14: [1, 0x00010001, 0x0100][(i >> 3) % 3], col: [0x00c81230, 0x01234560, 0x0b100000][i % 3], ctrl: [0x00c9a410, 0x02345670, 0][(i >> 1) % 3] };
           let r;
           try { r = S.H.shadowRun(rec.index, pad); } catch (e) { bad(`shadow hook failed: ${e.stack || e}`); return 'stop'; }
           const mine = shadowPoints(rec);
-          ok(r.cap && r.cap.mode === 2 && r.cap.arg4 === 0 && r.ptrOk, `shadow t${i}: FUN_0043ebe0(model, 2, balloon + 0x40, 0)`);
+          ok(r.cap && r.cap.mode === 2 && r.cap.arg4 === 0 && r.ptrOk, `shadow t${i}: FUN_0043ebe0(model, 2, balloon + 0x40, 0): ${JSON.stringify(r.cap && { ...r.cap, words: 0 })} ptrOk ${r.ptrOk} fx ${r.fx}`);
           ok((r.flags80 & 2) !== 0 && r.fx.includes(0x444480), `shadow t${i}: SHAD flag 2 set, FUN_00444480 called`);
           if (!r.cap) return 'stop';
           for (let k = 0; k < 15; k++) {

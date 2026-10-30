@@ -68,21 +68,34 @@ export class PState {
   constructor(rand: RandFn) { this.rand = rand; }
   /** `idx = (idx + 1) & 0xfff; table[idx]` : the next random float 0..1 */
   rnd(): number { this.idx = (this.idx + 1) & 0xfff; return this.table[this.idx]; }
-  /** FUN_004388ae(x): `rand() / 32767 * x` (0 for x <= 0), as the x87 value (not rounded) */
-  crtRand(x: number): number { return x <= 0 ? 0 : (this.rand() / 32767) * x; }
+  /** FUN_004388ae(x): `rand() / 32767 * x` (0 for x <= 0), as the x87 value (both operations round to 24 bit) */
+  crtRand(x: number): number { return x <= 0 ? 0 : f32(f32(this.rand() / 32767) * x); }
 }
 
 const f32 = Math.fround;
 
+/**
+ * the result of a 24-bit precision x87 operation (control word 0x7f): the mantissa is rounded to 24 bits but the exponent range stays the extended one, so a result below
+ * the float range is NOT yet a denormal; the `fstp` store that follows rounds again (a Float32Array store does that). `Math.fround` alone would round once, straight to the
+ * denormal grid, and differ in the last bit for tiny values (a velocity decaying under air resistance reaches them).
+ */
+export function r24(v: number): number {
+  if (v === 0 || !Number.isFinite(v)) return v;
+  const a = Math.abs(v);
+  if (a >= 1.1754943508222875e-38 && a <= 3.4028234663852886e38) return Math.fround(v);
+  const t = v * 536870913, hi = t - (t - v);   // Veltkamp split: the 24 high bits
+  return hi;
+}
+
 /** FUN_00454460: fill the random table (4096 x `FUN_004388ae(1.0)` = `rand() / 32767 * 1.0`), the sin / cos table (angle 3.926991 + i * 0.024543693 accumulated at full precision) and advance the index by 6 * 255. */
 export function initTables(s: PState): void {
-  for (let i = 0; i < 4096; i++) s.table[i] = (s.rand() / 32767) * 1.0;
+  for (let i = 0; i < 4096; i++) s.table[i] = f32(f32(s.rand() / 32767) * 1.0);
   let a = f32(3.926991);                                  // 0x407b53d2 (5 pi / 4)
   const step = f32(0.024543693);                          // 0x3cc90fdb (2 pi / 256)
   for (let i = 0; i < 256; i++) {
     s.sin[i] = Math.sin(a);
     s.cos[i] = Math.cos(a);
-    a = a + step;                                         // kept in the x87 register (53 bit): no float32 rounding
+    a = f32(a + step);                                    // the x87 runs at 24 bit (control word 0x7f, D3D7): the register sum rounds to float32
   }
   for (let i = 0; i < 255; i++) s.idx = (s.idx + 6) & 0xfff;
 }

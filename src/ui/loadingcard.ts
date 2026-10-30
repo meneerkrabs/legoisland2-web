@@ -7,7 +7,7 @@
 //     (128, 0, 0) (0, 128, 0) (-128, 0, 0) (0, -128, 0) go through `m` (FUN_0043ab72), x / y are added to the viewport's centre (integers, `(x1 - x0) / 2`), the quad is an orthographic
 //     triangle fan with the UVs (0,1) (1,1) (1,0) (0,0) (the full-screen quad's array, reused) and the vertex colour of the fade (block 0x10: texture colour, alpha = texture alpha * vertex alpha, no culling);
 //   * which face: the transformed (0, 0, 1) has z > 0 -> the CD (`ctx + 0x224`), else the pizza (`ctx + 0x14c`);
-//   * after the draw: `dt = (float)(int)(GetTickCount() - last) / 30`, `angle[0x92] += 0.05 * dt`, `angle[0x93] += 0.01 * dt` (float32 stores), `last = now`: the clock only moves while the card is drawn.
+//   * after the draw: `dt = (float)(int)(GetTickCount() - last) / 30`, `angle[0x92] += 0.05 * dt`, `angle[0x93] += 0.01 * dt` (float32 stores; the x87 runs at 24 bit, the product rounds before the add), `last = now`: the clock only moves while the card is drawn.
 // The positions are in the viewport's own pixels; the port runs the 640x480 mode of the original (the only mode in which the text position FUN_00439c6f(.., W / 2, H - 100) is on the
 // screen) in the 640x480 virtual grid of the 2D layer.
 import { matEuler0, matMul, transformPoint } from '../fx/particles/mat.ts';
@@ -91,8 +91,8 @@ export class LoadingCard {
     // the clock: int difference (DWORD wrap), float32 stores
     const dt = f32(f32((now - this.lastTick) | 0) / 30);
     this.lastTick = now | 0;
-    this.angleZ = f32(f32(0.05) * dt + this.angleZ);
-    this.angleX = f32(f32(0.01) * dt + this.angleX);
+    this.angleZ = f32(f32(f32(0.05) * dt) + this.angleZ);
+    this.angleX = f32(f32(f32(0.01) * dt) + this.angleX);
     return { colour, alpha: colour >>> 24, verts, face, textX: cx, textY: h - 100 };
   }
 }

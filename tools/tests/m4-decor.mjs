@@ -2,7 +2,7 @@ import { loadIsland } from '../lib/island-load.mjs';
 import { DecorState, decorModel, decorStore } from '../../src/island/decor.ts';
 import { readDecorSetGroups, applyDecorEra } from '../../src/island/decorsets.ts';
 import { readDecorTables, defaultDecor, decorGroupOfZone } from '../../src/shell/tables.ts';
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 // WP-ISLAND (gaps S2): the type-1 decor / outfit swap: FUN_00420bb7 (start), FUN_00420dc4 (per tick), FUN_00421bbe (apply the stored decor) against the ORIGINAL code on the x86
 // emulator: records with models / collision boxes, the sets' entries resolved to fake model / collision pointers, a script of Enters and Pepper's movements; after every tick the
@@ -33,7 +33,7 @@ export default {
     for (let i = 0; i < NREC; i++) recs.push({ i, model: { key: 'R' + i, parts: [], attach: [] }, col: { col: { center: [rnd() * 2 - 1, rnd() * 3, rnd() * 2 - 1], halfExtents: [1 + rnd() * 3, 1 + rnd(), 1 + rnd() * 3] } }, x: rnd() * 60, y: rnd() * 5, z: rnd() * 60, ry: rnd() * 6 });
 
     // ---- the emulator
-    const cpu = createCpu(pe), mem = cpu.mem;
+    const cpu = createGameCpu(pe), mem = cpu.mem;
     const RB = 0x10000000, HEAP = 0x20000000;
     mem.addRegion({ lo: RB, hi: RB + NREC * 0x68 + 0x1000, name: 'records' });
     mem.addRegion({ lo: HEAP, hi: HEAP + 0x400000, name: 'heap' });

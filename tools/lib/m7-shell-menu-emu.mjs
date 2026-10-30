@@ -4,7 +4,7 @@
 // and the three wrappers FUN_0041bd3d / FUN_0041be4e / FUN_0041c092, the save-slot cache FUN_0041a9bf. The engine state is the int array at 0x8a9590 (docs/re/shell-m2.md), the page
 // table is the exe's own .data (0x8a9338). Hosted: the sound calls (logged), the drawing and text functions (no-ops), the mouse (never moves), the message tables (an id is its own
 // text), the file calls (the save slots), the game variables are the exe's own array 0x8a2d2c (FUN_00417575 / FUN_00417597 run natively). Nothing of the executable is stored here.
-import { createCpu } from '../../src/formats/x86emu.ts';
+import { createGameCpu } from '../../src/formats/x86emu.ts';
 
 export const HEAP_BASE = 0x20000000;
 const CRT = [0x858d30, 0x873e00];
@@ -15,7 +15,7 @@ export const A = {
 
 export class MenuEmu {
   constructor(pe) {
-    const cpu = (this.cpu = createCpu(pe));
+    const cpu = (this.cpu = createGameCpu(pe));
     const mem = (this.mem = cpu.mem);
     this.pe = pe;
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x400000, name: 'heap' });
