@@ -14,7 +14,7 @@ import type { IslandCtx } from '../../island/ctx.ts';
 import { loadMessages } from '../../ui/strings.ts';
 import { restoreHooks } from '../../restore/flag.ts';
 import type { MessageTable } from '../../ui/strings.ts';
-import type { ZoneGameCtx } from '../../shell/zonegame.ts';
+import type { ZoneGameCtx, SubtitleMode } from '../../shell/zonegame.ts';
 import type { AudioHost } from '../../shell/audiohost.ts';
 import { Objective } from './objective.ts';
 import type { VehicleObjective } from './objective.ts';
@@ -142,10 +142,11 @@ export class IslandContext implements IslandCtx {
   holdCutscene(on: boolean) { this.zg?.cutscene.hold(on); }
 
   // ---- speech
-  say(table: MessageTable, id: string, id2?: string, voice = true): boolean {
-    const speak = (t: MessageTable, a: string, b?: string) => this.zg?.sayFrom(t, a, b, voice) ?? false;
+  say(table: MessageTable, id: string, id2?: string, voice = true, subtitle: SubtitleMode = 'timed'): boolean {
+    const speak = (t: MessageTable, a: string, b?: string) => this.zg?.sayFrom(t, a, b, voice, subtitle) ?? false;
     return restoreHooks.say?.(table, id, id2, speak) ?? speak(table, id, id2);   // restored content (option off: unset)
   }
+  clearSubtitle() { this.zg?.clearSubtitle(); }
   /** FUN_0043f2f0: the face frame of a minifig (the renderer draws `GameRecord.face`) */
   expression(rec: GameRecord, n: number) { rec.face = n; }
   speechIdle(): boolean { return this.zg?.speechIdle() ?? true; }

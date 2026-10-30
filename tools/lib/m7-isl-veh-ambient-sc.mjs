@@ -2,7 +2,9 @@
 // WP-VERIFY M7 island ambient nodes (docs/re/m4/wp7-ambient.md): the ORIGINAL's node code (Butterfly FUN_004b24f8 / FUN_004b2539, ...) runs natively in the x86 emulation (tools/lib/m7-isl-veh-ambient.mjs, m7-isl-veh-emu.mjs)
 // next to the port's nodes (src/island/ambient/**) with the same scripted Pepper position / buttons and the same random numbers; compared tick by tick: the records (matrix, Euler, flags), the node blocks, all game
 // variables, the sound / emitter calls, the random draw count of every tick.
+import { m8Note } from './m8-d.mjs';
 import { ambientDuel, CTOR, B, lcg, hostMusic, portMusic, MUSIC_RE, giveAnims } from './m7-isl-veh-ambient.mjs';
+import { cdFillHeap } from './m8-save.mjs';
 
 const MAXFAIL = 30;
 
@@ -13,6 +15,7 @@ export function makeEnv(ctx) {
   env.finish = (d, label) => {
     const { cover, notes, devs, unhooked } = env;
     if (d.grazes) { cover.grazes = (cover.grazes ?? 0) + d.grazes.length; notes.push(`${label}: ${d.grazes.length} divergence(s) re-synced (float32 original vs double port): ${d.grazes.map((g) => g.slice(0, 140)).join(' ; ')}`); }
+    if (d.m8) notes.push(`${label}: ${m8Note(d.m8)}`);
     notes.push(`${label}: worst deviations ${[...d.worst].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k} ${v.toExponential(1)}`).join(', ') || 'none'}`);
     env.checked += d.checked;
     for (const [a, n] of d.emu.unhooked) unhooked.set(a, (unhooked.get(a) ?? 0) + n);
@@ -105,7 +108,7 @@ export const misc = async (env) => {
           d.tick(held); cover.ticks++;
           const gm = d.grazeBegin();
           for (const i of all) d.rec(i, 0xfffe);
-          for (const i of spinners) { const n = W.records[i].name, pn = d.pnode(i, 'Spin'), a = d.onode(i, CTOR.SPIN); d.eq(n + '.axis', mem.r16(a + 0x14), pn.axis); d.eq(n + '.face', mem.r16(a + 0x16), pn.face); d.cmp(n + '.rate', mem.f32(a + 0x1c), pn.rate, 0, '', 1e-9); }
+          for (const i of spinners) { const n = W.records[i].name, pn = d.pnode(i, 'Spin'), a = d.onode(i, CTOR.SPIN); d.eq(n + '.axis', mem.r16(a + 0x14), pn.axis); d.eq(n + '.face', mem.r16(a + 0x16), pn.face & 0xffff); d.cmp(n + '.rate', mem.f32(a + 0x1c), pn.rate, 0, '', 1e-9); }
           const p = d.pnode(sea, 'SeaAmin'), a = d.onode(sea, CTOR.SEAAMIN);
           if (p) { d.cmp('SEAE.phase', mem.f32(a + 0x18), p.phase, undefined, '', 1e-6); d.cmp('SEAE.scroll', mem.f32(a + 0x1c), p.scroll, undefined, '', 1e-6); d.cmp('SEAE.prevScroll', mem.f32(a + 0x20), p.prevScroll, undefined, '', 1e-6); }
           d.vars(); d.sounds();
@@ -179,7 +182,8 @@ export const music = async (env) => {
     let ctorLog = d.emu.log.filter((l) => MUSIC_RE.test(l));
     const step = (held = 0) => {
       d.tick(held); cover.ticks++;
-      const o = [...ctorLog, ...d.olog.filter((l) => MUSIC_RE.test(l))]; ctorLog = [];
+      // (a building key the story node did not load is a 0xCDCDCDCD handle in the original (debug heap): FUN_004432c0 is called with it, the port plays nothing: those calls are not compared)
+      const o = [...ctorLog, ...d.olog.filter((l) => MUSIC_RE.test(l))].filter((l) => !/^mus \?/.test(l)); ctorLog = [];
       const p = d.psnd.filter((l) => MUSIC_RE.test(l));
       d.checked++; if (o.join('|') !== p.join('|')) d.fail(`${label} t${d.t} music calls: original ${o.join(' | ')} port ${p.join(' | ')}`);
       for (const l of o) cover.musicCalls[l] = (cover.musicCalls[l] ?? 0) + 1;
@@ -221,6 +225,7 @@ export const bots = async (env) => {
     const label = `bots ${dtLabel}`;
     const d = ambientDuel(ctx, { node: 52, dt, seed: 6, kinds: ['BOTMUSIC', 'GETO'], ctors: new Set([CTOR.BOTMUSIC, CTOR.GETO]), maxFail: MAXFAIL, failures,
       beforeAttach: (emu, duel) => {
+        cdFillHeap(emu);     // the original's debug heap fills new blocks with 0xCD (BOTMUSIC's matrix buffer is unwritten until the first dance: the port keeps 0xCD too)
         hostMusic(emu, duel);
         // FUN_0043f2f0(model, n): the face expression of a record's model (a render call: logged with the record)
         emu.cpu.hooks.set(0x43f2f0, (c) => { emu.log.push(`expr ${(c.arg(0) - 0x40000000) / 0x100} ${c.arg(1)}`); });

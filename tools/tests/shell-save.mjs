@@ -6,7 +6,7 @@ import { GameVars } from '../../src/game/vars.ts';
 import { readFsmCaptions } from '../../src/shell/tables.ts';
 import {
   SAVE_SIZE, OFF, M, SaveError, encodeSave, decodeSave, newSaveFromGame, saveChecksum, readSaveHeader, slotFileName, fsmCaptionId, saveCaption, EMPTY_SLOT_CAPTION,
-  validateSave, applySaveVars, captureVars, WALKER_BYTES, BRICK_SLOT_BYTES,
+  validateSave, saveWarnings, applySaveVars, captureVars, WALKER_BYTES, BRICK_SLOT_BYTES,
 } from '../../src/shell/save.ts';
 import { SaveStore, MemoryBackend, IdbBackend } from '../../src/shell/savestore.ts';
 import { Options, readOptionDefaults, FALLBACK_DEFAULTS, SETTINGS_BYTES, S } from '../../src/shell/options.ts';
@@ -114,12 +114,12 @@ export default {
       const bad = bg.slice(), pos = rnd() % usedG;
       bad[pos] ^= 1 << (rnd() % 8);
       flips++;
-      if (reason(() => decodeSave(bad)) === 'none') undetected++;
+      if (reason(() => decodeSave(bad, { strict: true })) === 'none') undetected++;
     }
     ok(undetected === 0, `${undetected} of ${flips} random bit flips went undetected`);
     // every byte of a small file
     let miss = 0;
-    for (let pos = 0; pos < used0; pos++) { const bad = b0.slice(); bad[pos] ^= 0x10; if (reason(() => decodeSave(bad)) === 'none') miss++; }
+    for (let pos = 0; pos < used0; pos++) { const bad = b0.slice(); bad[pos] ^= 0x10; if (reason(() => decodeSave(bad, { strict: true })) === 'none') miss++; }
     ok(miss === 0, `${miss} byte flips of the empty save went undetected`);
     // padding after the used length is ignored by the original too
     { const bad = b0.slice(); bad[used0 + 100] = 9; ok(reason(() => decodeSave(bad)) === 'none', 'padding after the used length is not validated'); }
@@ -129,8 +129,8 @@ export default {
     { const bad = b0.slice(); bad[4] = 0xc; fixChecksum(bad); ok(reason(() => decodeSave(bad)) === 'version', 'version'); }
     { const bad = b0.slice(); dvOf(bad).setUint32(0, 0x60000, true); ok(reason(() => decodeSave(bad)) === 'length', 'length beyond the file'); }
     { const bad = b0.slice(); dvOf(bad).setUint32(0, 0x10, true); ok(reason(() => decodeSave(bad)) === 'length', 'length too small'); }
-    { const bad = b0.slice(); bad[0x100] ^= 4; ok(reason(() => decodeSave(bad)) === 'checksum', 'checksum'); }
-    { const bad = b0.slice(); dvOf(bad).setUint32(used0 - 4, 0, true); ok(reason(() => decodeSave(bad)) === 'marker', 'closing marker'); }
+    { const bad = b0.slice(); bad[0x100] ^= 4; ok(reason(() => decodeSave(bad, { strict: true })) === 'checksum' && reason(() => decodeSave(bad)) === 'none' && saveWarnings(bad).length === 1, 'checksum: strict validation fails, the original-like load accepts it and the import warns'); }
+    { const bad = b0.slice(); dvOf(bad).setUint32(used0 - 4, 0, true); ok(reason(() => decodeSave(bad, { strict: true })) === 'marker' && reason(() => decodeSave(bad)) === 'none', 'closing marker (strict only)'); }
     { const bad = b0.slice(); dvOf(bad).setUint32(0x4d8, 1, true); fixChecksum(bad); ok(reason(() => decodeSave(bad)) === 'marker', 'inner marker with a correct checksum'); }
     { const bad = b0.slice(); dvOf(bad).setUint32(0x2514, 0x100, true); fixChecksum(bad); ok(reason(() => decodeSave(bad)) === 'decor', 'decor size'); }
     // too much data
@@ -171,13 +171,14 @@ export default {
       ok((await store.slotInfos()).map((i) => i.empty).join() === 'false,true,true,false,true,true,true', 'store: slot infos after save + import');
       let err = null; try { await store.importLgo(1, bg.subarray(0, 5000)); } catch (e) { err = e; }
       ok(err instanceof SaveError && (await store.slotInfo(1)).empty, 'store: invalid import rejected');
-      const bad = bg.slice(); bad[0x300] ^= 1; err = null; try { await store.importLgo(1, bad); } catch (e) { err = e; }
-      ok(err instanceof SaveError && err.reason === 'checksum', 'store: checksum failure on import');
+      const bad = bg.slice(); bad[0x300] ^= 1; err = null; let warn = null; try { warn = await store.importLgo(1, bad); } catch (e) { err = e; }
+      ok(err === null && warn.length === 1, 'store: wrong checksum imports with a warning (the original never checks it)');
+      await store.erase(1);
       await store.erase(3);
       ok((await store.slotInfo(3)).empty && (await store.backend.list()).join() === 'Save00.lgo', 'store: erase');
       // damaged file in the store: header still readable, load throws
       await store.backend.put('Save02.lgo', bad);
-      ok(!(await store.slotInfo(2)).empty && (await store.load(2).then(() => 'ok', (e) => e.reason)) === 'checksum', 'store: damaged slot shows a caption but does not load');
+      ok(!(await store.slotInfo(2)).empty && (await store.load(2).then(() => 'ok', (e) => e.reason)) === 'ok', 'store: wrong checksum slot loads like the original');
     }
     // -- indexedDB backend falls back to memory when IndexedDB is unavailable (node)
     {

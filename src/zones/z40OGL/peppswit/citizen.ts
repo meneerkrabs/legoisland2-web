@@ -13,6 +13,7 @@ import { tryCtx } from '../../../island/ctx.ts';
 import { pepperSide } from '../../../island/npc/globals.ts';
 import { waypoints } from '../../../game/walker.ts';
 import type { StepOut } from '../../../game/walker.ts';
+import { CD32 } from '../../hubsave.ts';
 import { oglGlobals, soundOfToken, play3dId, stopId } from './globals.ts';
 import { fr, f32bits, rotateFromEuler } from './util.ts';
 
@@ -36,6 +37,8 @@ export class CitizenNode implements BehaviourNode {
   handle = 0; sound = -1;
   /** +0x20: the index into the row (starts at 1); +0x28: -1 new, 0 walking, 2 falling */
   cur = 1; state: number = CITIZEN.NEW;
+  /** +0x24: the word between the index and the state; the constructor never writes it (debug heap fill 0xCD), the save block carries it */
+  word24 = CD32;
   private args: ArgView;
   private inited = false;
   private out: StepOut = { yaw: 0, dist: 0 };
@@ -47,19 +50,28 @@ export class CitizenNode implements BehaviourNode {
     return pe ? pe.u32(CITIZEN.TABLE_VA + this.row * CITIZEN.ROW_BYTES + i * 4) | 0 : -1;
   }
 
-  /** FUN_007e69a2: the walker's speed times the argument, the speed scale 1.0, the walking clip */
-  private init(w: World, rec: GameRecord, ctrl: Controller) {
-    this.inited = true;
+  /** the fields the constructor derives from the attach's argument block (FUN_007e69a2: table row, sound handle, the walker's speed times the argument, the walking clip) */
+  private initFields(w: World, ctrl: Controller) {
     const a = this.args;
     this.row = a.i16(0); this.handle = a.u32(8); this.sound = soundOfToken(w, this.handle);
     const h = ctrl.walker;
     const wk = h ? waypoints.get(h) : null;
     this.speed = fr((wk ? wk.speed : 0) * a.f32(4));
-    if (h) waypoints.setSpeedScale(h, 1.0);
     this.clip = a.i16(2);
+  }
+
+  /** FUN_007e69a2: the fields above, the speed scale 1.0, the walking clip */
+  private init(w: World, rec: GameRecord, ctrl: Controller) {
+    this.inited = true;
+    this.initFields(w, ctrl);
+    const h = ctrl.walker;
+    if (h) waypoints.setSpeedScale(h, 1.0);
     if (this.clip !== 0) rec.anim?.start(this.clip, 0);
     this.cur = 1; this.state = CITIZEN.NEW;
   }
+
+  /** the constructor's world half (`registerHub` calls it after the walkers exist): speed scale, walking clip */
+  ctorInit(w: World, rec: GameRecord) { if (rec.ctrl && !this.inited) this.init(w, rec, rec.ctrl); }
 
   /** FUN_007e6542: returns 1 */
   update(w: World, rec: GameRecord, ctrl: Controller): number {
@@ -110,11 +122,20 @@ export class CitizenNode implements BehaviourNode {
     return NODE_STOP;
   }
 
-  /** FUN_007e6944 / FUN_007e6969: +0x20..+0x2b (the index, an unused word, the state) */
-  saveBlob(): Uint8Array {
+  /** FUN_007e6944 (`*out = node + 0x20; return 0xc`): +0x20..+0x2b (the index, the unwritten word, the state) */
+  saveBlock(): Uint8Array {
     const b = new Uint8Array(12), dv = new DataView(b.buffer);
-    dv.setInt32(0, this.cur, true); dv.setInt32(8, this.state, true);
+    dv.setInt32(0, this.cur, true); dv.setUint32(4, this.word24, true); dv.setInt32(8, this.state, true);
     return b;
   }
-  loadBlob(b: Uint8Array): void { const dv = new DataView(b.buffer, b.byteOffset, b.byteLength); this.cur = dv.getInt32(0, true); this.state = dv.getInt32(8, true); }
+  /**
+   * FUN_007e6969: a plain copy of the 12 bytes into +0x20. The constructor's other fields (row, sound, clip: derived from the attach's arguments) were set at the set-up of the original;
+   * the port derives them here (the walker's speed scale and the clip start are world effects of the constructor and are NOT redone: the walker / animation sections of the file carry them).
+   */
+  loadBlock(w: World, _rec: GameRecord, ctrl: Controller, b: Uint8Array): void {
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    if (!this.inited) this.initFields(w, ctrl);
+    this.inited = true;
+    this.cur = dv.getInt32(0, true); this.word24 = dv.getUint32(4, true); this.state = dv.getInt32(8, true);
+  }
 }

@@ -21,7 +21,7 @@ import { waypoints } from '../../game/walker.ts';
 import { tryCtx } from '../ctx.ts';
 import { partMatrix } from '../trigger/parts.ts';
 import { ensureAnim, rand } from '../ambient/common.ts';
-import { ICON, VV, vehicles, berthPos, fabs, cutsceneActive, sfx, setVehicleMatrix } from './common.ts';
+import { Blk, FILL_CD, F_CD, ctorSeq, runSetups, ICON, VV, vehicles, berthPos, fabs, cutsceneActive, sfx, setVehicleMatrix } from './common.ts';
 import { ad, sb, ml, fr, fromBits } from '../../zones/common/f32.ts';
 import { reflect3, normalise3, toWorld } from '../../zones/exact.ts';
 
@@ -71,10 +71,10 @@ export class PteraNode implements BehaviourNode {
   bouncing = false;   // +0x22 byte
   state = -1;         // +0x23 signed byte
   pitchRate = 0;      // +0x24
-  bounceT = 0;        // +0x28
-  bounce = [0, 0, 0]; // +0x2c
+  bounceT = F_CD;     // +0x28 (heap fill until first used)
+  bounce = [F_CD, F_CD, F_CD]; // +0x2c
   speed = 1.0;        // +0x38
-  ground = 0;         // +0x40
+  ground = F_CD;      // +0x40
   /** +0x78 short: the helipad the vehicle occupies (-1 none) */
   pad = -1;
   /** +0x7c: the glider's propeller angle */
@@ -83,12 +83,42 @@ export class PteraNode implements BehaviourNode {
   wing = 0;
   /** DAT_05d58634 (written, never read by the executable) */
   lastSpeed = 0;
-  private init = false;
+  readonly seq = ctorSeq();
+  init = false;
 
   constructor(home: number) { this.home = home; }
 
+  /**
+   * The save block, FUN_004bb148 (vtable +0x14: `*out = node + 0x18; return 0x70`) and the loader FUN_004bb16d (`memcpy(node + 0x18, bytes, 0x70)`): node bytes +0x18 .. +0x87, block offset = node offset - 0x18:
+   *   +0x04 f32 yawRate   +0x08 u8 yawDir   +0x09 u8 pitchDir   +0x0a u8 bouncing   +0x0b i8 state   +0x0c f32 pitchRate   +0x10 f32 bounceT   +0x14 / +0x18 / +0x1c f32 bounce   +0x20 f32 speed
+   *   +0x28 f32 ground   +0x60 i16 pad   +0x64 f32 prop   +0x6c i32 wing; every other byte (+0x00 (node +0x18), +0x24, +0x2c .. +0x5f, +0x62, +0x68, +0x70) is never written by the code (zero): `raw`.
+   * The home PATH node (+0x14) is outside the block.
+   */
+  private readonly raw = FILL_CD(0x70).fill(0, 0, 4);   // node +0x18 is set to 0 by the constructor
+  saveBlock(w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array {
+    if (!this.init) runSetups(w);
+    const o = new Blk(0x70);
+    o.b.set(this.raw, 0);
+    o.wf(4, this.yawRate); o.w8(8, this.yawDir); o.w8(9, this.pitchDir); o.w8(0xa, this.bouncing ? 1 : 0); o.w8(0xb, this.state);
+    o.wf(0xc, this.pitchRate); o.wf(0x10, this.bounceT);
+    o.wf(0x14, this.bounce[0]); o.wf(0x18, this.bounce[1]); o.wf(0x1c, this.bounce[2]);
+    o.wf(0x20, this.speed); o.wf(0x28, this.ground);
+    o.w16(0x60, this.pad); o.wf(0x64, this.prop); o.w32(0x6c, this.wing);
+    return o.b;
+  }
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    if (!this.init) runSetups(w, true);
+    const i = new Blk(data);
+    this.raw.set(data.subarray(0, 0x70));
+    this.yawRate = i.f32(4); this.yawDir = i.u8(8); this.pitchDir = i.u8(9); this.bouncing = i.u8(0xa) !== 0; this.state = i.i8(0xb);
+    this.pitchRate = i.f32(0xc); this.bounceT = i.f32(0x10);
+    this.bounce = [i.f32(0x14), i.f32(0x18), i.f32(0x1c)];
+    this.speed = i.f32(0x20); this.ground = i.f32(0x28);
+    this.pad = i.i16(0x60); this.prop = i.f32(0x64); this.wing = i.i32(0x6c);
+  }
+
   /** the constructor's world-dependent part (FUN_004bb1a6): clip 3, the nearest free pad within 80 (squared < 6400) is reserved */
-  private setup(w: World, rec: GameRecord) {
+  setup(w: World, rec: GameRecord) {
     this.init = true;
     const a = ensureAnim(w, rec);
     a?.start(PT_STAND, 0);
@@ -117,7 +147,7 @@ export class PteraNode implements BehaviourNode {
 
   /** FUN_004b93b0 */
   update(w: World, rec: GameRecord, ctrl: Controller): number {
-    if (!this.init) this.setup(w, rec);
+    if (!this.init) runSetups(w);
     if ((rec.flags & 2) === 0) return NODE_NONE;
     const G = vehicles(w);
     const anim = rec.anim;
@@ -134,7 +164,7 @@ export class PteraNode implements BehaviourNode {
     const held = w.input.held, pressed = w.input.pressed;
     switch (this.state) {
       case -1: {
-        this.ground = w.col.terrainHeight(x, y, z, 8.0);
+        this.ground = fr(w.col.terrainHeight(x, y, z, 8.0));      // (the node's field is a float32: no ground below is -1e38 rounded)
         y = ad(ml(TAKEOFF_CLIMB, dt), y);
         anim?.advance(this.speed, dt);
         if (TAKEOFF_ALT < sb(y, this.ground)) this.state = 0;

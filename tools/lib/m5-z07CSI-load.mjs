@@ -63,7 +63,15 @@ export function loadCsiAsIsland(ctx, opts = {}) {
     cutsceneActive() { return this.cutsceneLeft > 0 || this.held; },
     holdCutscene(on) { this.held = on; },
     text: { npc: null, hol: null },
-    say(table, id, id2) { if (this.sayLeft > 0) return false; this.said.push({ id, id2, text: table?.text?.(id) ?? id, tick: world.tickCount }); this.sayLeft = this.sayTicks; return true; },
+    // subtitle `held` (the talking NPCs, FUN_0045d47f): the text of the lines (a missing one empty) written at once, whatever the voice does, kept in `heldText` until clearSubtitle; every write is logged
+    // in `subtitles`. `held` / `none` without a voice: nothing is spoken. `timed` (default): the subtitle goes with the voice (not modelled)
+    heldText: null, subtitles: [],
+    say(table, id, id2, voice = true, subtitle = 'timed') {
+      if (subtitle === 'held') { const tx = (k) => { const t = table?.text?.(k) ?? k; return t === k ? '' : t; }; this.heldText = tx(id) + (id2 ? tx(id2) : ''); this.subtitles.push(this.heldText); }
+      if (subtitle !== 'timed' && voice === false) return true;
+      if (this.sayLeft > 0) return false; this.said.push({ id, id2, text: table?.text?.(id) ?? id, tick: world.tickCount }); this.sayLeft = this.sayTicks; return true;
+    },
+    clearSubtitle() { this.heldText = null; },
     speechIdle() { return this.sayLeft <= 0; },
     stopSpeech() { this.sayLeft = 0; },
     sfx(id) { this.sounds.push({ id, tick: world.tickCount }); },

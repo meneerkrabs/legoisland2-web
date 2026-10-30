@@ -18,6 +18,9 @@ import { tryCtx } from '../ctx.ts';
 import { PI, TWO_PI, wrapPi, ftol, rand, inView, sfxAt, soundOf, recPos, ensureAnim, rebuild, setRot, setScaled } from './common.ts';
 import { ad, sb, ml, fr, sq, fromBits } from '../../zones/common/f32.ts';
 import { probeSet, nextSeq } from '../npc/globals.ts';
+import { TrackSpline } from '../../zones/z20dsp/spline.ts';
+import { BlockIn, BlockOut, CD, CD16, CD32, CDF, keepRaw, recordTag } from '../blockio.ts';
+import { EMU_RECORDS_BASE, EMU_RECORD_STRIDE } from '../args.ts';
 
 export const CTOR_BUNNY = 0x4b2149, CTOR_BUTTERFLY = 0x4b2d44, CTOR_SWIFT_LEADER = 0x4b31db, CTOR_SWIFT = 0x4b3a92;
 
@@ -71,11 +74,26 @@ export class BunnyNode extends Node {
   reach = 1;           // +0x2c
   speed = 0;           // +0x30 = arg1 * 8
   state = 2;           // +0x34 (0 sit, 1 sit 2, 2 hop, 3 to the burrow, 4 into it, 5 out of the next one, 6 startled)
-  saved = 0;           // +0x38
+  saved = CD32;        // +0x38 (never written by the constructor: 0xCD)
   count = 0;           // +0x3c
   off = 0;             // +0x40 ticks out of view
-  burrow = 0;          // +0x44
+  burrow = CD32;       // +0x44 (0xCD until the first state 3)
   bored = 0;           // +0x48
+  private raw: Uint8Array | null = null;
+  /**
+   * Save block = node +0x34 .. +0x50 (saver FUN_004b20eb returns 0x1c and points at node + 0x34, loader FUN_004b2110 = 28 byte memcpy back): i32 state (+0x34), saved (+0x38), count (+0x3c), off (+0x40),
+   * burrow (+0x44), bored (+0x48), and the node's last word (+0x4c, never written: 0). The home position, range, speed and reach (+0x14 .. +0x30) come from the constructor and are not saved.
+   */
+  saveBlock(): Uint8Array {
+    const o = new BlockOut(0x1c, CD).i32(0, this.state).i32(4, this.saved).i32(8, this.count).i32(0xc, this.off).i32(0x10, this.burrow).i32(0x14, this.bored);
+    keepRaw(o, this.raw, [[0x18, 4]]);   // node +0x4c is never written (0xCD)
+    return o.bytes;
+  }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.raw = data.slice();
+    this.state = b.i32(0); this.saved = b.i32(4); this.count = b.i32(8); this.off = b.i32(0xc); this.burrow = b.i32(0x10); this.bored = b.i32(0x14);
+  }
   constructor(args: ArgView) {
     super();
     this.args = args;
@@ -292,16 +310,39 @@ export class ButterflyNode extends Node {
     this.arg0 = args.f32(0);
     this.range = ml(this.arg0, 8); this.range2 = ml(this.range, this.range);
   }
+  /** the constructor FUN_004b2d44's reads of the record (start +0x20, home +0x14; the record flag): right after the set-up (`ctorInit`) */
+  ctorInit(w: World, rec: GameRecord): void { this.init(w, rec); }
   private init(w: World, rec: GameRecord) {
+    if (this.inited) return;
     this.inited = true;
     this.start = [rec.x, rec.y, rec.z];
     const h = rec.name.startsWith('BFG') ? w.records[BFG_HOME] ?? rec : rec;
     this.home = [h.x, h.y, h.z];
     rec.flags |= RF_NO_COLLIDE;
   }
+  /**
+   * Save block = node +0x34 .. +0x5c then the tag of the record at +0x4c (saver FUN_004b2bc5: the 0x28 bytes, then the first dword (4 name characters) of the record `follow` points at, 0 for none; loader
+   * FUN_004b2c9b copies the 0x28 bytes back and sets +0x4c = FUN_00419a79(tag), the FIRST record of that name): +0x00 f32 flap (+0x34), +0x04 i32 flapState, +0x08 i32 cnt, +0x0c i32 cnt2, +0x10 f32 vy,
+   * +0x14 i32 off, +0x18 u32 follow (the record pointer: the emulation's 0x10000000 + index * 0x68, the real process's heap address cannot be known and the loader replaces it), +0x1c f32 speed,
+   * +0x20 f32 shiftT, +0x24 u32 0 (+0x58), +0x28 u32 tag.
+   */
+  saveBlock(w: World, rec: GameRecord): Uint8Array {
+    this.init(w, rec);
+    const f = this.follow;
+    return new BlockOut(0x2c).f32(0, this.flap).i32(4, this.flapState).i32(8, this.cnt).i32(0xc, this.cnt2).f32(0x10, this.vy).i32(0x14, this.off)
+      .u32(0x18, f ? (EMU_RECORDS_BASE + f.index * EMU_RECORD_STRIDE) >>> 0 : 0).f32(0x1c, this.speed).f32(0x20, this.shiftT).u32(0x28, f ? recordTag(f.name) : 0).bytes;
+  }
+  loadBlock(w: World, rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    this.init(w, rec);
+    const b = new BlockIn(data);
+    this.flap = b.f32(0); this.flapState = b.i32(4); this.cnt = b.i32(8); this.cnt2 = b.i32(0xc); this.vy = b.f32(0x10); this.off = b.i32(0x14); this.speed = b.f32(0x1c); this.shiftT = b.f32(0x20);
+    const tag = b.u32(0x28);
+    this.follow = null;
+    if ((tag & 0xff) !== 0) for (const r of w.records) if (recordTag(r.name) === tag) { this.follow = r; break; }
+  }
   /** FUN_004b24f8 */
   update(w: World, rec: GameRecord, c: Controller): number {
-    if (!this.inited) this.init(w, rec);
+    this.init(w, rec);
     const g = animalGlobals(w);
     if (c.distSq < g.nearestD) { g.nearestD = c.distSq; g.nearest = rec; }
     return 1;
@@ -388,7 +429,16 @@ export class ButterflyNode extends Node {
 export class BSpline {
   readonly pts: Float32Array;
   readonly n: number;
+  private track: TrackSpline | null = null;
   constructor(pts: Float32Array, n: number) { this.pts = pts; this.n = n; }
+  /** FUN_00445660 -> vtable[1] 0x4466f0 writes the whole frame into the caller's matrix: rows right R (0, 1, 2), up U (4, 5, 6), tangent T (8, 9, 10), position (12, 13, 14); the fourth column is left alone (src/zones/z20dsp/spline.ts `frame`) */
+  frameMatrix(t: number, out: Float32Array): void {
+    const f = (this.track ??= new TrackSpline(this.pts)).frame(t);
+    out[0] = f.r[0]; out[1] = f.r[1]; out[2] = f.r[2];
+    out[4] = f.u[0]; out[5] = f.u[1]; out[6] = f.u[2];
+    out[8] = f.t[0]; out[9] = f.t[1]; out[10] = f.t[2];
+    out[12] = f.p[0]; out[13] = f.p[1]; out[14] = f.p[2];
+  }
   static fromMan(data: Uint8Array): BSpline {
     const man = parseMan(data);
     const n = man.declaredFrames, tr = man.tracks[0];
@@ -444,7 +494,8 @@ export class SwiftLeaderNode extends Node {
   perch = 0;                 // +0x34
   state = 0;                 // +0x38 (0 start, 1 perched, 2 fly home, 3 take off, 4 follow)
   homing = 10;               // +0x3c
-  /** +0x40: the spline matrix; only its translation (+0x70 .. +0x78) is used: the followers' target */
+  /** +0x40: the spline's frame matrix (FUN_00445660's output, 16 floats; the fourth column stays 0); only its translation (+0x70 .. +0x78, shifted by 16 in x by the update) is used: the followers' target */
+  readonly matrix = ((m) => { m[15] = CDF; return m; })(new Float32Array(16));   // (FUN_00445660 writes 15 of the 16 floats, the 4th column's first three as 0; [15] stays 0xCD)
   target: [number, number, number] = [0, 0, 0];
   private inited = false;
   constructor(args: ArgView) {
@@ -453,7 +504,10 @@ export class SwiftLeaderNode extends Node {
     this.fast = args.f32(4); this.slow = args.f32(8); this.mode = args.i32(12);
     this.clipA = args.i32(16); this.clipB = args.i32(20); this.turn = args.f32(24);
   }
+  /** the constructor FUN_004b31db (loads the spline, evaluates it at t = 0 into the matrix): right after the set-up (`ctorInit`) */
+  ctorInit(w: World): void { this.init(w); }
   private init(w: World) {
+    if (this.inited) return;
     this.inited = true;
     const c = tryCtx(w);
     const f = SPLINE_FILES[this.type];
@@ -463,12 +517,30 @@ export class SwiftLeaderNode extends Node {
   }
   private eval(t: number, shift = true) {
     if (!this.spline) return;
-    const p = this.spline.point(t);
-    this.target = [shift ? sb(p[0], 16) : p[0], p[1], p[2]];
+    this.spline.frameMatrix(t, this.matrix);
+    if (shift) this.matrix[12] = sb(this.matrix[12], 16);        // *(node + 0x70) -= 16 (_DAT_008921f4)
+    this.target = [this.matrix[12], this.matrix[13], this.matrix[14]];
+  }
+  /**
+   * Save block = node +0x30 .. +0x80 (saver FUN_004b317d returns 0x50 and points at node + 0x30, loader FUN_004b31a2 = 80 byte memcpy back): +0x00 f32 t (+0x30), +0x04 f32 perch (+0x34), +0x08 i32 state (+0x38),
+   * +0x0c i32 homing (+0x3c), +0x10 the spline frame matrix, 16 floats (+0x40; the translation at +0x70 is what the followers chase).
+   */
+  saveBlock(w: World): Uint8Array {
+    this.init(w);
+    const o = new BlockOut(0x50, CD).f32(0, this.t).f32(4, this.perch).i32(8, this.state).i32(0xc, this.homing);
+    for (let k = 0; k < 16; k++) o.f32(0x10 + 4 * k, this.matrix[k]);
+    return o.bytes;
+  }
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    this.init(w);
+    const b = new BlockIn(data);
+    this.t = b.f32(0); this.perch = b.f32(4); this.state = b.i32(8); this.homing = b.i32(0xc);
+    for (let k = 0; k < 16; k++) this.matrix[k] = b.f32(0x10 + 4 * k);
+    this.target = [this.matrix[12], this.matrix[13], this.matrix[14]];
   }
   /** FUN_004b2f64 */
   update(w: World, rec: GameRecord): number {
-    if (!this.inited) this.init(w);
+    this.init(w);
     sfxAt(w, soundOf(w, SWIFT_SOUND), recPos(rec));
     if (this.mode === 0) {
       if (this.state !== 4 && w.frame === this.stamp) this.state = 4;
@@ -514,16 +586,25 @@ export class SwiftNode extends Node {
   approach = 1;       // +0x18
   start: [number, number, number] = [0, 0, 0];   // +0x1c
   readonly leaderIndex: number;   // +0x28 (record pointer of the argument)
-  cnt = 0;            // +0x2c (short)
-  perched = 0;        // +0x2e (short)
-  dyaw = 0;           // +0x30
-  dpitch = 0;         // +0x34
+  cnt = CD16;         // +0x2c (short; never written by the constructor: 0xCD)
+  perched = CD16;     // +0x2e (short; 0xCD)
+  dyaw = CDF;         // +0x30 (0xCD)
+  dpitch = CDF;       // +0x34 (0xCD)
   timer: number;      // +0x38
   private inited = false;
   constructor(args: ArgView) {
     super();
     this.leaderIndex = args.recIndex(0);
     this.timer = rand(200);
+  }
+  /**
+   * Save block = node +0x2c .. +0x3c (saver FUN_004b3a34 returns 0x10 and points at node + 0x2c, loader FUN_004b3a59 = 16 byte memcpy back): i16 cnt (+0x2c), i16 perched (+0x2e), f32 dyaw (+0x30),
+   * f32 dpitch (+0x34), f32 timer (+0x38). The speed, approach, start position and the leader's record pointer (+0x14 .. +0x28) are the constructor's and are not saved.
+   */
+  saveBlock(): Uint8Array { return new BlockOut(0x10).i16(0, this.cnt).i16(2, this.perched).f32(4, this.dyaw).f32(8, this.dpitch).f32(0xc, this.timer).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.cnt = b.i16(0); this.perched = b.i16(2); this.dyaw = b.f32(4); this.dpitch = b.f32(8); this.timer = b.f32(0xc);
   }
   private leader(w: World): SwiftLeaderNode | null {
     const r = w.records[this.leaderIndex];

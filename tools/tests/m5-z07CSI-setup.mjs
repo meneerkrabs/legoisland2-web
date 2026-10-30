@@ -4,6 +4,7 @@
 //      decor templates, every attach of the emulated set-up either ported or in the list of the nodes other workers own (Horse);
 //  (2) the arrival: from the island by speedboat, from the three mini-games on foot (the emulated places), tested against the values of docs/re/m5/foundation.md;
 //  (3) the castle's MeetPepp nodes (the ten flags BFG0..7 / BBFG / PFLG: clips 1 / 2 looping, gate always open) against the ORIGINAL's FUN_00530d69 / FUN_005309c0 running natively.
+import { readDecorTables, decorGroupOfZone } from '../../src/shell/tables.ts';
 import { loadCsi, tick } from '../lib/m5-z07CSI-load.mjs';
 import { makeCsiDuel } from '../lib/m5-z07CSI-emu.mjs';
 import { vehicles } from '../../src/island/vehicles/common.ts';
@@ -31,8 +32,16 @@ export default {
       const G = vehicles(H.world);
       ok(G.docks.length === 1 && G.docks[0].node === 0x6f && G.docks[0].exit === 0x72 && G.docks[0].map === 1 && G.pads.length === 0, `node ${node}: dock table ${JSON.stringify(G.docks)} pads ${G.pads.length}`);
       ok(G.board === 0x44 && H.world.records[0x44].name === 'SKBD', `node ${node}: the board record ${G.board} (${H.world.records[G.board]?.name})`);
-      // FUN_005b2a23: every record's variant word 0, the listed templates hidden; nothing but the roster has a variant (the vehicles' 2 comes with the looks)
-      ok(H.world.records.every((r) => r.variant === 0), `node ${node}: variant words 0 before the roster`);
+      // FUN_005b2a23: every record's variant word 0, then FUN_00420837(1) gives the castle's decor group its DEFAULT word (set << 8 | 1 | variant << 16, the exe's table) and the roster's vehicles get 2
+      // (verified against the original's constructor in tools/tests/m8-save-world.mjs: the records' +0x64 after the constructors)
+      {
+        const want = new Map();
+        const dt = readDecorTables(H.pe), grp = dt.groups[decorGroupOfZone(6)];
+        for (let i = grp.first; i < grp.first + grp.count; i++) want.set(dt.entries[i].record, ((dt.entries[i].set << 8) | 1 | (dt.entries[i].variant << 16)) >>> 0);
+        for (let va = 0x9031d0; (H.pe.u32(va) | 0) !== -1; va += 0x18) want.set(H.pe.u32(va) | 0, 2);
+        const bad = H.world.records.filter((r) => r.variant !== (want.get(r.index) ?? 0));
+        ok(bad.length === 0, `node ${node}: variant words after the constructor: ${bad.slice(0, 5).map((r) => `${r.name}#${r.index} ${r.variant.toString(16)}`)}`);
+      }
       // the hidden list is hidden by Control's constructor at the attach (0x573936) in the middle of the set-up: a record ends visible only when the set-up code shows it AFTER that attach
       // (execution order of the emulated set-up: `EmuAttach.storeIndex`; the tail's own stores 0x5b2a61 / 0x5b2adc come from the later `run` and are not the set-up's)
       const ctl = H.emu.attaches.find((a) => a.ctor === 0x57a579 && a.record === H.pepper.index);

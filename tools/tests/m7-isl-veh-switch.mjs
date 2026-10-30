@@ -6,6 +6,7 @@
 import { switchSession, B, RECORDS_BASE, REC, lcg } from '../lib/m7-isl-veh-supe.mjs';
 import { vehicles } from '../../src/island/vehicles/common.ts';
 import { looksOf, nearestLookRecord } from '../../src/island/vehicles/looks.ts';
+import { compareChainBlocks, cdPatchChain, snapChainBlocks, pepSwitchLoadRounds } from '../lib/m8-save-pepper.mjs';
 
 const MAXFAIL = 30;
 
@@ -16,10 +17,12 @@ export default {
     let checked = 0;
     const cover = { sessions: 0, ticks: 0, toSkate: 0, offSkate: 0, offWater: 0, swim: 0, blocked: 0, vehicle: 0, holo: 0, looks: 0, busy: 0, modes: new Set(), states: new Set() };
     const devs = new Map(), unhooked = new Map();
+    const blocks = {};      // WP-SAVE: save blocks of Pepper's chain compared (original serializer vs port saveBlock) / loaded into both machines
     const need = (c, m) => { checked++; if (!c) failures.push('coverage: ' + m); };
 
     const session = (label, dt) => {
       const d = switchSession(ctx, { label, dt, failures, maxFail: MAXFAIL });
+      cdPatchChain(d);      // WP-SAVE: the bytes of PepSwitc / SGVehic the constructors leave at the debug heap's 0xCD
       cover.sessions++;
       const W = d.P.world, mem = d.emu.cpu.mem, P = d.P.pepper;
       const compare = () => {
@@ -27,6 +30,7 @@ export default {
         d.rec(d.board, 0xfffe);
         for (const [who, ao, ap] of [['PEPP', d.O.pepper.anim, P.anim], ['SBRD', d.O.world.records[d.board].anim, W.records[d.board].anim]]) if (ao && ap) { d.eq(who + ' clip', ao.clip, ap.clip); d.cmp(who + ' frame', ao.frame, ap.frame, 0, '', 1e-4); }
         d.globals(); d.vars(); d.sounds();
+        compareChainBlocks(d, blocks);      // WP-SAVE: PepSwitc (spot, hologram flag), SGVehic
         d.cmp('holoTimer', mem.f32(0x5defbcc), d.P.ictx.objective.holoTimer, 0, '', 0);
         cover.modes.add(d.getVar(0x5e) & 0xfff); cover.states.add(mem.r32(0x8ae088));
         const L = looksOf(W);
@@ -140,6 +144,11 @@ export default {
         step(B.ENTER); step(B.ENTER | B.CTRL); step(B.ENTER); step(0); idle(3);
       }
       cover.busy = roster.length;
+      // WP-SAVE: PepSwitc's loader (the 16 byte block, then FUN_0051c800: the decor era table, the stored looks, the busy list) in both machines after a hologram-flag state and a changed story
+      { d.setVar(0x58, 0x1e); d.placePepper(...dry, 0); d.setPC(1); d.setState(0x1b, false); idle(3); d.viewSet = new Set(); }
+      const snapC = snapChainBlocks(d, ['PepSwitc']);
+      pepSwitchLoadRounds(d, snapC, [1, 20, 40, 70, 2], 31, blocks);
+      idle(4);
       S.checkVariants();
       S.finish();
     }
@@ -148,6 +157,7 @@ export default {
     need(cover.looks >= 8, `looks ${cover.looks}`);
     for (const [id, e] of devs) notes.push(`KNOWN DEVIATION ${id}: ${e.count}x, first ${e.first}`);
     notes.push(`unhosted engine calls (returned 0): ${[...unhooked].map(([a, n]) => '0x' + a.toString(16) + ' x' + n).join(', ') || 'none'}`);
+    notes.push(`WP-SAVE save blocks of Pepper's chain compared (original serializer vs port saveBlock, tolerance 0): ${JSON.stringify(blocks)}`);
     notes.push(`coverage: ${JSON.stringify({ ...cover, modes: [...cover.modes], states: cover.states.size })}`);
     return { checked, failures, notes };
   },

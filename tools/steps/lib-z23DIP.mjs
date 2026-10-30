@@ -1,6 +1,7 @@
 // Helpers of the z23DIP bots (tools/steps/m5-z23DIP*.mjs): steering Pepper along PATH nodes with REAL key presses (arrow keys held through the page's keyboard), reading the
 // state of the zone. Builds on lib-hub.mjs.
 import { hub as baseHub } from './lib-hub.mjs';
+import { installRouteBot } from './lib-walkbot.mjs';
 
 export const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 
@@ -51,14 +52,33 @@ export function dip({ page, wait, log, shot }) {
     return res;
   };
   /** walk the PATH nodes in order (a list of node numbers) */
+  /**
+   * walk the route `nodes` (PATH node numbers or free [x, z] points) with the page-side route follower (lib-walkbot.mjs: the arrows are camera relative and the decision is taken once
+   * per game tick; the node-side steering above overshoots and gets stuck behind the island's dinosaurs). Returns true when the last point was reached; `opts.stop(p)` (cutscene / left
+   * the zone) ends it early, `opts.maxTicks` is the budget per point.
+   */
   H.walkPath = async (nodes, opts = {}) => {
-    for (const n of nodes) {
-      const p = Array.isArray(n) ? [n[0], 0, n[1]] : await H.pathNode(n);   // a PATH node number or a free [x, z] point
-      const r = await H.walkTo(p[0], p[2], opts);
-      log('node', n, JSON.stringify(p.map((v) => +v.toFixed(1))), JSON.stringify(r));
-      if (!r.ok && !opts.carryOn) return false;
+    const pts = [], me = await H.pep();
+    pts.push([me.x, me.z]);
+    for (const n of nodes) { const p = Array.isArray(n) ? [n[0], n[1]] : await H.pathNode(n).then((q) => [q[0], q[2]]); pts.push(p); }
+    const W = await installRouteBot(page, 'dip');
+    await W.route(pts, { tol: opts.tol ?? 5, look: 6, wi: 1 });
+    await W.start();
+    const t0 = me.tick, budget = (opts.maxTicks ?? 900) * nodes.length;
+    let ok = false, why = 'timeout', lastWi = -1, lastWiTick = t0;
+    for (;;) {
+      const w = await W.state().catch(() => null), p = await H.pep().catch(() => null);
+      if (!w || !p) { why = 'left'; break; }
+      if (w.done) { ok = true; why = 'done'; break; }
+      if (opts.stop && (await opts.stop(p))) { why = 'stopped'; break; }
+      if ((await H.zoneNow()).arch !== 'z23DIP') { why = 'left'; break; }
+      if (w.wi !== lastWi) { lastWi = w.wi; lastWiTick = p.tick; log('  route point', w.wi, 'of', pts.length - 1, JSON.stringify(pts[w.wi]), 'tick', p.tick - t0); }
+      if (p.tick - t0 > budget || p.tick - lastWiTick > (opts.maxTicks ?? 900) * 2) break;
+      await wait(100);
     }
-    return true;
+    await W.stop();
+    log('walkPath', JSON.stringify({ ok, why, wi: (await W.state().catch(() => ({}))).wi, of: pts.length - 1, ticks: ((await H.pep().catch(() => ({ tick: t0 }))).tick - t0) }));
+    return ok;
   };
   return H;
 }

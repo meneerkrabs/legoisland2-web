@@ -1,5 +1,5 @@
 // Persistence of save slots and the options file. Blobs are keyed by their original file names (`Save00.lgo` .. `Save06.lgo`, `SaveDef.lgo`, `Settings.set`).
-import { decodeSave, encodeSave, readSaveHeader, slotFileName, validateSave, SLOT_COUNT, SaveError } from './save.ts';
+import { saveWarnings, decodeSave, encodeSave, readSaveHeader, slotFileName, SLOT_COUNT, SaveError } from './save.ts';
 import type { SaveGame, SaveHeader } from './save.ts';
 import { Options, SETTINGS_KEY } from './options.ts';
 
@@ -110,11 +110,12 @@ export class SaveStore {
     const b = await this.exportLgo(slot);
     return b ? new Blob([b as BlobPart], { type: 'application/octet-stream' }) : null;
   }
-  /** validated import of an original `.lgo` file; throws SaveError */
-  async importLgo(slot: number, bytes: Uint8Array): Promise<void> {
-    validateSave(bytes);
+  /** import of an original `.lgo` file: loads like the original's reader (no checksum check); returns Dutch warnings for a wrong checksum / marker; throws SaveError for what the reader cannot read */
+  async importLgo(slot: number, bytes: Uint8Array): Promise<string[]> {
     decodeSave(bytes);
+    const warnings = saveWarnings(bytes);
     await this.backend.put(slotFileName(slot), bytes);
+    return warnings;
   }
 
   async loadOptions(options: Options): Promise<boolean> {

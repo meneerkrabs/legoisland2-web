@@ -17,6 +17,7 @@ import type { Attach } from '../../formats/zonesetup.ts';
 import { ensureAnim, setRot } from '../../island/ambient/common.ts';
 import { armControllerProbe } from '../../game/probehost.ts';
 import { f32, fb, PI, TWO_PI, NEG_PI, rand32 } from './common.ts';
+import { BlockIn, BlockOut } from './blockio.ts';
 
 export const CTOR_RAT = 0x5763ca;
 /** _DAT_008f8510 (256.0: the squared distance within which the rat roams), DAT_008f851c (0.087266 = 5 degrees: the turn step), _DAT_008f8514 (0.16) / _DAT_008f8518 (0.08): the speeds */
@@ -117,6 +118,17 @@ export class RatNode implements BehaviourNode {
   }
   /** FUN_00576316 returns 1 and does nothing */
   prerender(): void { /* nothing */ }
+
+  /** save FUN_0057636c (vtable +0x14): `*out = node + 0x20; return 0x14`: +0x20 keep (float), +0x24 mode (int), +0x28 timer (float), +0x2c loops (int), +0x30 turn (float) */
+  saveBlock(): Uint8Array {
+    return new BlockOut(0x14).f32(0, this.keep).i32(4, this.mode).f32(8, this.timer).i32(0xc, this.loops).f32(0x10, this.turn).bytes;
+  }
+  /** load FUN_00576391 (vtable +0x10): memcpy of the 0x14 bytes back to node + 0x20 (nothing else is derived) */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.keep = b.f32(0); this.mode = b.i32(4); this.timer = b.f32(8); this.loops = b.i32(0xc); this.turn = b.f32(0x10);
+    this.built = true;            // the node exists already (the constructor ran at the set-up): the lazy construct must not roll the start values again
+  }
 }
 
 export const ratFactory = (a: Attach) => new RatNode(a);

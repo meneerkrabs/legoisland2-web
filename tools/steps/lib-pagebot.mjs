@@ -1,26 +1,39 @@
-// Page-side scripted players for the browser steps (WP-MINI). A bot that decides in the Node process over `page.evaluate` needs one or two frames per decision and its reaction time
-// in LOGIC TICKS grows with the load of the machine (headless GL: 19..26 ticks/s with a few bots at once, measured with tools/steps/m8-tickrate.mjs): the replay in node
-// (docs: z38PAR / z39ASB / z40aPO) shows the results fall with the delay (z38PAR rings 111 -> 221 -> 222, z39ASB score 9968 -> 3821 ...). This bot decides INSIDE the page every 4 ms
-// from the zone's own debug state, and presses / releases the keys as real KeyboardEvents on `window` (the game's Input listens there: keydown / keyup, latched per tick), so
-// the keys the game samples at a tick come from the state the previous tick left. `decideSrc` is the source of `(window) => Set<KeyboardEvent.code>`.
+// Page-side scripted players for the browser steps (WP-MINI, WP-RELIABILITY). A bot that decides in the Node process over `page.evaluate` needs one or two frames per decision and its
+// reaction time in LOGIC TICKS grows with the load of the machine (headless GL: 19..26 ticks/s with a few bots at once, measured with tools/steps/m8-tickrate.mjs): the replay in node
+// (docs: z38PAR / z39ASB / z40aPO) shows the results fall with the delay (z38PAR rings 111 -> 221 -> 222, z39ASB score 9968 -> 3821 ...). This bot decides INSIDE the page, once per
+// game tick (hooked into the input mapper's per-tick update, see below), from the zone's own debug state, and presses / releases the keys on the mapper, so the keys the game samples
+// at a tick come from the state the previous tick left, however many ticks a frame runs. `decideSrc` is the source of `(window) => Set<KeyboardEvent.code>`.
 export async function installPageBot(page, name, decideSrc) {
   await page.evaluate(([n, src]) => {
     const decide = (0, eval)(`(${src})`);
     const held = new Set();
-    const send = (code, on) => window.dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { code, key: code, bubbles: true, cancelable: true }));
+    const sendDom = (code, on) => window.dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { code, key: code, bubbles: true, cancelable: true }));
+    // WP-RELIABILITY: the decision is taken ONCE PER GAME TICK, inside the input mapper's update (the zone loop calls `sh.input.update()` right before every simulation tick,
+    // src/shell/playzone.ts), and the keys are set on the mapper directly (`setKey` = a keydown / keyup that this very tick samples). A timer in the page only fires between frames:
+    // on a loaded page one frame runs several ticks, the keys stood for all of them and the pilot reacted late. Without the mapper (no shell) the 4 ms timer is the fallback.
+    const inp = window.__shell && window.__shell.input;
+    const set = (code, on) => { if (inp) inp.setKey(code, on); else sendDom(code, on); };
+    const sync = () => {
+      let want;
+      try { want = decide(window); } catch (e) { bot.err = String(e && e.stack || e); want = new Set(); }
+      for (const c of [...held]) if (!want.has(c)) { set(c, false); held.delete(c); }
+      for (const c of want) if (!held.has(c)) { set(c, true); held.add(c); bot.presses++; }
+    };
     const bot = {
-      on: false, timer: 0, presses: 0, err: '',
-      release() { for (const c of [...held]) { send(c, false); held.delete(c); } },
+      on: false, timer: 0, presses: 0, err: '', orig: null, hooked: null,
+      release() { for (const c of [...held]) { set(c, false); held.delete(c); } },
       start() {
         if (bot.on) return; bot.on = true;
-        bot.timer = setInterval(() => {
-          let want;
-          try { want = decide(window); } catch (e) { bot.err = String(e && e.stack || e); want = new Set(); }
-          for (const c of [...held]) if (!want.has(c)) { send(c, false); held.delete(c); }
-          for (const c of want) if (!held.has(c)) { send(c, true); held.add(c); bot.presses++; }
-        }, 4);
+        if (inp) {
+          bot.orig = inp.update;
+          bot.hooked = function () { if (bot.on) sync(); return bot.orig.apply(inp, arguments); };
+          inp.update = bot.hooked;
+        } else bot.timer = setInterval(sync, 4);
       },
-      stop() { bot.on = false; clearInterval(bot.timer); bot.release(); },
+      stop() {
+        bot.on = false; clearInterval(bot.timer); bot.release();
+        if (inp && inp.update === bot.hooked) inp.update = bot.orig;
+      },
     };
     window[`__bot_${n}`] = bot;
   }, [name, decideSrc]);

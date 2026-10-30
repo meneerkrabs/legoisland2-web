@@ -13,6 +13,7 @@ import { waypoints } from '../../../game/walker.ts';
 import { tryCtx } from '../../../island/ctx.ts';
 import { vehicles, VV, sfx, stopSfx } from '../../../island/vehicles/common.ts';
 import { SND_BOARD_ON, SND_BOARD_OFF } from '../../../island/vehicles/pepswitch.ts';
+import { CD_F32, rosterReload } from '../../hubsave.ts';
 import { oglGlobals, SND, fr, play2d, play3d, stopSound, randInt } from './globals.ts';
 import { decorInit, decorEnter, decorTick, decorDestroy } from './decor.ts';
 
@@ -65,8 +66,8 @@ export class OglPepSwit implements BehaviourNode {
   readonly kind = 'PeppSwit';
   var: number = VV.PEPPER_CONTROL; mask = 0; value = 0;
   stamp = 0xfffffffe;
-  /** node +0x18 / +0x1c / +0x20: Pepper's position at the last update (the pre-render reads the height for the fall speed) */
-  last: [number, number, number] = [0, 0, 0];
+  /** node +0x18 / +0x1c / +0x20: Pepper's position at the last update (the pre-render reads the height for the fall speed); the constructor leaves them as the debug heap's 0xCD fill */
+  last: [number, number, number] = [CD_F32, CD_F32, CD_F32];
   private inited = false;
 
   /** the constructor's work (FUN_00811413: the decor / roster set-up of hub 5; needs the world): once, before the first update */
@@ -76,6 +77,9 @@ export class OglPepSwit implements BehaviourNode {
     vehicles(w).board = BOARD_RECORD;
     decorInit(w);
   }
+
+  /** the constructor's world half (`registerHub` calls it right after the set-up): FUN_00811413 (variant words, hidden templates, decor / roster) */
+  ctorInit(w: World, _rec: GameRecord) { this.init(w); }
 
   /** FUN_007e489b: the lamp blink, the ambience, random one-liners and the 3D emitters of the island; returns 2 */
   update(w: World, rec: GameRecord, _ctrl: Controller): number {
@@ -144,18 +148,19 @@ export class OglPepSwit implements BehaviourNode {
     for (const a of [SND.REC40, SND.REC42, SND.REC41, SND.MNK_REST, SND.MNK58, SND.MNK57, ...SND.CIT]) stopSound(w, a);
   }
 
-  /** FUN_007e4e72: the state the save game keeps: Pepper's last position and the fall speed (16 bytes) */
-  saveBlob(w: World): Uint8Array {
+  /** FUN_007e4e72 (the saver writes into the file buffer: [+0x18, 12 bytes][DAT_05d5f3c0, 4 bytes]): Pepper's last position and the fall speed (16 bytes) */
+  saveBlock(w: World): Uint8Array {
     const b = new Uint8Array(16), dv = new DataView(b.buffer);
     for (let i = 0; i < 3; i++) dv.setFloat32(4 * i, this.last[i], true);
     dv.setFloat32(12, oglGlobals(w).fall, true);
     return b;
   }
-  /** FUN_007e4f1a (and FUN_008113f0: the decor tables are rebuilt) */
-  loadBlob(w: World, b: Uint8Array): void {
+  /** FUN_007e4f1a: the 12 bytes into +0x18, the 4 into DAT_05d5f3c0, then FUN_008113f0 (the decor sets' era table, the (empty) roster re-read) */
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, b: Uint8Array): void {
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
     for (let i = 0; i < 3; i++) this.last[i] = dv.getFloat32(4 * i, true);
     oglGlobals(w).fall = dv.getFloat32(12, true);
+    rosterReload(w);
   }
 }
 
@@ -164,8 +169,8 @@ export class OglVoidFall implements BehaviourNode {
   readonly kind = 'PeppVoid';
   var: number = VV.PEPPER_CONTROL; mask = 0x20; value = 0x20;
   stamp = 0xfffffffe;
-  /** node +0x18 / +0x1c / +0x20: the camera's offset from Pepper */
-  off: [number, number, number] = [0, 0, 0];
+  /** node +0x18 / +0x1c / +0x20: the camera's offset from Pepper (the constructor leaves them as the debug heap's 0xCD fill; the first tick of the fall writes them) */
+  off: [number, number, number] = [CD_F32, CD_F32, CD_F32];
 
   /** FUN_007e5138: returns 1 */
   update(w: World, rec: GameRecord, _ctrl: Controller): number {
@@ -199,11 +204,12 @@ export class OglVoidFall implements BehaviourNode {
   /** FUN_007e52ea */
   prerender(): void { /* returns 1 */ }
 
-  /** FUN_007e5340 / FUN_007e5365: the camera offset */
-  saveBlob(): Uint8Array {
+  /** FUN_007e5340 (`*out = node + 0x18; return 0xc`): the camera offset */
+  saveBlock(): Uint8Array {
     const b = new Uint8Array(12), dv = new DataView(b.buffer);
     for (let i = 0; i < 3; i++) dv.setFloat32(4 * i, this.off[i], true);
     return b;
   }
-  loadBlob(b: Uint8Array): void { const dv = new DataView(b.buffer, b.byteOffset, b.byteLength); for (let i = 0; i < 3; i++) this.off[i] = dv.getFloat32(4 * i, true); }
+  /** FUN_007e5365: a plain copy of the 12 bytes into +0x18 */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, b: Uint8Array): void { const dv = new DataView(b.buffer, b.byteOffset, b.byteLength); for (let i = 0; i < 3; i++) this.off[i] = dv.getFloat32(4 * i, true); }
 }

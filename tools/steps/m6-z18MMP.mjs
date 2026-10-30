@@ -4,6 +4,7 @@
 //   sh tools/m4-snapshot-server.sh 5610
 //   node tools/browse.mjs "http://localhost:5610/?zone=z18MMP&mute=1" tools/steps/m6-z18MMP.mjs --size 1280x800 --out /tmp/m6-z18MMP
 import fs from 'node:fs';
+import { installPageBot } from './lib-pagebot.mjs';
 
 export default async ({ page, shot, wait, log, key }) => {
   const LOSS = process.env.MMP_LOSS === '1';
@@ -50,20 +51,20 @@ export default async ({ page, shot, wait, log, key }) => {
     expect('back in play', (await mode()) === 2);
     await page.evaluate(() => { __zone.game.mmp.shared.seconds = 296; });
   }
-  while (Date.now() - t0 < 600000) {
+  // the player decides INSIDE the page once per game tick (lib-pagebot.mjs: hooked into the input mapper's per-tick update): the walk through the tomb is steered with the state of the
+  // tick before, however many ticks a frame runs on a loaded page; this process only looks (screenshots, the log)
+  const pilot = LOSS ? null : await installPageBot(page, 'mmp', `(w) => { const z = w.__zone, b = w.__bot; if (!z || !b || z.machine.mode !== 2 || w.__loss) return new Set(); return new Set(b.bot.step(b.snap(z))); }`);
+  if (pilot) await pilot.start();
+  let stall = 0, lastTick = -1;
+  while (Date.now() - t0 < 3600000) {
     const r = await page.evaluate(() => {
       const z = window.__zone, b = window.__bot;
       if (z.machine.mode !== 2) return { keys: null, mode: z.machine.mode };
       const s = b.snap(z);
-      const keys = window.__loss ? [] : b.bot.step(s);
-      return { keys, mode: 2, s: { tick: s.tick, sec: s.sec, vars: s.vars, p: s.p, key: s.key, door: s.door, rock: s.rock, over: s.over } };
+      return { keys: [], mode: 2, s: { tick: s.tick, sec: s.sec, vars: s.vars, p: s.p, key: s.key, door: s.door, rock: s.rock, over: s.over } };
     });
     if (r.keys === null || !r.s) break;
-    if (!LOSS) {
-      const want = new Set(r.keys);
-      for (const k of held) if (!want.has(k)) { await page.keyboard.up(k); held.delete(k); }
-      for (const k of want) if (!held.has(k)) { await page.keyboard.down(k); held.add(k); }
-    }
+    if (r.s.tick !== lastTick) { lastTick = r.s.tick; stall = Date.now(); } else if (Date.now() - stall > 120000) { log('the game stopped ticking (120 s of wall time)'); break; }
     loops++;
     const s = r.s, tag = (n) => !shots[n] && (shots[n] = true);
     if (tag('open') && s.vars.open & 3 && s.p.state === 2) await shot('5-knock');
@@ -78,6 +79,7 @@ export default async ({ page, shot, wait, log, key }) => {
     if (Date.now() - lastShot > 20000) { lastShot = Date.now(); log('t', Math.round((Date.now() - t0) / 1000), 's tick', s.tick, 'sec', s.sec, 'p', s.p.x.toFixed(1), s.p.z.toFixed(1), 'vars', JSON.stringify(s.vars)); }
     await wait(10);
   }
+  if (pilot) await pilot.stop();
   for (const k of held) await page.keyboard.up(k);
   await wait(800);
   const d = await dbg();

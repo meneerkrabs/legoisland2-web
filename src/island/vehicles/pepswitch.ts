@@ -16,8 +16,10 @@ import { tryCtx } from '../ctx.ts';
 import { waypoints } from '../../game/walker.ts';
 import { VV, vehicles, sfx, stopSfx, partPos } from './common.ts';
 import { SKATE_ROLL_SOUNDS } from './skate.ts';
-import { lookPrerender } from './looks.ts';
+import { lookPrerender, restoreLooks } from './looks.ts';
 import { SND_LGI_SEA, lgiSeaPosition } from '../../audio/sea.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
+import { CD8, CD_F32 } from '../../game/heapfill.ts';
 
 /** sound ids (FUN_004b0f16): DAT_009da978 getting on the board, DAT_009da940 getting off, DAT_009da93c leaving the water */
 const fr = Math.fround;
@@ -69,10 +71,22 @@ export class IslandPepSwitch implements BehaviourNode {
   readonly kind = 'PepSwitc';
   var: number = VV.PEPPER_CONTROL; mask = 0; value = 0;
   stamp = 0xfffffffe;
-  /** node + 0x18: the spot FUN_0088e030 found to leave a car */
-  spot = [0, 0, 0];
+  /** node + 0x18: the spot FUN_0088e030 found to leave a car (the constructor never writes it: the debug heap's 0xCD words until the first car is left) */
+  spot = [CD_F32, CD_F32, CD_F32];
   /** node + 0x24: bit 1 = the story-node-30 hologram timer was started */
   flags = 0;
+
+  /**
+   * FUN_004bbe95 (vtable +0x14): `*out = node + 0x18; return 0x10` = the spot (3 floats) and the flags dword (+0x24). FUN_004bbeba (+0x10): the 16 byte memcpy back, then FUN_0051c800 =
+   * FUN_00420674(0) (the decor sets' era table from the story variables, `applyDecorSets`) + FUN_004202ef (the roster re-applied: every cycler gets its look from the stored game
+   * variable, the busy list is cleared: `restoreLooks`).
+   */
+  saveBlock(): Uint8Array { return new BlockOut(16).f32(0, this.spot[0]).f32(4, this.spot[1]).f32(8, this.spot[2]).u32(12, this.flags).bytes; }
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.spot = [b.f32(0), b.f32(4), b.f32(8)]; this.flags = b.u32(12);
+    restoreLooks(w);
+  }
 
   /** FUN_004bb630: while PEPPER_CONTROL has 0x401 (leaving a car) Pepper is put on the free spot */
   update(w: World, rec: GameRecord, _ctrl: Controller): number {
@@ -164,6 +178,11 @@ export class VehicleSeat implements BehaviourNode {
   readonly kind = 'SGVehic';
   var: number = VV.PEPPER_CONTROL; mask = 8; value = 8;
   stamp = 0xfffffffe;
+  /** node +0x15: a byte nothing in the executable writes (the node is 0x18 bytes, the constructor leaves +0x14 .. +0x17 as allocated: the debug heap's 0xCD); the save block carries it as it is */
+  b15 = CD8;
+  /** FUN_0043337c / FUN_0043339a (vtable +0x14 / +0x10): `*out = node + 0x15; return 1` and the 1 byte memcpy back */
+  saveBlock(): Uint8Array { return new BlockOut(1).u8(0, this.b15).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.b15 = new BlockIn(data).u8(0); }
   /** FUN_00433160 */
   update(): number { return NODE_STOP; }
   /** FUN_00433173: Pepper's rotation = the vehicle's, his position = the vehicle's mesh part 1 (the seat) in the vehicle's frame */
@@ -187,4 +206,11 @@ export class PteraRide implements BehaviourNode {
   stamp = 0xfffffffe;
   update(): number { return NODE_STOP; }
   prerender(): void { /* FUN_004bb43f: returns 1 */ }
+  /**
+   * The save block, FUN_004bb495 (vtable +0x14: the cell's buffer protocol, `memcpy(buf, node + 0x18, 8)`) and the loader FUN_004bb50f (`memcpy(node + 0x18, bytes, 8)`): the node's last 8 bytes (the node is
+   * 0x20 long). Nothing ever writes them: they stay what the allocation left (0) or a loaded block put there; the bytes are kept as they are.
+   */
+  private readonly raw = new Uint8Array(8).fill(0xcd);
+  saveBlock(): Uint8Array { return this.raw.slice(); }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.raw.set(data.subarray(0, 8)); }
 }

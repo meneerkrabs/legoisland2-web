@@ -1,3 +1,4 @@
+import { m8Note } from '../lib/m8-d.mjs';
 import { bunnyDuel, compareBunnies, B, lcg } from '../lib/m7-isl-bb-bunny.mjs';
 
 // WP-VERIFY M7b: the island's rabbits RBT0-4 (Bunny.c FUN_004b2149 / 004b18fb / 004b1ffb) against the original's code (tools/lib/m7-isl-bb-bunny.mjs on the ambient oracle): free hopping (dt 1 and 0.5), Pepper next to the
@@ -55,6 +56,7 @@ export default {
       d.hidden.clear();
       for (let t = 0; t < 120 * sc; t++) step(0);
       notes.push(`${d.label}: worst deviations ${[...d.worst].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k} ${v.toExponential(1)}`).join(', ') || 'none'}; extra score item ${d.getVar(0xbd) & 1}, score ${d.getVar(0xa6)}`);
+      if (d.m8) notes.push(`${d.label}: ${m8Note(d.m8)}`);
       checked += d.checked;
       d.cleanup();
     }

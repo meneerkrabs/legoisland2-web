@@ -22,9 +22,9 @@ const NODES = { 36: { zone: 13, next: 14, flag: 0xfe, objective: 24, hol: 'AI/Da
   40: { zone: 13, next: 16, flag: 0x100, objective: 112, hol: 'AI/Data/ADVHOL7.str', npc: null, path: 0x18 } };
 /** the attach counts per constructor name in the world after the set-up (regression values; foundation-ctors.md) */
 const KINDS = {
-  36: { PeppSw: 1, scorpion: 11, SGwalk: 1, sgswim: 1, skate: 1, SGMFIG: 4, Turn2PepA: 3, Human1: 3, Turn2PepB: 3, StartCSM: 2, Tumblewd: 2, Gems: 5, hOLO: 1 },
-  38: { PeppSw: 1, scorpion: 11, SGwalk: 1, sgswim: 1, skate: 1, SGMFIG: 4, StartCSM: 2, Tumblewd: 2, Gems: 5, hOLO: 1 },
-  40: { PeppSw: 1, scorpion: 11, SGwalk: 1, sgswim: 1, skate: 1, Tumblewd: 2, Gems: 5, 'StartCSM.portal': 1, hOLO: 1, SGMFIG: 1 },
+  36: { Sky: 1, PeppSw: 1, scorpion: 11, SGwalk: 1, sgswim: 1, skate: 1, SGMFIG: 4, Turn2PepA: 3, Human1: 3, Turn2PepB: 3, StartCSM: 2, Tumblewd: 2, Gems: 5, hOLO: 1 },
+  38: { Sky: 1, PeppSw: 1, scorpion: 11, SGwalk: 1, sgswim: 1, skate: 1, SGMFIG: 4, StartCSM: 2, Tumblewd: 2, Gems: 5, hOLO: 1 },
+  40: { Sky: 1, PeppSw: 1, scorpion: 11, SGwalk: 1, sgswim: 1, skate: 1, Tumblewd: 2, Gems: 5, 'StartCSM.portal': 1, hOLO: 1, SGMFIG: 1 },
 };
 
 export default {
@@ -52,8 +52,8 @@ export default {
       const node = +n;
       const H = loadPya(ctx, node, { bricks: true });
       const W = H.world, P = H.pepper;
-      // ---- constructors: every attach of the emulated set-up has a node, except the sky (drawn by src/render/environment.ts)
-      eq(H.L.skipped.map((s) => s.ctorName), ['seabed'], `node ${node}: skipped constructors`);
+      // ---- constructors: every attach of the emulated set-up has a node (the sky dome SSKY is the scene node of src/island/ambient/seabed.ts: kind 'Sky')
+      eq(H.L.skipped.map((s) => s.ctorName), [], `node ${node}: skipped constructors`);
       eq(kindsOf(H), KINDS[node], `node ${node}: node kinds`);
       eq(P.ctrl.nodes.map((x) => x.kind), ['PeppSw', 'scorpion', 'SGwalk', 'sgswim', 'skate'], `node ${node}: Pepper's chain = the original's (PeppSw, grab, SGwalk, sgswim, skate)`);
       eq(P.ctrl.nodes.map((x) => [x.var, x.mask, x.value]), [[0x5e, 0, 0], [0x5e, 0x20, 0x20], [0x5e, 1, 1], [0x5e, 2, 2], [0x5e, 4, 4]], `node ${node}: the gates of Pepper's chain`);

@@ -8,6 +8,7 @@
 // decompile's +0x96b0 flags and +0x965c matrix are 370 * 0x68 + 0x60 / + 0xc), and the FX_Bricks manager's per-tick update (the original runs it in
 // the draw pass, FUN_00442930 -> FUN_00447de0; it polls the SWITCH_LGI_BRICKFX_* variables itself: src/fx/bricks).
 // FUN_00444550 of the constructor (render mode 2 of record 370) goes through ctx.partMode (WP-RENDER setPartMode).
+import { CDF } from '../blockio.ts';
 import { NODE_NONE } from '../../game/controller.ts';
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import { RF_ENABLED, RF_NO_COLLIDE } from '../../game/record.ts';
@@ -77,7 +78,7 @@ const pos = (r: GameRecord | undefined): [number, number, number] => (r ? [r.x, 
 export class DirectorState {
   rotor = 0;                          // +0x18
   jail = 0; jailSpeed = 0;            // +0x20 / +0x24 (the jail door, JAIL part 1 = +0x1c)
-  win = [0, 0]; winSpeed = [0, 0];    // +0x28 / +0x2c, +0x30 / +0x34 (INFC parts 1 and 2 = +0x40 / +0x44)
+  win = [0, 0]; winSpeed = [CDF, CDF];    // (never written by the constructor: 0xCDCDCDCD from the debug heap)  +0x28 / +0x2c, +0x30 / +0x34 (INFC parts 1 and 2 = +0x40 / +0x44)
   scale = 1;                          // +0x48 (the wormhole's scale, also the BRICKESC_02 count-down)
   /** the cue table (switch var, sound id, record) */
   sounds: Cue[] = [];

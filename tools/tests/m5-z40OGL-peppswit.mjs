@@ -75,8 +75,8 @@ export default {
       tick(H, 5);
       const ps = W.records[2].ctrl.nodes.find((n) => n instanceof OglPepSwit), sl = W.records[21].ctrl.nodes.find((n) => n instanceof SlugNode), ro = W.records[16].ctrl.nodes.find((n) => n instanceof RobotNode), ci = W.records[6].ctrl.nodes.find((n) => n instanceof CitizenNode);
       ok(ps instanceof OglPepSwit && W.records[2].ctrl.nodes.some((n) => n instanceof OglVoidFall), 'PEPPSWIT / void classes');
-      const b1 = sl.saveBlob(); sl.state = 0; sl.loadBlob(b1); ok(sl.saveBlob().join() === b1.join(), 'slug blob');
-      ok(ro.saveBlob().length === 1 && ci.saveBlob().length === 12 && ps.saveBlob(W).length === 16, 'blob sizes (1 / 12 / 16 bytes)');
+      const b1 = sl.saveBlock(); sl.state = 0; sl.loadBlock(W, W.records[21], W.records[21].ctrl, b1); ok(sl.saveBlock().join() === b1.join(), 'slug blob');
+      ok(ro.saveBlock().length === 1 && ci.saveBlock().length === 12 && ps.saveBlock(W).length === 16, 'blob sizes (1 / 12 / 16 bytes)');
     }
     return { checked, failures, notes };
   },

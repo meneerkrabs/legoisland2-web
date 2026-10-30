@@ -19,7 +19,7 @@ import { wrapWorld } from '../../game/swim.ts';
 import { ad, sb, ml, dv, fr } from '../../zones/common/f32.ts';
 import { ArgView } from '../args.ts';
 import { tryCtx } from '../ctx.ts';
-import { ICON, VV, vehicles, berthPos, fabs, cutsceneActive, sfx, stopSfx, sfxFreq, setVehicleMatrix, leanFrame, padAxis } from './common.ts';
+import { Blk, DOCK_WORDS, FILL_CD, F_CD, ctorSeq, runSetups, ICON, VV, vehicles, berthPos, fabs, cutsceneActive, sfx, stopSfx, sfxFreq, setVehicleMatrix, leanFrame, padAxis } from './common.ts';
 
 /** sound ids (FUN_00443580 in the constructor): DAT_009da9ec jet ski, DAT_009da9cc dinghy, DAT_009da9e0 speedboat, DAT_009da9d0 crash */
 export const SND_JSKI = 0x8d, SND_DNGY = 299, SND_SPBT = 0x129, SND_BOAT_CRASH = 0x332;
@@ -53,14 +53,15 @@ export class BoatNode implements BehaviourNode {
   var = 0; mask = 0; value = 0;
   stamp = 0xfffffffe;
   readonly args: ArgView;
-  private init = false;
+  readonly seq = ctorSeq();
+  init = false;
   // node + 0x18 .. (FUN_00430e6c)
   rip: GameRecord | null = null;     // +0x18 (RIPB / RIPJ / RIPD)
   wakeR: GameRecord | null = null;   // +0x1c WAKR
   wakeP: GameRecord | null = null;   // +0x20 WAKP
   wakeS: GameRecord | null = null;   // +0x24 WAKS
   /** +0x2c: the plume's spray velocity (speed / 4 * 0.25, DAT_008ae22c; FUN_0044ebd0 modes 2 / 3 hand it to the emitter); +0x28 is the BOATPLUME emitter (`plume`) */
-  plumeRate = 0;
+  plumeRate = F_CD;       // (the heap fill until the first pre-render)
   state = 0;                         // +0x38: 0 starting, 1 driving, 2 docking
   dock = -1;                         // +0x3a: the dock the boat occupies (-1 none)
   speed = 0;                         // +0x3c
@@ -71,6 +72,34 @@ export class BoatNode implements BehaviourNode {
   fast = 0;                          // +0x58: above speed 2 (the plume is drawn)
 
   constructor(args: ArgView) { this.args = args; }
+
+  /**
+   * The save block, FUN_00430d81 (vtable +0x14: `FUN_0085c0b0(buf, node + 0x38, 0x24); FUN_0085c0b0(buf + 0x24, &DAT_009da9fc, 0x14)`, size 0x38) and its loader FUN_00430e0e (the same copies the other way):
+   *   +0x00 u8 state (node +0x38)   +0x01 (node +0x39, never written: kept in `raw`)   +0x02 i16 dock (+0x3a)   +0x04 f32 speed   +0x08 f32 wobble   +0x0c f32 engineHz   +0x10 f32 steer
+   *   +0x14 f32 half length (+0x4c)   +0x18 / +0x1c (node +0x50 / +0x54: never written, `raw`)   +0x20 u32 fast (+0x58)
+   *   +0x24 five dwords = the dock table's taken flags DAT_009da9fc (the fourth dock's successor is a dead word, `VehicleGlobals.dockSpare`): the same words in every boat's block
+   * The port runs the constructor's world work at the first update (`setup`): a block asked for (or loaded) earlier runs it first, as the original's constructor had.
+   */
+  private readonly raw = FILL_CD(0x24);
+  saveBlock(w: World, rec: GameRecord, _ctrl: Controller): Uint8Array {
+    if (!this.init) runSetups(w);
+    const o = new Blk(0x38);
+    o.b.set(this.raw, 0);
+    o.w8(0, this.state); o.w16(2, this.dock);
+    o.wf(4, this.speed); o.wf(8, this.wobble); o.wf(0xc, this.engineHz); o.wf(0x10, this.steer); o.wf(0x14, this.half);
+    o.w32(0x20, this.fast);
+    for (let i = 0; i < 5; i++) o.w32(0x24 + 4 * i, DOCK_WORDS[i]);   // the static words DAT_009da9fc (module-wide, `common.ts`)
+    return o.b;
+  }
+  loadBlock(w: World, rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    if (!this.init) runSetups(w, true);
+    const i = new Blk(data);
+    this.raw.set(data.subarray(0, 0x24));
+    this.state = i.u8(0); this.dock = i.i16(2);
+    this.speed = i.f32(4); this.wobble = i.f32(8); this.engineHz = i.f32(0xc); this.steer = i.f32(0x10); this.half = i.f32(0x14);
+    this.fast = i.u32(0x20);
+    for (let k = 0; k < 5; k++) DOCK_WORDS[k] = i.u32(0x24 + 4 * k);
+  }
 
   /**
    * The BOATPLUME emitter (+0x28): FUN_00442960("BOATPLUME", rec + 0xc, 0, 1.0, -half length, -pi / 2, 0, 0, gate off) in the constructor, bound to the boat's LIVE matrix (no
@@ -86,7 +115,7 @@ export class BoatNode implements BehaviourNode {
   }
 
   /** the constructor's work that needs the world (record pointers, docks): done at the first update */
-  private setup(w: World, rec: GameRecord) {
+  setup(w: World, rec: GameRecord) {
     this.init = true;
     const r = (o: number) => this.args.rec(o, w);
     this.rip = r(4); this.wakeR = r(8); this.wakeP = r(0xc); this.wakeS = r(0x10);
@@ -136,7 +165,7 @@ export class BoatNode implements BehaviourNode {
   }
 
   update(w: World, rec: GameRecord, ctrl: Controller): number {
-    if (!this.init) this.setup(w, rec);
+    if (!this.init) runSetups(w);
     const G = vehicles(w);
     const focusCtrl = w.focus?.ctrl;
     if (!focusCtrl || !focusCtrl.enabled) return NODE_NONE;

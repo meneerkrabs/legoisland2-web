@@ -4,12 +4,14 @@
 //     FUN_0053955e  constructor (node 0xa8, handler table 0x8eb008)              -> FootballNode
 //     FUN_00538e0b  update: wait for the kicker / the kick clip / the flight with hops / the roll to the receiver's feet -> FootballNode.update
 //     FUN_00538880 next kicker (+ the astray roll)   FUN_0053893d the one after   FUN_00538968 the target   FUN_005389d9 the kick   FUN_00538c4d the roll
-//     FUN_0053949d  draw: 0.4 higher while drawn (FootballNode.DRAW_LIFT, for the renderer)       FUN_005394fd / FUN_00539522 save / load (not ported)
+//     FUN_0053949d  draw: 0.4 higher while drawn (FootballNode.DRAW_LIFT, for the renderer)       FUN_005394fd / FUN_00539522 save / load -> FootballNode.saveBlock / loadBlock
 //   FLR1 / FLR2: flowers in the garden of STEV (gate MOVE_STEV 0x7c & 0x20 / 0x10): when STEV sets the bit a flower grows from scale 0.5 to 1.5 in 90 ticks,
 //         stays 90 ticks, shrinks back and the node clears its gate bit.
 //     FUN_005399d8  constructor (node 0x20, table 0x8eb020)   FUN_005396af update   FUN_0053993e draw (default)  -> FlowerNode
+//                       (save / load FUN_005399d8's table: FUN_0053997a / FUN_0053999f, 8 bytes from +0x18 -> FlowerNode.saveBlock / loadBlock)
 //   LOON (eras 3 / 4): bobs up by arg * 8 at 0.08 per tick, waits 90 ticks, goes back down, waits 90 ticks.
 //     FUN_00539d44  constructor (node 0x28, table 0x8eb038)   FUN_00539ae4 update   FUN_00539caa draw (default)  -> BobNode
+//                       (save / load FUN_00539ce6 / FUN_00539d0b: 12 bytes from +0x1c -> BobNode.saveBlock / loadBlock)
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
@@ -25,6 +27,8 @@ import { ArgView } from '../args.ts';
 import { PI_F, TWO_PI_F, sfxAt } from './common.ts';
 import { restoreHooks } from '../../restore/flag.ts';
 import { ad, sb, ml, dv, sq, fr } from '../../zones/common/f32.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
+import { CD_F32 } from './saveutil.ts';
 
 export const CTOR_FOOTBALL = 0x53955e, CTOR_FLOWER = 0x5399d8, CTOR_BOB = 0x539d44;
 
@@ -68,14 +72,17 @@ export class FootballNode implements BehaviourNode {
   inited = false;
   /** +0x24 the kid with the ball, +0x28 the receiver */
   from = 0; to = 0;
-  /** +0x2c hop phase 0..pi, +0x30 hop height */
-  phase = 0; hop = 0;
+  /** +0x2c hop phase 0..pi, +0x30 hop height (0xCD words of the debug heap until the first kick) */
+  phase = CD_F32; hop = CD_F32;
   /** +0x34..+0x3c the last offset to the target (1e38 at a kick) */
-  last = [9.999999680285692e+37, 0, 9.999999680285692e+37];
-  /** +0x40..+0x48 the target, +0x4c..+0x54 the roll velocity, +0x58 phase rate, +0x5c speed, +0x80.. the kick direction (forward of +0x60) */
-  target = [0, 0, 0]; roll = [0, 0, 0]; rate = 0; speed = 0; dir = [0, 0, 1];
-  /** +0xa0 the "get ready" distance, +0xa4 state, +0xa5 kicks since astray, +0xa6 astray hop count (0 = a normal pass) */
-  ready = 0; state: number = BALL.WAIT; sinceAstray = 0; astray = 0;
+  last = [CD_F32, CD_F32, CD_F32];
+  /** +0x40..+0x48 the target, +0x4c..+0x54 the roll velocity, +0x58 phase rate, +0x5c speed; +0x60..+0x9f the matrix FUN_0043a340 builds at a kick (`mat`, 16 floats; +0x80.. = its forward row = the kick direction) */
+  target = [CD_F32, CD_F32, CD_F32]; roll = [CD_F32, CD_F32, CD_F32]; rate = CD_F32; speed = CD_F32;
+  readonly mat = new Float32Array(16).fill(CD_F32);
+  get dir(): Float32Array { return this.mat.subarray(8, 11); }
+  set dir(v: ArrayLike<number>) { this.mat[8] = v[0]; this.mat[9] = v[1]; this.mat[10] = v[2]; }
+  /** +0xa0 the "get ready" distance, +0xa4 state, +0xa5 kicks since astray, +0xa6 astray hop count (0 = a normal pass; bytes), +0xa7 pad (0xCD) */
+  ready = CD_F32; state: number = BALL.WAIT; sinceAstray = 0; astray = 0; pad7 = 0xcd;
   /** the probe result: the ground under the ball (y), for tests */
   ground = 0;
 
@@ -84,6 +91,38 @@ export class FootballNode implements BehaviourNode {
     this.kidIdx = [args.recIndex(0), args.recIndex(4), args.recIndex(8)];
     this.kidVar = args.i32(0xc);
   }
+
+  /**
+   * Save block = node +0x24 .. +0xa8 (saver FUN_005394fd returns 0x84 and points at node + 0x24, loader FUN_00539522 is the memcpy back):
+   * 0x00 i32 from (+0x24)   0x04 i32 to   0x08 f32 phase   0x0c f32 hop   0x10 f32[3] last (+0x34)   0x1c f32[3] target (+0x40)   0x28 f32[3] roll (+0x4c)   0x34 f32 rate (+0x58)   0x38 f32 speed (+0x5c)
+   * 0x3c f32[16] the matrix at +0x60   0x7c f32 ready (+0xa0)   0x80 u8 state   0x81 u8 sinceAstray   0x82 u8 astray   0x83 u8 pad (0xCD).
+   * The constructor's work with the world runs first when the node has not run yet (the zone game's startPizzaNodes does it right after the set-up).
+   */
+  saveBlock(w: World, rec: GameRecord, _c: Controller): Uint8Array {
+    if (!this.inited) this.init(w, rec);
+    const b = new BlockOut(0x84);
+    b.i32(0x00, this.from).i32(0x04, this.to).f32(0x08, this.phase).f32(0x0c, this.hop);
+    for (let k = 0; k < 3; k++) b.f32(0x10 + 4 * k, this.last[k]).f32(0x1c + 4 * k, this.target[k]).f32(0x28 + 4 * k, this.roll[k]);
+    b.f32(0x34, this.rate).f32(0x38, this.speed);
+    for (let k = 0; k < 16; k++) b.f32(0x3c + 4 * k, this.mat[k]);
+    b.f32(0x7c, this.ready).u8(0x80, this.state).u8(0x81, this.sinceAstray).u8(0x82, this.astray).u8(0x83, this.pad7);
+    return b.bytes;
+  }
+  loadBlock(w: World, _rec: GameRecord, _c: Controller, data: Uint8Array): void {
+    if (!this.inited) { this.inited = true; this.kids = this.kidIdx.map((i) => (i >= 0 ? w.records[i] ?? null : null)); }   // (the constructor ran at the set-up: only its pointers, the rest comes from the block)
+    const b = new BlockIn(data);
+    this.from = b.i32(0x00); this.to = b.i32(0x04); this.phase = b.f32(0x08); this.hop = b.f32(0x0c);
+    for (let k = 0; k < 3; k++) { this.last[k] = b.f32(0x10 + 4 * k); this.target[k] = b.f32(0x1c + 4 * k); this.roll[k] = b.f32(0x28 + 4 * k); }
+    this.rate = b.f32(0x34); this.speed = b.f32(0x38);
+    for (let k = 0; k < 16; k++) this.mat[k] = b.f32(0x3c + 4 * k);
+    this.ready = b.f32(0x7c); this.state = b.u8(0x80); this.sinceAstray = b.u8(0x81); this.astray = b.u8(0x82); this.pad7 = b.u8(0x83);
+  }
+
+  /**
+   * The constructor copies kid 0's whole matrix onto the ball (0x539587..). In the original the kids' own constructors (the NPC nodes that put them on their route) ran before the ball's, so the ball
+   * lands where kid 0 stands after the set-up: `placeBall` repeats the copy once the NPCs are started (`placePizzaBalls`), as long as the ball has not run.
+   */
+  placeBall(rec: GameRecord) { const k0 = this.kids[0]; if (k0 && this.inited && this.state === BALL.WAIT && this.stamp === 0xfffffffe) rec.m.set(k0.m); }
 
   /** FUN_0053955e's work with the world */
   init(w: World, rec: GameRecord) {
@@ -136,8 +175,7 @@ export class FootballNode implements BehaviourNode {
     const dx = sb(ball[0], this.target[0]), dy = sb(ball[1], this.target[1]), dz = sb(ball[2], this.target[2]);
     const d = sq(ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz)));
     rec.ry = fr(Math.atan2(dx, dz));
-    const m = buildMatrix(0, rec.ry, rec.rz, 0, 0, 0);   // FUN_0043a340(+0x60, 0, ry, rz)
-    this.dir = [m[8], m[9], m[10]];
+    this.mat.set(buildMatrix(0, rec.ry, rec.rz, 0, 0, 0));   // FUN_0043a340(+0x60, 0, ry, rz)
     rec.m.set(buildMatrix(rec.rx, rec.ry, rec.rz, rec.x, rec.y, rec.z));   // FUN_0043a340 on the record (rotation; the translation is set again below)
     this.hop = FOOTY.HOP; this.phase = 0; this.speed = FOOTY.SPEED;
     const n = dv(d, this.speed);
@@ -145,7 +183,7 @@ export class FootballNode implements BehaviourNode {
     this.ready = ml(this.speed, fr(w.vars.get(this.kidVar)));
     this.kidOp(w, this.to, FOOTY.M_CLEAR, 2);
     if ((this.kidVar_(w, this.from) & 8) === 0) this.kidOp(w, this.from, FOOTY.M_KICK, 0);
-    this.last = [9.999999680285692e+37, 0, 9.999999680285692e+37];
+    this.last[0] = FOOTY.FAR; this.last[2] = FOOTY.FAR;   // (x and z only: the y word keeps what the last flight tick wrote, 0xCD before the first)
   }
 
   /** FUN_00538c4d: the roll to the feet */
@@ -255,6 +293,14 @@ export class FlowerNode implements BehaviourNode {
 
   constructor(attach?: Attach) { this.var = attach?.var ?? 2; this.mask = attach?.mask ?? 0; this.value = attach?.value ?? 0; }
 
+  /** Save block = node +0x18 .. +0x20 (saver FUN_0053997a returns 8 and points at node + 0x18, loader FUN_0053999f is the memcpy back): 0x00 f32 t (ticks), 0x04 f32 scale. */
+  saveBlock(_w: World, _rec: GameRecord, _c: Controller): Uint8Array { return new BlockOut(8).f32(0, this.t).f32(4, this.scale).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _c: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.t = b.f32(0); this.scale = b.f32(4);
+    this.started = true;   // (the constructor's matrix at scale 0.5 was built at the set-up; the load put the record's own matrix back)
+  }
+
   private apply(rec: GameRecord) { rec.m.set(buildMatrix(rec.rx, rec.ry, rec.rz, rec.x, rec.y, rec.z, this.scale, this.scale, this.scale)); rec.scale = [this.scale, this.scale, this.scale]; }
 
   /** the constructor's FUN_0043a742 at scale 0.5 */
@@ -294,16 +340,27 @@ export class BobNode implements BehaviourNode {
     this.var = attach?.var ?? 2; this.mask = attach?.mask ?? 0; this.value = attach?.value ?? 0;
     this.height = ml(args.f32(0), 8);
   }
+  /** the constructor's `node + 0x14 = record y` (not part of the save block; the zone game's startPizzaNodes calls this right after the set-up) */
+  start(rec: GameRecord) { if (this.base === null) this.base = rec.y; }
+
+  /** Save block = node +0x1c .. +0x28 (saver FUN_00539ce6 returns 0xc and points at node + 0x1c, loader FUN_00539d0b is the memcpy back): 0x00 i32 state, 0x04 f32 off, 0x08 f32 wait. */
+  saveBlock(_w: World, _rec: GameRecord, _c: Controller): Uint8Array { return new BlockOut(0xc).i32(0, this.state).f32(4, this.off).f32(8, this.wait).bytes; }
+  loadBlock(_w: World, rec: GameRecord, _c: Controller, data: Uint8Array): void {
+    this.start(rec);   // (only without startPizzaNodes: the base is the record's height at the set-up)
+    const b = new BlockIn(data);
+    this.state = b.i32(0); this.off = b.f32(4); this.wait = b.f32(8);
+  }
+
   update(w: World, rec: GameRecord, _c: Controller): number {
     void _c;
-    if (this.base === null) this.base = rec.y;
+    this.start(rec);
     switch (this.state) {
       case 0: this.off = ad(ml(0.07999999821186066, fr(w.dt)), this.off); if (this.height < this.off) { this.state = 1; this.wait = 0; } break;
       case 1: this.wait = ad(ml(1.0, fr(w.dt)), this.wait); if (this.wait >= 90) this.state = 2; break;
       case 2: this.off = sb(this.off, ml(0.07999999821186066, fr(w.dt))); if (this.off < 0) { this.off = 0; this.state = 3; this.wait = 0; } break;
       case 3: this.wait = ad(ml(1.0, fr(w.dt)), this.wait); if (this.wait >= 90) this.state = 0; break;
     }
-    if (this.state === 0 || this.state === 2) rec.setEuler(rec.rx, rec.ry, rec.rz, rec.x, ad(this.base, this.off), rec.z);
+    if (this.state === 0 || this.state === 2) rec.setEuler(rec.rx, rec.ry, rec.rz, rec.x, ad(this.base ?? rec.y, this.off), rec.z);
     return NODE_STOP;
   }
 }

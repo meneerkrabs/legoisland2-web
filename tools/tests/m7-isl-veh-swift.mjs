@@ -2,6 +2,7 @@
 // file of the archive, FUN_0043ecd0 / FUN_004454e0 / FUN_00445660), the followers FUN_004b35f9 (ctor FUN_004b3a92) steer to it (FUN_004b336d) and play their wing clip (rig SWFT). The original's node code runs in the island
 // emulation (tools/lib/m7-isl-veh-ambient.mjs) next to the port (src/island/ambient/animals.ts: SwiftLeaderNode, SwiftNode, BSpline) with the same random draws; compared tick by tick: records, leader / follower node blocks,
 // animation clip / frame, sound calls, random draws.
+import { m8Note } from '../lib/m8-d.mjs';
 import { ambientDuel, CTOR, hostFiles, SPLINE_EXEC, giveAnims } from '../lib/m7-isl-veh-ambient.mjs';
 
 const MAXFAIL = 30;
@@ -23,14 +24,14 @@ export default {
       // sync mode: the port's leader takes the spline point the ORIGINAL just computed (float32 evaluation of the cubic: the port's double evaluation differs by ~1e-4, which a follower close to its target turns into ~1e-4 rad of yaw);
       // the evaluation itself is compared in every session (leader.target) with the tolerance of float32 arithmetic on coordinates of ~200
       const lead0 = W.records.findIndex((r) => r.name === 'SFT9');
-      if (sm) { const lp = d.pnode(lead0, 'SwiftLeader'), la = d.onode(lead0, CTOR.SWIFT_LEADER); lp.eval = () => { lp.target = [0, 1, 2].map((k) => mem.f32(la + 0x70 + 4 * k)); }; }
+      if (sm) { const lp = d.pnode(lead0, 'SwiftLeader'), la = d.onode(lead0, CTOR.SWIFT_LEADER); lp.eval = () => { lp.target = [0, 1, 2].map((k) => mem.f32(la + 0x70 + 4 * k)); for (let k = 0; k < 16; k++) lp.matrix[k] = mem.f32(la + 0x40 + 4 * k); }; }
       const sft = W.records.filter((r) => /^SFT\d$/.test(r.name)).map((r) => r.index);
       const lead = W.records.findIndex((r) => r.name === 'SFT9');
       const FN = { cnt: [0x2c, 'h'], perched: [0x2e, 'h'], dyaw: [0x30, 'f'], dpitch: [0x34, 'f'], timer: [0x38, 'f'] };
       d.syncPort = () => {
-        for (const i of sft) { d.recToPort(i); d.nodeToPort(d.pnode(i, 'Swift'), d.onode(i, CTOR.SWIFT), { dyaw: [0x30, 'f'], dpitch: [0x34, 'f'], timer: [0x38, 'f'] }); const pn = d.pnode(i, 'Swift'), a = d.onode(i, CTOR.SWIFT); pn.cnt = mem.r16(a + 0x2c); pn.perched = mem.r16(a + 0x2e); }
+        for (const i of sft) { d.recToPort(i); d.nodeToPort(d.pnode(i, 'Swift'), d.onode(i, CTOR.SWIFT), { dyaw: [0x30, 'f'], dpitch: [0x34, 'f'], timer: [0x38, 'f'] }); const pn = d.pnode(i, 'Swift'), a = d.onode(i, CTOR.SWIFT); pn.cnt = (mem.r16(a + 0x2c) << 16 >> 16); pn.perched = (mem.r16(a + 0x2e) << 16 >> 16); }
         d.nodeToPort(d.pnode(lead, 'SwiftLeader'), d.onode(lead, CTOR.SWIFT_LEADER), { t: [0x30, 'f'], perch: [0x34, 'f'], state: [0x38, 'i'], homing: [0x3c, 'i'] });
-        const la = d.onode(lead, CTOR.SWIFT_LEADER); d.pnode(lead, 'SwiftLeader').target = [0, 1, 2].map((k) => mem.f32(la + 0x70 + 4 * k));   // the spline value the followers chase (float32 evaluation: compared separately below)
+        const la = d.onode(lead, CTOR.SWIFT_LEADER); { const lq = d.pnode(lead, 'SwiftLeader'); lq.target = [0, 1, 2].map((k) => mem.f32(la + 0x70 + 4 * k)); for (let k = 0; k < 16; k++) lq.matrix[k] = mem.f32(la + 0x40 + 4 * k); }   // the spline value the followers chase (float32 evaluation: compared separately below)
       };
       // the constructors drew a random start timer each (rand(200): FUN_004b3a92 / SwiftNode): the port's value is replaced by the original's (both are one uniform draw; the sequences differ only at construction)
       for (const i of sft) { const a = d.onode(i, CTOR.SWIFT); d.pnode(i, 'Swift').timer = mem.f32(a + 0x38); }
@@ -47,7 +48,7 @@ export default {
         { const p = lp.spline.point(mem.f32(la + 0x30)); for (let k = 0; k < 3; k++) d.cmp('spline(t)', mem.f32(la + 0x70 + 4 * k), k === 0 ? Math.fround(p[0] - 16) : p[k], 0, `[${k}]`); }
         for (const i of sft) {
           const n = W.records[i].name, pn = d.pnode(i, 'Swift'), a = d.onode(i, CTOR.SWIFT);
-          d.eq(n + '.cnt', mem.r16(a + 0x2c), pn.cnt); d.eq(n + '.perched', mem.r16(a + 0x2e), pn.perched);
+          d.eq(n + '.cnt', (mem.r16(a + 0x2c) << 16 >> 16), pn.cnt); d.eq(n + '.perched', (mem.r16(a + 0x2e) << 16 >> 16), pn.perched);
           for (const f of ['dyaw', 'dpitch', 'timer']) d.cmp(`${n}.${f}`, mem.f32(a + FN[f][0]), pn[f], undefined, '', 1e-5);
           const oa = d.O.world.records[i].anim, pa = W.records[i].anim;
           if (pa) { d.eq(n + ' clip', oa.clip, pa.clip); d.cmp(n + ' frame', oa.frame, pa.frame, undefined, '', 1e-4); }
@@ -57,6 +58,7 @@ export default {
       };
       for (let t = 0; t < ticks; t++) step();
       if (d.grazes) { cover.grazes = (cover.grazes ?? 0) + d.grazes.length; notes.push(`${label}: ${d.grazes.length} divergence(s) re-synced: ${d.grazes.map((g) => g.slice(0, 140)).join(' ; ')}`); }
+      if (d.m8) notes.push(`${label}: ${m8Note(d.m8)}`);
       notes.push(`${label}: worst deviations ${[...d.worst].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k} ${v.toExponential(1)}`).join(', ') || 'none'}`);
       checked += d.checked;
       for (const [a, n] of d.emu.unhooked) unhooked.set(a, (unhooked.get(a) ?? 0) + n);

@@ -36,11 +36,34 @@ export function hub({ page, wait, log = () => {}, shot = async () => {} }, archi
     return { arch: z.info.archive, mode: z.machine.mode, tick: z.world.tickCount, pos: [p.x, p.y, p.z].map((x) => +x.toFixed(1)), yaw: +p.ry.toFixed(2), node: v.get(0x58), ctrl: v.get(0x5e), cs: !!dbg.cutscene,
       sub: v.get(0x59), next: v.get(5), prev: v.get(0xa3), cur: v.get(0x5a), pizzas: v.get(0xb0), bricks: v.get(0x4f) };
   });
-  S.until = async (fn, ms = 60000, step = 100) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await wait(step); } return false; };
+  /**
+   * poll `fn` until it is true or `ms` of GAME time passed (30 ticks a second: a loaded page runs fewer ticks per second of wall time, so a wall-clock limit would give up early);
+   * where the game does not tick (menus, a frozen first frame) or the tick counter restarts (a new zone) the wall-clock limit is 12 times `ms` (at least 2 minutes)
+   */
+  S.until = async (fn, ms = 60000, step = 100) => {
+    const t0 = Date.now(), tk0 = await S.ticks().catch(() => -1), maxTicks = (ms * 30) / 1000, ceiling = Math.max(ms * 12, 120000);
+    while (Date.now() - t0 < ceiling) {
+      if (await fn()) return true;
+      await wait(step);
+      const tk = await S.ticks().catch(() => -1);
+      if (tk0 >= 0 && tk >= tk0 && tk - tk0 > maxTicks) return false;
+    }
+    return false;
+  };
   /** the zone's simulation tick counter (game time: the bots wait in ticks so that a slow page does not make them miss things) */
   S.ticks = () => page.evaluate(() => window.__zone?.world.tickCount ?? -1);
   /** poll `fn` until it is true or `maxTicks` simulation ticks passed (30 per second of game time) */
-  S.untilTicks = async (fn, maxTicks, poll = 40) => { const t0 = await S.ticks(); for (;;) { if (await fn()) return true; await wait(poll); const t = await S.ticks(); if (t < 0 || t < t0 - 2 || t - t0 > maxTicks) return false; } };
+  S.untilTicks = async (fn, maxTicks, poll = 40) => {
+    // (a stalled tick counter must not hang the bot: a paused game (menu open), a hidden page or a frozen zone stops the ticks, so the wait ends after 12 s of wall time without a tick)
+    const t0 = await S.ticks(); let last = t0, lastAt = Date.now();
+    for (;;) {
+      if (await fn()) return true;
+      await wait(poll);
+      const t = await S.ticks();
+      if (t < 0 || t < t0 - 2 || t - t0 > maxTicks) return false;
+      if (t !== last) { last = t; lastAt = Date.now(); } else if (Date.now() - lastAt > 12000) return false;
+    }
+  };
   /** wait until zone `arch` (default: the hub) runs in mode 1 or 2 */
   S.waitHub = async (arch = archive, timeout = 300000) => { await page.waitForFunction((a) => window.__zone && window.__zone.info.archive === a && (window.__zone.machine.mode === 1 || window.__zone.machine.mode === 2), arch, { timeout }); };
   /** wait for the hub, take its mode 1 (any button) into mode 2 */

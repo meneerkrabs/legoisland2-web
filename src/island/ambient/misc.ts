@@ -13,6 +13,8 @@ import { buildMatrix } from '../../formats/matrix.ts';
 import { mulGame } from '../../render/math.ts';
 import { ad, sb, ml, dv, fr, fromBits } from '../../zones/common/f32.ts';
 import { ArgView } from '../args.ts';
+import { BlockIn, BlockOut, CD, CD16, keepRaw } from '../blockio.ts';
+import { CD_F } from '../npc/cd.ts';
 import { tryCtx } from '../ctx.ts';
 import { FX_NONE, GATE_OFF, GATE_ON, boneWorld, fxGate, fxMatrix, fxParam, fxStart, registerFxStart } from '../emitters.ts';
 import { wrapPi, ftol, setRot, ensureAnim } from './common.ts';
@@ -31,9 +33,12 @@ abstract class Node implements BehaviourNode {
 export class SpinNode extends Node {
   readonly kind = 'Spin';
   readonly axis: number;   // +0x14 (short): 0 x, 1 y, 2 z
-  readonly face: number;   // +0x16 (short, never set by the constructor: 0; non-zero = turn to the camera)
-  readonly rate: number;   // +0x1c
-  constructor(args: ArgView) { super(); this.axis = args.i16(0); this.face = 0; this.rate = args.f32(4); }
+  readonly face: number;   // +0x16 (short, never set by the constructor: 0xCD from the debug heap = non-zero = turn to the camera)
+  rate: number;   // +0x1c
+  constructor(args: ArgView) { super(); this.axis = args.i16(0); this.face = CD16; this.rate = args.f32(4); }
+  /** Save block = node +0x1c (saver FUN_004bdb54 returns 4 and points at node + 0x1c, loader FUN_004bdb79 = 4 byte memcpy back): the f32 rate */
+  saveBlock(): Uint8Array { return new BlockOut(4).f32(0, this.rate).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.rate = new BlockIn(data).f32(0); }
   /** FUN_004bd900 (no dt: the original adds the rate once per frame) */
   update(w: World, rec: GameRecord): number {
     if (this.axis === 0) rec.rx = wrapPi(ad(rec.rx, this.rate));
@@ -59,6 +64,14 @@ export class SeaAminNode extends Node {
   /** FUN_0043ebe0(model, 0, &0, &v): the V offset of material 0 = sin(phase) * 0.003 (renderer: src/game/render.ts uv offsets of SEAE) */
   vOffset = 0;
   private inited = false;
+  /** Save block = node +0x18 .. +0x24 (saver FUN_004b11b4 returns 0xc and points at node + 0x18, loader FUN_004b11d9 = 12 byte memcpy back): f32 phase, f32 scroll, f32 previous scroll */
+  saveBlock(): Uint8Array { return new BlockOut(12).f32(0, this.phase).f32(4, this.scroll).f32(8, this.prevScroll).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.phase = b.f32(0); this.scroll = b.f32(4); this.prevScroll = b.f32(8);
+  }
+  /** FUN_004b1212: the foam record is not solid (flag 0x10), at construction */
+  ctorInit(_w: World, rec: GameRecord): void { rec.flags |= RF_NO_COLLIDE; this.inited = true; }
   update(w: World, rec: GameRecord): number {
     if (!this.inited) { this.inited = true; rec.flags |= RF_NO_COLLIDE; }
     void w;
@@ -81,7 +94,24 @@ export class Sound3dNode extends Node {
   readonly kind = 'Sound3d';
   /** the sound id the constructor loads (FUN_004433b0(arg[0])): +0x14 = its handle; +0x18 = its distance (FUN_004433d0) */
   readonly soundId: number;
+  /** node +0x20 / +0x24 / +0x28: the record's position when the node was built (the constructor FUN_00538779 copies it; `ctorInit` runs right after the set-up); +0x2c / +0x30 / +0x34: 0 */
+  pos: [number, number, number] = [0, 0, 0];
+  private inited = false;
+  private raw: Uint8Array | null = null;
   constructor(args: ArgView) { super(); this.soundId = args.i32(0); }
+  ctorInit(_w: World, rec: GameRecord): void { if (!this.inited) { this.inited = true; this.pos = [rec.x, rec.y, rec.z]; } }
+  /** Save block = node +0x20 .. +0x38 (saver FUN_0053871b returns 0x18 and points at node + 0x20, loader FUN_00538740 = 24 byte memcpy back): f32 x y z of the record at construction, then 12 bytes of zeros */
+  saveBlock(w: World, rec: GameRecord): Uint8Array {
+    this.ctorInit(w, rec);
+    const o = new BlockOut(0x18, CD).f32(0, this.pos[0]).f32(4, this.pos[1]).f32(8, this.pos[2]).u32(0xc, 0);
+    keepRaw(o, this.raw, [[0x10, 8]]);   // +0x30 / +0x34 are never written (0xCD)
+    return o.bytes;
+  }
+  loadBlock(w: World, rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    this.ctorInit(w, rec);
+    const b = new BlockIn(data);
+    this.pos = [b.f32(0), b.f32(4), b.f32(8)]; this.raw = data.slice();
+  }
   /** FUN_005386d0: returns 2, nothing else (the sound is never played by this node) */
   update(): number { return 2; }
 }
@@ -111,8 +141,11 @@ export class BotMusicNode extends Node {
   /** +0x14: the music01 emitter (FUN_00442960 in the constructor FUN_00536e16: matrix = the node's own matrix buffer +0x1c, offset (0, 0.5, 0), no rotation, gate off) */
   fxH = FX_NONE;
   /** +0x1c: that matrix buffer (the bot's hand bone in world space, recomputed every dancing tick: FUN_0043bc58(anim, 10) + FUN_0043a9e5) */
-  readonly fxMat = new Float32Array(16);
+  readonly fxMat = new Float32Array(16).fill(CD_F);
   constructor() { super(); }
+  // save block: FUN_00536db8 (vtable +0x14) / FUN_00536ddd (+0x10, memcpy): the 0x44 bytes at node +0x18: +0x00 f32 timer, +0x04 .. +0x44 the matrix buffer (16 f32; FUN_00442960's matrix pointer)
+  saveBlock(_w: World, _rec: GameRecord, _c: Controller): Uint8Array { const o = new BlockOut(0x44).f32(0, this.timer); for (let i = 0; i < 16; i++) o.f32(4 + 4 * i, this.fxMat[i]); return o.bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _c: Controller, data: Uint8Array): void { const b = new BlockIn(data); this.timer = b.f32(0); for (let i = 0; i < 16; i++) this.fxMat[i] = b.f32(4 + 4 * i); }
   /** the constructor, at 0x536e7a (idempotent; also run by `finishEmitters`) */
   startFx(w: World) { if (this.fxH === FX_NONE) this.fxH = fxStart(w, 'music01.par', this.fxMat, [0, 0.5, 0], [0, 0, 0], GATE_OFF); }
   /** FUN_00536a44 (gate value = the bot's own var) */
@@ -170,6 +203,11 @@ export class GhettoNode extends Node {
   readonly kind = 'GETO';
   scale = fromBits(0x3f4ccccd);     // +0x1c (_DAT_00892084)
   phase = 0;       // +0x24
+  /** +0x18 (0) and +0x20 (0.01 = 0x3c23d70a): set by the constructor, read by no code of the node; saved and loaded as they are */
+  f18 = 0; f20 = fromBits(0x3c23d70a);
+  // save block: FUN_00536903 (vtable +0x14) / FUN_00536928 (+0x10, memcpy): the 0x10 bytes at node +0x18: f32 +0x18, scale, f32 +0x20, phase
+  saveBlock(_w: World, _rec: GameRecord, _c: Controller): Uint8Array { return new BlockOut(0x10).f32(0, this.f18).f32(4, this.scale).f32(8, this.f20).f32(0xc, this.phase).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _c: Controller, data: Uint8Array): void { const b = new BlockIn(data); this.f18 = b.f32(0); this.scale = b.f32(4); this.f20 = b.f32(8); this.phase = b.f32(0xc); }
   /** FUN_005366b0: returns 0 outside the story nodes 0x38 .. 0x3c (0x5366f7 `xor eax, eax`: the node did not run, so its pre-render hook FUN_005367b9 / draw hook FUN_00536806 are skipped: finding V10) and 1 inside (0x5367a6) */
   update(w: World, rec: GameRecord): number {
     const node = w.vars.get(0x58);

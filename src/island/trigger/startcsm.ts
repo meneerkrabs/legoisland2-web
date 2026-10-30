@@ -18,6 +18,7 @@ import { ArgView, recIndexOfPtr } from '../args.ts';
 import { tryCtx } from '../ctx.ts';
 import { vehicles } from '../vehicles/common.ts';
 import { ad, sb, ml, fr } from '../../zones/common/f32.ts';
+import { BlockIn, BlockOut, CD, CD32, CDF } from '../blockio.ts';
 
 // ----------------------------------------------------------------------------- constants
 
@@ -142,8 +143,21 @@ export class StartCsmNode implements BehaviourNode {
   slot: number;
   /** node +0x3a */
   armed = false;
-  /** node +0x3c: index of the nearest waypoint (-1) */
-  nearest = -1;
+  /** node +0x3c: index of the nearest waypoint (never written by the constructor: 0xCDCDCDCD from the debug heap, the first armed update sets it) */
+  nearest = CD32;
+  /** node +0x3b: padding byte of the saved block (never written by the original's code: the constructor's allocation leaves it 0) */
+  pad3b = CD;
+  /**
+   * Save block = node +0x38 .. +0x40 (saver FUN_0051e13e returns 8 and points at node + 0x38, loader FUN_0051e163 is an 8 byte memcpy back):
+   * +0 i16 slot, +2 u8 armed, +3 pad, +4 i32 nearest waypoint index. Port-only state is none: the saved bytes are the node's own state.
+   */
+  saveBlock(): Uint8Array {
+    return new BlockOut(8).i16(0, this.slot).u8(2, this.armed ? 1 : 0).u8(3, this.pad3b).i32(4, this.nearest).bytes;
+  }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.slot = b.i16(0); this.armed = b.u8(2) !== 0; this.pad3b = b.u8(3); this.nearest = b.i32(4);
+  }
   constructor(a: StartCsmArgs) {
     this.a = a;
     this.slot = a.slot;
@@ -152,7 +166,7 @@ export class StartCsmNode implements BehaviourNode {
       this.r2 = ml(r, r);
       const r2 = ad(r, r);
       this.r2icon = ml(r2, r2);
-    } else { this.r2 = NO_RADIUS; this.r2icon = 0; }
+    } else { this.r2 = NO_RADIUS; this.r2icon = CDF; }   // (node +0x20 is not written without waypoints: 0xCD)
   }
 
   update(w: World, rec: GameRecord, _ctrl: Controller): number {
@@ -198,7 +212,7 @@ export class StartCsmNode implements BehaviourNode {
     // fire
     V.andNot(VAR_PEPPER_CONTROL, 0x1000);
     if (this.slot >= 0) c.startCutscene(this.slot);
-    if (a.walkTo && pep?.ctrl?.walker && this.nearest >= 0) waypoints.teleport(pep.ctrl.walker, a.waypoints[this.nearest]);
+    if (a.walkTo && pep?.ctrl?.walker && a.waypoints.length && this.nearest >= 0) waypoints.teleport(pep.ctrl.walker, a.waypoints[this.nearest]);
     this.slot = SLOT_FIRED;
     return NODE_NONE;
   }
@@ -261,6 +275,14 @@ export class PortalNode implements BehaviourNode {
   /** node +0x40 */
   age = 0;
   fired = 0;
+  /**
+   * Save block = node +0x3c .. +0x44 (saver FUN_0051e9de returns 8 and points at node + 0x3c, loader FUN_0051ea03 is the 8 byte memcpy back): +0 f32 last distance^2 (-1 = out of range), +4 f32 age (ticks).
+   */
+  saveBlock(): Uint8Array { return new BlockOut(8).f32(0, this.last).f32(4, this.age).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.last = b.f32(0); this.age = b.f32(4);
+  }
   constructor(a: PortalArgs) {
     this.a = a;
     this.radius2 = ad(ad(ad(ml(a.half[0], a.half[0]), ml(a.half[1], a.half[1])), ml(a.half[2], a.half[2])), PORTAL_RADIUS_BIAS);

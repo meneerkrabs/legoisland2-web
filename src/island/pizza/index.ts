@@ -6,13 +6,12 @@
 // and installs the pizza throw into the walk node's Space branch (walkHooks.space). The zone game calls `startPizzaNodes(world)` after setupZone and
 // WP3's loadIslandWalkMaps (the cars and the train create their walkers there; every node also does its set-up lazily on its first update).
 import type { World } from '../../game/world.ts';
-import { SpeederNode } from './speeder.ts';
-import { TrainNode } from './train.ts';
-import { FootballNode, FlowerNode } from './footy.ts';
+import { FootballNode, FlowerNode, BobNode } from './footy.ts';
 import { pizzaSystem } from './pizza.ts';
 import { tryCtx } from '../ctx.ts';
 import { recIndexOfPtr } from '../args.ts';
 import { npcGlobals, npcGroup } from '../npc/globals.ts';
+import { startWalkerNodes } from '../npc/index.ts';
 
 export * from './pizza.ts';
 export * from './carry.ts';
@@ -22,7 +21,7 @@ export * from './train.ts';
 export * from './supe.ts';
 export * from './footy.ts';
 
-/** the constructors' work that needs the world (record order = the set-up's order): walkers of the cars / train, the ball on kid 0, the flowers at 0.5 */
+/** the constructors' work that needs the world (record order = the set-up's order): walkers of the cars / train, the ball on kid 0, the flowers at 0.5, the bobbing balloons' base height */
 export function startPizzaNodes(w: World) {
   pizzaSystem(w);
   registerNpcGroups(w);
@@ -30,11 +29,18 @@ export function startPizzaNodes(w: World) {
     const c = rec.ctrl;
     if (!c) continue;
     for (const n of c.nodes) {
-      if (n instanceof SpeederNode || n instanceof TrainNode) n.init(w, rec, c);
-      else if (n instanceof FootballNode) n.init(w, rec);
+      if (n instanceof FootballNode) n.init(w, rec);
       else if (n instanceof FlowerNode) n.start(rec);
+      else if (n instanceof BobNode) n.start(rec);
     }
   }
+  // the cars' and the train's walkers (and the NPCs' that depend on them: Human1 reads the car's speed) in the set-up's attach order: the walker handles equal the original's
+  startWalkerNodes(w);
+}
+
+/** the football's constructor copy of kid 0's matrix, after the NPC nodes put the kids on their routes (see `FootballNode.placeBall`); call after `startIslandNpcs` */
+export function placePizzaBalls(w: World) {
+  for (const rec of w.records) for (const n of rec.ctrl?.nodes ?? []) if (n instanceof FootballNode) n.placeBall(rec);
 }
 
 /**

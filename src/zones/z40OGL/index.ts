@@ -37,6 +37,8 @@ export function restoreOutfits(world: World, pe: Pe, saved: (i: number) => [numb
   }
 }
 
+import { decorStore } from '../../island/decor.ts';
+
 registerHub({
   archive: 'z40OGL',
   // FUN_007e2a80 (run by the wrapper before the loop): the HUD's texture set and left icon; the state of the loop's blink counter
@@ -51,7 +53,8 @@ registerHub({
   },
   // FUN_007e2ad0: every pass of the GameLoop, in every mode
   frame(h: HubGame) { hudFrame(h.ctx.hud, h.ctx.vars, hudState(h), h.ctx.world.dt); },
-  afterSetup({ ictx, world }) { restoreOutfits(world, ictx.pe); },
+  // (a new game's stored decor = the table's defaults, FUN_00420837 copies them while DAT_008adbf0 is set: the records get the table's phase / outfit, not zeros)
+  afterSetup({ ictx, world }) { decorStore.ensureDefaults(ictx.pe); restoreOutfits(world, ictx.pe, (i) => [decorStore.mem[i * 2], decorStore.mem[i * 2 + 1]]); },
   debug(h: HubGame) { return { hud: { ...hudState(h), left: h.ctx.hud.leftText, centre: h.ctx.hud.centreText, slot: h.ctx.hud.column[0]?.tex } }; },
 });
 

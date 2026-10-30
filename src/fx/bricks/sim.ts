@@ -7,13 +7,15 @@
 import { buildMatrix } from '../../formats/matrix.ts';
 import type { BrickModelBrick, BrickType } from '../../formats/bricks.ts';
 
-/** DAT_008922ac: seconds per tick of the action delays (0.0333333) */
-export const DELAY_STEP = Math.fround(0.0333333);
-/** DAT_008922b0: the fly-out duration factor (0.0333333) */
-const DURATION_STEP = Math.fround(0.0333333);
+/** a float32 constant of the executable by its bits (the decompile prints rounded decimals: 0x3d088889 is 1/30 = 0.0333333350718, not fround(0.0333333)) */
+const F32 = (bits: number) => new Float32Array(new Uint32Array([bits]).buffer)[0];
+/** DAT_008922ac: seconds per tick of the action delays (1/30) */
+export const DELAY_STEP = F32(0x3d088889);
+/** DAT_008922b0: the fly-out duration factor (1/30) */
+const DURATION_STEP = F32(0x3d088889);
 /** DAT_008922b8: the acceleration step of action 12 (0.0333) */
 const ACCEL_STEP = Math.fround(0.0333);
-const PI = Math.fround(Math.PI), TWO_PI = Math.fround(2 * Math.PI), HALF_PI = Math.fround(Math.PI / 2), THREE_HALF_PI = Math.fround(4.71239);
+const PI = Math.fround(Math.PI), TWO_PI = Math.fround(2 * Math.PI), HALF_PI = Math.fround(Math.PI / 2), THREE_HALF_PI = F32(0x4096cbe4);   // DAT_008922b4 = 4.71238899
 
 export type Vec3 = [number, number, number];
 

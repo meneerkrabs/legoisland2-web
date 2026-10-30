@@ -7,6 +7,7 @@
 // It reuses the island's duel machinery (tools/lib/m7-isl-veh-emu.mjs: IslEmu / Duel's compare helpers) for a hub world.
 import { IslEmu, Duel, B, lcg, randomKeys, RECORDS_BASE, REC, VAR_ARRAY, VAR_COUNT, f32 } from './m7-isl-veh-emu.mjs';
 import { loadCai } from './m5-z13CAI-load.mjs';
+import { cdFillHeap } from './m8-save.mjs';
 import { loadHub } from './hub-load.mjs';
 import { loadExe } from './engine-load.mjs';
 import { vehicles } from '../../src/island/vehicles/common.ts';
@@ -57,6 +58,7 @@ export function makeCaiDuel(ctx, o = {}) {
   // FUN_0043b92a(anim, 1.0): 2 when the clip is about to wrap (`(float) frames < rate * DAT_008b1718 + 1.0 + frame`), the Ptera's wing beats reset on it (hosted: the decompile's three lines, read from LE2.c)
   emu.cpu.hooks.set(0x43b92a, (c) => { const a = emu.anims.get(c.arg(0)); c.eax = a && a.frameCount < Math.fround(c.argf(1) * d.dt) + 1.0 + a.frame ? 2 : 0; });
   d.emu = emu;
+  cdFillHeap(emu);   // the original is a debug build: new heap blocks are 0xCD filled (bytes a constructor never writes read 0xCD; docs/re/save.md)
   emu.setFocus(O.pepper.index);
   // the zone's sound loader (FUN_0061b000): the handle globals of this machine
   emu.cpu.steps = 0;

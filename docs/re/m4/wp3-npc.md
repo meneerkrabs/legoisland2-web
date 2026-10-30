@@ -88,8 +88,9 @@ name + `'A' + 2 * line` and the next letter, `line` (`+0x58`) = 0 for the first 
 leaves the talk radius; the texts come from `DAT_009da7d8` = the story handler's `lifsmN.str` (`ctx.text.npc`; node < 4: lifsm1 ...). A missing tag
 returns the tag itself: B / D do not exist in lifsm1..5, so one line is spoken. With `line == 1` the NPC also points: the clip +0xc of the animation
 set (129) and its walker turns to the objective (`FUN_00424e37`, WP8's `ctx.objective.target`); no target -> `line = 0`. Voices: `FUN_00435a11(v1, v2)`
-when the speech channel is idle, else kept in `+0x5c/+0x60` and played when it is (`ctx.say(table, id, id2)`); subtitle `FUN_0045d47f` when
-`CS_TEXT_ON`. End: with speech on (var 9) when the timer is below 30 and the speech is idle, with speech off when the timer is below 0; Shift ends it at
+when the speech channel is idle, else kept in `+0x5c/+0x60` and played when it is (`ctx.say(table, id, id2)`); with speech off (var 9) nothing waits
+(-1 / -1). Subtitle `FUN_0045d47f` (A text + B text, `FUN_0085b580`) when `CS_TEXT_ON`, written at the start whether the voice starts or waits (the
+voice that starts later writes none); the four lines stay until the end clears them (`DAT_05d4df1c ..` = 0): `ctx.say(..., 'held')` / `clearSubtitle`. End: with speech on (var 9) when the timer is below 30 and the speech is idle, with speech off when the timer is below 0; Shift ends it at
 once (`PEPPER_CONTROL |= 0x100`, `FUN_00435b07`). The pointing clip runs to frame 15, then back from 29 - timer; at timer <= 2 the walker stops turning.
 At the end: Pepper idle (clip / mailbox 0x1b, `PEPPER_CONTROL = 1`), her controller enabled, the NPC's old clip, the cutscene flag released, `line`+1,
 the face `DAT_009da7d0` (`ctx.expression`), the camera behind Pepper (`FUN_00422f21(pep, yaw, 2, 3.2, (0, 4, -20))`); then the update clears

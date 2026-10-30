@@ -22,6 +22,7 @@ import { tryCtx } from '../../island/ctx.ts';
 import { rand } from '../../island/rng.ts';
 import { vehicles, sfx, stopSfx } from '../../island/vehicles/common.ts';
 import { SKATE_ROLL_SOUNDS } from '../../island/vehicles/skate.ts';
+import { newPeppSwTail, packPeppSw, rosterReload, setPeppSwPoll } from '../hubsave.ts';
 
 const fr = Math.fround;
 /** the constructor (FUN_00677350) */
@@ -66,8 +67,22 @@ export class PyaPepSwitch implements BehaviourNode {
   groove = 1;
   /** node + 0x1c: the level the music was last told about */
   lastGroove = 1;
-  /** node + 0x20 = -1, + 0x24 = 0, + 0x2c / + 0x30 = 0: set by the constructor, never read */
-  /** node + 0x28: FUN_00443370() & 0xff, the music notification poll of the constructor (the audio host's queue is empty at set-up: 0) */
+  /** node + 0x20 = -1, + 0x24 = 0, + 0x2c / + 0x30 = 0: set by the constructor, never read; node + 0x28: FUN_00443370() & 0xff, the music notification poll of the constructor (the image
+   *  of the node's bytes +0x20 .. +0x38 for the save block, `newPeppSwTail`) */
+  private tail = newPeppSwTail();
+
+  /** the constructor's world half (`registerHub` calls it after the set-up): `+0x28 = FUN_00443370() & 0xff` */
+  ctorInit(w: World, _rec: GameRecord) { setPeppSwPoll(this.tail, (tryCtx(w) as { musicNotified?(): number } | null)?.musicNotified?.() ?? 0); }
+
+  /** FUN_006772ed (`*out = node + 0x18; return 0x20`) */
+  saveBlock(): Uint8Array { return packPeppSw(this.tail, this.groove, this.lastGroove); }
+  /** FUN_00677312: a plain copy of the 0x20 bytes, then FUN_00698940 (the decor sets' era table, the look roster re-read) */
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    this.groove = v.getInt32(0, true); this.lastGroove = v.getInt32(4, true);
+    this.tail.set(data.subarray(0, 32));
+    rosterReload(w);
+  }
 
   /** FUN_00676cd0 */
   update(w: World): number {

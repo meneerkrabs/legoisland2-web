@@ -111,9 +111,13 @@ export default {
     {
       // the constructor's "collected before" branch: PAG1 hides itself and reveals the first rebuilt building (RESQ) and its prop SPBT. (The era 1 set-up
       // resets PAGES_SET right before it attaches the pages, so the shipped game never takes this branch; the buildings come back by story node instead.)
+      // (the branch runs in the constructor, i.e. at set-up time, as in the original: PAGES_SET is set before the island is built; WP-SAVE moved the page's constructor work out of the first update)
+      const I0 = loadIsland(ctx, { node: 7 });
+      ok(!I0.rec('RESQ').enabled && !I0.rec('SPBT').enabled, 'node 7: RESQ / SPBT destroyed');
+      // (the set-up resets PAGES_SET before it attaches the pages, so the test re-runs the page's constructor half with the variable set)
       const I = loadIsland(ctx, { node: 7 });
-      ok(!I.rec('RESQ').enabled && !I.rec('SPBT').enabled, 'node 7: RESQ / SPBT destroyed');
       I.vars.set(0x26, 1);
+      const pn = I.rec('PAG1').ctrl.nodes.find((n) => n.kind === 'building.page'); pn.flagged = false; pn.ctorInit(I.world, I.rec('PAG1'));
       tick(I, 1);
       ok(!I.rec('PAG1').enabled && I.rec('PAG2').enabled, 'PAGES_SET 1: PAG1 gone');
       ok(I.rec('RESQ').enabled && I.rec('SPBT').enabled && !I.rec('HSE1').enabled, `PAGES_SET 1: RESQ ${I.rec('RESQ').enabled} SPBT ${I.rec('SPBT').enabled} HSE1 ${I.rec('HSE1').enabled}`);

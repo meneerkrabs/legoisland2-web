@@ -26,6 +26,7 @@ import { vehicles, sfx, stopSfx } from '../../island/vehicles/common.ts';
 import { SKATE_ROLL_SOUNDS } from '../../island/vehicles/skate.ts';
 import { VAR, REC, SND, SND_BOARD_ON, SND_BOARD_OFF, NO_BOARD_MAILBOX, NO_BOARD_CLIPS, GROOVE2_CLIPS, NODE_RETURN } from './consts.ts';
 import type { SoundRef } from './consts.ts';
+import { CD8, rosterReload } from '../hubsave.ts';
 
 const fr = Math.fround;
 /** _DAT_008920c4: a ground sample at or below it means "no ground" (-9.99999968e37, FUN_0043cd62's miss value) */
@@ -61,7 +62,31 @@ export class DipPepSwitch implements BehaviourNode {
   returnVisit = false;
   /** node + 0x24 / 0x28 / 0x2c: the last good place on the ground (the constructor takes Pepper's place at set-up) */
   safe: [number, number, number] | null = null;
+  /** the 3 padding bytes after the byte at +0x20 (debug heap fill 0xCD, kept through a load for the save block) */
+  private pad: [number, number, number] = [CD8, CD8, CD8];
   private begun = false;
+
+  /**
+   * FUN_00727e21 (`*out = node + 0x18; return 0x18`): +0x18 level, +0x1c last level, +0x20 byte (story node 50) + 3 padding bytes, +0x24 / +0x28 / +0x2c the last good place. The place is the
+   * constructor's (Pepper's position at the set-up) until the first update: `init` is the port's constructor half.
+   */
+  saveBlock(w: World, rec: GameRecord): Uint8Array {
+    if (!this.begun) this.init(w, rec);
+    const b = new Uint8Array(24), v = new DataView(b.buffer), s = this.safe ?? [0, 0, 0];
+    v.setInt32(0, this.groove, true); v.setInt32(4, this.lastGroove, true);
+    b[8] = this.returnVisit ? 1 : 0; b[9] = this.pad[0]; b[10] = this.pad[1]; b[11] = this.pad[2];
+    v.setFloat32(12, s[0], true); v.setFloat32(16, s[1], true); v.setFloat32(20, s[2], true);
+    return b;
+  }
+  /** FUN_00727e46: a plain copy of the 0x18 bytes, then FUN_00765180 (the decor sets' era table, the (empty) roster's busy list) */
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    this.begun = true;                       // the node's memory is the file's now: the constructor half must not run again
+    this.groove = v.getInt32(0, true); this.lastGroove = v.getInt32(4, true);
+    this.returnVisit = data[8] !== 0; this.pad = [data[9], data[10], data[11]];
+    this.safe = [v.getFloat32(12, true), v.getFloat32(16, true), v.getFloat32(20, true)];
+    rosterReload(w);
+  }
 
   /**
    * FUN_00727e84 (the constructor, run at set-up): `+0x20 = (story node == 0x32)` and the last good place = Pepper's place. A node factory knows neither the world nor the

@@ -14,9 +14,19 @@ import type { World } from '../../game/world.ts';
 import { B } from '../../game/input.ts';
 import { RAMP_TABLE } from '../../game/camera.ts';
 import { eulerMatrix, normalise3, toWorld } from '../../zones/exact.ts';
-import { ICON, VV, vehicles, cutsceneActive, partPos, leanFrame } from './common.ts';
+import { Blk, FILL_CD, F_CD, ICON, VV, vehicles, cutsceneActive, partPos, leanFrame } from './common.ts';
+import { ad, ml } from '../../zones/common/f32.ts';
 
 const fr = Math.fround;
+
+/** DAT_0089211c: the wheels' turn per tick and unit of speed (FUN_0088f8df) */
+const WHEEL_TURN = fr(0.1745319962501526);
+/**
+ * The nodes of a car's controller before SGCar whose draw hook returns 1 ("handled": the draw pass stops, the hooks behind it are not called): speeder.c FUN_00537ea9. (Human1's FUN_004beb1b also returns
+ * 1, but its update returns 1 too, which ends the update pass of the record before SGCar's turn: they never both run in a frame.) The speeder node returns 2 in its AI branch, so in such a frame SGCar's
+ * update can also run (Ctrl next to a stopped car) while its draw hook is not reached.
+ */
+const DRAW_STOPPERS = new Set(['speeder']);
 
 export const CAR_DRIVEN = 0x10000000, CAR_PLAYER = 0x20000000;
 const ACCEL = 0.05000000074505806, COAST = 0.02500000037252903, BRAKE = 0.009999999776482582, REVERSE_MAX = -0.75;   // DAT_00892034 / 124 / 030 / 00898a44
@@ -81,7 +91,51 @@ export class CarNode implements BehaviourNode {
   reset = 0;                      // +0x1a: clear the state when Pepper gets in
   crash = 0;                      // +0x2c: crash timer (0 = driving)
   speed = 0;                      // +0x34: -0.75 .. 1
-  vx = 0; vy = 0; vz = 0;         // +0x48 / +0x4c / +0x50
+  vx = F_CD; vy = F_CD; vz = F_CD;   // +0x48 / +0x4c / +0x50 (not set by the constructor: the heap fill until the first drive resets them)
+  /** +0x30: the wheels' spin angle (the draw hook FUN_0088f8df adds `speed * 0.1745` once per frame it is reached; nothing else reads it, the port has no wheel animation for this car) */
+  spin = 0;
+  /** +0x3c: the buttons FUN_004376f9 polled the last time the driving input ran (FUN_0088ebe6 calls it with `node + 0x3c`: `*out = mask` = DAT_0098383c, the axes at +0x40 / +0x44 are zeroed) */
+  polled = 0xcdcdcdcd;   // (the heap fill until the driving input first runs)
+
+  /**
+   * The save block, FUN_0088faef (vtable +0x14: `*out = node + 0x18; return 0x4c`) and the loader FUN_0088fb0d (`memcpy(node + 0x18, bytes, 0x4c)`): the node's bytes +0x18 .. +0x63
+   *   +0x00..+0x03 (node +0x18 / +0x19 / +0x1b never written: `raw`; +0x1a = `reset`)   +0x04 i32 rampX   +0x08 i32 rampY   +0x0c i32 steer   +0x10 i32 stickY   +0x14 f32 crash   +0x18 f32 spin
+   *   +0x1c f32 speed   +0x20 (node +0x38 = 0, never changes)   +0x24 u32 polled buttons (node +0x3c)   +0x28 / +0x2c (node +0x40 / +0x44: the pad axes FUN_004376f9 zeroes; `raw`)   +0x30 / +0x34 / +0x38 f32 vx vy vz
+   *   +0x3c .. +0x4b (node +0x54 / +0x58 / +0x5c / +0x60): the draw hook's cached part-matrix pointers (FUN_0043ea60 of the mesh instance parts 2, 3, 5, 4: heap addresses of the original's process, 0 until the
+   *   first draw). The port has no such pointers: it writes what it was loaded with (`raw`, 0 for a car that was not loaded); the original's draw hook compares the cached pointer with the real one and
+   *   recomputes when they differ, so a block with 0 (or a stale address) behaves like the original's own.
+   */
+  private readonly raw = FILL_CD(0x4c).fill(0, 0x20, 0x24);   // node +0x38 is set to 0 by the constructor
+  saveBlock(w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array {
+    if (!this.init) { this.init = true; w.vars.andNot(this.var, CAR_DRIVEN); }
+    const o = new Blk(0x4c);
+    o.b.set(this.raw, 0);
+    o.w8(2, this.reset);
+    o.w32(4, this.rampX); o.w32(8, this.rampY); o.w32(0xc, this.steer); o.w32(0x10, this.stickY);
+    o.wf(0x14, this.crash); o.wf(0x18, this.spin); o.wf(0x1c, this.speed); o.w32(0x24, this.polled);
+    o.wf(0x30, this.vx); o.wf(0x34, this.vy); o.wf(0x38, this.vz);
+    return o.b;
+  }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    // (the constructor's `var &= ~0x10000000` happened before the variables were loaded: it must not clear the restored bit at the first update)
+    this.init = true;
+    const i = new Blk(data);
+    this.raw.set(data.subarray(0, 0x4c));
+    this.reset = i.u8(2);
+    this.rampX = i.i32(4); this.rampY = i.i32(8); this.steer = i.i32(0xc); this.stickY = i.i32(0x10);
+    this.crash = i.f32(0x14); this.spin = i.f32(0x18); this.speed = i.f32(0x1c); this.polled = i.u32(0x24);
+    this.vx = i.f32(0x30); this.vy = i.f32(0x34); this.vz = i.f32(0x38);
+  }
+
+  /** the constructor's `FUN_0041766c(var, 0x10000000)` (run right after the set-up by `runCtorInits` / the hubs' `registerHub`; the update does it itself when nobody did): the var's "Pepper sits in it" bit is cleared */
+  ctorInit(w: World, _rec: GameRecord): void { if (!this.init) { this.init = true; w.vars.andNot(this.var, CAR_DRIVEN); } }
+
+  /** FUN_0088f8df, the draw hook, once per frame (the port runs it in the pre-render, which gets the nodes that ran this frame too): the wheels' spin. The hook is reached when no earlier node of the chain that ran has a draw hook that handles the record */
+  prerenderSpin(ctrl: Controller): void {
+    const me = ctrl.nodes.indexOf(this);
+    for (let k = 0; k < me; k++) if (ctrl.ran[k] && DRAW_STOPPERS.has(ctrl.nodes[k].kind)) return;
+    this.spin = ad(ml(this.speed, WHEEL_TURN), this.spin);
+  }
 
   update(w: World, rec: GameRecord, ctrl: Controller): number {
     if (!this.init) { this.init = true; w.vars.andNot(this.var, CAR_DRIVEN); }   // FUN_0088fb35
@@ -120,6 +174,8 @@ export class CarNode implements BehaviourNode {
   private input(w: World, rec: GameRecord) {
     const held = w.input.held, dt = w.dt;
     this.ramp(held);
+    this.polled = held >>> 0;
+    this.raw.fill(0, 0x28, 0x30);      // FUN_004376f9 zeroes the pad axes (node +0x40 / +0x44)
     // (a pad stick beyond +-20 replaces the steering value; the keyboard has none)
     if ((held & B.SPACE) === 0) { if (0 < this.speed) this.speed = fr(this.speed - COAST); }
     else if (1.0 <= this.speed) this.speed = 1.0;
@@ -135,7 +191,7 @@ export class CarNode implements BehaviourNode {
   private drive(w: World, rec: GameRecord): number {
     const dt = w.dt;
     if (this.reset) {
-      this.reset = 0; this.crash = 0; this.speed = 0; this.vx = 0; this.vy = 0; this.vz = 0;
+      this.reset = 0; this.crash = 0; this.spin = 0; this.speed = 0; this.vx = 0; this.vy = 0; this.vz = 0;
       this.rampX = 0x10; this.rampY = 0x10; this.steer = 0; this.stickY = 0;
     }
     this.input(w, rec);
@@ -194,7 +250,8 @@ export class CarNode implements BehaviourNode {
   }
 
   /** FUN_0088f816 */
-  prerender(w: World, rec: GameRecord): void {
+  prerender(w: World, rec: GameRecord, ctrl?: Controller): void {
+    if (ctrl) this.prerenderSpin(ctrl);
     const G = vehicles(w);
     if (!G.carEnter && ((w.input.pressed & B.CTRL) === 0 || w.pep.mailbox === 0x62)) {
       if (G.current === null) { w.vars.or(this.var, CAR_PLAYER); w.vars.andNot(this.var, CAR_DRIVEN); }

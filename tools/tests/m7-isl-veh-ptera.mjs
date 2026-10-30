@@ -1,8 +1,10 @@
 // WP-VERIFY M7 island vehicles: Ptera.c (the pterodactyl PTER, the hang glider GLDR; eras 3 / 4) with PepSwitc's boarding. The original's node framework + Ptera (ctor FUN_004bb1a6, update FUN_004b93b0, pre-render
 // FUN_004baf1b) + PepSwitc run natively in the x86 emulation next to the port's nodes (src/island/vehicles/ptera.ts, pepswitch.ts) with the same scripted buttons; compared tick by tick: the records, the node
 // fields, the animation clip / frame, all game variables, the vehicle globals (pads taken), the camera, the sound calls. See tools/lib/m7-isl-veh-supe.mjs (pteraSession).
+import '../lib/m8-cdheap.mjs';   // (WP-SAVE: the original's heap is 0xCD-filled: never-written node bytes start as 0xCD)
 import { pteraSession, B, RECORDS_BASE, REC, lcg } from '../lib/m7-isl-veh-supe.mjs';
 import { vehicles, berthPos } from '../../src/island/vehicles/common.ts';
+import { compareChainBlocks, cdPatchChain } from '../lib/m8-save-pepper.mjs';
 
 const MAXFAIL = 30;
 const POOL = [B.SPACE, B.SPACE, B.SPACE | B.LEFT, B.SPACE | B.RIGHT, B.LEFT, B.RIGHT, B.ALT, B.ALT | B.LEFT, B.UP, B.DOWN, B.UP | B.SPACE, B.DOWN | B.SPACE, B.DOWN | B.ALT, 0, 0, B.SPACE | B.UP | B.LEFT, B.DOWN | B.RIGHT];
@@ -13,12 +15,14 @@ export default {
   async run(ctx) {
     const failures = [], notes = [];
     let checked = 0;
+    const blocks = {};      // WP-SAVE: save blocks of Pepper's chain compared (original serializer vs port saveBlock)
     const cover = { sessions: 0, ticks: 0, boarded: 0, landed: 0, bounces: 0, ceiling: 0, seaBounce: 0, states: new Set(), clip4: 0, wing: 0, clips: new Set() };
     const devs = new Map(), unhooked = new Map();
     const need = (c, m) => { checked++; if (!c) failures.push('coverage: ' + m); };
 
     const session = (label, dt, sync, seed, node = 52) => {
       const d = pteraSession(ctx, { label, dt, syncMode: sync, seed, node, failures, maxFail: MAXFAIL });
+      cdPatchChain(d);      // WP-SAVE: the bytes of PepSwitc the constructor leaves at the debug heap's 0xCD
       cover.sessions++;
       const W = d.P.world, mem = d.emu.cpu.mem, G = vehicles(W);
       const PN = { yawRate: [0x1c, 'f'], pitchRate: [0x24, 'f'], bounceT: [0x28, 'f'], speed: [0x38, 'f'], ground: [0x40, 'f'], prop: [0x7c, 'f'] };
@@ -54,6 +58,7 @@ export default {
         }
         { const po = d.O.pepper.anim, pp = d.P.pepper.anim; d.eq('PEPP clip', po.clip, pp.clip); d.cmp('PEPP frame', po.frame, pp.frame, 0, '', 1e-4); }
         d.globals(); d.vars(); d.camera(); d.sounds();
+        compareChainBlocks(d, blocks);      // WP-SAVE: PepSwitc (spot, flags), SGVehic
         for (let k = 0; k < G.pads.length; k++) d.eq('pad taken', mem.r32(0x9daa50 + 4 * k) !== 0, G.pads[k].taken, ` ${k}`);
       };
       const step = (held = 0) => { d.tick(held); cover.ticks++; const gm = d.grazeBegin(); compare(); d.grazeEnd(gm); for (const l of d.olog) if (/^p2 #(771|770)$/.test(l)) cover.wing++; };
@@ -122,6 +127,7 @@ export default {
     for (const [id, e] of devs) notes.push(`KNOWN DEVIATION ${id}: ${e.count}x, first ${e.first}`);
     notes.push(`unhosted engine calls (returned 0): ${[...unhooked].map(([a, n]) => '0x' + a.toString(16) + ' x' + n).join(', ') || 'none'}`);
     notes.push(`coverage: ${JSON.stringify({ ...cover, states: [...cover.states].sort((a, b) => a - b), clips: [...cover.clips] })}`);
+    notes.push(`WP-SAVE save blocks of Pepper's chain compared (original serializer vs port saveBlock, tolerance 0): ${JSON.stringify(blocks)}`);
     return { checked, failures, notes };
   },
 };

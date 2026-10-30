@@ -224,9 +224,10 @@ export default {
       notes.push(`size limit: empty save ${L0} bytes, node payload sized to ${hex(SAVE_SIZE)} -1..+8`);
     }
 
-    // ------------------------------------------------------------------------------------------------------------------------------------ 4. what the port's Shell.saveSlot writes
+    // ------------------------------------------------------------------------------------------------------------------------------------ 4. what the port's Shell.saveSlot USED to write (before WP-SAVE)
     {
-      // shell.ts saveSlot: vars, subgame, fsm node, camera, frame counter 0, ONE entity (PEPP, pos, euler, flags 2, nodes []), no objects / walkers / decor / bricks
+      // the old shell.ts saveSlot: vars, subgame, fsm node, camera, frame counter 0, ONE entity (PEPP, pos, euler, flags 2, nodes []), no objects / walkers / decor / bricks: kept as a characterisation of the original's reader
+      // (the current writer is verified as a whole file by m8-save-world / m8-save-roundtrip / m8-save-original-to-port)
       const rng = makeRng(4242);
       const s = genState(rng, { records: 6, bricks: 0 });
       s.records[0].tag = 0x50455050; s.records[0].nodes = [{ type: 0, state: 5, data: null }];   // Pepper owns a controller with (at least) one behaviour node in the original
@@ -244,7 +245,7 @@ export default {
       const ld2 = R2.load(0, bytes);
       ok(ld2.ret === 1, `shell save with a live Pepper controller without nodes: original reader returned ${ld2.ret}`);
       ok(ld.ret === 0, `shell save with a one-node live Pepper: original reader returned ${ld.ret} (expected 0)`);
-      notes.push(`KNOWN (port): a save written by Shell.saveSlot (entity PEPP with an empty node list, no objects / walkers / decor / bricks) is accepted by the original's header reader, but the original's body reader FUN_00419e82 returns ${ld.ret} on it when the live Pepper has one behaviour node (it reads the node states from the stream): such a file cannot be loaded by the original game, only by this port; files of the original load in the port (scenarios above)`);
+      notes.push(`characterisation: a file like the one the port wrote before WP-SAVE (entity PEPP with an empty node list, no objects / walkers / decor / bricks) is accepted by the original's header reader, but the original's body reader FUN_00419e82 returns ${ld.ret} on it when the live Pepper has one behaviour node (it reads the node states from the stream); the port's present writer lists every node of every record (m8-save-world)`);
     }
 
     notes.unshift(`scenarios ${st.scen} (8 slot names incl. SaveDef -2), ${st.bytes} file bytes compared; entity records ${st.entities} with ${st.nodesDec} nodes, object records ${st.objects}, brick slots in use ${st.bricks}, decor refreshed by FUN_00421eb3 in ${st.decorRefresh}, in-place loads by the original ${st.loads}, validation mutations ${st.mutations} (${st.rejects} rejected)`);

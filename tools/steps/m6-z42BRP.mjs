@@ -63,12 +63,15 @@ export default async ({ page, shot, wait, log, key }) => {
   // ---- phase 1: the side run
   const shots = {};
   const t0 = Date.now();
+  const tickBase = (await dbg()).tick;   // (timeouts below are game ticks, 30 a second: a loaded page runs fewer of them per second of wall time)
+  let lastSeen = -1, lastSeenAt = Date.now();
   let last = null, lastTick = -1;
   for (;;) {
     s = await dbg();
     if (!s || s.arch !== 'z42BRP') { fail.push('left the zone during the side run'); break; }
     if (s.g.phase === 2 || s.mode !== 2) break;
-    if (Date.now() - t0 > 240000) { fail.push('side run: timeout'); break; }
+    if (s.tick - tickBase > 9000) { fail.push('side run: timeout (9000 ticks of game time)'); break; }
+    if (s.tick !== lastSeen) { lastSeen = s.tick; lastSeenAt = Date.now(); } else if (Date.now() - lastSeenAt > 90000) { fail.push('side run: the game stopped ticking (90 s of wall time)'); break; }
     const r = s.g.run;
     const y = s.g.pepper.y;
     if (!shots.a && y > 20) { shots.a = 1; await shot('3-run-up'); }
@@ -106,7 +109,8 @@ export default async ({ page, shot, wait, log, key }) => {
     if (!shots.f && g.pizza.on) { shots.f = 1; await shot('10-pizza'); }
     if (!shots.g && g.hits >= 1) { shots.g = 1; await shot('11-hit'); }
     if (!shots.h && g.cutscene) { shots.h = 1; await shot('12-cutscene-a'); await wait(2500); await shot('12-cutscene-b'); await wait(5000); await shot('12-cutscene-c'); }
-    if (Date.now() - t0 > 600000) { fail.push('roof: timeout'); break; }
+    if (s.tick - tickBase > 30000) { fail.push('roof: timeout (30000 ticks of game time)'); break; }
+    if (s.tick !== lastSeen) { lastSeen = s.tick; lastSeenAt = Date.now(); } else if (s.mode === 2 && Date.now() - lastSeenAt > 90000) { fail.push('roof: the game stopped ticking (90 s of wall time)'); break; }
     await wait(120);
   }
   s = await dbg();
@@ -125,7 +129,7 @@ export default async ({ page, shot, wait, log, key }) => {
   // ---- the outro movie (any key skips it), the credits, the story step
   let sawMovie = false, sawCredits = false;
   for (let step = 0; step < 60; step++) {
-    const st = await page.evaluate(() => { const z = window.__zone; return { movie: !!document.querySelector('.le2-movie'), fe: !!(window.__fe && window.__fe.mode === 2 && !__shell.menu.engine.open), arch: z?.info.archive ?? null, node: z ? z.sh.vars.get(0x58) : -1, mode: z?.machine.mode ?? -1, ticks: z?.world.tickCount ?? 0 }; });
+    const st = await page.evaluate(() => { const z = window.__zone; return { movie: !!document.querySelector('.le2-movie'), fe: (() => { /* the front end is running only if its stage ticks: `window.__fe` stays behind after the front end of a full story (the same page played it at the start) */ const t = window.__feWorld?.tickCount ?? -1, prev = window.__feLast ?? t; window.__feLast = t; return !!(window.__fe && window.__fe.mode === 2 && !__shell.menu.engine.open && t > prev); })(), arch: z?.info.archive ?? null, node: z ? z.sh.vars.get(0x58) : -1, mode: z?.machine.mode ?? -1, ticks: z?.world.tickCount ?? 0 }; });
     if (st.movie) { if (!sawMovie) { sawMovie = true; await shot('15-outro-movie'); } await key('Space'); await wait(800); continue; }
     if (st.fe) { if (!sawCredits) { sawCredits = true; await shot('16-credits'); } await press('Enter'); await wait(1200); continue; }
     if (st.arch === 'z02LGI' && st.node >= 68 && st.mode === 2 && st.ticks > 5) break;

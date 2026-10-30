@@ -23,9 +23,11 @@ export default async ({ page, shot, wait, log, key }) => {
   };
   /** play until the game is over: the page-side bot (lib-pagebot.mjs) decides every 4 ms inside the page from the zone's own snapshot and presses the keys as KeyboardEvents;
    *  this process only takes the screenshots (a screenshot stalls the page for a while, which no longer costs the bot a decision: it stops with the page) */
-  const fly = async (plan, shots = []) => {
-    const bot = await installPageBot(page, 'par', pilotDecideSource('parBotStep', B, steerBits, pitchBits, parBotStep, plan));
-    await bot.start();
+  // (the pilot is installed BEFORE the game starts, while the help screen is up: its decide function answers nothing until the zone plays (mode 2), and from the first tick on it is
+  // in the loop like the scripted pilot of the node replay; the z38PAR runs are lost by a tick or two of delay, a start a second late is a lost run)
+  const armPilot = async (plan) => { const bot = await installPageBot(page, 'par', pilotDecideSource('parBotStep', B, steerBits, pitchBits, parBotStep, plan)); await bot.start(); return bot; };
+  const fly = async (plan, shots = [], pre = null) => {
+    const bot = pre ?? await armPilot(plan);
     const taken = new Set();
     for (let i = 0; i < 6000; i++) {
       const s = await dbg();
@@ -46,6 +48,7 @@ export default async ({ page, shot, wait, log, key }) => {
   await key('Enter'); await wait(500);
   expect('help screen (mode 9)', (await dbg()).mode === 9);
   await shot('par-2-help');
+  const pilot1 = await armPilot({ land: 3 });
   await key('Enter'); await wait(800);
   s = await dbg();
   expect('play mode, free fall from 1360', s.mode === 2 && s.state === 1 && s.pepper.y > 1300, JSON.stringify({ mode: s.mode, state: s.state, y: s.pepper.y }));
@@ -55,7 +58,7 @@ export default async ({ page, shot, wait, log, key }) => {
     ['par-5-ring1', (d) => d.ring[0] === 1],
     ['par-6-glide', (d) => d.state === 3 && d.height < 220],
     ['par-7-landing', (d) => d.state === 4],
-  ]);
+  ], pilot1);
   s = await dbg();
   log('flight over', JSON.stringify({ score: s.score, ring: s.ring, state: s.state, result: s.result, hiscore: s.hiscore, trophy: s.trophy, spoken: s.spoken }));
   expect('at least two of the three rings passed (the browser bot reacts with a few ticks of latency)', s.ring.filter((r) => r === 1).length >= 2, s.ring.join());

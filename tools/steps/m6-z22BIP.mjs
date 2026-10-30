@@ -65,7 +65,9 @@ export default async ({ page, shot, wait, log, key }) => {
   const end = await dbg();
   log('game over', JSON.stringify(end));
   for (let i = 0; i < 40 && m === 2; i++) { await wait(250); m = await mode(); }
-  expect('the end banner (mode 4)', m === 4, 'mode ' + m);
+  // (the end banner is left as soon as ANY button is held: a pilot key still down at the end takes the loop straight to the result menu, mode 5: the original's rule)
+  for (let i = 0; i < 80 && m !== 4 && m !== 5; i++) { await wait(250); m = await mode(); }
+  expect('the end banner (mode 4), or the result menu (mode 5) when a pilot key was still held', m === 4 || m === 5, 'mode ' + m);
   await apply(0);          // (the keys of the pilot stay down until the banner was seen: the release is an input edge too)
   await wait(800);
   await shot('9-banner');
@@ -74,7 +76,7 @@ export default async ({ page, shot, wait, log, key }) => {
   else expect('won: landed, result >= 3', after.result >= 3 && after.landed, JSON.stringify(after));
   if (RUN === 'loss') expect('lost: score and trophy untouched', (await vars()).hi === 0 && (await vars()).trophy === 0, JSON.stringify(await vars()));
   else expect('the hi-score and the trophy were written', (await vars()).hi > 0 && (await vars()).trophy >= 1, JSON.stringify(await vars()));
-  await key('Enter'); await wait(800);
+  if ((await mode()) === 4) { await key('Enter'); await wait(800); }
   expect('the result menu (mode 5)', (await mode()) === 5);
   const mn = await menu();
   expect(RUN === 'loss' ? 'page 19 (retry / abort)' : 'page 16 (continue / retry)', mn.page === (RUN === 'loss' ? 19 : 16), JSON.stringify(mn));

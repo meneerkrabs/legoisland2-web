@@ -5,6 +5,7 @@
 import { Duel, B, RECORDS_BASE, REC, lcg, randomKeys } from './m7-isl-veh-emu.mjs';
 import { AnimInstance } from '../../src/game/anim.ts';
 import { parseBlk } from '../../src/formats/anim.ts';
+import { cdFillHeap, cdPatchChain } from './m8-save-pepper.mjs';
 
 export { Duel, B, RECORDS_BASE, REC, lcg, randomKeys };
 export const CTOR_SKATE = 0x43310c;
@@ -20,8 +21,9 @@ export const SK = [
 export function skateDuel(ctx, o = {}) {
   const d = new Duel(ctx, {
     keepKinds: [], keepRecords: () => false, pepperKinds: ['skate'], pepperCtors: new Set([CTOR_SKATE]), oracleCtors: new Set([CTOR_SKATE]),
-    extraExec: [[0x48d000, 0x495000]], draw: false, ...o,
+    extraExec: [[0x48d000, 0x495000]], draw: false, beforeAttach: (emu) => cdFillHeap(emu), ...o,
   });
+  cdPatchChain(d);       // WP-SAVE: PepSwitc is built by hand here: the constructor's flags word
   const emu = d.emu, cpu = emu.cpu, mem = cpu.mem, W = d.P.world;
   const bi = W.records.findIndex((r) => r.name === 'SBRD');
   d.board = bi;

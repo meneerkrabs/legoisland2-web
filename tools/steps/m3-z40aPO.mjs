@@ -23,9 +23,11 @@ export default async ({ page, shot, wait, log, key }) => {
     }
   };
   /** the page-side bot (lib-pagebot.mjs) decides every 4 ms inside the page from the zone's snapshot; this process only takes the screenshots */
-  const fly = async (plan, shots = []) => {
-    const bot = await installPageBot(page, 'apo', pilotDecideSource('apoBotStep', B, steerBits, pitchBits, apoBotStep, plan));
-    await bot.start();
+  // (the pilot is armed BEFORE the game starts, while the help screen is up: it answers nothing until the zone plays (mode 2), and is in the loop from the first tick)
+  const armPilot = async (plan) => { const bot = await installPageBot(page, 'apo', pilotDecideSource('apoBotStep', B, steerBits, pitchBits, apoBotStep, plan)); await bot.start(); return bot; };
+  let pilot1 = null;
+  const fly = async (plan, shots = [], pre = null) => {
+    const bot = pre ?? await armPilot(plan);
     const taken = new Set();
     for (let i = 0; i < 9000; i++) {
       const s = await dbg();
@@ -48,6 +50,7 @@ export default async ({ page, shot, wait, log, key }) => {
     if (look) await shot('apo-3-brief');
     await key('Enter'); await wait(500);
     if (look) { expect('help screen (mode 9)', (await dbg()).mode === 9); await shot('apo-4-help'); }
+    if (look) pilot1 = await armPilot({ land: 3 });
     await key('Enter'); await wait(800);
   };
 
@@ -62,7 +65,7 @@ export default async ({ page, shot, wait, log, key }) => {
     ['apo-7-fall', (d) => d.ring.filter((r) => r === 1).length >= 5],
     ['apo-8-wing', (d) => d.state === 4],
     ['apo-9-landing', (d) => d.state === 5],
-  ]);
+  ], pilot1);
   s = await dbg();
   log('flight over', JSON.stringify({ score: s.score, ring: s.ring.join(''), state: s.state, result: s.result, hiscore: s.hiscore, trophy: s.trophy, spoken: s.spoken }));
   expect('at least 6 rings passed (browser bot latency)', s.ring.filter((r) => r === 1).length >= 6, s.ring.join(''));

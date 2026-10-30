@@ -12,9 +12,13 @@ import type { Model } from '../formats/exe.ts';
 import type { GameRecord } from '../game/record.ts';
 import type { ColObject } from '../game/collision.ts';
 import { buildMatrix } from '../formats/matrix.ts';
-import { readDecorTables } from '../shell/tables.ts';
+import { readDecorTables, decorGroupOfZone, defaultDecor } from '../shell/tables.ts';
+import { registerSavePart } from '../shell/saveparts.ts';
+import type { World } from '../game/world.ts';
+import { tryCtx } from './ctx.ts';
 import { composeBone } from './emitters.ts';
 
+const DECOR_KEY = 'island.decor';   // where the zones keep their DecorState (w.ext)
 export const SETS_VA = 0x8acb98, SET_STRIDE = 0x18, ENTRY_STRIDE = 0x18;
 const SLOTS = 8, FRAMES = 0x1e, MID = 0xf;
 const PI_F = 3.1415927410125732, K_TURN = 8.5, K_SCALE_REC = 15, K_SCALE_ATT = 5;   // 0x89207c / 0x892078 / 0x892074 / 0x892070
@@ -213,9 +217,10 @@ export class DecorState {
       const row = this.rows[set], e = this.colorOf(set, v);
       if (row.slot === -1) { if (e) { H.setModel(rec, e.model); rec.colObj = e.col; } }
       else {
-        if (e) H.setAttach(rec, row.slot, row.bone, e.model);
+        // FUN_0043e930 also resets the slot's animation matrix pointer (+0xc := 0): a matrix a running swap had set is gone after a (re)application
+        if (e) { H.setAttach(rec, row.slot, row.bone, e.model); H.attachLocal(rec, row.slot, null); }
         if (row.slot2 !== -1) H.setAttach(rec, row.slot2, 0, null);
-        if (e?.child) H.setAttach(rec, row.slot2, e.childBone, e.child);
+        if (e?.child) { H.setAttach(rec, row.slot2, e.childBone, e.child); H.attachLocal(rec, row.slot2, null); }
       }
       this.store(rec);
     }
@@ -223,8 +228,95 @@ export class DecorState {
 }
 export const LOOK_SOUND = 0x2c0;
 
-/** the process-wide stored decor (the 0x1c0 x (set, variant) bytes of the game state: the original's DAT_009d9fd0, saved by FUN_00421f56 / loaded by FUN_00421f7b); null = a new game's defaults */
-export const decorStore: { blob: Uint8Array | null } = { blob: null };
+/** the decor blob: 0x1c0 entries x { set, variant } bytes (DAT_009d9fd0, written by FUN_00421f56, read by FUN_00421f7b) */
+const DECOR_BLOB_BYTES = 0x380;
+
+/**
+ * The process-wide stored decor of the game (the original's DAT_009d9fd0, 0x380 bytes of BSS = zeros at process start) with its life cycle:
+ *   - FUN_00420837 (the decor set-up of a zone) copies the exe's defaults into it ONCE per process: the flag DAT_008adbf0 starts at 1 and is cleared by that copy (`pending`);
+ *     the zone code mirrors this as `if (!decorStore.blob) decorStore.blob = defaultDecor(pe)` (the getter answers null while pending, the setter copies and clears the flag);
+ *   - FUN_00421fa0(1) (a new game, FUN_0041a8f9): every entry back to the defaults, the flag untouched (`reset`);
+ *   - FUN_00421eb3 (the zone's exit, and the save writer FUN_00421f56): the live records of the CURRENT decor group written into it (`captureDecor`; the port keeps it current with
+ *     `DecorState.store` at every change, and refreshes it again when it saves);
+ *   - FUN_00421f7b (the save reader): the file's 0x380 bytes copied in, the flag untouched (`loadRaw`); a loaded blob is applied to the records by FUN_00421bbe(-1) (`applyDecor`).
+ * The groups other than the current one keep the values they had (they are not refreshed).
+ */
+class DecorStore {
+  /** DAT_009d9fd0 */
+  readonly mem = new Uint8Array(DECOR_BLOB_BYTES);
+  /** DAT_008adbf0 != 0: no zone has copied the defaults yet */
+  pending = true;
+  get blob(): Uint8Array | null { return this.pending ? null : this.mem; }
+  /** FUN_00420837: copy the defaults in and clear the flag (null = a fresh process: zeros, flag set again) */
+  set blob(b: Uint8Array | null) {
+    if (b) { this.mem.set(b.subarray(0, DECOR_BLOB_BYTES)); this.pending = false; } else { this.mem.fill(0); this.pending = true; }
+  }
+  /** the pending copy of FUN_00420837 (`if (DAT_008adbf0) { copy the defaults; flag = 0 }`): every zone set-up that calls FUN_00420837 (the island, the castle, the hub rosters FUN_00655de3 / FUN_00698963 / FUN_006277b9 ...) does this once per process */
+  ensureDefaults(pe: Pe): void { if (this.pending) this.blob = defaultDecor(pe); }
+  /** FUN_00421fa0(1): all 0x1c0 entries to the defaults of the exe (the records are re-applied by the caller, `applyDecor`) */
+  reset(pe: Pe): void { this.mem.set(defaultDecor(pe)); }
+  /** FUN_00421f7b: copy 0x380 bytes in (the flag is NOT cleared) */
+  loadRaw(b: Uint8Array): void { if (b.length === DECOR_BLOB_BYTES) this.mem.set(b); }
+}
+export const decorStore = new DecorStore();
+
+/** a new game (FUN_0041a8f9 -> FUN_00421fa0(1)): the stored decor back to the defaults, then FUN_00421bbe on the current group (the records of a zone that is running take them) */
+export function resetDecor(w: World | null, pe: Pe): void {
+  decorStore.reset(pe);
+  if (w) applyDecorToRecords(w, pe, -1);
+}
+
+/**
+ * FUN_00421eb3 + FUN_00421f56's copy: the (set, variant) of the records of the CURRENT decor group (FUN_00421b18 of var 0x59; -2 = none: nothing refreshed) go into the stored decor,
+ * then the 0x380 bytes are the save's decor section.
+ */
+export function captureDecor(w: World): Uint8Array {
+  const group = decorGroupOfZone(w.vars.get(0x59) | 0);
+  const pe = (w.ext.get(DECOR_KEY) as DecorState | undefined)?.pe ?? tryCtx(w)?.pe;
+  if (group >= 0 && pe) {
+    const t = readDecorTables(pe), g = t.groups[group];
+    for (let i = g.first; i < g.first + g.count; i++) {
+      const rec = w.records[t.entries[i].record];
+      if (!rec) continue;   // (the original reads the record array at that index regardless)
+      decorStore.mem[i * 2] = (rec.variant >>> 8) & 0xff;
+      decorStore.mem[i * 2 + 1] = (rec.variant >>> 16) & 0xff;
+    }
+  }
+  return decorStore.mem.slice();
+}
+
+/** FUN_00421f7b + the menu's FUN_00421bbe(-1): the save's blob replaces the stored decor and is applied to the records of the running zone */
+export function applyDecor(w: World, blob: Uint8Array): void {
+  decorStore.loadRaw(blob);
+  const pe = (w.ext.get(DECOR_KEY) as DecorState | undefined)?.pe ?? tryCtx(w)?.pe;
+  if (pe) applyDecorToRecords(w, pe, -1);
+}
+
+/**
+ * FUN_00421bbe(group) (-1 = the current group, FUN_00421b18): only when `group` is the current group, the stored (set, variant) of every entry applied to its record. The zone's DecorState
+ * (models, collision objects, attachments) does it when the zone has one (the island, the castle, Pepper's Switch); the other zones have no swap machinery in the port, there
+ * the variant words (the part of the state a later save reads back) are written the way FUN_00421bbe does (a variant above the set's count falls back to the entry's default).
+ */
+export function applyDecorToRecords(w: World, pe: Pe, group: number): void {
+  const cur = decorGroupOfZone(w.vars.get(0x59) | 0);
+  if (group === -1) group = cur;
+  if (group < 0 || group !== cur) return;
+  const st = w.ext.get(DECOR_KEY) as DecorState | undefined;
+  if (st && st.host.records === w.records) { st.applyStored(pe, group, decorStore.mem); return; }
+  const counts = (w.ext.get('island.decorsets') as { groups: number[] } | undefined)?.groups;
+  if (!counts) return;
+  const t = readDecorTables(pe), g = t.groups[group];
+  for (let i = g.first; i < g.first + g.count; i++) {
+    const rec = w.records[t.entries[i].record];
+    if (!rec) continue;
+    const set = decorStore.mem[i * 2];
+    let v = decorStore.mem[i * 2 + 1];
+    if (counts[set] < v) { v = t.entries[i].variant; decorStore.mem[i * 2 + 1] = v; }
+    rec.variant = (set << 8 | 1 | v << 16) >>> 0;
+  }
+}
+
+registerSavePart('decor', { capture: captureDecor, apply: applyDecor });
 
 /** FUN_0043eaf0(DAT_00983838 + 8 + group * 0xc, index): the model `index` of model group 0 (the zone's record models, array g98380c) or 1 (array g983838+20) */
 export function decorModel(scene: { models: readonly Model[] }, group: number, index: number): Model | null {

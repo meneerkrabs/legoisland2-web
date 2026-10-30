@@ -4,13 +4,15 @@ import { makeScript, constScript } from '../lib/m7-walk-run.mjs';
 import { SwimNode } from '../../src/game/swim.ts';
 import { PC, V } from '../../src/game/vars.ts';
 import { B } from '../../src/game/input.ts';
+import { hex, firstDiff } from '../lib/m8-save.mjs';
+import { lcg } from '../lib/m7-isl-veh-emu.mjs';
 
 // M7 / WP-VERIFY: swimming (sgswim, FUN_0088c740 with FUN_00422c7e / FUN_00422ddc / FUN_0043363c, run natively in the emulation) against the port's SwimNode (src/game/swim.ts):
 // the dive clip, speed ramp, turning, the pad stick, the two sweeps against the coast, the sea loop, the camera, the sounds. Sync mode, tolerance 0.
 export default {
   name: 'm7-walk-swim',
   async run(ctx) {
-    const failures = [], notes = []; let checked = 0, ticks = 0, scen = 0; const ev = { wrap: 0, blocked: 0, slide: 0, pad: 0, dive: 0, stroke: 0, sound: 0 };
+    const failures = [], notes = []; let checked = 0, ticks = 0, scen = 0, blockChecks = 0, fuzzRounds = 0; const ev = { wrap: 0, blocked: 0, slide: 0, pad: 0, dive: 0, stroke: 0, sound: 0 };
     const fr = Math.fround;
     const run1 = (S) => {
       scen++;
@@ -18,7 +20,7 @@ export default {
       const w = L.world; w.dt = S.dt; if (S.subgame !== undefined) w.vars.set(V.CURRENT_SUBGAME, S.subgame);
       const H = createWalkHarness(ctx, L, { zone: 'z02LGI' });
       const { E } = H, { cpu, mem } = E, rec = L.pepper;
-      cpu.exec.push([0x88c700, 0x88cea0], [0x422000, 0x423000], [0x433000, 0x434000]); cpu.invalidate();
+      cpu.exec.push([0x88c700, 0x88cf00], [0x422000, 0x423000], [0x433000, 0x434000]); cpu.invalidate();
       const swim = new SwimNode(); swim.accessory = L.walk.accessory ?? null;
       rec.ctrl.nodes = [swim]; w.vars.set(V.PEPPER_CONTROL, PC.SWIM);
       rec.y = w.seaLevel;
@@ -26,6 +28,11 @@ export default {
       if (S.phase1) { rec.anim.start(0x41, 0); swim.phase = 2; swim.stamp = w.frame; swim.speed = fr(S.speed ?? 0); } else rec.anim.start(0x62, 0);
       S.setup?.(w, swim);
       const SW = E.alloc(0x40); H.fn = 0x88c740; H.nodeArg = SW;
+      for (let k = 0; k < 8; k++) mem.w8(SW + 0x18 + k, k === 1 ? 0 : 0xcd);      // WP-SAVE: the constructor's node on the debug heap: +0x19 = 0, the rest 0xCD (the node's phase and speed are written from the port every tick)
+      // WP-SAVE: the original's serializer FUN_0088cecd (`*out = node + 0x18; return 8`) and loader FUN_0088ceeb (8 byte memcpy) on the node struct, against the port's saveBlock / loadBlock
+      const origBlock = () => { const cell = E.alloc(8); mem.w32(cell, 0); cpu.steps = 0; const n = cpu.call(0x88cecd, [SW, cell], { maxSteps: 1e5 }) | 0; return mem.read(mem.r32(cell), n); };
+      const origLoad = (bytes) => { const b = E.alloc(16); mem.write(b, bytes); cpu.steps = 0; cpu.call(0x88ceeb, [SW, b], { maxSteps: 1e5 }); };
+      const blockDiff = (what, ob, pb) => { blockChecks++; checked++; const d = ob.length !== pb.length ? 0 : firstDiff(ob, pb); return d < 0 ? null : `${what}: save block byte ${d}: original ${hex(ob)} port ${hex(pb)}`; };
       w.externalInput = true;
       const sounds = []; w.sfx = { play: (id) => sounds.push(id) };
       let prev = 0, nbad = 0, px0 = rec.x, pz0 = rec.z;
@@ -33,10 +40,24 @@ export default {
         const held = S.held[t], pressed = held & ~prev; prev = held;
         w.input.held = held; w.input.pressed = pressed; w.input.prevHeld = held;
         S.inject?.(t, w, L.walk, swim);
+        if (t === 2 && S.fuzz) {
+          // the loader: random bytes (the 3 bytes after the phase included) through the original's FUN_0088ceeb and `loadBlock`: the node must hold the same 8 bytes; then the original's state is put back
+          const r = lcg(S.fuzz), keep = swim.saveBlock(w, rec, rec.ctrl);
+          for (let k = 0; k < 40; k++) {
+            const bytes = new Uint8Array(8); for (let i = 0; i < 8; i++) bytes[i] = Math.floor(r() * 256);
+            if ((bytes[7] & 0x7f) === 0x7f && (bytes[6] & 0x80)) bytes[7] &= 0x3f;     // (a NaN payload does not survive a JS number)
+            origLoad(bytes); swim.loadBlock(w, rec, rec.ctrl, bytes);
+            const m = blockDiff(`${S.name} fuzz ${k}`, origBlock(), swim.saveBlock(w, rec, rec.ctrl)); if (m) failures.push(m);
+            const m2 = blockDiff(`${S.name} fuzz ${k} (original loader + serializer)`, origBlock(), bytes); if (m2) failures.push(m2);
+            fuzzRounds++;
+          }
+          swim.loadBlock(w, rec, rec.ctrl, keep); origLoad(keep);
+        }
         H.push(held, pressed);
         mem.w32(SW + 8, swim.stamp >>> 0); mem.w8(SW + 0x18, swim.phase); mem.wf32(SW + 0x1c, swim.speed);
         let o;
         try { H.run(); o = H.pull(); } catch (e) { failures.push(`${S.name} tick ${t}: the original failed: ${e.message}`); return; }
+        const ob = origBlock();
         const op = { phase: mem.r8(SW + 0x18), speed: mem.f32(SW + 0x1c), accY: swim.accessory ? mem.f32(E.recPtr(swim.accessory) + 0x40) : 0 };
         sounds.length = 0; w.tick();
         const mine = H.portState();
@@ -47,6 +68,7 @@ export default {
           if (!op.phase) ev.dive++; if (S.name.includes('pad') && op.speed > 1) ev.pad++; ev.sound += o.sounds.length; if (o.sounds.length && op.phase) ev.stroke++; }
         const msgs = [];
         const eq = (n, a, b) => { checked++; if (a !== b && !(Number.isNaN(a) && Number.isNaN(b))) msgs.push(`${n}: original ${b}, port ${a}`); };
+        { const m = blockDiff('swim', ob, swim.saveBlock(w, rec, rec.ctrl)); if (m) msgs.push(m); }
         eq('phase', mp.phase, op.phase); eq('speed', mp.speed, op.speed); eq('accessory.y', mp.accY, op.accY);
         for (let i = 0; i < 16; i++) eq(`rec.m${i}`, mine.rec.m[i], o.rec.m[i]);
         for (let i = 0; i < 3; i++) eq(`rec.e${i}`, mine.rec.e[i], o.rec.e[i]);
@@ -69,7 +91,7 @@ export default {
     }
     notes.push(`coast starts found: ${coast.length}`);
     for (const dt of [1, 0.5]) {
-      run1({ name: 'swim: dive then random strokes', dt, pos: [700, sea, 0], yaw: 1.2, held: script(7, dt === 1 ? 260 : 340) });
+      run1({ name: 'swim: dive then random strokes', dt, pos: [700, sea, 0], yaw: 1.2, held: script(7, dt === 1 ? 260 : 340), fuzz: 77 });
       for (const [i, c] of coast.entries()) if (i % 3 === 0 || dt === 1 && i % 2 === 0) run1({ name: `swim: coast ${i} into the island`, dt, phase1: true, speed: 0.4, pos: [c.x, sea, c.z], yaw: c.yaw, held: script(20 + i, dt === 1 ? 120 : 180, [[B.UP, 60], [B.UP | B.LEFT, 8], [B.UP | B.RIGHT, 8], [0, 10]]) });
       // the sea loop (FUN_0043363c) in every sub-game variant, and the camera's own wrap at +-1840
       for (const [sg, edge] of [[0, 1040], [6, 880], [10, 1840], [0x16, 1840]]) for (const [px, pz, yaw] of [[edge, 0, Math.PI / 2], [-edge, 20.5, -Math.PI / 2], [30.25, edge, 0], [-12.5, -edge, Math.PI]])
@@ -79,6 +101,6 @@ export default {
       for (let p = 0; p < 6; p++) run1({ name: `swim: camera preset ${p}`, dt, phase1: true, speed: 0.5, pos: [700, sea, 0], yaw: 0.9, held: script(40 + p, 100), setup: (w) => { w.camera.preset = p; w.camera.vehicle = p % 2 === 1; } });
       run1({ name: 'swim: resume with a stale stamp', dt, phase1: true, speed: 0.5, pos: [700, sea, 0], yaw: 0.9, held: script(55, 60), inject: (t, w, walk, swim) => { if (t === 0) swim.stamp = 99; } });
     }
-    return { checked, failures, notes: [`events (original): ${JSON.stringify(ev)}`, `scenarios ${scen}, ticks ${ticks}, checks ${checked}`, ...notes] };
+    return { checked, failures, notes: [`WP-SAVE swim save blocks compared (original FUN_0088cecd vs saveBlock, every tick): ${blockChecks}; loader fuzz rounds ${fuzzRounds}`, `events (original): ${JSON.stringify(ev)}`, `scenarios ${scen}, ticks ${ticks}, checks ${checked}`, ...notes] };
   },
 };

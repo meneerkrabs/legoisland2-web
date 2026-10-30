@@ -12,7 +12,7 @@ import { partOverrides } from '../island/trigger/parts.ts';
 import type { IslandCtx } from '../island/ctx.ts';
 import { loadMessages } from '../ui/strings.ts';
 import type { MessageTable } from '../ui/strings.ts';
-import type { ZoneGameCtx } from '../shell/zonegame.ts';
+import type { ZoneGameCtx, SubtitleMode } from '../shell/zonegame.ts';
 import type { AudioHost } from '../shell/audiohost.ts';
 import { Objective } from '../zones/z02LGI/objective.ts';
 import { messagePath } from '../zones/z02LGI/ctx.ts';
@@ -123,10 +123,11 @@ export class HubContext implements IslandCtx {
   holdCutscene(on: boolean) { this.zg?.cutscene.hold(on); }
 
   // ---- speech
-  say(table: MessageTable, id: string, id2?: string): boolean {
-    const speak = (t: MessageTable, a: string, b?: string) => this.zg?.sayFrom(t, a, b) ?? false;
+  say(table: MessageTable, id: string, id2?: string, voice = true, subtitle: SubtitleMode = 'timed'): boolean {
+    const speak = (t: MessageTable, a: string, b?: string) => this.zg?.sayFrom(t, a, b, voice, subtitle) ?? false;
     return restoreHooks.say?.(table, id, id2, speak) ?? speak(table, id, id2);   // restored content (option off: unset)
   }
+  clearSubtitle() { this.zg?.clearSubtitle(); }
   expression(rec: GameRecord, n: number) { rec.face = n; }
   speechIdle(): boolean { return this.zg?.speechIdle() ?? true; }
   stopSpeech() { this.zg?.stopSpeech(); }

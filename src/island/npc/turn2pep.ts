@@ -17,6 +17,8 @@ import type { StepOut } from '../../game/walker.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import { ad, sb, fr } from '../../zones/common/f32.ts';
 import { ArgView } from '../args.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
+import { CD_F, CD_I16, CD_I32 } from './cd.ts';
 import { carriedPizza, releaseCarry } from '../pizza/carry.ts';
 import { actionVarOp } from './globals.ts';
 
@@ -49,9 +51,12 @@ export class Turn2PepANode implements BehaviourNode {
   readonly args: Turn2PepAArgs;
   readonly attach: Attach | null;
   /** +0x1a: the timers count (not in sub-game 6) */ timers = -1;
-  /** +0x24: heading before the turn, +0x28: turn back, +0x2a: wave pending */ heading = 0; back = 0; waved = 0;
+  /** +0x24: heading before the turn, +0x28: turn back, +0x2a: wave pending */ heading = CD_F; back = CD_I16; waved = CD_I16;
   /** +0x2c: wave pause, +0x30: start delay */ pause = 0; delay = 0;
   private out: StepOut = { yaw: 0, dist: 0 };
+  // save block: FUN_0052fedb (vtable +0x14) / FUN_0052ff00 (+0x10, memcpy): the 0x10 bytes at node +0x24: +0x00 f32 heading, +0x04 i16 back, +0x06 i16 waved, +0x08 f32 pause, +0x0c f32 delay
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array { return new BlockOut(0x10).f32(0, this.heading).i16(4, this.back).i16(6, this.waved).f32(8, this.pause).f32(0xc, this.delay).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { const b = new BlockIn(data); this.heading = b.f32(0); this.back = b.i16(4); this.waved = b.i16(6); this.pause = b.f32(8); this.delay = b.f32(0xc); }
   constructor(args: Turn2PepAArgs, attach: Attach | null = null) { this.args = args; this.attach = attach; }
 
   update(w: World, rec: GameRecord, ctrl: Controller): number {
@@ -137,8 +142,11 @@ export class Turn2PepBNode implements BehaviourNode {
   stamp = 0xfffffffe;
   readonly args: Turn2PepBArgs;
   readonly attach: Attach | null;
-  /** +0x30: heading at the start, +0x34: idle time, +0x38: turning back, +0x3a: loops left */ heading = 0; idleTime = 0; back = 0; loops = 0;
+  /** +0x30: heading at the start, +0x34: idle time, +0x38: turning back, +0x3a: loops left */ heading = CD_F; idleTime = CD_F; back = CD_I16; loops = CD_I16;
   private out: StepOut = { yaw: 0, dist: 0 };
+  // save block: FUN_00530687 (vtable +0x14) / FUN_005306ac (+0x10, memcpy): the 0xc bytes at node +0x30: +0x00 f32 heading, +0x04 f32 idleTime, +0x08 i16 back, +0x0a i16 loops
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array { return new BlockOut(0xc).f32(0, this.heading).f32(4, this.idleTime).i16(8, this.back).i16(0xa, this.loops).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { const b = new BlockIn(data); this.heading = b.f32(0); this.idleTime = b.f32(4); this.back = b.i16(8); this.loops = b.i16(0xa); }
   constructor(args: Turn2PepBArgs, attach: Attach | null = null) { this.args = args; this.attach = attach; }
 
   private target(w: World): GameRecord | null { return this.args.target >= 0 ? w.records[this.args.target] ?? null : null; }
@@ -246,8 +254,11 @@ export class MeetPeppNode implements BehaviourNode {
   stamp = 0xfffffffe;
   readonly args: MeetPeppArgs;
   readonly attach: Attach | null;
-  /** +0x24: loops left; -9 = the var operation is done, -10 = finished */ loops = 0;
+  /** +0x24: loops left; -9 = the var operation is done, -10 = finished */ loops = CD_I32;
   private out: StepOut = { yaw: 0, dist: 0 };
+  // save block: FUN_00530d0b (vtable +0x14) / FUN_00530d30 (+0x10, memcpy): the 4 bytes at node +0x24: i32 loops
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array { return new BlockOut(4).i32(0, this.loops).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.loops = new BlockIn(data).i32(0); }
   constructor(args: MeetPeppArgs, attach: Attach | null = null) { this.args = args; this.attach = attach; }
 
   private clip(ctrl: Controller): number {
@@ -305,6 +316,9 @@ export class Turn2PepCNode implements BehaviourNode {
   readonly args: Turn2PepCArgs;
   readonly attach: Attach | null;
   /** +0x1c */ mode: number;
+  // save block: FUN_00530895 (vtable +0x14) / FUN_005308ba (+0x10, memcpy): the 4 bytes at node +0x1c: i32 mode
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array { return new BlockOut(4).i32(0, this.mode).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.mode = new BlockIn(data).i32(0); }
   constructor(args: Turn2PepCArgs, attach: Attach | null = null) { this.args = args; this.attach = attach; this.mode = args.mode; }
   update(w: World): number {
     if (this.mode === -1) return NODE_NONE;

@@ -20,15 +20,16 @@ import { parseCompiledWaypoints } from '../../formats/waypoints.ts';
 import type { Archive } from '../../formats/archive.ts';
 import type { IslandSetup } from '../../formats/emusetup.ts';
 import type { World } from '../../game/world.ts';
+import type { GameRecord } from '../../game/record.ts';
 import type { Ui2D } from '../../ui/renderer2d.ts';
 import { V } from '../../game/vars.ts';
 import { waypoints, MAP_PATH, NPC_SPEED, NPC_TURN_RATE, NPC_RADIUS_MIN, NPC_RADIUS_MAX, NPC_RADIUS_LIMIT } from '../../game/walker.ts';
 import { loadIslandWalkMaps, startIslandNpcs } from '../../island/npc/index.ts';
-import { startPizzaNodes } from '../../island/pizza/index.ts';
+import { startPizzaNodes, placePizzaBalls } from '../../island/pizza/index.ts';
+import { runCtorInits } from '../../island/blockio.ts';
 import { islandRigs, ensureAnim } from '../../island/ambient/common.ts';
-import { vehicles } from '../../island/vehicles/common.ts';
+import { vehicles, runSetups } from '../../island/vehicles/common.ts';
 import { looksOf, applyRosterRecords } from '../../island/vehicles/looks.ts';
-import { saveVehicleEntities, restoreVehicle } from './savevehicle.ts';
 import { IslandContext } from './ctx.ts';
 import { BrickLibrary } from '../../formats/bricks.ts';
 import { installBrickLibrary, islandBrickFx, drawBrickFx } from '../../fx/bricks/index.ts';
@@ -87,9 +88,7 @@ export function liveStoryEnv(ictx: IslandContext, setupCall = false): StoryEnv {
 registerZoneSetup('z02LGI', {
   profileOptions: (sh, archive) => ({ islandVars: sh.vars, archive }),
   cutsceneOptions: (_sh, world) => ({ waypoints, dictionaries: islandOf(world).setup.dictionaries }),
-  // WP15: a save made in a vehicle keeps the vehicle; a load puts Pepper back into it (savevehicle.ts)
-  saveEntities: (world) => saveVehicleEntities(world),
-  restoreSave: (world, loaded, save) => restoreVehicle(world, loaded.pepper, save),
+  // (a save made in a vehicle keeps it through the exact node blocks: SGwalk's block holds the vehicle record's tag (DAT_009daa80), the boat / helicopter / car blocks their state; WP-SAVE)
   beforeSetup(sh, world, profile, archive, scene) {
     const island = profile.island as IslandSetup;
     const ictx = new IslandContext(world, sh.pe, archive, island, scene);
@@ -104,23 +103,9 @@ registerZoneSetup('z02LGI', {
   },
   afterSetup(_sh, world, loaded, archive) {
     const ictx = islandOf(world);
+    runCtorInits(world);   // WP-SAVE: the nodes' constructor-time reads of the world (building doors / swinging parts / pop-in node, Sound3d ...) right after the set-up, as the original's constructors do
     applyRosterRecords(world, ictx.pe);   // FUN_0051c823 (PepSwitc's constructor): variant words, the decor templates hidden (S11)
-    // the set-up's waypoint maps (FUN_004630c0) and the constructors' world work (walkers, ground snap, animations: WP3)
-    loadIslandWalkMaps(archive, ictx.setup);
-    // the animation instances the island loader gives records 9..66 (FUN_004f645b @0x519c09: SKBD, MFIG, SWFT, RBBT, PTER rigs, clip 1)
-    for (const i of islandRigs(ictx.pe).keys()) { const r = world.records[i]; if (r) ensureAnim(world, r); }
-    startPizzaNodes(world);   // before the NPCs: WP3's Human1 reads the car's speed from the walker the pizza nodes create (docs/re/m4/wp5-pizza.md)
-    startIslandNpcs(world);
-    // FUN_0042207d(PEPP): Pepper's walker on PATH (no node) with the NPC tuning; the cutscenes walk / turn her with it
-    const pep = loaded.pepper;
-    if (pep.ctrl) {
-      const h = waypoints.create(MAP_PATH, pep, -3);
-      pep.ctrl.walker = h;
-      if (h) {
-        waypoints.setSpeed(h, NPC_SPEED); waypoints.setLane(h, PEPPER_LANE); waypoints.setTurnRate(h, NPC_TURN_RATE);
-        waypoints.setRadiusMin(h, NPC_RADIUS_MIN); waypoints.setRadiusMax(h, NPC_RADIUS_MAX); waypoints.setRadiusLimit(h, NPC_RADIUS_LIMIT);
-      }
-    }
+    islandWorldSetup(world, loaded, archive);
     const a = ictx.shared.arrival as Arrival | null | undefined;
     if (!a || a.vehicle < 0) return;
     // the vehicle gets Pepper's matrix (FUN_004c2d22's copy) and PEPPER_CONTROL its mode, when a node for that mode is on Pepper's chain (WP6)
@@ -137,6 +122,35 @@ registerZoneSetup('z02LGI', {
 
 /** FUN_0042207d: Pepper's lane offset (0x3c23d70a) */
 const PEPPER_LANE = 0.01;
+
+/**
+ * The constructors' world work after the framework's attaches (WP3 / WP5 / WP6): the set-up's waypoint maps (FUN_004630c0), the animation instances of the loader, the walkers of the pizza /
+ * NPC / vehicle nodes in the set-up's attach order, Pepper's own walker, the docks / pads the boats / helicopters / Pteras claim in their constructors. The save tests (tools/lib/m8-save.mjs) run it too.
+ */
+export function islandWorldSetup(world: World, loaded: { pepper: GameRecord }, archive: Archive): void {
+  const ictx = islandOf(world);
+  // the set-up's waypoint maps (FUN_004630c0) and the constructors' world work (walkers, ground snap, animations: WP3)
+  loadIslandWalkMaps(archive, ictx.setup);
+  // the animation instances the island loader gives records 9..66 (FUN_004f645b @0x519c09: SKBD, MFIG, SWFT, RBBT, PTER rigs, clip 1)
+  for (const i of islandRigs(ictx.pe).keys()) { const r = world.records[i]; if (r) ensureAnim(world, r); }
+  world.records[vehicles(world).board]?.anim?.start(0, 0);   // FUN_004b4220's last call: FUN_0043b6a3(board instance, 0, 0) (the loader had started clip 1)
+  startPizzaNodes(world);   // before the NPCs: WP3's Human1 reads the car's speed from the walker the pizza nodes create (docs/re/m4/wp5-pizza.md)
+  startIslandNpcs(world);
+  placePizzaBalls(world);   // the football's constructor copy of kid 0's matrix, after the kids are on their routes
+  // FUN_0042207d(PEPP): Pepper's walker on PATH (no node) with the NPC tuning; the cutscenes walk / turn her with it
+  const pep = loaded.pepper;
+  if (pep.ctrl) {
+    const h = waypoints.create(MAP_PATH, pep, -3);
+    pep.ctrl.walker = h;
+    if (h) {
+      waypoints.setSpeed(h, NPC_SPEED); waypoints.setLane(h, PEPPER_LANE); waypoints.setTurnRate(h, NPC_TURN_RATE);
+      waypoints.setRadiusMin(h, NPC_RADIUS_MIN); waypoints.setRadiusMax(h, NPC_RADIUS_MAX); waypoints.setRadiusLimit(h, NPC_RADIUS_LIMIT);
+    }
+  }
+  vehicles(world).islandSetup();   // FUN_004b6475: the dock / helipad taken words (static in the original) are zeroed
+  runSetups(world);   // the boats' / helicopters' / Pteras' constructor work (dock and pad claims in attach order), after the walk maps loaded
+}
+
 
 /** the cutscene slots of the set-up (FUN_0045c366(dir, area) + FUN_0045c397(slot, script, strings)) */
 function slotSpecs(island: IslandSetup, archiveName: string): CutsceneSlotSpec[] {

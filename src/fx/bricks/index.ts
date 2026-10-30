@@ -4,3 +4,5 @@ export * from './sim.ts';
 export * from './manager.ts';
 export * from './island.ts';
 export { drawBrickFx, BRICK_PRESET } from './draw.ts';
+// the save game sections (registers the `bricks` part of src/shell/saveparts.ts when this module loads)
+export { captureBricks, applyBricks, slotImage, decodeSlotImage, SLOT_IMAGE_BYTES } from './save.ts';

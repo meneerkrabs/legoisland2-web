@@ -4,6 +4,8 @@
 let source: (() => number) | null = null;
 /** tests / WP-TIME: a source of numbers in [0, 1) (null = Math.random) */
 export function setIslandRandom(f: (() => number) | null) { source = f; }
+/** the injected source (null = Math.random): tests restore what they replaced */
+export const getIslandRandom = () => source;
 /** the C runtime's rand(): 0 .. 32767 */
 export const randInt = (): number => Math.floor((source ?? Math.random)() * 32768) & 0x7fff;
 const fr = Math.fround;

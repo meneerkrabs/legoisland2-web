@@ -5,6 +5,7 @@ import type { BehaviourNode, Controller } from '../../../game/controller.ts';
 import { NODE_STOP } from '../../../game/controller.ts';
 import type { GameRecord } from '../../../game/record.ts';
 import type { World } from '../../../game/world.ts';
+import { CD8 } from '../../hubsave.ts';
 import { fr, rotateFromEuler } from './util.ts';
 
 export const ROBOT = {
@@ -17,9 +18,12 @@ export class RobotNode implements BehaviourNode {
   readonly kind = 'PeppRobot';
   var = 2; mask = 0; value = 0;
   stamp = 0xfffffffe;
-  /** +0x15 (byte): the state the save game keeps (never written by the code) */
-  state = 0;
+  /** +0x15 (byte): the state the save game keeps (never written by the code: the debug heap's 0xCD fill) */
+  state = CD8;
   private inited = false;
+
+  /** the constructor's world half (`registerHub` calls it right after the set-up): the clip start */
+  ctorInit(_w: World, rec: GameRecord) { this.init(rec); }
 
   /** FUN_007e61e9: clip 1 */
   private init(rec: GameRecord) { this.inited = true; rec.anim?.start(ROBOT.IDLE_CLIP, 0); }
@@ -50,6 +54,7 @@ export class RobotNode implements BehaviourNode {
   }
 
   /** FUN_007e618b / FUN_007e61b0: one byte */
-  saveBlob(): Uint8Array { return new Uint8Array([this.state & 0xff]); }
-  loadBlob(b: Uint8Array): void { this.state = b[0]; this.inited = true; }
+  saveBlock(): Uint8Array { return new Uint8Array([this.state & 0xff]); }
+  /** FUN_007e61b0: a plain copy of the byte into +0x15 (the constructor's clip start ran at the set-up) */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, b: Uint8Array): void { this.state = b[0]; this.inited = true; }
 }

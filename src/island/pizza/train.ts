@@ -7,7 +7,7 @@
 //                 (Pepper's seat, camera, controls), the board / leave icons, the engine sound                                             -> TrainNode.update
 //   FUN_0053d2ad  pre-render: Pepper gets on (DAT_009daa80 == this record) / off (a platform beside the locomotive)                          -> TrainNode.prerender
 //   FUN_0053c565  a platform beside: probe 8 units to the right (then the left) from 8 above, 16 down; record 5 or 6 = a platform           -> platformBeside
-//   FUN_0053d935  destroy (sounds off)    FUN_0053d48e (draw = the default)    FUN_0053d4ca / FUN_0053d5a3 save / load (not ported)
+//   FUN_0053d935  destroy (sounds off)    FUN_0053d48e (draw = the default)    FUN_0053d4ca / FUN_0053d5a3 save / load -> TrainNode.saveBlock / loadBlock
 // The other constructor of SupaStat.c, FUN_0053c337 (SUPE, update FUN_0053adc3 533 lines), is not ported: docs/re/m4/wp5-pizza.md.
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
@@ -26,6 +26,7 @@ import { tryCtx } from '../ctx.ts';
 import { FX_NONE, GATE_ON, HALF_PI, fxStart, recMatrix, registerFxStart } from '../emitters.ts';
 import { vehicles, mul } from '../vehicles/common.ts';
 import { sfx, sfxAt } from './common.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
 
 export const CTOR_TRAIN = 0x53d66c;
 // every locomotive creates its smoke at construction, whatever its gate: started by `finishEmitters` too
@@ -100,12 +101,15 @@ export class TrainNode implements BehaviourNode {
   leader: GameRecord | null = null;
   /** +0x1c route index, +0x20 stop ticks, +0x24 the last step result */
   routeIdx: number = TRAIN.ROUTE_START; stopTicks = 0; lastCode = -1;
-  /** +0x28 Pepper rides, +0x29 the ride is moving */
-  riding = false; moving = false;
+  /** +0x28 Pepper rides, +0x29 the ride is moving (+0x2a: 2 pad bytes, 0xCD) */
+  riding = false; moving = false; pad2a = 0xcdcd;
   /** +0x2c..+0x34 Pepper's seat, +0x38 the curve roll */
   seat: number[] = [TRAIN.SEAT[0], TRAIN.SEAT[1], TRAIN.SEAT[2]]; roll = 0;
-  /** +0x3c the coasting sound (else the running one), +0x3d 0 cruise / 1 speeding up / 2 slowing for a station */
-  coasting = false; phase = 0;
+  /** +0x3c the coasting sound (else the running one): a byte that the constructor leaves 0xCD (its test `node[5] == 0` reads the uninitialised +0x14, see `init`), so the loop is the coasting one until a station stop writes it;
+   *  +0x3d 0 cruise / 1 speeding up / 2 slowing for a station; +0x3e: 2 pad bytes (0xCD) */
+  coastByte = 0xcd; phase = 0; pad3e = 0xcdcd;
+  get coasting() { return this.coastByte !== 0; }
+  set coasting(v: boolean) { this.coastByte = v ? 1 : 0; }
   /** the locomotive's trainsmoke01 emitter (+0x18 of the original's node) */
   smokeH = FX_NONE;
   private out: StepOut = { yaw: 0, dist: 0 };
@@ -132,7 +136,8 @@ export class TrainNode implements BehaviourNode {
       waypoints.goTo(h, TRAIN.FIRST_GOAL, 0);
       waypoints.setRadiusLimit(h, TRAIN.LIMIT);
     }
-    if (!this.leader) { sfxAt(w, SND_TRAIN.WHISTLE, [x, y, z]); this.coasting = false; }
+    // (FUN_0053d66c 0x53d8c3: `if (node[5] == 0) { whistle; node +0x3c = 0 }` tests the node's +0x14, which is only assigned later (`node[5] = leader`): a fresh debug-heap block holds 0xCDCDCDCD there,
+    //  so the whistle and the coasting byte are never reached; the oracle's heap must fill 0xCD for this to show)
     if (h) waypoints.resume(h);
     this.riding = false; this.moving = false;
     this.seat = [TRAIN.SEAT[0], TRAIN.SEAT[1], TRAIN.SEAT[2]];
@@ -144,6 +149,29 @@ export class TrainNode implements BehaviourNode {
       waypoints.setStopDistance(h, fr(d * 0.125));   // FUN_004623f0 (walker units)
     }
     this.startSmoke(w, rec);
+  }
+
+  /**
+   * Save block = node +0x1c .. +0x40 (0x24 bytes) + 8 bytes of the train globals (saver FUN_0053d4ca, 0x2c bytes; loader FUN_0053d5a3):
+   * 0x00 i32 routeIdx (+0x1c)   0x04 f32 stopTicks (+0x20)   0x08 i32 lastCode (+0x24)   0x0c u8 riding (+0x28)   0x0d u8 moving   0x0e u16 pad (0xCDCD)   0x10 f32[3] seat (+0x2c)   0x1c f32 roll (+0x38)
+   * 0x20 u8 coasting (+0x3c)   0x21 u8 phase (+0x3d)   0x22 u16 pad (0xCDCD)   0x24 f32 DAT_05d586e4 (the speed factor of all three cars)   0x28 u32 DAT_05d586f0 (Pepper looks to the right).
+   * The loader copies the node bytes back and the two words into the globals (every train car does it: the last one saved wins, they hold the same values).
+   */
+  saveBlock(w: World, rec: GameRecord, ctrl: Controller): Uint8Array {
+    if (!this.inited) this.init(w, rec, ctrl);
+    const g = tg(w), b = new BlockOut(0x2c);
+    b.i32(0x00, this.routeIdx).f32(0x04, this.stopTicks).i32(0x08, this.lastCode).u8(0x0c, this.riding ? 1 : 0).u8(0x0d, this.moving ? 1 : 0).u16(0x0e, this.pad2a);
+    for (let k = 0; k < 3; k++) b.f32(0x10 + 4 * k, this.seat[k]);
+    b.f32(0x1c, this.roll).u8(0x20, this.coastByte).u8(0x21, this.phase).u16(0x22, this.pad3e).f32(0x24, g.factor).u32(0x28, g.lookRight ? 1 : 0);
+    return b.bytes;
+  }
+  loadBlock(w: World, rec: GameRecord, ctrl: Controller, data: Uint8Array): void {
+    if (!this.inited) this.init(w, rec, ctrl);   // (the constructor ran at the set-up; the zone game's startPizzaNodes does it right after it)
+    const g = tg(w), b = new BlockIn(data);
+    this.routeIdx = b.i32(0x00); this.stopTicks = b.f32(0x04); this.lastCode = b.i32(0x08); this.riding = b.u8(0x0c) !== 0; this.moving = b.u8(0x0d) !== 0; this.pad2a = b.u16(0x0e);
+    for (let k = 0; k < 3; k++) this.seat[k] = b.f32(0x10 + 4 * k);
+    this.roll = b.f32(0x1c); this.coastByte = b.u8(0x20); this.phase = b.u8(0x21); this.pad3e = b.u16(0x22);
+    g.factor = b.f32(0x24); g.lookRight = b.u32(0x28) !== 0;
   }
 
   /** FUN_0044e920 at 0x53d915 (the constructor, locomotive only): the smoke, always on (gate 2 / 1 / 1), bound to the record's matrix. The particle engine of the zone game

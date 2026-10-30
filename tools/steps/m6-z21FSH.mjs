@@ -69,31 +69,33 @@ export default async ({ page, shot, wait, log, key }) => {
       // the other fish are sent far away (no natural bite in the way); the chosen one swims right to the bobber
       for (const o of [...w.records[2].ctrl.nodes.find((n) => n.kind === 'Shoal').fish, w.records[1].ctrl.nodes.find((n) => n.kind === 'Bertha').fish]) if (o !== fish) { o.x = 400; o.y = -1; o.z = 400; o.approaching = false; }
       fish.x = d0.bobber[0] + 0.5; fish.y = -1; fish.z = d0.bobber[2] + 0.5;
-      const key = (type) => window.dispatchEvent(new KeyboardEvent(type, { code: 'ArrowUp', key: 'ArrowUp', bubbles: true }));
-      let n = 0;
-      const step = () => {
+      // the strike is decided once per game TICK (inside the input mapper's update, which the loop runs before every tick): the bite lasts 30 ticks and a loaded page runs
+      // several ticks per frame, so a loop on requestAnimationFrame can miss it
+      const inp = __zone.sh.input, orig = inp.update.bind(inp);
+      let n = 0, hold = -1;
+      inp.update = () => {
         const d = __zone.game.debug();
-        if (d.bite === 1) { key('keydown'); setTimeout(() => key('keyup'), 40); resolve(true); return; }
-        if (++n > 600) { resolve(false); return; }
-        requestAnimationFrame(step);
+        if (hold < 0 && d.bite === 1) { inp.setKey('ArrowUp', true); hold = 3; }
+        else if (hold > 0 && --hold === 0) { inp.setKey('ArrowUp', false); inp.update = orig; resolve(true); }
+        else if (hold < 0 && ++n > 1800) { inp.update = orig; resolve(false); }   // 60 s of game time
+        orig();
       };
-      step();
     }), i);
     if (!struck) { log('NO BITE', label); fail.push('no bite ' + label); }
     d = await until('fight ' + label, (d) => d.state === 11, 5000);
     // reel: hold DOWN while the tension is low enough (the loop runs in the page at the game's frame rate; the key events are the DOM's keydown / keyup the input layer reads)
     const fightP = page.evaluate(() => new Promise((resolve) => {
-      const press = (down) => window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code: 'ArrowDown', key: 'ArrowDown', bubbles: true }));
+      // (decided once per game tick, in the input mapper's update: see the strike above)
+      const inp = __zone.sh.input, orig = inp.update.bind(inp);
       let down = false; const seen = new Set(); let n = 0;
-      const step = () => {
+      inp.update = () => {
         const d = __zone.game.debug();
         for (const p of d.popups) seen.add(p);
-        if (d.state !== 11 || ++n > 20000) { if (down) press(false); resolve([...seen]); return; }
+        if (d.state !== 11 || ++n > 60000) { if (down) inp.setKey('ArrowDown', false); inp.update = orig; resolve([...seen]); orig(); return; }
         const want = d.tension < 36;
-        if (want !== down) { down = want; press(want); }
-        requestAnimationFrame(step);
+        if (want !== down) { down = want; inp.setKey('ArrowDown', want); }
+        orig();
       };
-      step();
     }));
     if (!shots.fight) { shots.fight = true; await wait(250); await shot('11-fight'); }
     const out = await fightP;

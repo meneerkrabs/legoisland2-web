@@ -17,7 +17,7 @@
 //   0x46410c setTo, 0x4642b0 setNext, 0x46407e setFrom, 0x463e11/0x463d50 list add/remove, 0x463f9d/0x463ec8 register/unregister,
 //   0x464e16 blocked (0x464bbf ahead, 0x464b4b crossing, 0x464a7a yield, 0x4649d2 car), 0x4651d4 follow/point step, 0x465146 heading step,
 //   0x465416 move-to-point step.
-// Not ported: the save-game (de)serialisation of the table (0x462d8b / 0x462e75), the debug overlay (0x461155..0x461347) and trivial accessors
+// 0x462d8b / 0x462e75 save game writer / loader of the table -> src/game/walkersave.ts. Not ported: the debug overlay (0x461155..0x461347) and trivial accessors
 // that only read a field (they are plain properties of `Walker` here).
 import { buildMatrix } from '../formats/matrix.ts';
 import { ad, ml, sq } from '../zones/common/f32.ts';
@@ -28,6 +28,7 @@ import { NODE_CONTINUE, registerNode } from './controller.ts';
 import type { BehaviourNode, Controller } from './controller.ts';
 import type { GameRecord } from './record.ts';
 import type { World } from './world.ts';
+import './walkersave.ts';   // registers the save game part 'walkers' (FUN_00462d8b / FUN_00462e75)
 
 // ----------------------------------------------------------------------------- constants
 
@@ -137,6 +138,12 @@ export class Walker {
   /** +0x78: squared distance at which a walker ahead blocks */ stopDist2 = 0;
   /** +0x7c: squared distance to the lane point */ dist2 = 0;
   /** +0x80: speed scale */ speedScale = 1;
+  /** +0x64: a word of the struct no walker function reads or writes (zero in the original's table; kept so that a loaded table saves back byte for byte, src/game/walkersave.ts) */ pad64 = 0;
+  /**
+   * save game only (src/game/walkersave.ts): the raw words of a walker slot the loader FUN_00462e75 leaves as the file had them while the slot is NOT in use (flags 0): +0x08 (stale record
+   * pointer) and +0x10 (stale blocker pointer). null = derive them from `rec` / `blocker` like the original's own stale words. A create (memset of the slot) clears it.
+   */
+  stale: { rec: number; blocker: number } | null = null;
 }
 
 class WalkerMap {
@@ -170,7 +177,7 @@ export class WaypointSystem {
   /** the walker table */
   walkers: (Walker | null)[] = new Array(MAX_WALKERS).fill(null);
   /** the original's static table (DAT_05d4e1b0, 60 x 0x84 bytes): a freed walker stays in memory, and a node list that still points at it keeps doing so (teleport / free leave such stale entries); a new walker reuses the slot */
-  readonly slots: Walker[] = Array.from({ length: MAX_WALKERS }, () => new Walker());
+  readonly slots: Walker[] = Array.from({ length: MAX_WALKERS }, () => Object.assign(new Walker(), { reach: 0, speedScale: 0 }));   // (static BSS: all zero until a create)
   /** DAT_008b1718: time step of a tick (1.0) */
   dt = 1;
   /** _DAT_05d57cdc: y of the last stepped position (written by the original, read by nobody in this module) */
@@ -528,7 +535,7 @@ export class WaypointSystem {
    * FUN_00463f9d: unregister, then enter list 1 at `to`, list 0 at `next` and (path walker on a crossing) list 2 at the ROAD node numbered `to` (the original uses the walker's own `to`
    * index in the road map where FUN_0046410c uses the crossing's link: the lists of a walker entered here and one entered by FUN_0046410c differ, and FUN_00463ec8 removes the same wrong entry)
    */
-  private register(w: Walker) {
+  register(w: Walker) {
     this.removeAll(w);
     if (w.to >= 0) this.listAdd(w, w.map, w.to, 1);
     if (w.next >= 0) this.listAdd(w, w.map, w.next, 0);

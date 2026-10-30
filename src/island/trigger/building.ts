@@ -7,9 +7,10 @@
 //   FUN_005357cb  ctor, the music house HSE2 (bounces to its music), vtable 0x8eac40: update FUN_00535485, draw FUN_00535550
 //   FUN_00533d30  the props that follow a building's visibility (RESQ -> SPBT, POLB -> its vehicles and the jail ...)
 //   FUN_005358fc  clamp helper: move an angle towards a limit, report the next state when it got there
-// Not ported: FUN_00534b89 (vtable 0x8eac08: a building "pop in" scale / spin animation, FUN_005341f4 / FUN_00534409 / FUN_00534918). Its
-// constructor sets the node's gate to var 1 & 0 == 1, which never holds (var 1 reads 0), and nothing in the executable re-gates it: the node is
-// dead in the shipped game (docs/re/m4/wp4-triggers.md).
+//   FUN_00534b89  ctor, the "pop in" node of the era 2 / 3 buildings (SKTP, GRGE, SHP2, PIZB, HSE2; vtable 0x8eac08: update FUN_005341f4, pre-render FUN_00534409, draw FUN_00534918, loader FUN_00534ae0,
+//                 saver FUN_00534a0a): a scale / spin animation of the building record. Its constructor gates the node with var 1 & 0 == 1, which never holds (var 1 reads 0), and nothing in the executable re-gates
+//                 it: the node never runs in the shipped game (docs/re/m4/wp4-triggers.md). Ported as `PopInNode` with its state, its save block and its update / pre-render code (checked in a duel with the
+//                 gate forced open, tools/tests/m8-save-popin.mjs); the draw hook FUN_00534918 is not ported (see the class).
 import { NODE_NONE, NODE_STOP, NODE_CONTINUE } from '../../game/controller.ts';
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import { RF_NO_COLLIDE } from '../../game/record.ts';
@@ -20,10 +21,11 @@ import { ad, sb, ml, sq, fr } from '../../zones/common/f32.ts';
 import { normalise3, toWorld } from '../../zones/exact.ts';
 import { registerCtor } from '../../game/setup.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
-import { ArgView, recIndexOfPtr, EMU_RECORD_STRIDE } from '../args.ts';
+import { ArgView, recIndexOfPtr, EMU_RECORD_STRIDE, EMU_RECORDS_BASE } from '../args.ts';
 import { tryCtx } from '../ctx.ts';
 import { FX_NONE, GATE_OFF, GATE_ON, HALF_PI, fxGate, fxMatrix, fxStart, recMatrix, registerFxStart } from '../emitters.ts';
 import { partCount, partMatrix, setRotation } from './parts.ts';
+import { BlockIn, BlockOut, CD, CD16, CDF, recordTag } from '../blockio.ts';
 import { VAR_INTERACT_ICONS, VAR_NEXT_ZONE, VAR_PEPPER_CONTROL } from './startcsm.ts';
 
 export const CTOR_DOOR = 0x535e80, CTOR_SWING = 0x5364a5, CTOR_PAGE = 0x535281, CTOR_MUSIC_HOUSE = 0x5357cb, CTOR_POPIN_DEAD = 0x534b89;
@@ -110,6 +112,17 @@ export class DoorNode implements BehaviourNode {
   /** node +0x40: current angle */
   angle = 0;
   constructor(a: DoorArgs) { this.a = a; }
+
+  /** the constructor's mesh work (FUN_00535e80 runs it at construction; the port runs it before the first update, the first save or the first load: whichever comes first) */
+  ensureInit(w: World, rec: GameRecord) { if (!this.init) this.setup(w, rec); }
+  ctorInit(w: World, rec: GameRecord) { this.ensureInit(w, rec); }
+  /** Save block = node +0x3c .. +0x44 (saver FUN_00535e22 returns 8 and points at node + 0x3c, loader FUN_00535e47 is the 8 byte memcpy back): +0 i32 state (0 closed, 1 opening, 2 open, 3 closing), +4 f32 current angle (0 when the sub-object does not exist) */
+  saveBlock(w: World, rec: GameRecord): Uint8Array { this.ensureInit(w, rec); return new BlockOut(8).i32(0, this.state).f32(4, this.angle).bytes; }
+  loadBlock(w: World, rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    this.ensureInit(w, rec);
+    const b = new BlockIn(data);
+    this.state = b.i32(0); this.angle = b.f32(4);
+  }
 
   /** FUN_00535e80 (deferred to the first update: it needs the mesh) */
   private setup(w: World, rec: GameRecord) {
@@ -215,13 +228,25 @@ export class SwingNode implements BehaviourNode {
   /** node +0x28 */
   angle: number;
   constructor(a: SwingArgs) { this.a = a; this.angle = a.from; }
+  /** the constructor's mesh work (FUN_005364a5 runs it at construction; the port before the first update / save / load). A node without its sub-object keeps the zeroed allocation: angle 0 */
+  ensureInit(w: World, rec: GameRecord) {
+    const a = this.a;
+    if (this.init) return;
+    this.init = true;
+    const m = a.part < partCount(w, rec) ? partMatrix(w, rec, a.part) : null;
+    if (!m) { this.dead = true; this.angle = 0; } else setRotation(m, 0, this.angle, 0);
+  }
+  ctorInit(w: World, rec: GameRecord) { this.ensureInit(w, rec); }
+  /** Save block = node +0x24 .. +0x2c (saver FUN_00536447 returns 8 and points at node + 0x24, loader FUN_0053646c = memcpy back): +0 i32 state, +4 f32 angle */
+  saveBlock(w: World, rec: GameRecord): Uint8Array { this.ensureInit(w, rec); return new BlockOut(8).i32(0, this.state).f32(4, this.angle).bytes; }
+  loadBlock(w: World, rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    this.ensureInit(w, rec);
+    const b = new BlockIn(data);
+    this.state = b.i32(0); this.angle = b.f32(4);
+  }
   update(w: World, rec: GameRecord, _ctrl: Controller): number {
     const a = this.a;
-    if (!this.init) {
-      this.init = true;
-      const m = a.part < partCount(w, rec) ? partMatrix(w, rec, a.part) : null;
-      if (!m) this.dead = true; else setRotation(m, 0, this.angle, 0);
-    }
+    this.ensureInit(w, rec);
     if (this.dead) return NODE_NONE;
     const v = { angle: this.angle };
     let r = -1;
@@ -285,15 +310,28 @@ export class PageNode implements BehaviourNode {
   /** node +0x14 (TWINKLE02, the spinning page's sparkle) / +0x18 (TWINKLE01, the pickup burst): FUN_0044e920 in the constructor, both bound to record 4's matrix (DAT_00983804 + 0x1ac) until the page moves them */
   twinkle2 = FX_NONE; twinkle1 = FX_NONE;
   constructor(at: Attach) { this.var = at.var; this.pageMask = at.mask; this.pageValue = at.value; }
+  /** Save block = node +0x20 .. +0x28 (saver FUN_0053519a copies into the buffer it is given (it first answers -1), loader FUN_00535214 = memcpy back): +0 i32 done (0 / 1), +4 f32 pickup timer (0, 15 .. 0, -1 = finished) */
+  saveBlock(): Uint8Array { return new BlockOut(8).i32(0, this.done ? 1 : 0).f32(4, this.timer).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.done = b.i32(0) !== 0; this.timer = b.f32(4);
+  }
 
   /** the constructor's side effects (deferred to the first update): a page collected before hides itself and reveals the next rebuilt building */
-  private setup(w: World, rec: GameRecord) {
-    this.init = true;
+  private flagged = false;
+  /** the constructor FUN_00535281's record work (a page collected before hides itself and reveals the next rebuilt building; flag 0x10): right after the set-up, so the record flags saved are the original's */
+  ctorInit(w: World, rec: GameRecord): void {
+    if (this.flagged) return;
+    this.flagged = true;
     if ((w.vars.get(this.var) & this.pageMask) !== this.pageValue) {
       rec.hide();
       for (const b of pageBuildings(w)) if (b && !b.enabled) { b.show(); syncProps(w, b); break; }
     }
     rec.flags |= RF_NO_COLLIDE;
+  }
+  private setup(w: World, rec: GameRecord) {
+    this.init = true;
+    this.ctorInit(w, rec);
     this.startFx(w);
   }
   /** the constructor's TWINKLE01 / 02 (idempotent; also run by `finishEmitters`, whatever the page's gate) */
@@ -364,6 +402,9 @@ export class MusicHouseNode implements BehaviourNode {
   /** node +0x54 saved rz, +0x58 saved y / 8, +0x60 phase */
   rz0 = 0; y8 = 0; phase = 0;
   private wobbled = false;
+  /** Save block = node +0x60 (saver FUN_0053576d returns 4 and points at node + 0x60, loader FUN_00535792 = memcpy back): the f32 bounce phase */
+  saveBlock(): Uint8Array { return new BlockOut(4).f32(0, this.phase).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.phase = new BlockIn(data).f32(0); }
   /** +0x5c: the notes01 emitter (FUN_00442960 in the constructor: record 127's matrix, offset 0, rotation (-pi / 2), gate (2, 1, 1) = on); the update only switches its gate */
   notesH = FX_NONE;
   /** the constructor's FUN_00442960 (idempotent; also run by `finishEmitters`). The bounce (FUN_00535550) only lives while the house is drawn and the matrix is restored afterwards:
@@ -397,7 +438,160 @@ export class MusicHouseNode implements BehaviourNode {
   }
 }
 
+// ----------------------------------------------------------------------------- the "pop in" node (FUN_00534b89 / FUN_005341f4 / FUN_00534409)
+
+/** 0x892030 (0.01): the speed scale of the node's variable; 0x8925a0 (0.333): sine phase speed; 0x89259c (pi / 20): spin step; 0x892220 (pi / 2): the end of the fade angle */
+export const POPIN_VAR_SCALE = 0.009999999776482582, POPIN_PHASE_SPEED = 0.3330000042915344, POPIN_SPIN_STEP = 0.15707960724830627;
+/** the floats the update (FUN_005341f4) writes: 0xbfc90fdb (-pi / 2) / 0x3fc90fdb (pi / 2) the phase, 0x3f060404 (0.5235...) the fade angle, 0xc1490fdb (-4 pi) the three spin angles */
+const PI_2 = 1.5707963705062866, FOUR_PI = 12.566370964050293, POPIN_FADE0 = f32(0x3f060404);
+
+/** pop-in flags (argument +0x00, node +0x14): bits 1 / 2 / 4 scale x / y / z, 8 height bounce, 0x10 / 0x20 / 0x40 spin x / y / z, 0x100 shrink instead of grow */
+export const PI_SCALE_X = 1, PI_SCALE_Y = 2, PI_SCALE_Z = 4, PI_BOUNCE = 8, PI_SPIN_X = 0x10, PI_SPIN_Y = 0x20, PI_SPIN_Z = 0x40, PI_SHRINK = 0x100;
+
+export class PopInNode implements BehaviourNode {
+  readonly kind = 'building.popin';
+  /** the constructor's own gate (var 1, mask 0, value 1: never open); the set-up writes the attach's gate over it: ignored (`unlockGate` is for the tests, which drive the node's code with an open gate) */
+  private gv = 1; private gm = 0; private gval = 1;
+  get var() { return this.gv; } set var(_v: number) { if (this.unlocked) this.gv = _v; }
+  get mask() { return this.gm; } set mask(_v: number) { if (this.unlocked) this.gm = _v; }
+  get value() { return this.gval; } set value(_v: number) { if (this.unlocked) this.gval = _v; }
+  private unlocked = false;
+  unlockGate(v: number, m: number, val: number) { this.unlocked = true; this.gv = v; this.gm = m; this.gval = val; }
+  stamp = 0xfffffffe;
+  /** node +0x14: the flags (argument +0), +0x18: the speed variable (argument +0xc, < 2 = none) */
+  readonly flags: number; readonly speedVar: number;
+  /** argument +8: the record the node animates (0 = the record that owns the node) */
+  private readonly argRec: number;
+  /** node +0x1c / +0x1e: the node's own mask / value for the variable the controller passes (the constructor never writes them) */
+  m1c = CD16; v1e = CD16;   // (0xCD from the debug heap: the update's own gate (var & mask) == value never matches, a second reason the node is dead; the tests set both to 0)
+  private init = false;
+  /** the animated record (node +0x40) */
+  target: GameRecord | null = null;
+  /** node +0x20 clock, +0x24 sine phase, +0x28 / +0x2c / +0x30 spin angles, +0x34 / +0x38 / +0x3c the record's position at the start, +0x44 / +0x48 target / base scale, +0x4c fade angle, +0x50 / +0x54 / +0x58 scale, +0x5c bounce */
+  // (f20 / f24 / f4c are never written by the constructor: 0xCDCDCDCD from the debug heap; the first update sets them)
+  f20 = CDF; f24 = CDF; f28 = 0; f2c = 0; f30 = 0; f34 = 0; f38 = 0; f3c = 0; f44 = 1; f48 = 0; f4c = CDF; f50 = 1; f54 = 1; f58 = 1; f5c = 0;
+  /** node +0x60: running */
+  active = 0;
+  /** node +0x61 .. +0x63: padding of the saved range (the zeroed allocation) */
+  pad = [CD, CD, CD];
+  constructor(at: Attach) {
+    const a = ArgView.of(at);
+    this.flags = a.u32(0); this.speedVar = a.i32(0x0c); this.argRec = a.recIndex(8);
+  }
+  /** the constructor's reads of the world (the record's position, the speed variable); the port runs them before the first update / save / load */
+  ensureInit(w: World, rec: GameRecord) {
+    if (this.init) return;
+    this.init = true;
+    const t = this.argRec >= 0 ? w.records[this.argRec] ?? rec : rec;
+    this.target = t;
+    this.f50 = this.f54 = this.f58 = 1; this.f48 = 0; this.f44 = 1;
+    if (this.speedVar > 1) { this.f44 = ml(w.vars.get(this.speedVar) | 0, POPIN_VAR_SCALE); this.f58 = this.f44; this.f54 = this.f58; this.f50 = this.f54; }
+    this.f34 = t.m[12]; this.f38 = t.m[13]; this.f3c = t.m[14];
+  }
+  ctorInit(w: World, rec: GameRecord) { this.ensureInit(w, rec); }
+  /**
+   * Save block = node +0x20 .. +0x64 then the tag (the first dword = the 4 name characters) of the record at +0x40 (saver FUN_00534a0a; the loader FUN_00534ae0 copies the 0x44 bytes back and
+   * replaces +0x40 by FUN_00419a79(tag), the FIRST record of that name): 0x44 bytes: +0x00 f20 .. +0x10 f30, +0x14 f34 f38 f3c, +0x20 the record pointer (the process address of the record: the
+   * emulation's 0x10000000 + index * 0x68; the real process's heap address cannot be known and the loader overwrites it), +0x24 f44 f48 f4c, +0x30 f50 f54 f58, +0x3c f5c, +0x40 u8 active + 3 pad bytes; +0x44 u32 tag.
+   */
+  saveBlock(w: World, rec: GameRecord): Uint8Array {
+    this.ensureInit(w, rec);
+    const o = new BlockOut(0x48);
+    o.f32(0, this.f20).f32(4, this.f24).f32(8, this.f28).f32(0xc, this.f2c).f32(0x10, this.f30).f32(0x14, this.f34).f32(0x18, this.f38).f32(0x1c, this.f3c);
+    o.u32(0x20, this.target ? (EMU_RECORDS_BASE + this.target.index * EMU_RECORD_STRIDE) >>> 0 : 0);
+    o.f32(0x24, this.f44).f32(0x28, this.f48).f32(0x2c, this.f4c).f32(0x30, this.f50).f32(0x34, this.f54).f32(0x38, this.f58).f32(0x3c, this.f5c);
+    o.u8(0x40, this.active).u8(0x41, this.pad[0]).u8(0x42, this.pad[1]).u8(0x43, this.pad[2]);
+    o.u32(0x44, this.target ? recordTag(this.target.name) : 0);
+    return o.bytes;
+  }
+  loadBlock(w: World, rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    this.ensureInit(w, rec);
+    const b = new BlockIn(data);
+    this.f20 = b.f32(0); this.f24 = b.f32(4); this.f28 = b.f32(8); this.f2c = b.f32(0xc); this.f30 = b.f32(0x10); this.f34 = b.f32(0x14); this.f38 = b.f32(0x18); this.f3c = b.f32(0x1c);
+    this.f44 = b.f32(0x24); this.f48 = b.f32(0x28); this.f4c = b.f32(0x2c); this.f50 = b.f32(0x30); this.f54 = b.f32(0x34); this.f58 = b.f32(0x38); this.f5c = b.f32(0x3c);
+    this.active = b.u8(0x40); this.pad = [b.u8(0x41), b.u8(0x42), b.u8(0x43)];
+    // FUN_00419a79(tag): the first record with these 4 name characters (a tag whose first byte is 0 matches nothing)
+    const tag = b.u32(0x44);
+    this.target = null;
+    if ((tag & 0xff) !== 0) for (const r of w.records) if (recordTag(r.name) === tag) { this.target = r; break; }
+  }
+
+  /** FUN_005341f4 */
+  update(w: World, rec: GameRecord, _ctrl: Controller): number {
+    this.ensureInit(w, rec);
+    const v = w.vars.get(this.gv) | 0;
+    if (((v & (this.m1c << 16 >> 16)) | 0) !== (this.v1e << 16 >> 16)) { this.active = 0; return this.speedVar > 1 ? NODE_CONTINUE : NODE_NONE; }
+    const t = this.target!;
+    if (this.active === 0) {
+      this.active = 1;
+      if (this.speedVar < 2) { this.f48 = 0; this.f44 = 1; } else this.f44 = ml(w.vars.get(this.speedVar) | 0, POPIN_VAR_SCALE);
+      this.f24 = -PI_2; this.f4c = POPIN_FADE0; this.f28 = -FOUR_PI; this.f2c = -FOUR_PI; this.f30 = -FOUR_PI;
+      this.f38 = t.m[13]; this.f34 = t.m[12]; this.f3c = t.m[14];
+      t.show();
+      this.f20 = 0;
+      this.f24 = (this.flags & PI_SHRINK) === 0 ? -PI_2 : PI_2;
+    }
+    t.show();
+    return NODE_CONTINUE;
+  }
+
+  /** FUN_0053436c(target, node): the target's matrix from the node's angles / position / scale */
+  private applyMatrix(t: GameRecord) {
+    t.m.set(buildMatrix(ad(this.f28, t.rx), ad(this.f2c, t.ry), ad(this.f30, t.rz), this.f34, ad(this.f5c, this.f38), this.f3c, this.f50, this.f54, this.f58));
+  }
+
+  /** FUN_00534409 (the pre-render hook: the animation step) */
+  prerender(w: World, rec: GameRecord) {
+    this.ensureInit(w, rec);
+    if (this.active === 0) return;
+    const t = this.target!, F = this.flags, dt = fr(w.dt);
+    let done = 0, want = 0;
+    this.f5c = 0;
+    const d14 = sb(this.f44, this.f48);
+    this.f58 = this.f54 = this.f50 = 1;
+    let v20 = 0;
+    if ((F & 0xf) !== 0) {
+      want = 1;
+      let v4: number, v10: number;
+      if ((F & PI_SHRINK) !== 0) { v4 = sb(1, Math.sin(this.f4c)); v10 = v4; }
+      else { v4 = fr(Math.sin(this.f4c)); v10 = sb(1, v4); }
+      v20 = ad(ml(Math.sin(this.f24), v10), v4);
+      this.f24 = ad(ml(POPIN_PHASE_SPEED, dt), this.f24);
+      this.f20 = ad(ml(1, dt), this.f20);
+      if (!(this.f20 < 10)) {
+        this.f4c = ad(ml(POPIN_VAR_SCALE, dt), this.f4c);
+        if (!(this.f4c < PI_2)) { v20 = (F & PI_SHRINK) !== 0 ? 0 : 1; done = 1; }
+      }
+      if ((F & PI_SCALE_X) !== 0) this.f50 = v20;
+      if ((F & PI_SCALE_Y) !== 0) this.f54 = v20;
+      if ((F & PI_SCALE_Z) !== 0) this.f58 = v20;
+      if ((F & PI_BOUNCE) !== 0) this.f5c = fr(Math.abs(ml(ml(Math.sin(this.f24), v10), 10)));
+    }
+    this.f50 = ad(ml(d14, this.f50), this.f48); this.f54 = ad(ml(d14, this.f54), this.f48); this.f58 = ad(ml(d14, this.f58), this.f48);
+    if ((F & 0x70) !== 0) {
+      if ((F & PI_SPIN_X) !== 0) { this.f28 = ad(this.f28, POPIN_SPIN_STEP); want |= 2; if (this.f28 > 0) { this.f28 = 0; done |= 2; } }
+      if ((F & PI_SPIN_Y) !== 0) { this.f2c = ad(this.f2c, POPIN_SPIN_STEP); want |= 4; if (this.f2c > 0) { this.f2c = 0; done |= 4; } }
+      if ((F & PI_SPIN_Z) !== 0) { this.f30 = ad(this.f30, POPIN_SPIN_STEP); want |= 8; if (this.f30 > 0) { this.f30 = 0; done |= 8; } }
+    }
+    if (done === want || !tryCtx(w)?.cutsceneActive()) {
+      if ((F & PI_SHRINK) !== 0) t.hide();
+      this.f58 = this.f54 = this.f50 = 1;
+      this.f50 = ad(ml(d14, this.f50), this.f48); this.f54 = ad(ml(d14, this.f54), this.f48); this.f58 = ad(ml(d14, this.f58), this.f48);
+      this.f48 = this.f44;
+      syncProps(w, t);
+      this.f30 = 0; this.f2c = 0; this.f28 = 0; this.f5c = 0; this.active = 0;
+      if (this.gv > 2) {
+        if ((this.m1c << 16 >> 16) === (this.v1e << 16 >> 16)) w.vars.andNot(this.gv, this.m1c << 16 >> 16); else w.vars.or(this.gv, this.m1c << 16 >> 16);
+      }
+    }
+    if (this.speedVar < 2) this.applyMatrix(t);
+  }
+  // (draw hook FUN_00534918: for a node without a speed variable (every shipped attach: argument +0xc = -1) it is the record's default draw (FUN_00444480 with 100), which the renderer does; the
+  // variable-driven branch (speed variable >= 2: the record's visibility follows the variable, the matrix is built around the draw) is not ported: no set-up of the game attaches such a node)
+}
+
 registerCtor(CTOR_DOOR, (at: Attach) => new DoorNode(decodeDoor(ArgView.of(at))));
 registerCtor(CTOR_SWING, (at: Attach) => new SwingNode(decodeSwing(ArgView.of(at))));
 registerCtor(CTOR_PAGE, (at: Attach) => new PageNode(at));
 registerCtor(CTOR_MUSIC_HOUSE, () => new MusicHouseNode());
+registerCtor(CTOR_POPIN_DEAD, (at: Attach) => new PopInNode(at));

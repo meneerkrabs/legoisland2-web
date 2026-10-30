@@ -20,6 +20,7 @@ export function installKids(d, names = ['XXX0', 'XXX1', 'XXX2']) {
     W.records[idx].ctrl = ctrl;
     emu.controller(idx, 6);
     const node = emu.stub(idx, { var: vr, mask: 0, value: 0 }, (c) => { c.eax = 0; });
+    mem.w8(node + 0x36, 0);   // the stand-in's `falling` byte (the port's kidstub has falling: 0): a heap filled with 0xCD must not make the kid fall
     // the kids' animation instances (the NPC nodes' constructors create them in the game; the rig is the player's MFIG): one per world, registered in the emulation like IslEmu's constructor does for existing ones
     const rig = d.P.pepper.anim.rig;
     for (const w of [d.P.world, d.O.world]) { w.records[idx].anim = new AnimInstance(rig); w.records[idx].anim.start(0, 0); }

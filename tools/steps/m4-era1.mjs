@@ -31,20 +31,37 @@ export default async (h) => {
     const w = window.__zone.world, g = w.ext.get('island.vehicles'), b = w.records.find((r) => r.name === 'SPBT');
     return { cur: g?.current?.name ?? null, boat: [b.x, b.y, b.z].map((x) => +x.toFixed(1)), pc: w.vars.get(0x5e), moveBoat: w.vars.get(0x82) };
   });
+  /** the boat and Pepper read in ONE call (a boat that coasts at 60 units a second moves 3 units between two page round trips) */
+  const boatPep = () => page.evaluate(() => { const z = window.__zone, w = z.world, b = w.records.find((r) => r.name === 'SPBT'), p = z.loaded.pepper; return { boat: [b.x, b.y, b.z].map((x) => +x.toFixed(1)), pos: [p.x, p.y, p.z].map((x) => +x.toFixed(1)), tick: w.tickCount }; });
   const boatTo = (x, z, fx, fz) => page.evaluate(([x, z, fx, fz]) => {
     const b = window.__zone.world.records.find((r) => r.name === 'SPBT'); const yaw = Math.atan2(fx - x, fz - z);
     b.setEuler(0, yaw, 0, x, b.y, z); b.rx = 0; b.ry = yaw; b.rz = 0; b.savePrev();
   }, [x, z, fx, fz]);
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
+  // a save slot (list item, type 9) goes to the confirm page 20 (FUN_0041fd45 case 9: the exactness pass of the menu): its "yes" item (type 10) runs the slot's action
+  const confirmYes = async () => {
+    await wait(300);
+    for (let i = 0; i < 6; i++) {
+      const m = await page.evaluate(() => { const e = __shell.menu.engine; return { page: e.page, type: e.current()?.type ?? -1, open: e.open }; });
+      if (!m.open || m.page !== 20) return;
+      if (m.type === 10) break;
+      await key('ArrowDown'); await wait(200);
+    }
+    await key('Enter'); await wait(500);
+  };
   /** pause menu -> Opslaan -> slot 1 (the world is frozen while the menu is open: the state read first is the saved one) */
-  const save = async () => { await press('Escape'); await wait(500); const s = await S.state(); await enter(3); await select(1); await press('Enter'); await wait(800); return s; };
-  const loadInPlace = async () => { await press('Escape'); await wait(500); await enter(2); await select(1); await key('Enter'); await wait(60); const s = await S.state(); log('just loaded', JSON.stringify(s), JSON.stringify(await menu())); await wait(1100); return s; };
+  const save = async () => { await press('Escape'); await wait(500); const s = await S.state(); await enter(3); await select(1); await press('Enter'); await confirmYes(); await wait(800); return s; };
+  const loadInPlace = async () => { await press('Escape'); await wait(500); await enter(2); await select(1); await key('Enter'); await confirmYes(); await wait(60); const s = await S.state(); log('just loaded', JSON.stringify(s), JSON.stringify(await menu())); await wait(1100); return s; };
   const loadFromFrontEnd = async () => {
     await press('Escape'); await wait(500);
     await enter(6); await select(2); await press('Enter'); await wait(500);      // Stoppen -> yes
     await page.waitForFunction(() => window.__fe && window.__fe.mode === 2, null, { timeout: 120000 });
-    await enter(1); await enter(2); await select(1); await press('Enter'); await wait(500);   // Starten -> Spel laden -> slot 1
+    await enter(1); await enter(2); await select(1); await press('Enter'); await confirmYes();   // Starten -> Spel laden -> slot 1 -> yes
+    // the state right after the load, while the island still waits for a button (mode 1, tick 0): a saved vehicle keeps its momentum (the save restores it), so a second later it has coasted on
+    await S.waitIsland();
+    const frozen = { s: await S.state(), v: await veh().catch(() => null), bp: await boatPep().catch(() => null) };
     await S.start(); await wait(1000);
+    return frozen;
   };
 
   // ---- node 11
@@ -52,7 +69,7 @@ export default async (h) => {
   await S.start();
   let s = await S.state();
   expect('island era 1 (zone id 31), node 11', s.arch === 'z02LGI' && s.sub === 31 && s.node === 11, JSON.stringify(s));
-  if (!process.env.CHAPTER1) {
+  if (!process.env.CHAPTER1 && !process.env.INPLACE) {
     const v = await S.vars([0xa5, 0x26, 0x8e]);
     log('dev entry: NUM_PAGES / PAGES_SET / COLORED_BOTHEADS', JSON.stringify(v), '-> 4 / 15 / 15 as after chapter 1 (HUD)');
     await S.setVar(0xa5, 4); await S.setVar(0x26, 15); await S.setVar(0x8e, 15);
@@ -117,15 +134,15 @@ export default async (h) => {
     expect('node 13 -> 14: Ctrl at the jetty, Pepper takes the Res-Q boat', s.node === 14 && v.cur === 'SPBT' && v.pc === 8 && v.moveBoat === 1, `${JSON.stringify(v)} ${JSON.stringify(s)}`);
     await wait(800); await shot('era1-05-boat');
     const b0 = (await veh()).boat; await S.hold('Space', 1500); v = await veh();
-    expect('the boat drives (Space) with Pepper on it', dist(b0, v.boat) > 10 && dist(v.boat, (await S.state()).pos) < 3, `${b0} -> ${v.boat}`);
+    { const bp = await boatPep(); expect('the boat drives (Space) with Pepper on it', dist(b0, v.boat) > 10 && dist(bp.boat, bp.pos) < 3, `${b0} -> ${v.boat}, Pepper ${bp.pos}`); }
     // save in the boat, quit, load: back in the boat (WP15 fix, src/zones/z02LGI/savevehicle.ts)
     const saved = await save();
     await S.hold('Space', 1200);
-    await loadFromFrontEnd();
-    v = await veh(); s = await S.state();
-    expect('load from the front end in the boat: node 14, boat at the saved place, Pepper in it', s.node === 14 && v.cur === 'SPBT' && v.pc === 8 && dist(s.pos, saved.pos) < 2 && dist(s.pos, v.boat) < 3, `saved ${saved.pos} now ${JSON.stringify(v)} ${s.pos}`);
-    const b1 = v.boat; await S.hold('Space', 1500); v = await veh(); s = await S.state();
-    expect('and drives on with Pepper', dist(b1, v.boat) > 10 && dist(v.boat, s.pos) < 3, `${b1} -> ${v.boat}, Pepper ${s.pos}`);
+    const fz = await loadFromFrontEnd();
+    s = fz.s; v = fz.v;
+    expect('load from the front end in the boat: node 14, boat at the saved place (read at the frozen first tick), Pepper in it', s.node === 14 && v.cur === 'SPBT' && v.pc === 8 && dist(s.pos, saved.pos) < 2 && dist(fz.bp.pos, fz.bp.boat) < 3, `saved ${saved.pos} now ${JSON.stringify(v)} ${s.pos}`);
+    const b1 = (await boatPep()).boat; await S.hold('Space', 1500); v = await veh(); const bp1 = await boatPep();
+    expect('and drives on with Pepper', dist(b1, bp1.boat) > 10 && dist(bp1.boat, bp1.pos) < 3, `${b1} -> ${bp1.boat}, Pepper ${bp1.pos}`);
     await shot('era1-06-boat-loaded');
   }
 

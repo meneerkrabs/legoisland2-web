@@ -48,8 +48,11 @@ export default async (h) => {
   // ---- phase customers
   if (phase('customers')) return;
   const customers = ['NANC', 'PAPA', 'NICK', 'LICK', 'VALS', 'TBOB', 'DJAB', 'ROBB', 'CLIK', 'REDG', 'DARR', 'NUBB'];
+  let tNanc = -1;
   for (const c of customers) {
     let done = false;
+    // NUBB parks ~600 ticks after NANC's delivery: wait for that in game ticks (not in tries of wall time: a loaded page runs fewer ticks per second)
+    if (c === 'NUBB' && tNanc >= 0) { const left = 750 - ((await S.ticks()) - tNanc); if (left > 0) await S.untilTicks(async () => false, left, 40); }
     // NUBB drives a toy car until NANC's pizza has been delivered (~600 ticks later he parks and gets out): keep trying for a while
     const tries = c === 'NUBB' ? 40 : 8;
     for (let attempt = 0; attempt < tries && !done; attempt++) {
@@ -61,11 +64,13 @@ export default async (h) => {
       done = c === 'NANC' ? t.pizzas < p0 : t.bricks < b0;
     }
     s = await S.state();
+    if (c === 'NANC' && done) tNanc = s.tick;
     expect(`customer ${c}`, done, `bricks ${s.bricks} pizzas ${s.pizzas} phase ${s.phase}`);
   }
   await wait(800);
   s = await S.state();
-  if (s.node === 3) { log('NOT all bricks delivered: taking the rest (dev)'); await S.setVar(0x4f, 0); await wait(800); s = await S.state(); }
+  if (s.node === 3 && process.env.STRICT) expect('all 11 bricks delivered by the bot (no dev aid in the full story)', false, JSON.stringify(s));
+  else if (s.node === 3) { log('NOT all bricks delivered: taking the rest (dev)'); await S.setVar(0x4f, 0); await wait(800); s = await S.state(); }
   expect('all 11 bricks: node 4', s.node === 4 && s.bricks === 0, JSON.stringify(s));
   await shot('ch1-02-house-done');
 
@@ -143,22 +148,25 @@ export default async (h) => {
   // the mini-game bot (tools/steps/m3-z05WAB.mjs): whack every bot as soon as it rises
   const KEYS = ['ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown'];
   for (;;) {
-    const hole = await page.waitForFunction(() => {
+    // (the page function answers with an object every time it is asked: a bare hole index 0 would be falsy and make waitForFunction keep polling past the bot of hole 0)
+    const r = await page.waitForFunction(() => {
       const g = window.__zone.game.debug();
-      if (g.over) return -2;
-      for (let i = 0; i < 4; i++) if ((g.state[i] === 1 || (g.state[i] === 2 && g.elapsed - g.tUp[i] < 10)) && !g.isInfo[i] && !g.whacked[i] && g.busy === 0 && g.stun === 0 && g.clip === 1) return i;
-      return -1;
-    }, null, { polling: 4, timeout: 300000 }).then((j) => j.jsonValue());
-    if (hole === -2) break;
-    if (hole >= 0) { await page.keyboard.down(KEYS[hole]); await wait(40); await page.keyboard.up(KEYS[hole]); await wait(120); } else await wait(8);
+      if (g.over) return { over: true };
+      for (let i = 0; i < 4; i++) if ((g.state[i] === 1 || (g.state[i] === 2 && g.elapsed - g.tUp[i] < 10)) && !g.isInfo[i] && !g.whacked[i] && g.busy === 0 && g.stun === 0 && g.clip === 1) return { hole: i };
+      return { hole: -1 };
+    }, null, { polling: 4, timeout: 1500000 }).then((j) => j.jsonValue());   // (the clock is in game ticks: a loaded page runs fewer ticks per second, so this is a ceiling only)
+    if (r.over) break;
+    if (r.hole >= 0) { await page.keyboard.down(KEYS[r.hole]); await wait(40); await page.keyboard.up(KEYS[r.hole]); await wait(120); } else await wait(8);
   }
-  await wait(900);
-  expect('WAB end banner', await page.evaluate(() => window.__zone.machine.mode === 4));
+  // (the end banner (mode 4) is left as soon as ANY button is held: a whack in the last ticks takes the loop straight to the result menu, mode 5: the original's rule)
+  await page.waitForFunction(() => window.__zone.machine.mode === 4 || window.__zone.machine.mode === 5, null, { timeout: 60000 }).catch(() => {});
+  await wait(300);
+  expect('WAB end banner (mode 4) or, with a button held at the end, the result menu (mode 5)', await page.evaluate(() => window.__zone.machine.mode === 4 || window.__zone.machine.mode === 5));
   await shot('ch1-08-wab-banner');
-  await press('Enter'); await wait(600);
+  if (await page.evaluate(() => window.__zone.machine.mode === 4)) { await press('Enter'); await wait(600); }
   expect('result menu (continue / retry)', (await menu()).page === 16);
   await select(0); await press('Enter');
-  await page.waitForFunction(() => window.__zone && window.__zone.info.archive === 'z02LGI' && window.__zone.world.tickCount > 5, null, { timeout: 300000 });
+  await page.waitForFunction(() => window.__zone && window.__zone.info.archive === 'z02LGI' && (window.__zone.world.tickCount > 5 || window.__zone.machine.mode === 1), null, { timeout: 300000 });   // (the island opens in mode 1, a frozen world that waits for a button: S.start() takes it)
   await S.start();
   s = await S.state();
   expect('back on the island after WAB: node 11 (era 1)', s.arch === 'z02LGI' && s.node === 11 && s.sub === 31, JSON.stringify(s));

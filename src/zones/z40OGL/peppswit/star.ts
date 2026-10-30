@@ -5,7 +5,10 @@
 import type { BehaviourNode } from '../../../game/controller.ts';
 import { NODE_STOP } from '../../../game/controller.ts';
 import type { GameRecord } from '../../../game/record.ts';
+import { CD8 } from '../../hubsave.ts';
 import { fr } from './util.ts';
+import type { Controller } from '../../../game/controller.ts';
+import type { World } from '../../../game/world.ts';
 
 export const STAR = {
   /** DAT_0089df34: the dome's far plane (FUN_00443cb0); the dome's flat factor _DAT_00892084 = 0.8 */ FAR: 400.0, FLAT: fr(0.8),
@@ -19,8 +22,8 @@ export class StarDomeNode implements BehaviourNode {
   readonly kind = 'PeppStar';
   var = 2; mask = 1; value = 1;
   stamp = 0xfffffffe;
-  /** +0x15 (byte): what the save game keeps (never written) */
-  state = 0;
+  /** +0x15 (byte): what the save game keeps (never written: the debug heap's 0xCD fill) */
+  state = CD8;
 
   /** FUN_007e62a6 */
   update(): number { return NODE_STOP; }
@@ -43,6 +46,8 @@ export class StarDomeNode implements BehaviourNode {
     return { scale: s, fogOff: true, depthOff: true };
   }
 
-  saveBlob(): Uint8Array { return new Uint8Array([this.state & 0xff]); }
-  loadBlob(b: Uint8Array): void { this.state = b[0]; }
+  /** FUN_007e643a (`*out = node + 0x15; return 1`) */
+  saveBlock(): Uint8Array { return new Uint8Array([this.state & 0xff]); }
+  /** FUN_007e645f: a plain copy of the byte into +0x15 */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, b: Uint8Array): void { this.state = b[0]; }
 }

@@ -19,6 +19,8 @@ import type { Attach } from '../../formats/zonesetup.ts';
 import { ad, sb, ml, fr, fromBits } from '../../zones/common/f32.ts';
 import { rand, randTrunc } from '../rng.ts';
 import { ArgView } from '../args.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
+import { CD_U8 } from './cd.ts';
 import { tryCtx } from '../ctx.ts';
 import { nextSeq, actionVarOp, ctrlExtra, inView, pepperSide, probeSet } from './globals.ts';
 
@@ -86,6 +88,19 @@ export class Human1Node implements BehaviourNode {
   /** +0x34: wait */ wait = 0;
   private random: number[][] = RANDOM_NODES_DEFAULT;
   private out: StepOut = { yaw: 0, dist: 0 };
+  /** block byte +0x0a (node +0x32): padding between `restartClip` and `stopped`, never read or written by the node's code; keeps what a loaded block held */
+  private pad32 = CD_U8;
+
+  // ----------------------------------------------------------------------------------------------- save block: FUN_004beb35 (vtable +0x14, buffer protocol: returns -1, then copies) / FUN_004beba1 (+0x10, memcpy)
+  // the 0x10 bytes at node +0x28 .. +0x38: +0x00 i16 passed, +0x02 u8 index, +0x03 i8 due, +0x04 f32 hop, +0x08 u8 hopping, +0x09 u8 restartClip, +0x0a (padding), +0x0b u8 stopped, +0x0c f32 wait
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array {
+    return new BlockOut(0x10).i16(0, this.passed).u8(2, this.index).u8(3, this.due).f32(4, this.hop).u8(8, this.hopping).u8(9, this.restartClip).u8(0xa, this.pad32).u8(0xb, this.stopped).f32(0xc, this.wait).bytes;
+  }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.passed = b.i16(0); this.index = b.u8(2); this.due = (b.u8(3) << 24) >> 24; this.hop = b.f32(4); this.hopping = b.u8(8); this.restartClip = b.u8(9); this.pad32 = b.u8(0xa);
+    this.stopped = b.u8(0xb); this.wait = b.f32(0xc);
+  }
 
   constructor(args: Human1Args, attach: Attach | null = null) { this.args = args; this.attach = attach; }
 

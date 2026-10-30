@@ -8,11 +8,12 @@ import { vehicles } from '../../src/island/vehicles/common.ts';
 /** a Duel for trigger nodes: both worlds keep only the nodes of the given kinds; the cutscene model (K ticks per started cutscene, both sides), the cutscene-start and walker-pin logs */
 // a constructor whose raw argument is 0 gets NULL from the original's set-up (hOLO's `arg == 0` = hide after use); IslEmu.argBlock always hands out the 0x80 byte block: with `argZero` a zero raw argument stays 0
 const _argBlock = IslEmu.prototype.argBlock;
-IslEmu.prototype.argBlock = function (a) { return globalThis.__argZero && a.arg === 0 ? 0 : _argBlock.call(this, a); };
+IslEmu.prototype.argBlock = function (a) { return (globalThis.__argZero || globalThis.__argZeroCtors?.has(a.ctor)) && a.arg === 0 ? 0 : _argBlock.call(this, a); };
 export function trigDuel(ctx, o) {
   globalThis.__bldgHooks = !!o.bldg; globalThis.__argZero = !!o.argZero;
   let d;
-  try { d = new Duel(ctx, { pepSwitc: false, seat: false, ...o }); } finally { globalThis.__bldgHooks = false; globalThis.__argZero = false; }
+  const ba = o.beforeAttach;
+  try { d = new Duel(ctx, { pepSwitc: false, seat: false, ...o, beforeAttach: (emu, duel) => { emu.cpu.mem.write(emu.brk, new Uint8Array(0x800000).fill(0xcd)); ba?.(emu, duel); } }); } finally { globalThis.__bldgHooks = false; globalThis.__argZero = false; }
   const emu = d.emu, cpu = emu.cpu, H = cpu.hooks, W = d.P.world, ic = d.P.ictx;
   d.csTicks = o.csTicks ?? 12;
   d.csLeft = 0;

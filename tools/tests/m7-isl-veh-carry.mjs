@@ -4,11 +4,13 @@
 // record (matrix, Euler angles, flags), the node's fields, all game variables, the sound / emitter calls.
 import { Duel, B, REC, RECORDS_BASE, bitsOf } from '../lib/m7-isl-veh-emu.mjs';
 import { attachCarry, releaseCarry, scaleCarry } from '../../src/island/pizza/carry.ts';
+import { withCdHeap } from '../lib/m8-save-pizza.mjs';
 
 const MAXFAIL = 30;
 const PROPS = { 2: ['PIZ3', 'CNST', 'RHCP', 'BRIK'], 52: ['PAPA', 'MAMA'], 61: ['PIZ3', 'CNST', 'RHCP'] };
 
-export default {
+// (WP-SAVE: the original is a debug build whose heap fills fresh node blocks with 0xCD; the nodes of this family keep that fill in the fields the constructors never write, so the oracle must allocate like it: tools/lib/m8-save-pizza.mjs)
+const suite = {
   name: 'm7-isl-veh-carry',
   async run(ctx) {
     const failures = [], notes = [];
@@ -107,3 +109,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default { ...suite, run: (ctx) => withCdHeap(() => suite.run(ctx)) };

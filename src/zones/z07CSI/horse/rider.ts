@@ -20,6 +20,7 @@ import { f } from './math.ts';
 import { setEulerExact } from './math.ts';
 import { REC_HORSE } from './hors.ts';
 import { applyEmulatedSetupState } from './setup.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
 
 export const CTOR_RIDER = 0x579725, CTOR_SADDLE = 0x579948;
 /** the record PEPP (`DAT_00983804 + 0x2d8` = 7) */
@@ -35,7 +36,13 @@ export class RiderNode implements BehaviourNode {
   readonly kind = 'Horse';
   var = 0; mask = 0; value = 0;
   stamp = 0xfffffffe;
+  /** the byte at +0x15 (inside the dword +0x14 that the constructor never writes: a fresh heap block's byte); only kept so that a loaded block is saved again unchanged */
+  byte15 = 0xcd;
   constructor(_a?: Pick<Attach, 'var' | 'mask' | 'value'>) { void _a; }
+  /** save FUN_005796c7 (vtable +0x14): `*out = node + 0x15; return 1` */
+  saveBlock(): Uint8Array { return new BlockOut(1).u8(0, this.byte15).bytes; }
+  /** load FUN_005796ec (vtable +0x10): memcpy of the byte back to node + 0x15 */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.byte15 = new BlockIn(data).u8(0); }
 
   /** FUN_00579379(rec, node, ctrl, var value): visible while the variable's 0x10 bit is set */
   update(w: World, rec: GameRecord, _ctrl: Controller): number {
@@ -75,6 +82,12 @@ export class SaddleNode implements BehaviourNode {
   }
   /** the set-up's final visibility is applied once, at the first update (setup.ts; tests that place the record themselves set it) */
   setupApplied = false;
+  /** the byte at +0x1c (past the two argument dwords; the constructor never writes it: a fresh heap block's byte); only kept so that a loaded block is saved again unchanged */
+  byte1c = 0xcd;
+  /** save FUN_005798ea (vtable +0x14): `*out = node + 0x1c; return 1` */
+  saveBlock(): Uint8Array { return new BlockOut(1).u8(0, this.byte1c).bytes; }
+  /** load FUN_0057990f (vtable +0x10): memcpy of the byte back to node + 0x1c */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.byte1c = new BlockIn(data).u8(0); }
 
   /** FUN_005797cf(rec, ...): the horse's matrix, angles and animation */
   update(w: World, rec: GameRecord, _ctrl: Controller): number {

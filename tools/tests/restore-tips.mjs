@@ -139,7 +139,7 @@ export default {
       I.ictx.text.npc = T[13];
       const tgt = [rec.x + 30, rec.y, rec.z];
       I.ictx.objective = { target: () => ({ pos: tgt, record: -1 }), holoTimer: 0 };   // (the second talk of an NPC points at the objective: sgmfig.ts)
-      I.ictx.say = function (t, a, b) { const r = restoreHooks.say?.(t, a, b, (tt, aa, bb) => raw.call(I.ictx, tt, aa, bb)); return r ?? raw.call(I.ictx, t, a, b); };
+      I.ictx.say = function (t, a, b, ...m) { const r = restoreHooks.say?.(t, a, b, (tt, aa, bb) => raw.call(I.ictx, tt, aa, bb, ...m)); return r ?? raw.call(I.ictx, t, a, b, ...m); };
       const p = I.pepper;
       const place = () => { const a = rec.ry; p.x = rec.x + Math.sin(a) * 4; p.z = rec.z + Math.cos(a) * 4; p.y = rec.y; p.ry = Math.atan2(rec.x - p.x, rec.z - p.z); p.rebuildYaw(); };
       const doTalk = () => { place(); tick(I, 2); place(); tick(I, 1); press(I, 'ShiftLeft'); let n = 0; while ((sg.talk & 0x40) && n < 1500) { tick(I, 1); n++; } };

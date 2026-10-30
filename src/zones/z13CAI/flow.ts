@@ -9,6 +9,10 @@ import type { BehaviourNode } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import { ArgView } from '../../island/args.ts';
+import { BlockIn, BlockOut } from '../z07CSI/blockio.ts';
+import type { Controller } from '../../game/controller.ts';
+import type { GameRecord } from '../../game/record.ts';
+import type { World } from '../../game/world.ts';
 
 export const CTOR_FLOW = 0x426f55;
 
@@ -19,6 +23,12 @@ export class FlowNode implements BehaviourNode {
   /** node +0x14 / +0x18: the argument words (the texture shift per drawn frame: the renderer's `flow` entry has the same values) */
   readonly dv: number; readonly du: number;
   constructor(a: ArgView) { this.dv = a.f32(0); this.du = a.f32(4); }
+  /** the byte at +0x1c (the constructor writes +0x14 / +0x18 only; the dword at +0x1c is a fresh heap block's): kept so that a loaded block is saved again unchanged */
+  byte1c = 0xcd;
+  /** save FUN_00426f0f (vtable +0x14): `*out = node + 0x1c; return 1` */
+  saveBlock(): Uint8Array { return new BlockOut(1).u8(0, this.byte1c).bytes; }
+  /** load FUN_00426f2d (vtable +0x10): memcpy of the byte back to node + 0x1c */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.byte1c = new BlockIn(data).u8(0); }
   /** FUN_00426e74 */
   update(): number { return NODE_STOP; }
   /** FUN_00426e87 */

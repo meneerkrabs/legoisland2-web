@@ -5,6 +5,7 @@ import { parkSession } from '../../src/island/vehicles/crashsound.ts';
 // (matrix, Euler, flags), the node block (28 fields), both animation instances (clip / frame), all game variables, the vehicle globals (trick score / flag, surface, rolling-sound surface), the camera, the sound calls.
 import { skateDuel, skateToPort, B, lcg, randomKeys, SK } from '../lib/m7-isl-veh-skate.mjs';
 import { vehicles } from '../../src/island/vehicles/common.ts';
+import { compareChainBlocks, snapChainBlocks, loadChainBlocks } from '../lib/m8-save-pepper.mjs';
 
 const MAXFAIL = 30;
 const POOL = [0, 0, B.LEFT, B.RIGHT, B.LEFT, B.RIGHT, B.ALT, B.ALT, B.ALT, B.ALT | B.LEFT, B.ALT | B.RIGHT, B.DOWN, B.SPACE, B.SPACE | B.LEFT, B.SHIFT, B.SHIFT | B.UP, B.UP, B.SPACE | B.DOWN, B.SHIFT | B.RIGHT, B.SHIFT | B.LEFT];
@@ -21,6 +22,7 @@ export default {
     const cover = { rides: 0, ticks: 0, states: {}, dismounts: 0, knocked: 0, sessions: 0, clips: {}, tricks: 0, scored: 0, edgeRides: 0, knockRides: 0, ceilingRides: 0 };
     const devs = new Map(), unhooked = new Map();
     const worstAll = new Map();
+    const blocks = {};      // WP-SAVE: save blocks of Pepper's chain compared (original serializer vs port saveBlock) / loaded into both machines
 
     const session = (label, dt, seed, syncMode, nRides) => {
       const d = skateDuel(ctx, { dt, maxFail: MAXFAIL, failures, tolFree: 1e-4,
@@ -44,6 +46,7 @@ export default {
         d.eq('DAT_009da9ac surface', mem.r32(0x9da9ac), W.pep.surfaceAtFeet | 0);
         d.eq('DAT_05d57ff8 rollSurface', mem.r32(0x5d57ff8) | 0, G.rollSurface);
         d.eq('DAT_008ae088 mailbox', mem.r32(0x8ae088) & 0xff, W.pep.mailbox & 0xff);
+        compareChainBlocks(d, blocks);       // WP-SAVE: PepSwitc, skateboard, SGVehic: the +0x14 serializer's bytes of the original = `saveBlock` of the port, every tick
         const a = d.onodeSkate(), pn = d.snode();
         if (pn && a && pn.stamp !== 0xfffffffe || (a && mem.r32(a + 8) !== 0xfffffffe)) {
           d.eq('node stamp', mem.r32(a + 8) >>> 0, pn.stamp >>> 0);
@@ -141,7 +144,7 @@ export default {
         step(B.CTRL); step(0);                               // Ctrl: PepSwitc puts Pepper on the board (mode 4)
         if (riding()) cover.rides++;
         const g0 = randomKeys(rnd, POOL, 40 * sc);
-        let tt = 0;
+        let tt = 0, snapC = null;
         const ground = () => (kind === 1 ? B.SPACE * 0 : stunt && tt < 40 * sc ? ([0x29, 0x2a, 0x2b].includes(mem.r8(d.onodeSkate() + 0x18)) ? (tt++, B.ALT) : 0) : stunt ? 0 : g0());       // edge rides roll straight on; stunt rides charge a jump first
         let hold = 0, cur = 0, wasAir = false;
         const keys = () => {
@@ -157,6 +160,12 @@ export default {
           const k = keys();
           // a scripted low ceiling for a few ticks (both worlds answer the pre-render's ceiling sweep, mask 1 / skin 0.2 / delta.y 1.2, with a hit against Pepper's forward): FUN_004928d2's knock-off on a slope
           synth.on = synthRide && t >= 70 * sc && t < 74 * sc;
+          // WP-SAVE, the loader: the original's blocks of the board node and SGVehic at tick 100, loaded into BOTH machines at tick 220 of the same ride; the ride goes on under the full comparison.
+          // (free-running sessions only: the sync sessions copy the original's node into the port every tick)
+          if (!sm && (r === 1 || r === 2 || r === 5)) {
+            if (t === 100 * sc) snapC = snapChainBlocks(d, ['skate', 'SGVehic']);
+            if (t === 220 * sc && snapC) { loadChainBlocks(d, snapC, blocks); snapC = null; }
+          }
           step(k);
           if (mem.r32(0x8ae088) === 0x37) cover.knocked++;
         }
@@ -176,6 +185,7 @@ export default {
     for (const [id, e] of devs) notes.push(`KNOWN DEVIATION ${id}: ${e.count}x, first ${e.first}`);
     notes.push(`unhosted engine calls (returned 0): ${[...unhooked].map(([a, n]) => '0x' + a.toString(16) + ' x' + n).join(', ') || 'none'}`);
     notes.push(`coverage: ${JSON.stringify(cover)}`);
+    notes.push(`WP-SAVE save blocks of Pepper's chain compared (original serializer vs port saveBlock, tolerance 0): ${JSON.stringify(blocks)}`);
     return { checked, failures, notes };
   },
 };

@@ -18,7 +18,8 @@ export default async (h) => {
   await S.shot('cai51-01-mode1');
   await S.start();
   let v = await S.veh();
-  expect('flying the helicopter, S250 = 0', v?.ctrl === 8 && v.name === 'PHEL' && v.s250 === 0, JSON.stringify(v));
+  // (the vehicle comes with the zone Pepper arrives from: the chapter jump (PREV_SUBGAME 0) gives the police helicopter, the real return from the Dino island (z23DIP) the Pterodactyl, PEPPER_CONTROL 0x40)
+  expect('flying the helicopter (PHEL, control 8) or the Pterodactyl (PTER, control 0x40), S250 = 0', v && ((v.ctrl === 8 && v.name === 'PHEL') || (v.ctrl === 0x40 && v.name === 'PTER')) && v.s250 === 0, JSON.stringify(v));
   await S.keys(['ShiftLeft']);
   const holo = await S.untilTicks(async () => (await S.vars([0xc6]))[0xc6] === 1, 90);
   await wait(500);

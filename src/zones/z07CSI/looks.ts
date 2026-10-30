@@ -15,7 +15,7 @@ import { VehicleLooks, looksOf, LOOKS_KEY, VARIANT_VEHICLE, ROSTER_STRIDE, decor
 import { DecorState, decorModel, decorStore } from '../../island/decor.ts';
 import type { DecorHost } from '../../island/decor.ts';
 import { readDecorSetGroups } from '../../island/decorsets.ts';
-import { decorGroupOfZone, defaultDecor } from '../../shell/tables.ts';
+import { decorGroupOfZone, defaultDecor, readDecorTables } from '../../shell/tables.ts';
 
 /** the roster table of the castle (`FUN_005b2a00`: FUN_004202ef(&DAT_009031d0)) and its length-terminating record -1 */
 export const CSI_ROSTER_VA = 0x9031d0;
@@ -42,6 +42,15 @@ export function readHiddenList(pe: Pe): number[] {
 export function constructCastleRoster(w: World, pe: Pe, run: (fn: number) => unknown): void {
   run(FN_CONTROL_CTOR);
   for (const r of w.records) r.variant = 0;
+  // FUN_00420837(1): every record of the castle's decor group gets the DEFAULT word set << 8 | 1 | variant << 16 (the exe's table; the stored decor is applied later, by the wrapper's FUN_00421bbe(1))
+  const dt = readDecorTables(pe), grp = dt.groups[decorGroupOfZone(6)];
+  for (let i = grp.first; i < grp.first + grp.count; i++) {
+    const e = dt.entries[i], r = w.records[e.record];
+    if (r) r.variant = ((e.set << 8) | 1 | (e.variant << 16)) >>> 0;
+  }
+  applyDecorSets(w, pe);   // FUN_005b2a00 -> FUN_00420674(1): the decor sets' era table
+  // the roster's vehicles (table 0x9031d0) are variant 2
+  for (let va = CSI_ROSTER_VA; (pe.u32(va) | 0) !== -1; va += ROSTER_STRIDE) { const r = w.records[pe.u32(va) | 0]; if (r) r.variant = VARIANT_VEHICLE; }
   // (the hidden list's `flags &= 0xfffd` happens at the attach, in the middle of the set-up: `applyCsiSetup` resolves the final visibility from the set-up's own flag writes in execution order)
 }
 
@@ -81,5 +90,24 @@ export function ensureCsiLooks(w: World): VehicleLooks | null {
   }, CSI_ROSTER_VA);
   w.ext.set(LOOKS_KEY, looks);
   return looks;
+}
+
+/**
+ * The tail of Control's loader FUN_0057a53b = FUN_005b2a00: FUN_00420674(1) (the decor sets' era table from the CURRENT story node / trophy variables) and FUN_004202ef(0x9031d0) (the roster: per
+ * entry the stored look of its game variable applied to the cycler, FUN_004439f0(cycler, v & 0xff, v >> 8); the busy list cleared). The port builds the roster lazily (`ensureCsiLooks`, which reads
+ * the variables when it is created): a roster that exists already is brought to the same state here, one that does not exist yet needs nothing (it reads the loaded variables later).
+ */
+export function reloadCsiRoster(w: World): void {
+  const c = tryCtx(w);
+  if (!c) return;
+  if (decorSetsOf(w)) applyDecorSets(w, c.pe);                 // FUN_00420674
+  const looks = looksOf(w);
+  if (!looks) return;
+  for (const e of looks.entries) {                              // FUN_004202ef
+    if (e.varIdx === -1) continue;
+    const v = w.vars.get(e.varIdx) | 0;
+    e.part = v & 0xff; e.variant = v >> 8;
+  }
+  looks.busy.fill(-1);
 }
 export { VARIANT_VEHICLE };

@@ -3,12 +3,14 @@
 //            LGIBR07 police station: POLB, PCAR, PHEL, JAIL, FECL.. come back) -> NUM_PAGES & 2
 //   node 31: walk to the police station (StartCSM on POLB, gate node 0x1f) -> LGI08 "NICK_CHOPPER" -> S277 = 2
 //   node 32: Ctrl at the police helicopter PHEL, fly (Space forward, ArrowDown climb) into the air portal PORA (gate node 0x20: S281 |= 2, var 5 = 10)
-//   node 33: z13CAI (Adventure Island, a stub) ... node 51: F9 (stub aid) in every stub zone until the story flies home -> island era 3 (zone id 33),
+//   node 33: z13CAI (Adventure Island) ... node 51: the full-story bot plays the adventure arc, the story flies home -> island era 3 (zone id 33),
 //            node 52: Pepper arrives at PORA in the helicopter (FUN_004c2d22, PREV_SUBGAME 10).
 //   node tools/browse.mjs "http://localhost:5490/?zone=z02LGI&node=30&mute=1&debug=1&hold=1" tools/steps/m4-era2.mjs --size 1280x800 --out /tmp/wp16
 // Long walks / flights are teleports (Pepper or her helicopter put near the target, facing it); the keys do the actions.
-// Env: STOP=<phase> ends after that phase (intro, pages, police, heli, stubs); FROM=stubs starts at the stubs (URL ?zone=z13CAI&node=33&mute=1&hold=1);
-//      FROM=castle starts in the castle hub at node 29 (URL ?zone=z07CSI&node=29&mute=1&hold=1) and arrives by boat.
+// Env: STOP=<phase> ends after that phase (intro, pages, police, heli; STOP=stubs ends at the arrival in z13CAI);
+//      FROM=castle starts in the castle hub at node 29 (URL ?zone=z07CSI&node=29&mute=1&hold=1: the step taps the hub's mode 1 and presses F9 only for the standalone run, INPLACE=1: the
+//      full story arrives by playing the castle) and arrives by boat; FROM=stubs INPLACE=1 is the TAIL: the full story has flown home from the adventure arc (island era 3, node 52),
+//      the helicopter lands on a pad (node 53).
 import { island } from './lib-island.mjs';
 
 export default async (h) => {
@@ -39,8 +41,13 @@ export default async (h) => {
   // FROM=castle (URL ?zone=z07CSI&node=29): node 29 waits for NEXT_SUBGAME == 32 in the castle hub (a stub: F9), then the island era 2 with
   // PREV_SUBGAME 6: Pepper arrives at the sea portal PORS on the speedboat (FUN_004c2d22), the era intro plays, then she docks (Ctrl at a dock)
   if (castle) {
-    await page.waitForFunction(() => window.__zone && window.__zone.machine.mode === 2, null, { timeout: 120000 });
-    for (let i = 0; i < 10 && (await page.evaluate(() => window.__zone?.info.archive)) !== 'z02LGI'; i++) { await key('F9'); await wait(1500); }
+    if (!process.env.INPLACE) {   // (INPLACE=1: the full-story bot (tools/steps/full-story.mjs) arrives here by playing the castle: no stub aid)
+      // (the castle hub opens in mode 1, the frozen world that waits for a button: with `&hold=1` in the URL nobody presses it for us)
+      await page.waitForFunction(() => window.__zone && (window.__zone.machine.mode === 1 || window.__zone.machine.mode === 2), null, { timeout: 300000 });
+      if (await page.evaluate(() => window.__zone.machine.mode === 1)) await page.keyboard.press('ArrowLeft', { delay: 70 });
+      await page.waitForFunction(() => window.__zone && window.__zone.machine.mode === 2, null, { timeout: 60000 });
+      for (let i = 0; i < 10 && (await page.evaluate(() => window.__zone?.info.archive)) !== 'z02LGI'; i++) { await key('F9'); await wait(1500); }
+    }
     await S.waitIsland();
     s = await S.state();
     const arr = await page.evaluate(() => window.__zone.game.debug().arrival);
@@ -136,7 +143,7 @@ export default async (h) => {
   await page.keyboard.up('Space');
   s = await page.evaluate(() => ({ next: window.__zone.sh.vars.get(5), s281: window.__zone.sh.vars.get(0x119), node: window.__zone.sh.vars.get(0x58), arch: window.__zone.info.archive }));
   expect('PORA: S281 |= 2, var 5 = 10 (z13CAI)', left && s.next === 10, JSON.stringify(s));
-  await page.waitForFunction(() => window.__zone && window.__zone.info.archive !== 'z02LGI' && window.__zone.world.tickCount > 3, null, { timeout: 120000 }).catch(() => {});
+  await page.waitForFunction(() => window.__zone && window.__zone.info.archive !== 'z02LGI' && (window.__zone.world.tickCount > 3 || window.__zone.machine.mode === 1), null, { timeout: 120000 }).catch(() => {});   // (the hub waits in mode 1: its ticks stand still)
   s = await page.evaluate(() => ({ arch: window.__zone?.info.archive, node: window.__zone?.sh.vars.get(0x58) }));
   expect('node 33 in z13CAI', s.arch === 'z13CAI' && s.node === 33, JSON.stringify(s));
   await shot('e2-06-cai');
@@ -145,33 +152,8 @@ export default async (h) => {
 
   // ---- nodes 33..51: the stubs (F9 completes the story step / finishes the mini-game)
   if (phase('stubs')) return;
-  // z17WAS (node 37) is a ported mini-game: the Whack-A-Snake bot of tools/steps/m3-z17WAS.mjs plays it (clock shortened to 3 s after a few seconds)
-  const BTN = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'];
-  const playWas = async () => {
-    const t0 = Date.now();
-    while (Date.now() - t0 < 30000) {
-      const d = await page.evaluate(() => window.__zone?.game?.debug?.());
-      if (!d || d.done) break;
-      if (Date.now() - t0 > 5000) await page.evaluate(() => { const n = __zone.world.records[22]?.ctrl?.nodes.find((x) => x.kind === 'zonewas'); if (n && n.timeLeft > 90) n.timeLeft = 90; });
-      if (!d.busy && d.presses === 0 && !d.squash) {
-        const k = d.state.findIndex((st, i) => st === 2 && d.hit[i] === 0);
-        if (k >= 0) { await page.keyboard.press(BTN[k], { delay: 70 }); if (d.holder === k) { await wait(70); await page.keyboard.press(BTN[k], { delay: 70 }); } }
-      }
-      await wait(30);
-    }
-  };
-  const visited = [];
-  for (let i = 0; i < 120; i++) {
-    const z = await page.evaluate(() => ({ arch: window.__zone?.info.archive, mode: window.__zone?.machine.mode, node: window.__zone?.sh.vars.get(0x58), menu: __shell.menu?.engine?.open ? __shell.menu.engine.page : -1 }));
-    if (z.arch === 'z02LGI') break;
-    if (visited.at(-1) !== `${z.arch}:${z.node}`) visited.push(`${z.arch}:${z.node}`);
-    if (z.menu >= 0) { await key('Enter'); await wait(600); continue; }
-    if (z.mode === 1 || z.mode === 9 || z.mode === 4) { await key('Enter'); await wait(500); continue; }
-    if (z.mode === 2 && z.arch === 'z17WAS') { await playWas(); continue; }
-    if (z.mode === 2) { await key('F9'); await wait(900); continue; }
-    await wait(500);
-  }
-  log('stub zones', visited.join(' '));
+  // nodes 33..51 (the adventure arc, z13CAI .. z23DIP) are played by tools/steps/full-story.mjs with the real zone bots (the old F9 stub loop of this step is gone: the zones are ported and
+  // F9 does nothing there); FROM=stubs INPLACE=1 runs the tail below when the full story has flown home to the island (node 52)
   await page.waitForFunction(() => window.__zone && window.__zone.info.archive === 'z02LGI' && (window.__zone.machine.mode === 1 || window.__zone.machine.mode === 2), null, { timeout: 120000 }).catch(() => {});
   s = await S.state();
   expect('home: island era 3 (zone id 33), node 52, from z13CAI', s?.arch === 'z02LGI' && s.sub === 33 && s.node === 52, JSON.stringify(s));
@@ -186,7 +168,9 @@ export default async (h) => {
   // node 52 (PEPPER_CONTROL == 1): skip the era-3 intro, fly to a free helipad (teleport above the nearest one), Ctrl = land, Pepper steps off
   await cs(); await wait(500);
   s = await S.state();
-  expect('after the era 3 intro Pepper still flies (control 8)', (s.ctrl & 0x1ff) === 8 && (await veh())?.name === 'PHEL', JSON.stringify(s));
+  // (the vehicle is the one she came in: the helicopter from the police-station chapter jump / a helicopter arrival, the Pterodactyl (control 0x40) when the full story flew home from the Dino island)
+  const vNow = (await veh())?.name;
+  expect('after the era 3 intro Pepper still flies (helicopter, control 8, or the Pterodactyl, control 0x40)', (((s.ctrl & 0x1ff) === 8 && vNow === 'PHEL') || ((s.ctrl & 0x1ff) === 0x40 && vNow === 'PTER')), JSON.stringify([s, vNow]));
   await shot('e2-08-flying-home');
   const pad = await page.evaluate(() => {
     const w = window.__zone.world, g = w.ext.get('island.vehicles'), c = g.current, ic = window.__zone.game.ictx;

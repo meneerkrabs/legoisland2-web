@@ -8,6 +8,7 @@
 // It reuses the island's duel machinery (tools/lib/m7-isl-veh-emu.mjs: IslEmu / Duel's compare helpers) for a hub world.
 import { IslEmu, Duel, B, lcg, randomKeys, RECORDS_BASE, REC, VAR_ARRAY, VAR_COUNT, f32 } from './m7-isl-veh-emu.mjs';
 import { loadCsi } from './m5-z07CSI-load.mjs';
+import { cdFillHeap } from './m8-save.mjs';
 import { loadHub } from './hub-load.mjs';
 import { loadExe } from './engine-load.mjs';
 import { vehicles } from '../../src/island/vehicles/common.ts';
@@ -84,6 +85,7 @@ export function makeCsiDuel(ctx, o = {}) {
   emu.cpu.hooks.delete(0x4388ae);
   emu.cpu.hooks.set(0x85daf0, (c) => { c.eax = rngO(); });
   d.emu = emu;
+  cdFillHeap(emu);   // the original is a debug build: new heap blocks are 0xCD filled (bytes a constructor never writes read 0xCD; docs/re/save.md)
   emu.setFocus(O.pepper.index);
   // the zone's sound loader (FUN_00572ef0): the handle globals of this machine
   emu.cpu.steps = 0;

@@ -21,6 +21,8 @@ import type { World } from '../../game/world.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import { waypoints } from '../../game/walker.ts';
 import { ArgView } from '../args.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
+import { CD_I16 } from './cd.ts';
 import { readAnimSet } from './sgmfig.ts';
 import type { SgmfigNode } from './sgmfig.ts';
 import { tryCtx } from '../ctx.ts';
@@ -84,8 +86,11 @@ export class LaunchNode implements BehaviourNode {
   /** +0x18 (-v) and +0x1c (the flight time) */
   velocity = 0; time = 0;
   /** +0x2c state, +0x2e arrived */
-  state = 0; arrived = 0;
+  state = CD_I16; arrived = CD_I16;       // (the constructor writes neither)
   private started = false;
+  // save block: FUN_004bf2cb (vtable +0x14) / FUN_004bf2f0 (+0x10, memcpy): the 4 bytes at node +0x2c: +0x00 i16 state, +0x02 i16 arrived
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array { return new BlockOut(4).i16(0, this.state).i16(2, this.arrived).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { const b = new BlockIn(data); this.state = b.i16(0); this.arrived = b.i16(2); }
   constructor(args: LaunchArgs) { this.args = args; }
   static of(a: Attach) { return new LaunchNode(decodeLaunch(ArgView.of(a))); }
 

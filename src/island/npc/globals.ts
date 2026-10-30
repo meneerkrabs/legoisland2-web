@@ -191,3 +191,7 @@ export function islandProbePass(w: World) {
 /** creation order of the nodes with constructor work = the set-up's attach order (setupZone calls the factories in that order): `startIslandNpcs` runs the constructors' world work in it (finding D1) */
 let creation = 0;
 export const nextSeq = () => creation++;
+/** nodes of other families (the cars and the train create walkers in their constructors too) get their creation number from the factory wrapper of npc/index.ts */
+const stamped = new WeakMap<object, number>();
+export const stampSeq = (n: object) => { stamped.set(n, creation++); };
+export const seqOfNode = (n: object): number | undefined => (n as { seq?: number }).seq ?? stamped.get(n);

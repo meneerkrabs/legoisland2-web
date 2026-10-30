@@ -107,6 +107,8 @@ export default async ({ page, wait, log, shot }) => {
     log('sphinx entrance (PATH 0x17):', JSON.stringify(entrance));
     let seen36 = false;
     const w = await H.follow(0x17, { stop: 2, maxTicks: 6000, until: async () => { const v = await vars([0xfe, 0x58]); if ((v[0xfe] & 0x7fff) === 1 || v[0x58] !== 36) seen36 = true; return seen36; } });
+    // (the trigger acts a few ticks after Pepper stands on it, and the story moving to node 37 clears var 0xfe again: wait in ticks for either)
+    await H.untilTicks(async () => { const v = await vars([0xfe, 0x58]).catch(() => ({})); if ((v[0xfe] & 0x7fff) === 1 || (v[0x58] !== undefined && v[0x58] !== 36)) seen36 = true; return seen36; }, 240, 20);
     const v1 = await vars([0xfe, 0x58]).catch(() => ({}));
     check(seen36, `node 36: walking into the sphinx entrance sets var 0xfe = 1 (${v1[0xfe]}; ${JSON.stringify(w.at)})`);
     await shot('n36-entrance');
@@ -127,7 +129,8 @@ export default async ({ page, wait, log, shot }) => {
     log('temple door (PATH 0x18):', JSON.stringify(door));
     let seen38 = false;
     const w = await H.follow(0x18, { stop: 2, maxTicks: 9000, until: async () => { const v = await vars([0xff, 0x58]); if ((v[0xff] & 0x7fff) === 1 || v[0x58] !== 38) seen38 = true; return seen38; } });
-    await H.untilTicks(async () => false, 6, 20);
+    // (the door's trigger acts a few ticks after Pepper stands on it, and the story node 38 -> 39 clears var 0xff again: wait in ticks for either, then judge)
+    await H.untilTicks(async () => { const v = await vars([0xff, 0x58]); if ((v[0xff] & 0x7fff) === 1 || v[0x58] !== 38) seen38 = true; return seen38; }, 240, 20);
     const v1 = await vars([0xff]);
     check(seen38, `node 38: walking to the temple door sets var 0xff = 1 (${v1[0xff]}; ${JSON.stringify(w.at)})`);
     await shot('n38-door');

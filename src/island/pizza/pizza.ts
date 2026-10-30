@@ -3,7 +3,7 @@
 //   FUN_00427e02  its update (held in the hand until the release frame, then a straight flight with spin)         -> PizzaNode.update
 //   FUN_00428520  pre-render: the result of the deferred controller sweep (FUN_00427139 / FUN_004271eb / FUN_00427233) -> PizzaNode.prerender
 //   FUN_004285b0  draw: while held the record sits at bone 0xe of the player                                       -> PizzaNode.prerender (see below)
-//   FUN_004289c9  destroy (frees the slot)                       FUN_00428694 / FUN_004287a0 save / load (not ported: no save of node state)
+//   FUN_004289c9  destroy (frees the slot)                       FUN_00428694 / FUN_004287a0 save / load -> PizzaNode.saveBlock / loadBlock
 //   FUN_0042900b  constructor of the two "hand" pizzas PIZ3 / PIZ4 of eras 1-3 (gate PIZZAS_THROWN & 8 / 0x10)       -> HandPizzaNode
 //   FUN_00428a5f  their update (shown between two frames of Pepper's clip 0xc, then the splat)                     -> HandPizzaNode.update
 //   FUN_00428d29  their draw (bone 0x10 / 0xe of the player)     FUN_0042912f destroy, FUN_00428e15 / FUN_00428f28 save / load
@@ -38,6 +38,8 @@ import { FX_NONE, GATE_OFF, GATE_ON, fxGate, fxMatrix, fxStart, recMatrix, regis
 import { PI_F, TWO_PI_F, cutsceneActive, placeAtBone, sfx, sfxAt, wrapOnce } from './common.ts';
 import { eulerMatrix, normalise3 } from '../../zones/exact.ts';
 import { ad, dv, ml, sb, sq } from '../../zones/common/f32.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
+import { CD_F32, CD_I32, findByTag, recPtr, tagWord } from './saveutil.ts';
 
 const fr = Math.fround;
 
@@ -259,23 +261,25 @@ export class PizzaNode implements BehaviourNode {
   /** +0x1c: slot = index of the lowest bit of the mask among 1 / 2 / 4 (-1: the original leaves the slot unregistered) */
   readonly slot: number;
   /** +0x20..+0x28: flight direction (unit) */
-  dir: [number, number, number] = [0, 0, 1];
+  dir: [number, number, number] = [CD_F32, CD_F32, CD_F32];
   /** +0x2c: the record aimed at on release (FUN_0042796e), null = straight */
   target: GameRecord | null = null;
   /** +0x30: the record hit (a targetable one, or whatever the sweep hit) */
   hit: GameRecord | null = null;
   /** +0x34: 16.0 written by the launch (never read) */
-  speed = 0;
+  speed = CD_F32;
   /** +0x38 / +0x3c: frames of the player's clip: appear in the hand / leave it */
-  startFrame = 0; releaseFrame = 0;
+  startFrame = CD_F32; releaseFrame = CD_F32;
   /** +0x40: the in-flight bit of PIZZAS_THROWN (mask << 8) */
-  flightBit = 0;
+  flightBit = 0xcdcd;
   /** +0x42: count-down of the end states (6 hit, 5 splat, 4 vanish ... 1 done) */
   count = 0;
   /** +0x44: distance flown */
-  travelled = 0;
-  /** +0x48: in the hand; +0x49: a sweep is pending for the pre-render */
-  held = false; probePending = false;
+  travelled = CD_F32;
+  /** +0x48: in the hand (the byte, 0xCD from the debug heap until the first throw writes 1 / 0); +0x49: a sweep is pending for the pre-render */
+  heldByte = 0xcd; probePending = false;
+  get held() { return this.heldByte !== 0; }
+  set held(v: boolean) { this.heldByte = v ? 1 : 0; }
   /** +0x14 / +0x18: the throwpizza / pizzasplat emitters (FUN_0044e920 in the constructor, bound to the record's matrix, offset 0, no rotation, gate off) */
   throwH = FX_NONE; splatH = FX_NONE;
   /** the constructor's FUN_0044e920 x 2 (started when the pizza system binds the nodes to their records) */
@@ -290,9 +294,9 @@ export class PizzaNode implements BehaviourNode {
     if (mode === 0) fxMatrix(w, h, recMatrix(rec)); else fxGate(w, h, mode === 2 ? GATE_ON : GATE_OFF);
   }
   /** +0x4a: the player's clip when the pizza appeared (-1 = none) */
-  clip = -1;
+  clip = -12851;   // 0xCDCD until the first throw writes it
   /** +0x4c: spin angle (x) */
-  spin = 0;
+  spin = CD_F32;
   /** the result of the deferred sweep (controller +0x64 / +0x2c) */
   probe: Hit | null = null;
 
@@ -301,6 +305,31 @@ export class PizzaNode implements BehaviourNode {
     let slot = -1;
     for (let i = 0, b = 1; i < 3; i++, b <<= 1) if ((this.mask & 0xffff & b) !== 0) { slot = i; break; }
     this.slot = slot;
+  }
+
+  /**
+   * Save block = node +0x20 .. +0x50 raw (0x30 bytes) + 2 tags (saver FUN_00428694, 56 bytes; DAT_009da89c = the empty tag word 0):
+   * 0x00 f32[3] flight direction (+0x20)   0x0c u32 target record pointer (+0x2c)   0x10 u32 hit record pointer (+0x30)   0x14 f32 speed   0x18 f32 startFrame   0x1c f32 releaseFrame
+   * 0x20 u16 flightBit (+0x40)   0x22 i16 count (+0x42)   0x24 f32 travelled (+0x44)   0x28 u8 held (+0x48)   0x29 u8 probePending (+0x49)   0x2a i16 clip (+0x4a)   0x2c f32 spin (+0x4c)
+   * 0x30 u32 tag of the target record (the first dword of the record, else the empty tag)   0x34 u32 tag of the hit record.
+   * The fields the constructor never writes keep the debug heap's 0xCD (see the field defaults). The record pointers are the emulation's record addresses (saveutil.ts).
+   */
+  saveBlock(_w: World, _rec: GameRecord, _c: Controller): Uint8Array {
+    const b = new BlockOut(0x38);
+    for (let k = 0; k < 3; k++) b.f32(4 * k, this.dir[k]);
+    b.u32(0x0c, recPtr(this.target)).u32(0x10, recPtr(this.hit)).f32(0x14, this.speed).f32(0x18, this.startFrame).f32(0x1c, this.releaseFrame);
+    b.u16(0x20, this.flightBit).u16(0x22, this.count).f32(0x24, this.travelled).u8(0x28, this.heldByte).u8(0x29, this.probePending ? 1 : 0).i16(0x2a, this.clip).f32(0x2c, this.spin);
+    b.u32(0x30, tagWord(this.target)).u32(0x34, tagWord(this.hit));
+    return b.bytes;
+  }
+  /** FUN_004287a0: the 0x30 bytes back into the node, then the two record pointers are looked up by their tags (FUN_00419a79, the first record of that name) */
+  loadBlock(w: World, _rec: GameRecord, _c: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    for (let k = 0; k < 3; k++) this.dir[k] = b.f32(4 * k);
+    this.speed = b.f32(0x14); this.startFrame = b.f32(0x18); this.releaseFrame = b.f32(0x1c);
+    this.flightBit = b.u16(0x20); this.count = b.i16(0x22); this.travelled = b.f32(0x24);
+    this.heldByte = b.u8(0x28); this.probePending = b.u8(0x29) !== 0; this.clip = b.i16(0x2a); this.spin = b.f32(0x2c);
+    this.target = findByTag(w, b.u32(0x30)); this.hit = findByTag(w, b.u32(0x34));
   }
 
   update(w: World, rec: GameRecord, _c: Controller): number {
@@ -428,14 +457,33 @@ export class HandPizzaNode implements BehaviourNode {
   /** +0x1c: bone of the player (0x10 first, 0xe second) */
   bone: number = PIZZA.BONE_HAND1;
   /** +0x20: the NPC in reach (FUN_00429183 writes it), +0x28 its distance^2 */
-  reached: GameRecord | null = null; reachedSq = 1e38;
+  reached: GameRecord | null = null; reachedSq = CD_F32;
+  /** +0x24: a second record pointer the constructor clears and nothing ever writes (saved and loaded with its tag like +0x20) */
+  link24: GameRecord | null = null;
   /** +0x2c: done */
   done = false;
   /** +0x30: the player's frame (truncated), -1 after the end */
-  frame = 0;
+  frame = CD_I32;
 
   constructor(attach?: Pick<Attach, 'var' | 'mask' | 'value'>) {
     this.var = attach?.var ?? V.PIZZAS_THROWN; this.mask = attach?.mask ?? 0; this.value = attach?.value ?? 0;
+  }
+
+  /**
+   * Save block = node +0x20 .. +0x34 raw (0x14 bytes) + 2 tags (saver FUN_00428e15, 28 bytes; DAT_009da8ac = the empty tag 0):
+   * 0x00 u32 reached record pointer (+0x20)   0x04 u32 +0x24 pointer   0x08 f32 reachedSq (+0x28)   0x0c u32 done (+0x2c)   0x10 i32 frame (+0x30)   0x14 u32 tag of +0x24   0x18 u32 tag of +0x20.
+   * The loader (FUN_00428f28) copies the 0x14 bytes and looks both tags up. reachedSq / frame are 0xCD words until the first update writes them.
+   */
+  saveBlock(_w: World, _rec: GameRecord, _c: Controller): Uint8Array {
+    const b = new BlockOut(0x1c);
+    b.u32(0x00, recPtr(this.reached)).u32(0x04, recPtr(this.link24)).f32(0x08, this.reachedSq).u32(0x0c, this.done ? 1 : 0).i32(0x10, this.frame);
+    b.u32(0x14, tagWord(this.link24)).u32(0x18, tagWord(this.reached));
+    return b.bytes;
+  }
+  loadBlock(w: World, _rec: GameRecord, _c: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.reachedSq = b.f32(0x08); this.done = b.u32(0x0c) !== 0; this.frame = b.i32(0x10);
+    this.link24 = findByTag(w, b.u32(0x14)); this.reached = findByTag(w, b.u32(0x18));
   }
 
   update(w: World, rec: GameRecord, _c: Controller): number {

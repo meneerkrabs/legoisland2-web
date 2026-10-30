@@ -28,12 +28,12 @@ import { UiTextureSet } from '../ui/renderer2d.ts';
 import { V } from '../game/vars.ts';
 import { waypoints, MAP_PATH, NPC_SPEED, NPC_TURN_RATE, NPC_RADIUS_MIN, NPC_RADIUS_MAX, NPC_RADIUS_LIMIT } from '../game/walker.ts';
 import { installCtx } from '../island/ctx.ts';
+import { decorStore } from '../island/decor.ts';
 import { loadIslandWalkMaps, startIslandNpcs } from '../island/npc/index.ts';
 import { startPizzaNodes } from '../island/pizza/index.ts';
 import { ensureAnim } from '../island/ambient/common.ts';
 import { computeIslandTotals } from '../zones/z03PPH/totals.ts';
 import { pathPositions } from '../zones/z02LGI/index.ts';
-import { saveVehicleEntities, restoreVehicle } from '../zones/z02LGI/savevehicle.ts';
 import { BrickLibrary } from '../formats/bricks.ts';
 import { installBrickLibrary, islandBrickFx, drawBrickFx } from '../fx/bricks/index.ts';
 import { ZoneParticles } from '../fx/particles/zone.ts';
@@ -205,9 +205,7 @@ export function registerHub(spec: HubSpec) {
   registerZoneSetup(spec.archive, {
     profileOptions: (sh, archive) => ({ emuVars: sh.vars, archive }),
     cutsceneOptions: (_sh, world) => ({ waypoints, dictionaries: hubCtx(world).setup.dictionaries }),
-    // a save made in a vehicle keeps the vehicle; a load puts Pepper back into it (shared with the island: savevehicle.ts)
-    saveEntities: (world) => saveVehicleEntities(world),
-    restoreSave: (world, loaded, save) => restoreVehicle(world, loaded.pepper, save),
+    // (a save made in a vehicle keeps it through the exact node blocks, see the island's zone game)
     beforeSetup(sh: Shell, world: World, profile: ZoneProfile, archive: Archive, scene: ZoneScene) {
       const emu = profile.emu;
       if (!emu) throw new Error(`${spec.archive}: no emulated set-up (profileFor needs emuVars)`);
@@ -226,6 +224,7 @@ export function registerHub(spec: HubSpec) {
     },
     afterSetup(_sh, world, loaded, archive) {
       const ictx = hubCtx(world);
+      decorStore.ensureDefaults(ictx.pe);   // every hub's roster constructor (FUN_00655de3 / FUN_00698963 / FUN_006277b9 / FUN_005b2a23 ...) runs FUN_00420837: its once-per-process copy of the decor defaults into the saved blob
       // the set-up's waypoint maps (FUN_004630c0) and the shared families' world work (walkers, ground snap, animations)
       loadIslandWalkMaps(archive, ictx.setup);
       // the animation instances the zone's loader gave records (rig + clip from the emulated loader)

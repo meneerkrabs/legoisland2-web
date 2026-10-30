@@ -25,7 +25,7 @@ export default async (h) => {
   await page.evaluate(() => {
     const zg = window.__zone.game.ctx, o = zg.sayFrom.bind(zg);
     window.__said = [];
-    zg.sayFrom = (t, a, b) => { const r = o(t, a, b); if (r) window.__said.push({ a, b: b ?? null, v: t.voice(a), v2: b ? t.voice(b) : null, text: t.raw(a), text2: b ? t.raw(b) : null, tick: window.__zone.world.tickCount }); return r; };
+    zg.sayFrom = (t, a, b, ...m) => { const r = o(t, a, b, ...m); if (r) window.__said.push({ a, b: b ?? null, v: t.voice(a), v2: b ? t.voice(b) : null, text: t.raw(a), text2: b ? t.raw(b) : null, tick: window.__zone.world.tickCount }); return r; };
   });
   for (let i = 0; i < 2; i++) {
     const before = await page.evaluate(() => window.__said.length);

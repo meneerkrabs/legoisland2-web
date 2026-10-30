@@ -20,12 +20,13 @@ import { MR } from './menuui.ts';
 import { Hud } from './hud.ts';
 import { CutsceneHost } from './cutscene-host.ts';
 import type { Shell, LiveGame } from './shell.ts';
+import { captureWorld, restoreWorld, restoreBricks } from './saveworld.ts';
 import type { ZoneInfo } from './tables.ts';
 import { startLoading, stopLoading } from './loading.ts';
 import { loadMessages, ZONE_FILES } from '../ui/strings.ts';
 import type { MessageTable } from '../ui/strings.ts';
 import { zoneGameFor, zoneSetupFor } from './zonegame.ts';
-import type { ZoneGame, ZoneGameCtx, Subtitle } from './zonegame.ts';
+import type { ZoneGame, ZoneGameCtx, Subtitle, SubtitleMode } from './zonegame.ts';
 import { drawHelp, drawIntroScreen, drawBannerScreen, drawSubtitle } from './helpscreen.ts';
 import type { PanelEnv, ScreenLine } from './helpscreen.ts';
 import { zoneIntroFor } from './zoneintro.ts';
@@ -115,24 +116,22 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
   /** the cutscene manager of the zone (FUN_0045c310 .. 0045c456): zones with scripts declare their slots in their factory */
   const cutscene = new CutsceneHost(sh, world, archive, gr, hud ?? new Hud(null), setupHooks?.cutsceneOptions?.(sh, world, loaded) ?? {});
   const live: LiveGame = {
-    capture: () => ({ pos: [player.x, player.y, player.z], yaw: player.ry, camera: Float32Array.from(world.camera.c), entities: setupHooks?.saveEntities?.(world) }),
+    capture: () => captureWorld(world),
     restore: (save) => restore(save),
     cutsceneRunning: () => cutscene.active(),
   };
-  function restore(save: import('./save.ts').SaveGame) {
-    const tag = (n: string) => (n.charCodeAt(0) | (n.charCodeAt(1) << 8) | (n.charCodeAt(2) << 16) | (n.charCodeAt(3) << 24)) >>> 0;
-    const e = save.entities.find((x) => x.tag === tag('PEPP'));
-    if (e) {
-      player.x = e.pos[0]; player.y = e.pos[1]; player.z = e.pos[2]; player.ry = e.euler[1];
-      player.rebuildYaw(); player.prev.set(player.m);
-      const cam = new Float32Array(save.camera.buffer.slice(save.camera.byteOffset, save.camera.byteOffset + 0x48));
-      const c = world.camera.c;
-      if (cam.slice(0, 6).every(Number.isFinite) && (cam[0] || cam[1] || cam[2])) { for (let i = 0; i < 6; i++) c[i] = cam[i]; world.camera.updateView(); world.camera.savePrev(); } else world.camera.init(player);
-    }
-    setupHooks?.restoreSave?.(world, loaded, save);   // the zone's part of FUN_00419e82 (the island: Pepper's vehicle, WP15)
+  /** a load waiting for this zone: the brick effects need the zone game's brick library (installed by the factory below), everything else is applied right after the set-up like FUN_0041adb5 does */
+  let bricksPending: import('./save.ts').SaveGame | null = null;
+  function restore(save: import('./save.ts').SaveGame, deferBricks = false) {
+    // FUN_00419e82 after the variables (src/shell/saveworld.ts): walkers, camera + frame counter, object records, decor, entity records (position / angles / flags / node blobs), bricks
+    let whole = false;
+    try { whole = restoreWorld(world, save, { bricks: !deferBricks }); } catch (e) { console.warn('save load', e); }   // (the original's reader just returns 0 where a step fails)
+    if (deferBricks && whole) bricksPending = save;
+    const c = world.camera.c;
+    if (!c.slice(0, 6).every(Number.isFinite) || !(c[0] || c[1] || c[2])) { world.camera.init(player); world.camera.savePrev(); }   // a file without a camera (older port saves)
   }
   sh.live = live;
-  if (pending) restore(pending);
+  if (pending) restore(pending, true);
 
   // ---- the ported gameplay of the zone (zonegame.ts), if any
   const subs: Subtitle[] = [];
@@ -144,23 +143,32 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     keyName: (bit) => { const b = sh.input.bindings.find((x) => x.bit === bit); return b ? keyCodeName(b.code, sh.keyNames) : '--'; },   // FUN_004384c9 + 1 (FUN_00460f31): `---` + 1
     menuText: (id) => sh.msgs.tables[0]?.raw(id) ?? null,
   };
+  /** FUN_0045d47f's four subtitle lines (DAT_05d4df1c ..) as the talking NPCs use them: written at the conversation start, shown until `clearSubtitle` (null = empty) */
+  let held: string | null = null;
+  /** the time a voice of a `held` / `none` line would take while muted (no `ga`): the timed subtitle of the shell's lines stands in for it there, these lines have none */
+  let mutedVoice = 0;
   const subtitleTicks = (t: string) => 30 + 2 * t.length;
-  /** FUN_00439bf8 + FUN_00435a11 for the lines `a` (and `b`) of `table` */
-  const sayFrom = (table: MessageTable | null, a: string | null, b?: string | null, voice = true): boolean => {
-    if (subs.length > 0 || sh.audio.ga?.speech.idle === false) return false;   // FUN_00435a11 starts only when no speech is active (muted: no `ga`, the timed subtitle stands in)
+  /** FUN_00439bf8 + FUN_00435a11 for the lines `a` (and `b`) of `table`; `subtitle`: zonegame.ts `SubtitleMode` */
+  const sayFrom = (table: MessageTable | null, a: string | null, b?: string | null, voice = true, subtitle: SubtitleMode = 'timed'): boolean => {
     const lines = [a, b].filter((x): x is string => !!x);
+    // FUN_004254a5: the text of a line (FUN_00439bf8; the tag itself = no such line: empty, strcmp) copied, the second appended (FUN_0085b570 / FUN_0085b580), then FUN_0045d47f, whatever the speech channel does
+    if (subtitle === 'held') held = lines.map((id) => { const t = table?.text(id) ?? id; return t === id ? '' : t; }).join('');
+    if (subtitle !== 'timed' && !voice) return true;
+    if (subs.length > 0 || mutedVoice > 0 || sh.audio.ga?.speech.idle === false) return false;   // FUN_00435a11 starts only when no speech is active (muted: no `ga`, the timed subtitle stands in)
     const idx = lines.map((id) => table?.voice(id) ?? -1);
     if (voice && idx[0] !== undefined && idx[0] >= 0) sh.audio.ga?.speech.say(idx[0], idx[1] ?? -1);
-    for (const id of lines) { const t = table?.text(id) ?? id; subs.push({ id, text: t, ticksLeft: subtitleTicks(t) }); }
+    if (subtitle === 'timed') for (const id of lines) { const t = table?.text(id) ?? id; subs.push({ id, text: t, ticksLeft: subtitleTicks(t) }); }
+    else if (!sh.audio.ga) mutedVoice = lines.reduce((n, id) => n + subtitleTicks(table?.text(id) ?? id), 0);
     return true;
   };
   const ctx: ZoneGameCtx = {
     sh, info, cfg, world, loaded, archive, scene, gr, hud, vars: sh.vars, strings, std: sh.std, attempt: sh.zoneAttempts.get(info.index) ?? 0,
     say: (a, b) => sayFrom(strings, a, b),
     sayFrom,
-    speechIdle: () => subs.length === 0 && (sh.audio.ga?.speech.idle ?? true),
-    stopSpeech() { subs.length = 0; sh.audio.ga?.speech.stop(); },
-    subtitle: () => subs[0] ?? null,
+    speechIdle: () => subs.length === 0 && mutedVoice <= 0 && (sh.audio.ga?.speech.idle ?? true),
+    stopSpeech() { subs.length = 0; mutedVoice = 0; sh.audio.ga?.speech.stop(); },   // (FUN_00435b07 leaves the four subtitle lines alone)
+    clearSubtitle() { held = null; },
+    subtitle: () => (held ? { id: '', text: held, ticksLeft: Infinity } : subs[0] ?? null),
     text(ui, id, x, y, o = {}) {
       const table = o.table === 'std' ? sh.std : o.table === 'menu' ? null : strings;
       const t = table ? table.text(id) : sh.msgs.label(`!${id}`);
@@ -177,6 +185,7 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
   const gameFactory = zoneGameFor(zoneName);
   if (!gameFactory) throw new Error(`zone ${zoneName} has no zone game (src/zones/index.ts registers one per zone)`);
   const game: ZoneGame = await gameFactory(ctx);
+  if (bricksPending) { restoreBricks(world, bricksPending); bricksPending = null; }
   Object.assign(cfg, game.config ?? {});
   if (game.config?.intro === undefined) cfg.intro = !!game.introId;
   if (game.config?.help === undefined) cfg.help = !!game.helpControls;
@@ -244,6 +253,7 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     wasHolding = holding;
     if (m.mode === MODE.BANNER && !game?.tickInBanner) game?.bannerTick?.();
     if (subs.length > 0 && --subs[0].ticksLeft <= 0) subs.shift();
+    if (mutedVoice > 0) mutedVoice--;
     // a zone whose mode 1 has no panel (the island) leaves it on any button (DAT_00983840 != 0)
     // M5 audit: the mini-game loops leave the intro / help screens on ANY pressed button (`DAT_00983840 != 0`: the arrows, Z / X / C and the `<>` key count too), not only on Enter / Space / Shift / Alt / Ctrl; the same for the end banner (mode 4), whose three exceptions (z05WAB, z38PAR, z40aPO) test the HELD buttons through `skipBanner`
     const anyButton = ((m.mode === MODE.INTRO || m.mode === MODE.HELP || m.mode === MODE.HELP2) && (pressed & ~B.ESC) !== 0) || (m.mode === MODE.BANNER && ((pressed & ~B.ESC) !== 0 || game?.skipBanner?.() === true)) ? B.ENTER : 0;   // skipBanner: z01BPK's banner is left at once without points
@@ -276,7 +286,9 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     if (m.mode === MODE.INTRO && !game?.introHold?.() && game?.introPanel !== false) drawIntroScreen(sh.ui, panelEnv, introLines());
     if (m.mode === MODE.HELP && helpControls) drawHelp(sh.ui, sh.menuSet, strings, helpControls, panelEnv);
     // spoken lines of the game while playing (a mini-game of the original shows no subtitle for them, only the cutscenes do: the cutscene style of FUN_0045d47f)
-    if (subs.length > 0 && sh.options.subtitlesOn && m.mode === MODE.PLAY) drawSubtitle(sh.ui, subs[0].text);
+    if (subs.length > 0 && sh.options.subtitlesOn && m.mode === MODE.PLAY && !held) drawSubtitle(sh.ui, subs[0].text);
+    // the talking NPCs' four lines (FUN_00460003 draws whatever FUN_0045d47f wrote; the subtitle option was asked when they were written)
+    if (held && m.mode === MODE.PLAY) drawSubtitle(sh.ui, held);
     if (m.mode === MODE.PAUSE || (m.mode === MODE.RESULT && !game?.resultHold?.())) sh.menu.draw(sh.ui, sh.menuSet);
     // mode 4, the end banner (FUN_00465d39): the medal text (STD.str) at y = 150, or the failure text
     if (m.mode === MODE.BANNER && game?.drawBanner) game.drawBanner(sh.ui, gameOver);

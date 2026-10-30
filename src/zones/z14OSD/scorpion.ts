@@ -14,6 +14,8 @@ import { armControllerProbe } from '../../game/probehost.ts';
 import { ensureAnim, setRot } from '../../island/ambient/common.ts';
 import { H, PI, f32, play, playAt, posOf, wrapPi } from './common.ts';
 import { fb, nameIs4, pepperSide32, rand32 } from './exact.ts';
+import { BlockIn, BlockOut } from '../../island/blockio.ts';
+import { CD32, CD_F32 } from '../hubsave.ts';
 
 export const CTOR_SCORPION = 0x62ad35, CTOR_SCORPION_GRAB = 0x62af8d;
 /** the record-name strings (4 chars) FUN_0062a120 compares with and the sound handles of the zone's loader: SCR0 .. SCR9 (SCR4 has none, SCR6 is listed twice) */
@@ -39,7 +41,7 @@ export class ScorpionNode implements BehaviourNode {
   home: [number, number, number] = [0, 0, 0];   // +0x14 / +0x18 / +0x1c
   timer = 0;       // +0x20
   state = 1;       // +0x24
-  heading = 0;     // +0x28
+  heading = CD_F32; // +0x28 (never written by the constructor: the debug heap's 0xCD fill)
 
   /** the constructor: the first timer is rand(3), the home spot is where the record stands, the clip 2 starts (FUN_0043b6a3(anim, 2, 0)); `registerHub` calls it after the set-up (ctorInit) */
   ctorInit(w: World, rec: GameRecord) {
@@ -169,6 +171,14 @@ export class ScorpionNode implements BehaviourNode {
 
   prerender(): void { /* FUN_0062ac81: returns 1 */ }
 
+  /** FUN_0062acd7 (`*out = node + 0x20; return 0xc`): timer, state, heading; home (+0x14..) is not saved */
+  saveBlock(): Uint8Array { return new BlockOut(12).f32(0, this.timer).i32(4, this.state).f32(8, this.heading).bytes; }
+  /** FUN_0062acfc: a plain copy of the 12 bytes into +0x20 */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.timer = b.f32(0); this.state = b.i32(4); this.heading = b.f32(8);
+  }
+
   /** FUN_0062ae16 */
   destroy(): void { /* frees the node */ }
 }
@@ -178,6 +188,8 @@ export class ScorpionGrabNode implements BehaviourNode {
   readonly kind = 'scorpion';
   var = 0x5e; mask = 0x20; value = 0x20;
   stamp = 0xfffffffe;
+  /** +0x18: never written by the constructor (debug heap fill 0xCD), but part of the save block (4 bytes): kept as it was loaded */
+  word18 = CD32;
   /** FUN_0062ae46: the first frame starts the grabbed clip 0x70, the following ones play it (rate 1); when it ends the grab is over (the walk clip of the state mailbox restarts) */
   update(w: World, rec: GameRecord): number {
     const an = rec.anim;
@@ -193,6 +205,10 @@ export class ScorpionGrabNode implements BehaviourNode {
     return NODE_STOP;
   }
   prerender(): void { /* FUN_0062aed9 */ }
+  /** FUN_0062af2f (`*out = node + 0x18; return 4`) */
+  saveBlock(): Uint8Array { return new BlockOut(4).u32(0, this.word18).bytes; }
+  /** FUN_0062af54: a plain copy of the 4 bytes into +0x18 */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.word18 = new BlockIn(data).u32(0); }
 }
 
 registerCtor(CTOR_SCORPION, () => new ScorpionNode());

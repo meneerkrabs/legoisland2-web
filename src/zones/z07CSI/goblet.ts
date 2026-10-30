@@ -14,6 +14,7 @@ import type { Attach } from '../../formats/zonesetup.ts';
 import type { ZoneParticles } from '../../fx/particles/zone.ts';
 import { NO_HANDLE } from '../../fx/particles/zone.ts';
 import { f32, SND, ctxOf, playId, distSq32 } from './common.ts';
+import { BlockIn, BlockOut } from './blockio.ts';
 
 export const CTOR_GOBLET = 0x5766fb;
 /** _DAT_008f8538 (4.0): a goblet is picked up when the controller's squared distance to Pepper (+0x18) is below it */
@@ -78,6 +79,10 @@ export class GobletNode implements BehaviourNode {
   }
   /** FUN_00576647 returns 1 and does nothing */
   prerender(): void { /* nothing */ }
+  /** save FUN_0057669d (vtable +0x14): `*out = node + 0x18; return 4` = the state word */
+  saveBlock(): Uint8Array { return new BlockOut(4).i32(0, this.state).bytes; }
+  /** load FUN_005766c2 (vtable +0x10): memcpy of the 4 bytes back to node + 0x18 */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.state = new BlockIn(data).i32(0); }
   /** FUN_00576803: DAT_008f853c = 0xbabababa (the shared twinkle handle is forgotten), the node is freed */
   destroy(): void { /* nothing the port keeps */ }
 }

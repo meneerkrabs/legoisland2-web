@@ -40,9 +40,9 @@ export default {
       const w = H.world, G = vehicles(w);
       const tag = `node ${node} vehicle ${bb}`;
       const skipped = H.L.skipped.map((s) => s.ctorName);
-      ok(H.L.skipped.every((s) => ['seabed'].includes(s.ctorName)) && H.L.skipped.length === 3, `${tag}: only the 3 environment records are skipped (${JSON.stringify(skipped)})`);
+      ok(H.L.skipped.length === 0, `${tag}: no constructor is skipped (SEAB / SSEA / SSKY are the scene nodes of src/island/ambient/seabed.ts) (${JSON.stringify(skipped)})`);
       const k = kindsOf(w);
-      ok(k.Gull === (bb === 2 ? 15 : 16) && k.pepswitc === 1 && k['seabed.c'] === 2 && k.hOLO === 1 && k['StartCSM.portal'] === 1, `${tag}: nodes ${JSON.stringify(k)}`);
+      ok(k.Gull === (bb === 2 ? 15 : 16) && k.pepswitc === 1 && k['seabed.c'] === 2 && k.Seabed === 1 && k.Sea === 1 && k.Sky === 1 && k.hOLO === 1 && k['StartCSM.portal'] === 1, `${tag}: nodes ${JSON.stringify(k)}`);
       ok(bb === 2 ? k.Ptera === 2 && !k.SGHeli : k.SGHeli === 1 && !k.Ptera, `${tag}: the vehicle's node`);
       // Pepper's chain: only the seat (SGVehic / the Ptera ride)
       const pk = H.pepper.ctrl.nodes.map((n) => n.kind);

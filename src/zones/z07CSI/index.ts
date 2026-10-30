@@ -38,10 +38,10 @@ export function applyCsiSetup(ictx: HubContext, world: World, loaded: { pepper: 
   // FUN_00573527: DAT_009daa7c = 0x44 (the board SKBD); DAT_009da9d4 = 0x6f / DAT_009da9f0 = 0x72 / DAT_009da9e4 = 1 / DAT_009da9e9 = 1: ONE boat dock (PATH node 0x6f, Pepper steps off to node 0x72); no helipads
   const board = mem.u32(0x9daa7c) | 0;
   if (board >= 0 && board < world.records.length) G.board = board;
-  G.docks = [];
   const n = mem.r8(0x9da9e9);
-  for (let i = 0; i < n; i++) G.docks.push({ map: mem.r8(0x9da9e4 + i), node: mem.r16(0x9da9d4 + 2 * i), exit: mem.r16(0x9da9f0 + 2 * i), taken: false });
-  G.pads = [];
+  const docks = [];
+  for (let i = 0; i < n; i++) docks.push({ map: mem.r8(0x9da9e4 + i), node: mem.r16(0x9da9d4 + 2 * i), exit: mem.r16(0x9da9f0 + 2 * i) });
+  G.useTables(docks, [], n, 0);   // (the set-up zeroes the first n dock words; the taken words are static process memory, `useTables`)
   // Control's constructor tail FUN_005b2a23 hides the hidden-list records (the horse set, decor templates, the board ...) when Pepper's chain is attached (0x573936), in the MIDDLE of the set-up; the
   // emulation hosts the attach and does not run constructors, and `setupZone` applies record flag writes in ADDRESS order. The original's final visibility of those records = the last flag write of the
   // set-up code made AFTER that attach (execution order: `EmuAttach.storeIndex`), else hidden. (HORS / the saddles are shown by 0x573cbf ... after it: they end visible on the stages that show them.)

@@ -34,11 +34,14 @@ export function csi(h) {
   S.csi = () => page.evaluate(() => { const g = window.__zone?.game?.debug?.(); return g ? { node: g.node, prev: g.prev, texts: g.texts, objective: g.objective, cutscene: g.cutscene, story: g.storyLog } : null; });
   /** Steer the boat (or Pepper's heading) to (tx, tz) with Left / Right / Space until `done(state, dist, ang)` is true or `maxMs` passed. */
   S.sailTo = async (tx, tz, { done = (s, d) => d < 30, maxMs = 120000, slow = 0, turnOnly = 0.5 } = {}) => {
-    const t0 = Date.now();
-    let s = null;
-    while (Date.now() - t0 < maxMs) {
+    // (`maxMs` is game time, 30 ticks a second: a loaded page runs fewer ticks per second of wall time, so the limit is counted in ticks, with a wall-clock ceiling of 20 minutes)
+    const t0 = Date.now(), maxTicks = (maxMs * 30) / 1000;
+    let s = null, tick0 = -1;
+    while (Date.now() - t0 < 1200000) {
       s = await S.veh();
       if (!s || s.arch !== 'z07CSI') break;
+      if (tick0 < 0) tick0 = s.tick;
+      if (s.tick - tick0 > maxTicks) break;
       const dx = tx - s.x, dz = tz - s.z, d = Math.hypot(dx, dz), ang = wrap(Math.atan2(dx, dz) - s.ry);
       if (await done(s, d, ang)) break;
       const k = [];
@@ -79,7 +82,10 @@ export function csi(h) {
     for (;;) {
       const p = await S.pep();
       if (p.tick !== tickSeen) { tickSeen = p.tick; tickAt = Date.now(); }
-      else if (Date.now() - tickAt > 8000) { log('  WATCHDOG: the game stopped ticking', JSON.stringify(p), JSON.stringify(await page.evaluate(() => { const z = window.__zone; return { mode: z.machine?.mode, hidden: document.hidden, vis: document.visibilityState, raf: performance.now(), dbg: JSON.stringify(z.game?.debug?.() ?? null).slice(0, 600) }; }))); res = { ok: false, d: -1, frozen: true, ticks: 0 }; break; }
+      else if (Date.now() - tickAt > 8000 && (await page.evaluate(() => window.__zone?.machine?.mode === 3)) && (S._unpaused = (S._unpaused ?? 0) + 1) <= 3) {
+        // the pause menu opened by itself (nobody pressed Esc: in a headless run an unlock of the pointer is taken for the Esc key, see lib-story.mjs armReloadGuard): resume like a player
+        log('  the game is paused (mode 3) and nobody paused it: Esc resumes (', S._unpaused, ')'); await page.keyboard.press('Escape', { delay: 70 }); tickAt = Date.now();
+      } else if (Date.now() - tickAt > 8000) { log('  WATCHDOG: the game stopped ticking', JSON.stringify(p), JSON.stringify(await page.evaluate(() => { const z = window.__zone; return { mode: z.machine?.mode, hidden: document.hidden, vis: document.visibilityState, raf: performance.now(), dbg: JSON.stringify(z.game?.debug?.() ?? null).slice(0, 600) }; }))); res = { ok: false, d: -1, frozen: true, ticks: 0 }; break; }
       if (p.arch !== 'z07CSI') { res = { ok: false, d: -1, ticks: 0, left: p.arch }; break; }
       const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz);
       if (d <= tol) { res = { ok: true, d, ticks: p.tick - t0 }; break; }

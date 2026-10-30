@@ -122,6 +122,19 @@ export class VehicleLooks {
     }
   }
 
+  /**
+   * FUN_004202ef on a roster that already exists (PepSwitc's loader, FUN_0051c800, after the saved variables are back): every entry whose game variable is not -1 gets its stored look
+   * (FUN_004439f0(cycler, var & 0xff, var >> 8): part and variant, whatever the values), the cyclers themselves stay; the busy list is cleared to -1
+   */
+  reapply(w: World): void {
+    for (const e of this.entries) {
+      if (e.varIdx === -1) continue;
+      const v = w.vars.get(e.varIdx);
+      e.part = v & 0xff; e.variant = v >> 8;
+    }
+    this.busy.fill(-1);
+  }
+
   entryOf(rec: GameRecord): number { return this.entries.findIndex((e) => e.rec === rec.index); }
 
   /** the texture table of the record's LOD part (null: the model's own) */
@@ -189,6 +202,13 @@ export function applyDecorSets(w: World, pe: Pe): void {
   const groups = have ? have.groups : readDecorSetGroups(pe);
   applyDecorEra(pe, groups, (v) => w.vars.get(v) | 0, baatat);
   w.ext.set(DECOR_SETS_KEY, { groups, baatat } satisfies DecorSets);
+}
+
+/** FUN_0051c800, what PepSwitc's loader (FUN_004bbeba) runs after its 16 byte memcpy: FUN_00420674(0) (the decor sets' era table) and FUN_004202ef (the stored looks, the busy list) */
+export function restoreLooks(w: World): void {
+  const c = tryCtx(w);
+  if (c) applyDecorSets(w, c.pe);
+  looksOf(w)?.reapply(w);
 }
 
 export function looksOf(w: World): VehicleLooks | null { return (w.ext.get(LOOKS_KEY) as VehicleLooks | undefined) ?? null; }

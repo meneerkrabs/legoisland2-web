@@ -4,11 +4,12 @@
 // score, collected-before), PEPPSW (walk / swim / skateboard, the music level), the HUD function FUN_00628410. Collision answers are the port's CollisionWorld or a scripted ground, the SAME on both
 // sides (collision is not the subject). The comparison is bit-exact except where a case says otherwise (framework `distSq`: a tolerance, see the notes).
 import { OsdDuel, B, stream } from '../lib/m5-z14OSD-duel.mjs';
+import { withCdAlloc } from '../lib/m8-save-hubs.mjs';
 
 const TUM = [104, 105, 106, 107, 108, 109, 111], SCR = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17], GEM = [114, 115, 116, 117, 118, 119, 120, 121, 122, 123], PEP = 4, BOARD = 64;
 const MAXFAIL = 25;
 
-export default {
+const inner = {
   name: 'm5-z14OSD-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -210,3 +211,6 @@ export default {
     return { checked, failures, notes };
   },
 };
+
+// the original's node memory is the debug heap's (0xCD-filled fresh blocks; only the node sizes here, the controllers' own uninitialised words are not modelled by this test): the words a constructor never writes (the Tumblewd's +0x24, the scorpion's +0x28) are compared with the port's initial values
+export default { name: inner.name, run: (ctx) => withCdAlloc(() => inner.run(ctx), [0x34, 0x2c, 0x1c, 0x20, 0x38]) };

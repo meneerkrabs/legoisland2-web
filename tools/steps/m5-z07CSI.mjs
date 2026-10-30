@@ -101,6 +101,12 @@ export default async (h) => {
     await page.waitForFunction((a) => window.__zone && window.__zone.info.archive === a, arch, { timeout: 120000 }).catch(() => {});
     const z = await S.zoneNow();
     expect(`${label}: the loop left the castle for ${arch}`, z.arch === arch, JSON.stringify(z));
+    // the full-story bot (tools/steps/full-story.mjs) plays the mini-game itself (its own win bot, real keys) instead of the node skip below
+    if (globalThis.LE2_MINIGAME) {
+      await globalThis.LE2_MINIGAME(arch);
+      await page.waitForFunction(() => window.__zone && window.__zone.info.archive === 'z07CSI', null, { timeout: 120000 }).catch(() => {});
+      return;
+    }
     await wait(1500);
     await S.shot(`csi-${arch}-mini-game`);
     // the mini-game's intro panel waits for a key (mode 1); then its loop runs and the story FSM sees the condition

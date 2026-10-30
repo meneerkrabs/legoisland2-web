@@ -26,16 +26,21 @@ export default async ({ page, wait, log, shot }) => {
   };
   // ---------------------------------------------------------------- node 34 from the Adventure Island
   let H = hub({ page, wait, log, shot }, 'z13CAI');
-  await H.start();
-  log('CAI', JSON.stringify(await H.state()));
-  await H.setVar(5, 11);                       // the exit portal of the Adventure Island sets NS_NEXT_SUBGAME = 11 (the Oasis)
+  if (!process.env.INPLACE) {   // (INPLACE=1: the full-story bot arrives from the Adventure Island by flying there: tools/steps/m5-z13CAI-node33.mjs)
+    await H.start();
+    log('CAI', JSON.stringify(await H.state()));
+    await H.setVar(5, 11);                       // the exit portal of the Adventure Island sets NS_NEXT_SUBGAME = 11 (the Oasis)
+  }
   H = hub({ page, wait, log, shot }, 'z14OSD');
-  const left = await H.untilLeft('z13CAI', 90000);
-  check(left === 'z14OSD', `hand-over CAI -> ${left}`);
+  if (!process.env.INPLACE) {
+    const left = await H.untilLeft('z13CAI', 90000);
+    check(left === 'z14OSD', `hand-over CAI -> ${left}`);
+  }
   await H.start();
   let s = await H.state();
   log('OSD arrival', JSON.stringify(s));
-  check(s.prev === 10 && Math.abs(s.pos[0] + 385.8) < 1 && Math.abs(s.pos[2] + 149.5) < 1, `arrival from the Adventure Island (prev ${s.prev}, ${s.pos})`);
+  // (a resumed chapter (full-story RESUME) arrives through the URL's chapter jump: PREV_SUBGAME 0, the default place)
+  check(process.env.RESUMED || (s.prev === 10 && Math.abs(s.pos[0] + 385.8) < 1 && Math.abs(s.pos[2] + 149.5) < 1), `arrival from the Adventure Island (prev ${s.prev}, ${s.pos})`);
   check(s.node === 34, `story node ${s.node}`);
   await wait(1200); await shot('osd34-adv01-a');
   await H.untilTicks(async () => false, 150);

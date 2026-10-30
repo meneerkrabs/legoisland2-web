@@ -96,14 +96,16 @@ export default async ({ page, shot, wait, log, key }) => {
   const r2 = await play(40000, (d) => d.result !== 0);
   s = await dbg();
   log('end', JSON.stringify(r2), JSON.stringify(s));
-  await wait(600);
-  expect('banner (mode 4)', (await mode()) === 4, String(await mode()));
+  // (the end banner is left as soon as ANY button is held: a Space press of the bot in the last ticks takes the loop straight to the result menu, mode 5: the original's rule)
+  await page.waitForFunction(() => window.__zone.machine.mode === 4 || window.__zone.machine.mode === 5, null, { timeout: 60000 });
+  await wait(300);
+  expect('banner (mode 4), or the result menu (mode 5) when a button was held at the end', (await mode()) === 4 || (await mode()) === 5, String(await mode()));
   expect('gold: 18+ gems left, result 5', s.result === 5 && s.gems >= 18, JSON.stringify({ r: s.result, gems: s.gems, score: s.finalScore }));
   expect('score = gems x 250 + points (cap 10000)', s.finalScore === Math.min(10000, s.gems * 250 + s.score), JSON.stringify(s));
   await shot('7-banner');
   const v1 = await vars();
   expect('HISCORE_SSH and TROPHY_SSH are written', v1.hi === s.finalScore && v1.trophy === 3, JSON.stringify(v1));
-  await key('Enter'); await wait(700);
+  if ((await mode()) === 4) { await key('Enter'); await wait(700); }
   const m = await menu();
   expect('result menu page 16 (continue / retry)', (await mode()) === 5 && m.page === 16, JSON.stringify(m));
   await shot('8-result-menu');

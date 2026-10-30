@@ -4,7 +4,7 @@
 import { loadIsland } from './island-load.mjs';
 import { startBrickBots } from '../../src/island/npc/brickbot.ts';
 import { walkSpace } from '../../src/island/pizza/pizza.ts';
-import { createPair, runPair, newStats, placePepper, pepperAt, sgOf, setVar, IslNpcEmu, NODE_MAPS, CTORS, RB, REC, G, stepPair, compareState } from './m7-isl-npc-emu.mjs';
+import { createPair, runPair, newStats, placePepper, pepperAt, sgOf, setVar, IslNpcEmu, NODE_MAPS, CTORS, RB, REC, G, stepPair, compareState, checkSubtitles } from './m7-isl-npc-emu.mjs';
 
 export { runPair, newStats, placePepper, pepperAt, sgOf, setVar, CTORS, RB, REC, G };
 export const BB_CTORS = { FOLLOW: 0x531d45, HIT: 0x5327b1, HARASS: 0x532acc, HIDE: 0x533ba8, PCONLY: 0x53de63 };
@@ -151,9 +151,7 @@ export function runBB(P, ticks, script, st, label = '') {
     if (JSON.stringify(s.portEvents) !== JSON.stringify(s.emuEvents)) { if (st.fail.length < 14) st.fail.push(`${tag}: events: original ${JSON.stringify(s.emuEvents)} port ${JSON.stringify(s.portEvents)}`); }
     st.checked++;
     if (s.portDraws !== s.emuDraws) { if (st.fail.length < 14) st.fail.push(`${tag}: random draws: original ${s.emuDraws} port ${s.portDraws}`); }
-    const says = s.portEvents.filter((e) => e.startsWith('say ')).length;
-    st.checked++;
-    if (s.subtitles !== (w.vars.get(0) !== 0 ? says : 0)) { if (st.fail.length < 14) st.fail.push(`${tag}: subtitle calls ${s.subtitles} for ${says} lines`); }
+    checkSubtitles(s, st, tag);
     st.events += s.portEvents.length;
     for (const e of s.portEvents) { if (e.startsWith('say ')) st.said.add(e); if (e.startsWith('cutscene')) st.cutscenes++; if (e.startsWith('sfx')) (st.sfx ??= new Map()).set(e, ((st.sfx ??= new Map()).get(e) ?? 0) + 1); }
   }

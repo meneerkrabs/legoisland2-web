@@ -20,6 +20,14 @@ export interface BehaviourNode {
   var: number; mask: number; value: number;
   /** frame stamp (+0x08): the frame counter + 1 after the pre-render hook; 0xFFFFFFFE initially */
   stamp: number;
+  /** address of the original constructor that built the node (FUN_00423532's argument; set by `setupZone` / the hubs): picks the node's save block layout (src/shell/savenodes.ts) */
+  ctor?: number;
+  /**
+   * The node's save block (the original's vtable +0x14, FUN_00418ec7's per-node serializer): the raw bytes the original copies out of the node (`[size][bytes]` in the file). Defined only for nodes whose
+   * original has a serializer; the loader (vtable +0x10, FUN_00419e82) gets the same bytes back through `loadBlock`.
+   */
+  saveBlock?(w: World, rec: GameRecord, ctrl: Controller): Uint8Array;
+  loadBlock?(w: World, rec: GameRecord, ctrl: Controller, data: Uint8Array): void;
   update(w: World, rec: GameRecord, ctrl: Controller): number;
   prerender?(w: World, rec: GameRecord, ctrl: Controller): void;
   draw?(w: World, rec: GameRecord, ctrl: Controller): number;

@@ -12,7 +12,7 @@ import { VehicleLooks, LOOKS_KEY, decorSetsOf, applyDecorSets, looksOf, lookKey,
 import { islandBrickFx } from '../../../fx/bricks/island.ts';
 import { NO_SLOT } from '../../../fx/bricks/manager.ts';
 import { ROSTER_STRIDE } from '../../../island/vehicles/looks.ts';
-import { decorGroupOfZone, defaultDecor } from '../../../shell/tables.ts';
+import { decorGroupOfZone, defaultDecor, readDecorTables } from '../../../shell/tables.ts';
 import type { Pe } from '../../../formats/exe.ts';
 import type { GameRecord } from '../../../game/record.ts';
 
@@ -36,6 +36,7 @@ export function decorInit(w: World): void {
   for (const r of w.records) r.variant = 0;
   for (const i of hiddenList(pe)) { const r = w.records[i]; if (!r) continue; c.partMode?.(r, 0xff, 1); r.flags &= ~2; }
   // FUN_00420837(5): the decor group's variant words, the decor sets resolved against this zone's models
+  { const dt = readDecorTables(pe), grp = dt.groups[decorGroupOfZone(ZONE_INDEX)]; for (let i = grp.first; i < grp.first + grp.count; i++) { const e = dt.entries[i], r = w.records[e.record]; if (r) r.variant = ((e.set << 8) | 1 | (e.variant << 16)) >>> 0; } }
   applyDecorSets(w, pe);
   const ds = decorSetsOf(w);
   const R = c.decorRender;

@@ -11,6 +11,7 @@ import { RF_ENABLED, RF_NO_COLLIDE } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import { fxStart, fxGate, fxMatrix, fxOf, recMatrix, FX_NONE, GATE_ON, GATE_OFF } from '../../island/emitters.ts';
+import { BlockIn, BlockOut } from '../../island/blockio.ts';
 import { f32, playKrystal, stopKrystal, playId, posOf, SND_COLLECT } from './common.ts';
 
 export const CTOR_OVERLAY = 0x7e31fc;
@@ -94,9 +95,10 @@ export class KrystalNode implements BehaviourNode {
   prerender(): void { /* returns 1 */ }
   /** FUN_007e3304: the first krystal's loop is stopped, DAT_0094c4fc = 0xbabababa (the shared twinkle handle is forgotten) */
   destroy(w: World): void { stopKrystal(w, 0); twinkle.delete(w); }
-  /** FUN_007e319e / FUN_007e31c3: the saved state (4 bytes at +0x18) */
-  saveState(): number { return this.state; }
-  loadState(v: number) { this.state = v | 0; }
+  /** FUN_007e319e (`*out = node + 0x18; return 4`): the state */
+  saveBlock(): Uint8Array { return new BlockOut(4).i32(0, this.state).bytes; }
+  /** FUN_007e31c3: a plain copy of the 4 bytes into +0x18 */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.state = new BlockIn(data).i32(0); }
 }
 
 registerCtor(CTOR_OVERLAY, (a) => new KrystalNode(a));

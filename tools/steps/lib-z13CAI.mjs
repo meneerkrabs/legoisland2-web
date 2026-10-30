@@ -32,11 +32,14 @@ export function cai(h) {
    * (the helicopter holds 16..40 above the ground); `slow` releases Space inside that many units (the approach to the pad).
    */
   S.flyTo = async (tx, tz, { done = (s, d) => d < 30, maxMs = 120000, slow = 0, turnOnly = 0.5 } = {}) => {
-    const t0 = Date.now();
-    let s = null;
-    while (Date.now() - t0 < maxMs) {
+    // (`maxMs` is game time, 30 ticks a second: a loaded page runs fewer ticks per second of wall time, so the limit is counted in ticks, with a wall-clock ceiling of 20 minutes)
+    const t0 = Date.now(), maxTicks = (maxMs * 30) / 1000;
+    let s = null, tick0 = -1;
+    while (Date.now() - t0 < 1200000) {
       s = await S.veh();
       if (!s || s.arch !== 'z13CAI') break;
+      if (tick0 < 0) tick0 = s.tick;
+      if (s.tick - tick0 > maxTicks) break;
       const dx = tx - s.x, dz = tz - s.z, d = Math.hypot(dx, dz), ang = wrap(Math.atan2(dx, dz) - s.ry);
       if (await done(s, d, ang)) break;
       const k = [];

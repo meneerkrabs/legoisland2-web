@@ -20,6 +20,8 @@ import { SKATE_ROLL_SOUNDS } from '../../island/vehicles/skate.ts';
 import { stopSfx } from '../../island/ambient/common.ts';
 import { H, SND, ctxOf, f32, playAt, playId, posOf } from './common.ts';
 import { lookEnter, lookTick } from './looks.ts';
+import { newPeppSwTail, packPeppSw, rosterReload, setPeppSwPoll } from '../hubsave.ts';
+import type { Controller } from '../../game/controller.ts';
 
 export const CTOR_PEPPSW = 0x62ba3b;
 /** DAT_009daa7c = 0x40 (FUN_006290ea): the accessory record, the skateboard SKBD */
@@ -38,7 +40,23 @@ export class PeppSwNode implements BehaviourNode {
   /** +0x18 / +0x1c: the music level wanted / last sent */
   level = 1; sent = 1;
 
+  /** +0x20 .. +0x38 as the constructor left them (see `newPeppSwTail`): kept for the save block, never read by the update / pre-render */
+  private tail = newPeppSwTail();
+
   constructor(_a?: Pick<Attach, 'var' | 'mask' | 'value'>) { void _a; }
+
+  /** the constructor's world half (`registerHub` calls it after the set-up): `+0x28 = FUN_00443370() & 0xff`, the music notification poll */
+  ctorInit(w: World, _rec: GameRecord) { setPeppSwPoll(this.tail, ctxOf(w)?.musicNotified?.() ?? 0); }
+
+  /** FUN_0062b9d8 (`*out = node + 0x18; return 0x20`) */
+  saveBlock(): Uint8Array { return packPeppSw(this.tail, this.level, this.sent); }
+  /** FUN_0062b9fd: a plain copy of the 0x20 bytes, then FUN_00655dc0 (the decor sets' era table, the look roster re-read) */
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    this.level = v.getInt32(0, true); this.sent = v.getInt32(4, true);
+    this.tail.set(data.subarray(0, 32));
+    rosterReload(w);
+  }
 
   /** FUN_0062b3b0 */
   update(w: World): number {

@@ -7,6 +7,7 @@ import { NODE_NONE, NODE_STOP } from '../../../game/controller.ts';
 import type { GameRecord } from '../../../game/record.ts';
 import type { World } from '../../../game/world.ts';
 import { cutsceneActive } from '../../../island/vehicles/common.ts';
+import { CD8 } from '../../hubsave.ts';
 import { oglGlobals, SND, play2d, play3d } from './globals.ts';
 import { fr, normLen, norm, sweepF, setEulerExact } from './util.ts';
 import type { V3 } from './util.ts';
@@ -39,12 +40,18 @@ export class SlugNode implements BehaviourNode {
   probe = 0; missed = 0;
   /** +0x2c: the chase / crawl timer (never initialised by the constructor: the debug heap's 0xCD fill) */
   timer = CD_FLOAT;
+  /** +0x2a / +0x2b: the two padding bytes after the short at +0x28 (debug heap fill 0xCD; part of the save block) */
+  pad: [number, number] = [CD8, CD8];
   private inited = false;
+  private homeSet = false;
+
+  /** the constructor's place capture (`registerHub` calls `ctorInit` right after the set-up: before a load moves the record, so the home spot stays the constructor's) */
+  ctorInit(_w: World, rec: GameRecord) { this.home = [rec.m[12], rec.m[13], rec.m[14]]; this.homeSet = true; this.init(rec); }
 
   /** the constructor (FUN_007e5ea7): home = the place, state 1, probe 0, clip 2 */
   private init(rec: GameRecord) {
     this.inited = true;
-    this.home = [rec.m[12], rec.m[13], rec.m[14]];
+    if (!this.homeSet) { this.home = [rec.m[12], rec.m[13], rec.m[14]]; this.homeSet = true; }
     this.state = 1; this.probe = 0; this.missed = 0;
     rec.anim?.start(2, 0);
   }
@@ -146,15 +153,17 @@ export class SlugNode implements BehaviourNode {
     return NODE_STOP;
   }
 
-  /** FUN_007e5e49 / FUN_007e5e6e: the 16 bytes the save game keeps (+0x20: state, probe, missed (short), timer) */
-  saveBlob(): Uint8Array {
+  /** FUN_007e5e49 (`*out = node + 0x20; return 0x10`): state, probe, missed (short) + 2 padding bytes, timer */
+  saveBlock(): Uint8Array {
     const b = new Uint8Array(16), dv = new DataView(b.buffer);
-    dv.setInt32(0, this.state, true); dv.setInt32(4, this.probe, true); dv.setInt16(8, this.missed, true); dv.setFloat32(12, this.timer, true);
+    dv.setInt32(0, this.state, true); dv.setInt32(4, this.probe, true); dv.setInt16(8, this.missed, true); b[10] = this.pad[0]; b[11] = this.pad[1]; dv.setFloat32(12, this.timer, true);
     return b;
   }
-  loadBlob(b: Uint8Array): void {
+  /** FUN_007e5e6e: a plain copy of the 16 bytes into +0x20 (the constructor ran at the set-up: it must not run again over the loaded state) */
+  loadBlock(_w: World, rec: GameRecord, _ctrl: Controller, b: Uint8Array): void {
     const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-    this.state = dv.getInt32(0, true); this.probe = dv.getInt32(4, true); this.missed = dv.getInt16(8, true); this.timer = dv.getFloat32(12, true);
+    this.state = dv.getInt32(0, true); this.probe = dv.getInt32(4, true); this.missed = dv.getInt16(8, true); this.pad = [b[10], b[11]]; this.timer = dv.getFloat32(12, true);
+    if (!this.homeSet) { this.home = [rec.m[12], rec.m[13], rec.m[14]]; this.homeSet = true; }
     this.inited = true;
   }
 }

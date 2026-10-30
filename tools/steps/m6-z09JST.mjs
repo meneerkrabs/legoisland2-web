@@ -4,6 +4,7 @@
 //   node tools/browse.mjs "http://localhost:5605/?zone=z09JST&mute=1" tools/steps/m6-z09JST.mjs --size 800x520 --out /tmp/m6-z09JST
 // (env JST_QUICK=1: the bot plays against a flat random source = no aim wobble, a deterministic quick run)
 import { KEY, jstKeys } from '../lib/jst-bot.mjs';
+import { installPageBot } from './lib-pagebot.mjs';
 const NAME = { [KEY.LEFT]: 'ArrowLeft', [KEY.RIGHT]: 'ArrowRight', [KEY.UP]: 'ArrowUp', [KEY.DOWN]: 'ArrowDown', [KEY.SPACE]: 'Space' };
 export default async ({ page, shot, wait, log, key }) => {
   const fail = [];
@@ -36,33 +37,43 @@ export default async ({ page, shot, wait, log, key }) => {
     await waitMode(2);
   };
 
-  /** one match with the bot ('win' / 'loss' / 'slow'): returns when the mode leaves play (the banner) */
+  /**
+   * one match with the bot ('win' / 'loss' / 'slow'): returns when the mode leaves play (the banner). The bot decides INSIDE the page, once per game tick (lib-pagebot.mjs): the
+   * charge is made by alternating LEFT / RIGHT every tick, the release is SPACE once the gauge is past the mark, the aim point is steered in state 9: a node-side loop presses at
+   * the speed of its page round trips and loses the match (a stalemate at 2 : 2 for 15 minutes) when the machine is loaded.
+   */
   const match = async (style, shots = {}) => {
-    let n = 0, lastState = -1, tapped = 0, popupShot = false;
-    const t0 = Date.now();
-    for (let guard = 0; guard < 40000; guard++) {
+    let lastState = -1, tapped = 0, popupShot = false;
+    const decide = `(() => {
+      const KEY = ${JSON.stringify(KEY)}; const CODE = { 1: 'ArrowLeft', 2: 'ArrowRight', 4: 'ArrowUp', 8: 'ArrowDown', 128: 'Space' };
+      ${jstKeys.toString()}
+      return (w) => {
+        const z = w.__zone, out = new Set();
+        if (!z || z.machine.mode !== 2) return out;
+        const d = z.game && z.game.duel; if (!d) return out;
+        const k = jstKeys({ state: d.state, gauge: d.gauge, aimX: d.aimX, aimY: d.aimY }, ${JSON.stringify(style)}, z.world.tickCount, { ready: ${quick ? 30 : 40} });
+        for (const [bit, code] of Object.entries(CODE)) if (k & +bit) out.add(code);
+        return out;
+      };
+    })()`;
+    const bot = await installPageBot(page, 'jst', decide);
+    await bot.start();
+    let tick0 = -1, seenAt = Date.now(), lastTick = -1;
+    for (let guard = 0; guard < 100000; guard++) {
       const s = await st();
       if (!s || s.mode !== 2) break;
-      if (s.state !== lastState) { lastState = s.state; if (shots[s.state]) { await shot(shots[s.state]); delete shots[s.state]; } }
-      if (s.state === 0 || s.state === 1) { await hold(KEY.UP); await wait(120); await release(); await wait(120); }
-      else if (s.state === 2) { await release(); await wait(150); }
-      else if (s.state === 3) {
-        if (style === 'slow') { await hold(KEY.SPACE); await wait(120); await release(); await wait(300); continue; }
-        // the presses of a fast player: alternate LEFT / RIGHT, a burst per look at the gauge
-        for (let i = 0; i < 8; i++) { const k = n++ % 2 === 0 ? KEY.RIGHT : KEY.LEFT; await hold(k); await wait(18); await release(); await wait(8); }
-        const g = (await st()).gauge;
-        if (g > (quick ? 30 : 40)) { await hold(KEY.SPACE); await wait(120); await release(); await wait(100); }
-      } else if (s.state === 9) {
-        const k = style === 'loss' ? jstKeys({ state: 9, aimX: s.ax, aimY: s.ay }, 'loss') : jstKeys({ state: 9, aimX: s.ax, aimY: s.ay }, 'win');
-        await hold(k); await wait(10);
-      } else if (s.state === 0x21) {
-        await release();
-        if (!popupShot && shots.popup) { popupShot = true; await shot(shots.popup); }
-        await key('Enter'); await wait(250); tapped++;
-      } else { await release(); await wait(120); }
-      if (Date.now() - t0 > 900000) break;
+      if (s.state !== lastState) {
+        lastState = s.state;
+        if (s.state === 0x21) tapped++;
+        if (shots[s.state]) { await shot(shots[s.state]); delete shots[s.state]; }
+      }
+      if (s.state === 0x21 && !popupShot && shots.popup) { popupShot = true; await shot(shots.popup); }
+      if (s.tick !== lastTick) { lastTick = s.tick; seenAt = Date.now(); } else if (Date.now() - seenAt > 120000) { log('the game stopped ticking (120 s of wall time)'); break; }
+      if (tick0 < 0) tick0 = s.tick;
+      if (s.tick - tick0 > 60000) { log('a match of more than 60000 ticks: giving up'); break; }
+      await wait(100);
     }
-    await release();
+    await bot.stop();
     return tapped;
   };
 

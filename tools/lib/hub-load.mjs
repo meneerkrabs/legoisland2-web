@@ -20,9 +20,12 @@ import { ensureAnim } from '../../src/island/ambient/common.ts';
 import { applyEmulatedArrival } from '../../src/hub/arrival.ts';
 import { pathPositions } from '../../src/zones/z02LGI/index.ts';
 import { BrickLibrary } from '../../src/formats/bricks.ts';
+import { DOCK_WORDS, PAD_WORDS } from '../../src/island/vehicles/common.ts';
 import { installBrickLibrary, brickMorph, brickBurst } from '../../src/fx/bricks/island.ts';
 
 export function loadHub(ctx, opts = {}) {
+  // the dock / helipad taken words are static process memory (src/island/vehicles/common.ts): a hub test world starts like a fresh process unless the test says otherwise (`keepVehicleWords`)
+  if (!opts.keepVehicleWords) { DOCK_WORDS.fill(0); PAD_WORDS.fill(0); }
   const zone = opts.zone ?? 'z07CSI';
   const pe = loadExe(ctx.dataRoot);
   const scene = sceneOf(ctx, zone);
@@ -51,7 +54,15 @@ export function loadHub(ctx, opts = {}) {
     cutsceneActive() { return this.cutsceneLeft > 0 || this.held; },
     holdCutscene(on) { this.held = on; },
     text: { npc: null, hol: null },
-    say(table, id, id2) { if (this.sayLeft > 0) return false; this.said.push({ id, id2, text: table?.text?.(id) ?? id, tick: world.tickCount }); this.sayLeft = this.sayTicks; return true; },
+    // subtitle `held` (the talking NPCs, FUN_0045d47f): the text of the lines (a missing one empty) written at once, whatever the voice does, kept in `heldText` until clearSubtitle; every write is logged
+    // in `subtitles`. `held` / `none` without a voice: nothing is spoken. `timed` (default): the subtitle goes with the voice (not modelled)
+    heldText: null, subtitles: [],
+    say(table, id, id2, voice = true, subtitle = 'timed') {
+      if (subtitle === 'held') { const tx = (k) => { const t = table?.text?.(k) ?? k; return t === k ? '' : t; }; this.heldText = tx(id) + (id2 ? tx(id2) : ''); this.subtitles.push(this.heldText); }
+      if (subtitle !== 'timed' && voice === false) return true;
+      if (this.sayLeft > 0) return false; this.said.push({ id, id2, text: table?.text?.(id) ?? id, tick: world.tickCount }); this.sayLeft = this.sayTicks; return true;
+    },
+    clearSubtitle() { this.heldText = null; },
     speechIdle() { return this.sayLeft <= 0; },
     stopSpeech() { this.sayLeft = 0; },
     sfx(id) { this.sounds.push({ id, tick: world.tickCount }); },
@@ -72,12 +83,15 @@ export function loadHub(ctx, opts = {}) {
     ictx.brickMorph = (rec, v, files, m) => brickMorph(world, rec, v, files, m);
     ictx.brickBurst = (rec, kind) => brickBurst(world, rec, kind);
   }
-  // the framework's world work after setupZone (src/hub/game.ts afterSetup)
-  loadIslandWalkMaps(archive, emu);
-  for (const r of emu.loaderRigs) { const rec = world.records[r.record]; if (rec) ensureAnim(world, rec); }
-  startPizzaNodes(world);
-  startIslandNpcs(world);
-  const arrival = applyEmulatedArrival(emu, world, L);
+  // the framework's world work after setupZone (src/hub/game.ts afterSetup); `opts.worldWork === false`: the caller runs the registered afterSetup hook itself (tools/lib/m8-save.mjs)
+  let arrival = null;
+  if (opts.worldWork !== false) {
+    loadIslandWalkMaps(archive, emu);
+    for (const r of emu.loaderRigs) { const rec = world.records[r.record]; if (rec) ensureAnim(world, rec); }
+    startPizzaNodes(world);
+    startIslandNpcs(world);
+    arrival = applyEmulatedArrival(emu, world, L);
+  }
   return {
     world, L, ictx, pe, scene, archive, vars, story, profile, emu, zone, info, pepper: L.pepper, node, messages, arrival,
     rec: (name) => world.records.find((r) => r.name === name),

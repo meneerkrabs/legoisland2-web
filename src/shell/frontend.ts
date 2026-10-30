@@ -17,6 +17,9 @@ import type { Loaded } from '../game/setup.ts';
 import { GameRecord, RF_ENABLED, RF_FRUSTUM } from '../game/record.ts';
 import { AnimInstance } from '../game/anim.ts';
 import { Controller, attachNode } from '../game/controller.ts';
+import type { BehaviourNode } from '../game/controller.ts';
+import type { Archive } from '../formats/archive.ts';
+import { waypoints, MAP_PATH, NPC_SPEED, NPC_TURN_RATE, NPC_RADIUS_MIN, NPC_RADIUS_MAX, NPC_RADIUS_LIMIT } from '../game/walker.ts';
 import { ButterflyNode } from '../island/ambient/animals.ts';
 import { ArgView } from '../island/args.ts';
 import { parseBlk } from '../formats/anim.ts';
@@ -34,12 +37,96 @@ import { startLoading, stopLoading } from './loading.ts';
 import { Credits, buildCredits } from './credits.ts';
 import { loadMessages, CREDITS_FILES } from '../ui/strings.ts';
 import { debugAids } from '../game/debug.ts';
+import { V } from '../game/vars.ts';
 import type { FogSetup } from '../formats/zoneparams.ts';
 
 /** FUN_00442d90(4.0, 1500, 1500, 600, 0xffffffff, 0) in FUN_00471070: the stage has no fog */
 const FE_FOG: FogSetup = { near: 4, farMin: 1500, farMax: 1500, fogFrac: 600, color: 0xffffffff, enabled: false, at: 0x471070 };
 /** the camera: eye (0, 11, 56.8) looking at (0, 11, 0) (DAT_009da5e8 stores in FUN_00471070: 0x41300000 / 0x42633333) */
 const FE_EYE: [number, number, number] = [0, 11, 56.8], FE_TARGET: [number, number, number] = [0, 11, 0];
+
+/** var 0xc6: Pepper's shadow marker (render.ts VAR_PEPP_MARKER) */
+const VAR_PEPP_MARKER = 0xc6;
+/** the record flag / bone numbers of the original's ctor arguments (FUN_00471070's butterfly range argument: local_60[0] = 0x41000000) */
+const BUTTERFLY_RANGE = 8;
+/** FUN_0042207d: Pepper's lane offset (0x3c23d70a) */
+const PEPPER_LANE = Math.fround(0.01);
+
+/** FUN_00444850 (the loop's first calls, the shadow set-up): the two variables of Pepper's blob shadow, var 0xc6 = 0 (no marker), var 0xc5 = 4 (type); nothing else of the front end's start writes a variable */
+export function feStartVars(vars: { set(i: number, v: number): void }): void {
+  vars.set(VAR_PEPP_MARKER, 0); vars.set(V.PEPPERSSHADOW, 4);
+}
+
+/**
+ * FUN_00471070's records half and FUN_0047ec85's animation instances: the two backdrop planes G000 / G001 re-placed with scale 1.2 / 0.975 (FUN_0043a742(rec + 0xc, rx, ry, rz, x, y, z, sx, sy, sz);
+ * the floats are the hex immediates) and the instances of records 0 .. 21 (rig 0 = MFIG on every record but record 1, rig 1 = SKBD = the skateboard, each started on clip 1 frame 0: asm 0x48aff8 ..).
+ * Shared by the front end and its save test (tools/tests/m8-save-fe.mjs).
+ */
+export function feStageRecords(world: World, archive: Archive): void {
+  const recs = world.records;
+  const f = (u: number) => { const dv = new DataView(new ArrayBuffer(4)); dv.setUint32(0, u); return dv.getFloat32(0); };
+  const placeScaled = (r: typeof recs[number] | undefined, pos: [number, number, number], k: number) => {
+    if (!r) return;
+    r.m.set(buildMatrix(0, 0, 0, pos[0], pos[1], pos[2], k, k, k)); r.scale = [k, k, k]; r.savePrev();
+  };
+  placeScaled(recs[42], [f(0xc0ef4bc7), f(0x415ce560), f(0xc0315810)], f(0x3f99999a));
+  placeScaled(recs[43], [f(0xc0d9c28f), f(0x415ce560), f(0x413651ec)], f(0x3f79999a));
+  const blk = (name: string): Blk | null => { const e = archive.find(`anim/${name}.blk`); return e ? parseBlk(archive.read(e)) : null; };
+  const mfig = blk('MFIG'), skbd = blk('SKBD');
+  for (let i = 0; i <= 21; i++) {
+    const rig = i === 1 ? skbd : mfig;
+    if (rig && recs[i]) { const an = new AnimInstance(rig); an.start(1, 0); recs[i].anim = an; }
+  }
+}
+
+/**
+ * FUN_00471070's behaviour nodes and the camera, in the original's order: record 0 Pepper (constructor FUN_00472743; the camera right after it: FUN_00422b50(&DAT_009da5e8, record 0 + 0xc, 0), which
+ * takes Pepper's matrix, and then the eye (0, 11, 56.8) / target (0, 11, 0) stored over its first six floats, so the view basis c[9..17] stays the one of the Pepper camera until the loop's own view
+ * update), the figure (record 8), the Brickster (record 2), the train (record 44), the butterflies on records 41 .. 35 (FUN_004b2d44 with the range argument 8.0). Every node gets its constructor
+ * address (`ctor`: the save file lists the nodes by it) and runs its constructor now.
+ */
+export function feStageNodes(world: World, nodeEnv: FeEnv): void {
+  const recs = world.records;
+  const attach = (i: number, name: string) => {
+    const n = attachNode(recs[i], name, 0, 2, 1, 1, nodeEnv as unknown as Record<string, unknown>) as unknown as { init(w: World, r: GameRecord): void };
+    n.init(world, recs[i]);
+  };
+  attach(FE_REC.PEPPER, 'FEPepper');
+  const cam = world.camera;
+  cam.init(recs[FE_REC.PEPPER]);
+  cam.c[0] = FE_EYE[0]; cam.c[1] = FE_EYE[1]; cam.c[2] = FE_EYE[2]; cam.c[3] = FE_TARGET[0]; cam.c[4] = FE_TARGET[1]; cam.c[5] = FE_TARGET[2];
+  cam.savePrev();
+  attach(FE_REC.FIGURE, 'FEFigure');
+  attach(FE_REC.BRICKSTER, 'FEBrickster');
+  attach(FE_REC.TRAIN, 'FETrain');
+  const butterflyArgs = new Uint8Array(0x80);
+  new DataView(butterflyArgs.buffer).setFloat32(0, BUTTERFLY_RANGE, true);
+  for (let i = FE_REC.BUTTERFLY_LAST; i >= FE_REC.BUTTERFLY_FIRST; i--) {
+    const node = new ButterflyNode(new ArgView(butterflyArgs));
+    node.var = 2; node.mask = 1; node.value = 1; (node as BehaviourNode).ctor = 0x4b2d44;
+    recs[i].ctrl = recs[i].ctrl ?? new Controller();
+    recs[i].ctrl!.attach(node, 0);
+    node.ctorInit(world, recs[i]);   // the constructor reads the record's place and makes it non-solid
+  }
+  world.ext.set('frustum', true);   // record flag 1 is kept per tick (the loop), the butterflies freeze and reset when they were out of view for 200 ticks
+  world.focus = recs[FE_REC.PEPPER];  // FUN_0042207d(record 0): DAT_009da5d0, the record the controllers' distances are measured to (the butterflies follow it)
+}
+
+/**
+ * FUN_0042207d(record 0) in the front end's loop start: Pepper's walker on the PATH map (no node, `-3`) with the NPC tuning, kept in the controller (+0x10). The front end loads no maps: the
+ * table has no PATH nodes and the original's FUN_004614d5 returns 0 (no walker) then; a map a zone left behind would give one. Returns the handle (0 = none); FUN_0042207d(0) frees it at the exit.
+ */
+export function feStartWalker(world: World): number {
+  const pep = world.records[FE_REC.PEPPER];
+  if (!pep?.ctrl) return 0;
+  const h = waypoints.create(MAP_PATH, pep, -3);
+  pep.ctrl.walker = h;
+  if (h) {
+    waypoints.setSpeed(h, NPC_SPEED); waypoints.setLane(h, PEPPER_LANE); waypoints.setTurnRate(h, NPC_TURN_RATE);
+    waypoints.setRadiusMin(h, NPC_RADIUS_MIN); waypoints.setRadiusMax(h, NPC_RADIUS_MAX); waypoints.setRadiusLimit(h, NPC_RADIUS_LIMIT);
+  }
+  return h;
+}
 
 export async function runFrontEnd(sh: Shell, _info: ZoneInfo): Promise<number> {
   startLoading(sh);
@@ -54,27 +141,10 @@ export async function runFrontEnd(sh: Shell, _info: ZoneInfo): Promise<number> {
   world.records = data.records;
   world.col.records = data.records;
   world.sfx = sh.audio;
+  feStageRecords(world, archive);
   const recs = data.records;
-  // FUN_00471070 re-places the two backdrop planes G000 / G001 with scale 1.2 / 0.975 (FUN_0043a742(rec + 0xc, rx, ry, rz, x, y, z, sx, sy, sz); the floats are the hex immediates)
-  const f = (u: number) => { const dv = new DataView(new ArrayBuffer(4)); dv.setUint32(0, u); return dv.getFloat32(0); };
-  const placeScaled = (r: typeof recs[number] | undefined, pos: [number, number, number], k: number) => {
-    if (!r) return;
-    r.m.set(buildMatrix(0, 0, 0, pos[0], pos[1], pos[2], k, k, k)); r.scale = [k, k, k]; r.savePrev();
-  };
-  placeScaled(recs[42], [f(0xc0ef4bc7), f(0x415ce560), f(0xc0315810)], f(0x3f99999a));
-  placeScaled(recs[43], [f(0xc0d9c28f), f(0x415ce560), f(0x413651ec)], f(0x3f79999a));
-  const blk = (name: string): Blk | null => { const e = archive.find(`anim/${name}.blk`); return e ? parseBlk(archive.read(e)) : null; };
-  const mfig = blk('MFIG'), skbd = blk('SKBD');
-  // FUN_0047ec85 (asm 0x48aff8 ..): animation instances for records 0 .. 21: rig 0 (MFIG) on every record but record 1 (rig 1, SKBD = the skateboard), each started on clip 1 frame 0
-  for (let i = 0; i <= 21; i++) {
-    const rig = i === 1 ? skbd : mfig;
-    if (rig && recs[i]) { const an = new AnimInstance(rig); an.start(1, 0); recs[i].anim = an; }
-  }
+  feStartVars(sh.vars);
   // the renderer and the particle engine come first: the nodes' constructors start their emitters
-  // camera
-  const cam = world.camera;
-  cam.c.fill(0); cam.c[0] = FE_EYE[0]; cam.c[1] = FE_EYE[1]; cam.c[2] = FE_EYE[2]; cam.c[3] = FE_TARGET[0]; cam.c[4] = FE_TARGET[1]; cam.c[5] = FE_TARGET[2]; cam.c[7] = 1;
-  cam.updateView(); cam.savePrev();
   let lights = null;
   const lgt = archive.find('lights/lights.lgt');
   if (lgt) { try { lights = lightSetFromLgt(parseLgt(archive.read(lgt))); } catch (e) { console.warn('lgt', e); } }
@@ -95,26 +165,15 @@ export async function runFrontEnd(sh: Shell, _info: ZoneInfo): Promise<number> {
   } : undefined;
   // FUN_00471070: the behaviour nodes of the stage, attached in the original's order (record 0 Pepper, 8, 2, 44, then the butterflies 41 .. 35); the constructors run at the attach
   const nodeEnv: FeEnv = { tables: feTables(sh.pe), fx: feFx, swapModel: (r) => { if (r.model) gr.setModel(r, r.model); } };
-  for (const [i, name] of [[FE_REC.PEPPER, 'FEPepper'], [FE_REC.FIGURE, 'FEFigure'], [FE_REC.BRICKSTER, 'FEBrickster'], [FE_REC.TRAIN, 'FETrain']] as [number, string][]) {
-    const n = attachNode(recs[i], name, 0, 2, 1, 1, nodeEnv as unknown as Record<string, unknown>) as unknown as { init(w: World, r: GameRecord): void };
-    n.init(world, recs[i]);
-  }
-  // FUN_004b2d44 (the island's butterfly, src/island/ambient) on BFS0 .. BFS6 with the range argument 8.0 (local_60[0] = 0x41000000)
-  const butterflyArgs = new Uint8Array(0x80);
-  new DataView(butterflyArgs.buffer).setFloat32(0, 8, true);
-  for (let i = FE_REC.BUTTERFLY_LAST; i >= FE_REC.BUTTERFLY_FIRST; i--) {
-    const node = new ButterflyNode(new ArgView(butterflyArgs));
-    node.var = 2; node.mask = 1; node.value = 1;
-    recs[i].ctrl = recs[i].ctrl ?? new Controller();
-    recs[i].ctrl!.attach(node, 0);
-  }
-  world.ext.set('frustum', true);   // record flag 1 is kept per tick (below), the butterflies freeze and reset when they were out of view for 200 ticks
-  const pepper = recs[FE_REC.PEPPER];
-  world.focus = pepper;             // FUN_0042207d(record 0): DAT_009da5d0, the record the controllers' distances are measured to (the butterflies follow it)
+  feStageNodes(world, nodeEnv);
   sh.audio.enterZone('z60FRE');
+  const walker = feStartWalker(world);   // FUN_0042207d(record 0)
   // the credits text (FUN_00471bfa)
   const creditMsgs = loadMessages(await sh.data.archive('messages'), CREDITS_FILES);
   const credits = new Credits(buildCredits(sh.pe, creditMsgs, (cls, s) => sh.ui.measure(cls === 0 ? 0 : 1, s).w));
+  // FUN_0041ad71 -> FUN_00418ec7(-2): SaveDef.lgo from the front end's world as it stands (before the first loop pass, whose view update then refreshes the camera basis the file still holds from the set-up)
+  sh.writeDefaultSave(world);
+  world.camera.updateView();
   let showCredits = false;
 
   const m = new LoopMachine(HUB_CONFIG);
@@ -205,6 +264,7 @@ export async function runFrontEnd(sh: Shell, _info: ZoneInfo): Promise<number> {
   await sh.runLoop(tick, render);
   sh.gl.fixed43 = false;
   dev?.destroy();
+  if (walker) waypoints.free(walker);   // FUN_0042207d(0): FUN_00461a3b(Pepper's walker)
   sh.detachMenuKeys();
   offOpt();
   sh.menu.close();

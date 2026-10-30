@@ -19,6 +19,9 @@ import { RAMP_TABLE } from './camera.ts';
 import { B } from './input.ts';
 import { V } from './vars.ts';
 import { walkSounds, landSound } from '../audio/footsteps.ts';
+import { BlockIn, BlockOut } from '../island/blockio.ts';
+import { CD8, CD_F32 } from './heapfill.ts';
+import { tagOf, recordOfTag } from '../shell/saveworld.ts';
 
 const fr = Math.fround;
 /**
@@ -100,15 +103,50 @@ export function alignRecordToGround(w: World, rec: GameRecord, reach = 6.0, side
   m[8] = hx; m[9] = hy; m[10] = hz;
 }
 
+/**
+ * The process globals of the vehicle code that the walk node's save block carries (FUN_0042ef62 / FUN_0042f20d): DAT_009daa80 (the record Pepper sits in / is getting into / the talk candidate),
+ * DAT_008ae330 (squared distance of the nearest candidate), DAT_009da9fa (the vehicle kind, int16) and DAT_008ae1e0 (int16, mirrors it). The families that own them (the island's vehicles:
+ * `vehicles(w)` of src/island/vehicles/common.ts) install their accessors here; the fallback is `w.pep` (PepperGlobals).
+ */
+export interface WalkSaveGlobals {
+  get(w: World): { current: GameRecord | null; range: number; kind: number; kind2: number };
+  set(w: World, v: { current: GameRecord | null; range: number; kind: number; kind2: number }): void;
+  /** DAT_008ae330 := v (the top of the walk update writes 576.0) */
+  setRange(w: World, v: number): void;
+}
+export const walkSaveGlobals: { impl: WalkSaveGlobals | null } = { impl: null };
+/** `_DAT_008ae330 = 0x44100000` (576.0 = 24^2), the first statement of FUN_0042d514: the vehicles' range for this tick (the families' nodes lower it for the candidates they find) */
+const WALK_RANGE = 576.0;
+function resetRange(w: World) {
+  if (walkSaveGlobals.impl) walkSaveGlobals.impl.setRange(w, WALK_RANGE);
+  else w.pep.range = WALK_RANGE;
+}
+function savedGlobals(w: World) {
+  if (walkSaveGlobals.impl) return walkSaveGlobals.impl.get(w);
+  const g = w.pep;
+  return { current: g.current, range: g.range, kind: g.kind, kind2: g.kind2 };
+}
+function setSavedGlobals(w: World, v: { current: GameRecord | null; range: number; kind: number; kind2: number }) {
+  if (walkSaveGlobals.impl) { walkSaveGlobals.impl.set(w, v); return; }
+  const g = w.pep;
+  g.current = v.current; g.range = v.range; g.kind = v.kind; g.kind2 = v.kind2;
+}
+
 export class PepperGlobals {
+  /** DAT_009da9b8: a float of the walk code nothing ever writes (0.0); only the walk block's loader puts a byte into it. The tilt to the ground (FUN_00429e00) and the slope code run only while it is 0 (kept as its low byte: any other byte makes the float non-zero) */
+  flagB8 = 0;
+  /** fallbacks of `walkSaveGlobals` (no vehicle family installed): DAT_009daa80 / DAT_008ae330 / DAT_009da9fa / DAT_008ae1e0 */
+  current: GameRecord | null = null; range = 12; kind = 0; kind2 = 1;
   /** DAT_008ae088: state mailbox / mirror of the current state (0x1b at set-up) */
   mailbox = 0x1b;
   /** DAT_009da9c4: footstep phase 0..2, DAT_009da8ec: animation wrapped flag, DAT_009da9c0: variant counter 0..15 */
   footPhase = 0; footWrapped = 0; footIdx = 0;
   /** DAT_009da958: take-off / landing sound state 0..2 */
   landSnd = 0;
-  /** DAT_009da9b4: the ground sweep hit something other than the ground record */
-  onObject = false;
+  /** DAT_009da9b4: the ground sweep hit something other than the ground record (a byte of the original's: the walk code only ever stores 0 / 1, the save block's loader can put any byte in it; `onObject` is the flag the code tests) */
+  onObjectByte = 0;
+  get onObject(): boolean { return this.onObjectByte !== 0; }
+  set onObject(v: boolean) { this.onObjectByte = v ? 1 : 0; }
   /** DAT_009da9ac / DAT_009da9b0: surface ids */
   surfaceAtFeet = 0; lastSurface = 0;
   /** DAT_009da9a8: velocity handed over by the node that requests the jump state (null = keep) */
@@ -136,10 +174,12 @@ export class WalkNode implements BehaviourNode, CameraWalkIO {
   stamp = 0xfffffffe;
   // ---- state struct (node + 0x18 ...)
   state: number = ST.IDLE;       // +0x18
-  shift = 0;                      // +0x19: velocity divisor 1 << shift
-  animResult = 0;                 // +0x1a: result of the last animation advance (1 looped, 2 one-shot ended)
+  shift = CD8;                    // +0x19: velocity divisor 1 << shift (the constructor does not write it: the debug heap's 0xCD until the first tick that does)
+  animResult = CD8;               // +0x1a: result of the last animation advance (1 looped, 2 one-shot ended); not written by the constructor either
   hideFlag = 0;                   // +0x1b
   landFlag = 0;                   // +0x1c
+  /** +0x1d, +0x48, +0x4c: bytes of the struct only the constructor writes (0); the save block carries them, kept verbatim */
+  b1d = 0; w48 = 0; w4c = 0;
   dirFlag = 0;                    // +0x1e: direction of the idle turn
   slideFlag = 0;                  // +0x1f
   rampX = 16; stickX = 0;         // +0x20 / +0x24
@@ -154,13 +194,62 @@ export class WalkNode implements BehaviourNode, CameraWalkIO {
   v0 = 0;                         // +0x5c: take-off speed
   vJump = 0;                      // +0x60: vertical speed on the arc
   speed = 0;                      // +0x64: speed factor 0..1 (negative while sliding back)
-  vx = 0; vy = 0; vz = 0;         // +0x68 / +0x6c / +0x70: velocity per tick
+  vx = CD_F32; vy = CD_F32; vz = CD_F32;   // +0x68 / +0x6c / +0x70: velocity per tick (not written by the constructor: 0xCD words)
   /** record whose visibility is tied to the walk state (DAT_009daa7c, the skateboard in the island) */
   accessory: GameRecord | null = null;
   /** pad analogue stick (-128..127) for gamepads; 0 for the keyboard */
   padX = 0; padY = 0;
 
   constructor(v: number = V.PEPPER_CONTROL, mask = 1, value = 1) { this.var = v; this.mask = mask; this.value = value; }
+
+  // ----------------------------------------------------------------------------------------------- save block (WP-SAVE)
+  /**
+   * FUN_0042ef62 (vtable +0x14, the writer protocol of FUN_00418ec7: size -1 asks for the buffer, then the bytes are copied in this order) / FUN_0042f20d (vtable +0x10, the same sequence of memcpys back).
+   * 178 bytes:
+   *   0x00  node +0x18 .. +0x73 (0x5c bytes): the walk struct (state, shift, animResult, hideFlag, landFlag, +0x1d, dirFlag, slideFlag, the four key ramps (i32) and sticks (f32), idleTimer, runTimer,
+   *         +0x48, +0x4c, jump time t, y0, yJump, v0, vJump, speed, velocity vx / vy / vz; the offsets are the port's field comments)
+   *   0x5c  u8   DAT_008ae088 the state mailbox            0x5d f32 DAT_008ae330 the range of the nearest vehicle   0x61 u8 DAT_008ae088 again (the second copy is the one that stays)
+   *   0x62  u8   DAT_009da9b8 (low byte of the float nothing writes)
+   *   0x63  u32  the first dword (4 name characters) of the record DAT_009daa80 points at, 0 when it is null; the loader looks the record up by it (FUN_00419a79)
+   *   0x67  i16  DAT_009da9fa the vehicle kind             0x69 i16 DAT_008ae1e0                                    0x6b u8 DAT_009da9b4 onObject
+   *   0x6c  i32  DAT_009da9ac the surface under the feet   0x70 64 bytes: the focus record's matrix (DAT_009da5d0 + 0xc .. +0x4c: 16 floats, the pad words included)
+   *   0xb0  u16  the flags (+0x60) of record DAT_009daa7c (the accessory: the skateboard)
+   */
+  saveBlock(w: World, rec: GameRecord, _ctrl: Controller): Uint8Array {
+    void _ctrl;
+    const o = new BlockOut(178), g = w.pep, v = savedGlobals(w), focus = w.focus ?? rec;
+    o.u8(0, this.state).u8(1, this.shift).u8(2, this.animResult).u8(3, this.hideFlag).u8(4, this.landFlag).u8(5, this.b1d).u8(6, this.dirFlag).u8(7, this.slideFlag);
+    o.i32(8, this.rampX).f32(0xc, this.stickX).i32(0x10, this.rampY).f32(0x14, this.stickY);
+    o.i32(0x18, this.camRampX).f32(0x1c, this.camStickX).i32(0x20, this.camRampY).f32(0x24, this.camStickY);
+    o.f32(0x28, this.idleTimer).f32(0x2c, this.runTimer).u32(0x30, this.w48).u32(0x34, this.w4c);
+    o.f32(0x38, this.t).f32(0x3c, this.y0).f32(0x40, this.yJump).f32(0x44, this.v0).f32(0x48, this.vJump).f32(0x4c, this.speed);
+    o.f32(0x50, this.vx).f32(0x54, this.vy).f32(0x58, this.vz);
+    o.u8(0x5c, g.mailbox).f32(0x5d, v.range).u8(0x61, g.mailbox).u8(0x62, g.flagB8);
+    o.u32(0x63, v.current ? tagOf(v.current.name) : 0);
+    o.u16(0x67, v.kind).u16(0x69, v.kind2).u8(0x6b, g.onObjectByte).i32(0x6c, g.surfaceAtFeet);
+    for (let k = 0; k < 16; k++) o.f32(0x70 + 4 * k, focus.m[k]);
+    o.u16(0xb0, this.accessory ? this.accessory.flags & 0xffff : 0);
+    return o.bytes;
+  }
+  loadBlock(w: World, rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    void _ctrl;
+    const b = new BlockIn(data), g = w.pep, focus = w.focus ?? rec;
+    this.state = b.u8(0); this.shift = b.u8(1); this.animResult = b.u8(2); this.hideFlag = b.u8(3); this.landFlag = b.u8(4); this.b1d = b.u8(5); this.dirFlag = b.u8(6); this.slideFlag = b.u8(7);
+    this.rampX = b.i32(8); this.stickX = b.f32(0xc); this.rampY = b.i32(0x10); this.stickY = b.f32(0x14);
+    this.camRampX = b.i32(0x18); this.camStickX = b.f32(0x1c); this.camRampY = b.i32(0x20); this.camStickY = b.f32(0x24);
+    this.idleTimer = b.f32(0x28); this.runTimer = b.f32(0x2c); this.w48 = b.u32(0x30); this.w4c = b.u32(0x34);
+    this.t = b.f32(0x38); this.y0 = b.f32(0x3c); this.yJump = b.f32(0x40); this.v0 = b.f32(0x44); this.vJump = b.f32(0x48); this.speed = b.f32(0x4c);
+    this.vx = b.f32(0x50); this.vy = b.f32(0x54); this.vz = b.f32(0x58);
+    // (the original copies DAT_008ae088 twice, from 0x5c and from 0x61: the second copy stays)
+    g.mailbox = b.u8(0x61);
+    g.flagB8 = b.u8(0x62);
+    const cur = recordOfTag(w, b.u32(0x63));         // DAT_009daa80 = FUN_00419a79(tag)
+    setSavedGlobals(w, { current: cur, range: b.f32(0x5d), kind: b.i16(0x67), kind2: b.i16(0x69) });
+    g.onObjectByte = b.u8(0x6b); g.surfaceAtFeet = b.i32(0x6c);
+    for (let k = 0; k < 16; k++) focus.m[k] = b.f32(0x70 + 4 * k);
+    focus.savePrev();
+    if (this.accessory) this.accessory.flags = (this.accessory.flags & ~0xffff) | b.u16(0xb0);
+  }
 
   // ----------------------------------------------------------------------------------------------- input (FUN_0042a487 / FUN_0042a654)
   /** FUN_0042a487: the key ramp. Holding a direction moves the index by 3 per tick towards 0 / 32, releasing returns by 4 to the centre 16 */
@@ -409,6 +498,7 @@ export class WalkNode implements BehaviourNode, CameraWalkIO {
   // ----------------------------------------------------------------------------------------------- update (FUN_0042d514)
   update(w: World, rec: GameRecord, _ctrl: Controller): number {
     void _ctrl;
+    resetRange(w);
     const g = w.pep;
     const dt = fr(w.dt);
     const anim = rec.anim;
@@ -517,9 +607,9 @@ export class WalkNode implements BehaviourNode, CameraWalkIO {
     // the original calls the terrain ray once more here (FUN_0043cd62(&local_68, 4.0) at 0x42dd..: from the start position, result unused): it refreshes the hit cache of FUN_00441b10
     w.col.terrainHeight(x0, l64, z0, 4);
     // ---- tilt to the slope while moving on the ground
-    if (!airborne && this.speed > fr(0.01) && !g.onObject) this.alignToGround(w, rec);
+    if (!airborne && this.speed > fr(0.01) && !g.onObject && g.flagB8 === 0) this.alignToGround(w, rec);
     // ---- steep slopes: slow down walking up, slide down when standing
-    if (this.state !== ST.SLIDE && !airborne && this.state !== ST.TEETER && this.state !== ST.SKID && !g.onObject) {
+    if (this.state !== ST.SLIDE && !airborne && this.state !== ST.TEETER && this.state !== ST.SKID && !g.onObject && g.flagB8 === 0) {
       const up = rec.m[5];
       if (this.speed <= 0 || fr(0.85) <= up || rec.m[9] < 0) {
         if (this.speed === 0 && up < fr(0.85)) { next = ST.SLIDE; rec.ry = fr(Math.atan2(-rec.m[4], -rec.m[6])); }

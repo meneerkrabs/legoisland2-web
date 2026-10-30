@@ -25,9 +25,12 @@ import type { ZoneInfo, StoryNode, MenuPage as RawMenuPage } from './tables.ts';
 import { GV, StoryFsm, ZoneLoopState } from './story.ts';
 import { Options, S } from './options.ts';
 import { IdbBackend, SaveStore } from './savestore.ts';
-import type { SaveHeader, SaveGame, EntityRecord } from './save.ts';
-import { decodeSave, readSaveHeader, slotFileName, newSaveFromGame, applySaveVars, SAVE_SIZE, encodeSave } from './save.ts';
+import type { SaveHeader, SaveGame, NewSaveOptions } from './save.ts';
+import { decodeSave, readSaveHeader, slotFileName, newSaveFromGame, applySaveVars, SAVE_SIZE, encodeSave, SLOT_DEFAULT } from './save.ts';
+import { captureWorld } from './saveworld.ts';
+import type { World } from '../game/world.ts';
 import { AudioHost } from './audiohost.ts';
+import { resetDecor } from '../island/decor.ts';
 import { stopLoading } from './loading.ts';
 import { MenuUi, MR } from './menuui.ts';
 import type { MenuContext } from './menuui.ts';
@@ -42,8 +45,8 @@ export function registerZoneRunner(id: string, fn: ZoneRunner) { runners.set(id.
 
 /** the live game a save can snapshot (set by the running zone) */
 export interface LiveGame {
-  /** snapshot of what is not in the game variables: Pepper's place and the camera */
-  capture(): { pos: [number, number, number]; yaw: number; camera: Float32Array; entities?: EntityRecord[] } | null;
+  /** the world sections of FUN_00418ec7 (walkers, camera, frame counter, object / entity records, decor, bricks; src/shell/saveworld.ts `captureWorld`); null = nothing to save */
+  capture(): Partial<NewSaveOptions> | null;
   /** apply a loaded save in place (FUN_00419e82) */
   restore(save: SaveGame): void;
   cutsceneRunning(): boolean;
@@ -254,18 +257,23 @@ export class Shell {
   saveSlot(slot: number): boolean {
     const live = this.live?.capture();
     if (!live) return false;
-    const cam = new Uint8Array(0x48);
-    new Float32Array(cam.buffer, 0, Math.min(18, live.camera.length)).set(live.camera.subarray(0, 18));
-    const tag = (n: string) => (n.charCodeAt(0) | (n.charCodeAt(1) << 8) | (n.charCodeAt(2) << 16) | (n.charCodeAt(3) << 24)) >>> 0;
-    const pos = new Float32Array(live.pos), euler = new Float32Array([0, live.yaw, 0]);
-    const save = newSaveFromGame({
-      vars: this.vars.a, subgame: this.vars.get(0x59), fsmState: this.vars.get(0x58), camera: cam, frameCounter: 0,
-      entities: [{ tag: tag('PEPP'), pos, euler, flags: 2, nodes: [] }, ...(live.entities ?? [])],
-    });
-    const bytes = encodeSave(save);
+    const save = newSaveFromGame({ ...live, vars: this.vars.a, subgame: this.vars.get(0x59), fsmState: this.vars.get(0x58) });
+    let bytes: Uint8Array;
+    try { bytes = encodeSave(save); } catch (e) { console.warn('save failed', e); return false; }   // the original's writer returns 0 when the buffer would overflow
     this.slots[slot] = bytes;
     this.saves.backend.put(slotFileName(slot), bytes).catch((e) => console.warn('save failed', e));
     return true;
+  }
+  /**
+   * FUN_0041ad71 -> FUN_00418ec7(0xfffffffe): the file `SaveDef.lgo`, written by the front end's loop at its start from the live state of the front end's world (the stage's nodes and records, the
+   * variables, the camera ...). Nothing reads it back (FUN_00419bb9 only gets the slots 0 .. 6). A failure never reaches the front end.
+   */
+  writeDefaultSave(world: World): boolean {
+    try {
+      const save = newSaveFromGame({ ...captureWorld(world), vars: this.vars.a, subgame: this.vars.get(0x59), fsmState: this.vars.get(0x58) });
+      this.saves.backend.put(slotFileName(SLOT_DEFAULT), encodeSave(save)).catch((e) => console.warn('SaveDef.lgo not written', e));
+      return true;
+    } catch (e) { console.warn('SaveDef.lgo not written', e); return false; }   // (the original's writer returns 0 when the buffer would overflow)
   }
   /** FUN_00419bb9 */
   loadSlot(slot: number): 0 | 1 | 2 {
@@ -309,7 +317,7 @@ export class Shell {
     return null;
   }
   /** the Save-slot import / export of the options screen (browser side): `.lgo` bytes <-> slot */
-  async importSlot(slot: number, bytes: Uint8Array) { await this.saves.importLgo(slot, bytes); await this.refreshSlots(); }
+  async importSlot(slot: number, bytes: Uint8Array): Promise<string[]> { const w = await this.saves.importLgo(slot, bytes); await this.refreshSlots(); return w; }
   exportSlot(slot: number): Uint8Array | null { const b = this.slots[slot]; return b ? b.slice(0, SAVE_SIZE) : null; }
 
   // ---------------------------------------------------------------------------------------------------------------------- menus
@@ -327,7 +335,7 @@ export class Shell {
       saveSlot: (s) => this.saveSlot(s),
       loadSlot: (s) => this.loadSlot(s),
       eraseSlot: (s) => this.eraseSlot(s),
-      newGame: () => { this.loop.newGame(); return true; },
+      newGame: () => { resetDecor(null, this.pe); this.loop.newGame(); return true; },   // FUN_0041a8f9: FUN_00421fa0(1) (the stored decor back to the defaults) + the new game's defaults
       keysChanged: () => this.applyKeys(),
       captureKey: (own) => this.input.captureKey(own),
       optionChanged: (i) => this.optionChanged(i),
@@ -375,7 +383,7 @@ export class Shell {
       inp.onchange = async () => {
         const f = inp.files?.[0];
         if (!f) return;
-        try { await this.importSlot(slot, new Uint8Array(await f.arrayBuffer())); } catch (err) { console.warn('import failed', err); alert(`Dit is geen geldig bewaard spel: ${err instanceof Error ? err.message : err}`); }
+        try { const w = await this.importSlot(slot, new Uint8Array(await f.arrayBuffer())); if (w.length) alert(`Let op: ${w.join(' ')} Het spel wordt toch geladen, zoals het origineel dat doet.`); } catch (err) { console.warn('import failed', err); alert(`Dit is geen geldig bewaard spel: ${err instanceof Error ? err.message : err}`); }
       };
       inp.click();
     }

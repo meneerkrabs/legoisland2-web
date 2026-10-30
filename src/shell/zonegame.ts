@@ -16,10 +16,12 @@ import type { PanelEnv, BannerSpec, ScreenLine } from './helpscreen.ts';
 import type { LoopConfig } from './loopmachine.ts';
 import type { Shell } from './shell.ts';
 import type { ZoneInfo } from './tables.ts';
-import type { EntityRecord, SaveGame } from './save.ts';
 
 /** a subtitle shown while a speech line plays (FUN_00435a11 + the subtitle option of the options menu) */
 export interface Subtitle { id: string; text: string; ticksLeft: number }
+/** how `sayFrom` shows the text: `timed` = each line as a subtitle for its time, together with the voice (the shell's lines); `held` = FUN_0045d47f: the text of the lines
+ *  (A + B, FUN_0085b580) written into the four subtitle lines at once, even while the voice has to wait, and shown until `clearSubtitle` (the talking NPCs, FUN_004254a5); `none` = the voice only */
+export type SubtitleMode = 'timed' | 'held' | 'none';
 
 /** what the runner hands to a zone game at construction (after the zone's set-up ran) */
 export interface ZoneGameCtx {
@@ -41,7 +43,9 @@ export interface ZoneGameCtx {
   /** FUN_00439bf8 + FUN_00435a11: speak the zone-table lines `a` (and `b`) by message id (speech index = the id's voice field); the lines are shown as subtitles when the option is on. False while speech is busy. */
   say(a: string | null, b?: string | null): boolean;
   /** `say` with the lines of another message table (the island's story tables `lifsmN.str`: IslandCtx.say) */
-  sayFrom(table: MessageTable | null, a: string | null, b?: string | null, voice?: boolean): boolean;   // voice false: the subtitle only (the hologram with the speech option off)
+  sayFrom(table: MessageTable | null, a: string | null, b?: string | null, voice?: boolean, subtitle?: SubtitleMode): boolean;   // voice false: the subtitle only (the hologram with the speech option off)
+  /** the four subtitle lines cleared (DAT_05d4df1c .. = 0: the end of an NPC conversation); a `held` subtitle stays until this */
+  clearSubtitle(): void;
   /** FUN_00435ad3: true when no speech is playing (always true without audio, after the subtitle time) */
   speechIdle(): boolean;
   /** FUN_00435b07: stop the speech */
@@ -145,10 +149,6 @@ export interface ZoneSetupHooks {
   afterSetup?(sh: Shell, world: World, loaded: Loaded, archive: Archive): void;
   /** options of the zone's cutscene host (the island: the shared walker system with its maps, the set-up's name dictionaries) */
   cutsceneOptions?(sh: Shell, world: World, loaded: Loaded): CutsceneHostOptions;
-  /** extra entities a save writes besides Pepper's (the island: the vehicle Pepper sits in; FUN_00418ec7 writes every record's) */
-  saveEntities?(world: World): EntityRecord[];
-  /** after a load was applied (variables + Pepper's place): restore what the entities / node state of the original's save would (the island: Pepper's vehicle) */
-  restoreSave?(world: World, loaded: Loaded, save: SaveGame): void;
 }
 const setups = new Map<string, ZoneSetupHooks>();
 export function registerZoneSetup(archive: string, hooks: ZoneSetupHooks) { setups.set(archive.toLowerCase(), hooks); }

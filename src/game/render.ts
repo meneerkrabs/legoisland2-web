@@ -21,6 +21,9 @@ import { blobShadowPoints, markerPoints, markerVisible, shadowGate, SHADOW_HANDL
 import type { ShadowRay } from './shadow.ts';
 import { activeEntries } from '../formats/zonesetup.ts';
 
+/** the draw-time entry of the island's sky / sea scene nodes (src/island/ambient/seabed.ts `SkyNode.place` / `SeaNode.place`) */
+interface SceneNodeApi { place(rec: GameRecord, eye: ArrayLike<number>, drawEye: ArrayLike<number>, v: { far: number; fogOn: boolean; fogEnd: number; domeBase: number; seaLevel: number; dt: number }): Float32Array }
+
 /**
  * one LOD part of a model (the 0x14-byte part record: mesh +8, texture list +0xc, mode +0x10): `mode` is the draw mode FUN_00444550(record, partMask, mode) sets (default 0;
  * `slot` = the part's index, the bit of the part mask), `shiny` = FUN_004446c0 switched its mesh to vertex format 0x2c2
@@ -518,7 +521,11 @@ export class GameRenderer {
       if (!m) { for (const q of rv.parts) { const mm = this.partMesh(q); if (mm) { part = q; m = mm; break; } } }
       if (!m) continue;
       let world_: Float32Array = mat;
-      if (rv.kind === 'sky') world_ = this.sky.matrix(eye, range, mat[13]);
+      // the sky dome / sea plane of the zone carry the original's scene nodes (src/island/ambient/seabed.ts: FUN_004267d2 / FUN_00426a43): they own the state the save game holds and move their record
+      // with the CURRENT camera; the matrix drawn is the one for this frame's interpolated eye. A record without such a node (the viewer's models) keeps the renderer's own placement.
+      const sceneNode = rv.kind ? rec.ctrl?.nodes.find((n) => n.kind === 'Sky' || n.kind === 'Sea') as SceneNodeApi | undefined : undefined;
+      if (sceneNode) world_ = sceneNode.place(rec, c, eye, { far: setup.far, fogOn: setup.fog.enabled, fogEnd: Math.trunc(setup.fog.end), domeBase: range, seaLevel, dt: dt * GAME_TICK });
+      else if (rv.kind === 'sky') world_ = this.sky.matrix(eye, range, mat[13]);
       else if (rv.kind === 'sea') world_ = this.sea.matrix(eye, range, seaLevel);
       else world_ = mat.slice();   // keep: mat is scratch and attachments are drawn after
 

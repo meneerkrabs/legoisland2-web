@@ -17,6 +17,7 @@ const fr = Math.fround;
 import { waypoints } from '../../game/walker.ts';
 import { tryCtx } from '../ctx.ts';
 import { partMatrix } from '../trigger/parts.ts';
+import { walkSaveGlobals } from '../../game/walk.ts';
 
 export const VEH_KEY = 'island.vehicles';
 
@@ -43,6 +44,17 @@ export const ICON = { CAR: 2, HELI: 4, BOAT: 8, PAD: 0x40, DOCK: 0x80 } as const
 export interface Berth { map: number; node: number; exit: number; taken: boolean }
 
 /**
+ * The taken words are STATIC process memory in the original: DAT_009da9fc (five dwords: the four docks and a dead fifth word the boats' save block still carries) and DAT_009daa50 (ten dwords, the
+ * helipads). They outlive a zone: the island's set-up (FUN_004b6475) zeroes the first 4 / 10 of them, a hub's set-up sets its own table counts and zeroes the first n words of the table it fills (z07CSI:
+ * FUN_00573527 one dock word; z13CAI: FUN_0061b1f4 none) or none at all, so a hub starts with the words the island (or an earlier hub) left. Every SGBoat / SGHeli block saves them all. The port keeps the
+ * same words module-wide; `Berth.taken` reads / writes them.
+ */
+export const DOCK_WORDS = new Uint32Array(5), PAD_WORDS = new Uint32Array(10);
+function berth(words: Uint32Array, i: number, map: number, node: number, exit: number): Berth {
+  return { map, node, exit, get taken() { return words[i] !== 0; }, set taken(v: boolean) { words[i] = v ? 1 : 0; } };
+}
+
+/**
  * FUN_004b6475 (the island's set-up): DAT_009da9d4 (dock nodes) / DAT_009da9f0 (exit nodes) / DAT_009da9e4 (maps), count DAT_009da9e9 = 4, taken flags
  * DAT_009da9fc; the helipads DAT_009daa18 / DAT_009daa38 / DAT_009daa2c, count DAT_009daa14 = 10, taken DAT_009daa50.
  */
@@ -64,8 +76,19 @@ export class VehicleGlobals {
   kind = 0;
   /** DAT_008ae1e0 (saved with the game, mirrors `kind`) */
   kind2 = 1;
-  docks: Berth[] = DOCKS.map(([node, exit]) => ({ map: 1, node, exit, taken: false }));
-  pads: Berth[] = PADS.map(([node, exit]) => ({ map: 1, node, exit, taken: false }));
+  docks: Berth[] = DOCKS.map(([node, exit], i) => berth(DOCK_WORDS, i, 1, node, exit));
+  pads: Berth[] = PADS.map(([node, exit], i) => berth(PAD_WORDS, i, 1, node, exit));
+  /** the island's set-up (FUN_004b6475, after the tables are filled): the first 4 dock words and 10 pad words are zeroed (the fifth dock word is not) */
+  islandSetup() { DOCK_WORDS.fill(0, 0, 4); PAD_WORDS.fill(0, 0, 10); }
+  /**
+   * A hub's set-up replaces the tables (counts, nodes, exits) and zeroes the first `zeroDocks` / `zeroPads` words (what its own set-up code does; the other words keep what an earlier zone left).
+   * Berths are `{ map, node, exit }` in table order; their `taken` reads the static words.
+   */
+  useTables(docks: readonly { map: number; node: number; exit: number }[], pads: readonly { map: number; node: number; exit: number }[], zeroDocks = 0, zeroPads = 0) {
+    DOCK_WORDS.fill(0, 0, zeroDocks); PAD_WORDS.fill(0, 0, zeroPads);
+    this.docks = docks.map((b, i) => berth(DOCK_WORDS, i, b.map, b.node, b.exit));
+    this.pads = pads.map((b, i) => berth(PAD_WORDS, i, b.map, b.node, b.exit));
+  }
   /** DAT_009daa7c: the skateboard record (9 = SBRD on the island, FUN_004b4220) */
   board = 9;
   /** DAT_05d57ff8: the surface whose rolling sound the skateboard plays (5 = none) */
@@ -81,6 +104,13 @@ export function vehicles(w: World): VehicleGlobals {
   if (!g) { g = new VehicleGlobals(); w.ext.set(VEH_KEY, g); }
   return g;
 }
+
+// the walk node's save block carries DAT_009daa80 / DAT_008ae330 / DAT_009da9fa / DAT_008ae1e0 (src/game/walk.ts `walkSaveGlobals`): the vehicle family owns them
+walkSaveGlobals.impl = {
+  get: (w) => { const g = vehicles(w); return { current: g.current, range: g.range, kind: g.kind, kind2: g.kind2 }; },
+  set: (w, v) => { const g = vehicles(w); g.current = v.current; g.range = v.range; g.kind = v.kind; g.kind2 = v.kind2; },
+  setRange: (w, v) => { vehicles(w).range = v; },
+};
 
 /** FUN_00462be9(map, node, out): a waypoint's position (0,0,0 when the maps are not loaded) */
 export function berthPos(b: Berth, exit = false): number[] { return waypoints.nodePos(b.map, exit ? b.exit : b.node); }
@@ -132,4 +162,49 @@ export function padAxis(held: number, neg: number, pos: number): number {
   if ((held & neg) !== 0 && (held & pos) === 0) return -0x7f;
   if ((held & pos) !== 0 && (held & neg) === 0) return 0x7f;
   return 0;
+}
+
+/** the debug heap's fill of fresh node memory (0xCD): bytes the constructor never writes start as this, as a float32 too */
+export const FILL_CD = (n: number): Uint8Array => new Uint8Array(n).fill(0xcd);
+export const F_CD = new Float32Array(new Uint32Array([0xcdcdcdcd]).buffer)[0];
+
+/** a little endian view for the node save blocks (docs/re/save.md): `new Blk(n)` is a zeroed block, `Blk.of(bytes)` reads one */
+export class Blk {
+  readonly b: Uint8Array;
+  readonly v: DataView;
+  constructor(b: Uint8Array | number) {
+    this.b = typeof b === 'number' ? new Uint8Array(b) : b;
+    this.v = new DataView(this.b.buffer, this.b.byteOffset, this.b.byteLength);
+  }
+  u8(o: number) { return this.v.getUint8(o); }
+  i8(o: number) { return this.v.getInt8(o); }
+  i16(o: number) { return this.v.getInt16(o, true); }
+  i32(o: number) { return this.v.getInt32(o, true); }
+  u32(o: number) { return this.v.getUint32(o, true); }
+  f32(o: number) { return this.v.getFloat32(o, true); }
+  w8(o: number, x: number) { this.v.setUint8(o, x & 0xff); }
+  w16(o: number, x: number) { this.v.setInt16(o, x << 16 >> 16, true); }
+  w32(o: number, x: number) { this.v.setUint32(o, x >>> 0, true); }
+  wf(o: number, x: number) { this.v.setFloat32(o, x, true); }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------- constructor-time work
+/**
+ * The original's constructors (FUN_00430e6c boat, FUN_004325e8 heli, FUN_004bb1a6 Ptera) claim the nearest free dock / helipad of the shared tables AT CONSTRUCTION, one node after the other in the set-up's
+ * attach order. The port's nodes do that work lazily (it needs the world); `seq` is the order the factories ran in (= the attach order) and `runSetups` runs the pending ones of a world in that order, so that a
+ * save block asked for (or loaded) before the first update, or an update of a later node, sees the tables as the constructors left them.
+ */
+let ctorCounter = 0;
+export const ctorSeq = (): number => ++ctorCounter;
+export interface SetupNode { readonly seq: number; init: boolean; setup(w: World, rec: GameRecord): void }
+export function runSetups(w: World, keepAnims = false): void {
+  const todo: [SetupNode, GameRecord][] = [];
+  for (const r of w.records) for (const n of r.ctrl?.nodes ?? []) { const s = n as unknown as SetupNode; if (typeof s.seq === 'number' && s.init === false && typeof s.setup === 'function') todo.push([s, r]); }
+  if (!todo.length) return;
+  todo.sort((a, b) => a[0].seq - b[0].seq);
+  // a load restores the object records (animation clip / frame) BEFORE the node blocks, while the original's constructors (the Ptera starts its clip 3) ran before all of it: when the pending constructors run
+  // from inside a load, what they set on the animation instances must not overwrite what the file put there
+  const anims = keepAnims ? w.records.filter((r) => r.anim).map((r) => ({ a: r.anim!, clip: r.anim!.clip, frame: r.anim!.frame, pc: r.anim!.prevClip, pf: r.anim!.prevFrame })) : [];
+  for (const [n, r] of todo) if (!n.init) n.setup(w, r);
+  for (const k of anims) { if (k.a.clip !== k.clip || k.a.frame !== k.frame) k.a.start(k.clip, k.frame); k.a.prevClip = k.pc; k.a.prevFrame = k.pf; }
 }

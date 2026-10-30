@@ -90,6 +90,11 @@ export interface SaveGame {
   entities: EntityRecord[];
   /** set when the entity section could not be parsed structurally: raw section bytes, authoritative over `entities` */
   entitiesRaw?: Uint8Array;
+  /**
+   * the entity section exactly as stored (between the 0x6066006 and 0x7077007 markers), set by `decodeSave`. Which node of a record carries a `[size][data][0xb0bb00b]` payload is decided by the LIVE node
+   * (FUN_00419e82 reads the node list of the loaded zone), so the structured `entities` of a decoded file is a guess; the port's loader (`applyEntitySection`, src/shell/saveworld.ts) walks these bytes
+   */
+  entityBytes?: Uint8Array;
   /** 64 brick slots: null = unused, else 0x16aa bytes */
   bricks: (Uint8Array | null)[];
   /** raw blob when the slot structure did not match */
@@ -213,6 +218,15 @@ export function validateSave(b: Uint8Array): number {
   return len;
 }
 
+/** Dutch warnings for an imported file the original would still load (closing marker / checksum wrong) */
+export function saveWarnings(b: Uint8Array): string[] {
+  const out: string[] = [];
+  try { validateSave(b); } catch (e) {
+    if (e instanceof SaveError && (e.reason === 'marker' || e.reason === 'checksum')) out.push(e.reason === 'checksum' ? 'De controlesom van dit bestand klopt niet; het bestand is mogelijk beschadigd of aangepast.' : 'De afsluitmarkering van dit bestand klopt niet; het bestand is mogelijk beschadigd.');
+  }
+  return out;
+}
+
 function parseEntities(r: Reader): EntityRecord[] {
   const out: EntityRecord[] = [];
   for (;;) {
@@ -251,8 +265,18 @@ function parseBricks(blob: Uint8Array): (Uint8Array | null)[] | null {
   return p === blob.length ? out : null;
 }
 
-export function decodeSave(bytes: Uint8Array): SaveGame {
-  const len = validateSave(bytes);
+export function decodeSave(bytes: Uint8Array, o: { strict?: boolean } = {}): SaveGame {
+  // the original's load (FUN_00419bb9 / FUN_00419c45 / FUN_00419e82) never runs FUN_0041ac8f: no closing marker and no checksum check (only the writer calls it, on its own output and ignoring the result).
+  // What the reader itself cannot work with still fails: size (it reads a 0x51c8c buffer), version marker, header marker, the section markers.
+  let len: number;
+  if (o.strict) len = validateSave(bytes);
+  else {
+    if (bytes.length !== SAVE_SIZE) throw new SaveError('size', `${bytes.length} != ${SAVE_SIZE}`);
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    len = dv.getUint32(0, true);
+    if (len < 0x30 || len > SAVE_SIZE) throw new SaveError('length', String(len));
+    if (dv.getUint32(4, true) !== SAVE_VERSION) throw new SaveError('version', String(dv.getUint32(4, true)));
+  }
   const r = new Reader(bytes, len);
   r.u32(); // length
   r.u32(); // version
@@ -279,8 +303,8 @@ export function decodeSave(bytes: Uint8Array): SaveGame {
   const decor = r.bytes(DECOR_BYTES);
   r.marker(M.ENTITIES, 'entities');
   const entStart = r.pos;
-  let entities: EntityRecord[] = [], entitiesRaw: Uint8Array | undefined;
-  try { entities = parseEntities(r); } catch (e) {
+  let entities: EntityRecord[] = [], entitiesRaw: Uint8Array | undefined, entBytes: Uint8Array | undefined;
+  try { entities = parseEntities(r); entBytes = bytes.slice(entStart, r.pos); } catch (e) {
     if (!(e instanceof SaveError)) throw e;
     // fall back: the section ends at the 0x7077007 marker whose size field leads exactly to the closing 0x7077007 0xc0cc00c checksum 0xc0cc00c
     let found = -1;
@@ -290,6 +314,7 @@ export function decodeSave(bytes: Uint8Array): SaveGame {
     }
     if (found < 0) throw new SaveError('entities');
     entitiesRaw = bytes.slice(entStart, found);
+    entBytes = entitiesRaw;
     r.pos = found;
   }
   r.marker(M.ENTITY_END, 'entity end');
@@ -300,6 +325,7 @@ export function decodeSave(bytes: Uint8Array): SaveGame {
   const bricks = parseBricks(blob);
   const save: SaveGame = { length: len, version: SAVE_VERSION, subgame, time, fsmState, vars, walkers, walkerTags, camera, frameCounter, objects, decor, entities, bricks: bricks ?? [] };
   if (entitiesRaw) save.entitiesRaw = entitiesRaw;
+  if (entBytes) save.entityBytes = entBytes;
   if (!bricks) save.bricksRaw = blob;
   return save;
 }

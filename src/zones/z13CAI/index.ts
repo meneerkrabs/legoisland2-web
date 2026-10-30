@@ -41,9 +41,10 @@ export function applyCaiSetup(ictx: HubContext, world: World, loaded: { pepper: 
   // FUN_0061b1f4: DAT_009daa14 = 1 pad (PATH node 0, exit node 0, map 1); the island's boat docks are not set (count 0)
   const mem = ictx.setup.mem;
   const n = mem.r32(PAD_COUNT) | 0;
-  G.pads = [];
-  for (let i = 0; i < n; i++) G.pads.push({ map: mem.r8(PAD_MAPS + i), node: mem.r16(PAD_NODES + 2 * i), exit: mem.r16(PAD_EXITS + 2 * i), taken: false });
-  G.docks = [];
+  // (the taken words are static process memory: FUN_0061b1f4 zeroes none of them, `useTables`)
+  const pads = [];
+  for (let i = 0; i < n; i++) pads.push({ map: mem.r8(PAD_MAPS + i), node: mem.r16(PAD_NODES + 2 * i), exit: mem.r16(PAD_EXITS + 2 * i) });
+  G.useTables([], pads, 0, 0);
   // the vehicle the set-up put Pepper into (FUN_0051e4b0(2, 1): PHEL, RHEL or PTER by var 0xbb) and the control mode it wrote (setupZone reset var 0x5e)
   const a = emulatedArrival(ictx.setup);
   if (a.control !== null) world.vars.set(0x5e, a.control);

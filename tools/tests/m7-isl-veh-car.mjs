@@ -1,8 +1,10 @@
 // WP-VERIFY M7 island vehicles: SGCar (the ambulance AMBU, the speedsters SPD0 / SPD1 / SPD2, the police car PCAR) with PepSwitc's "leave the car" (FUN_0088e030 finds the free spot) and SGVehic's seat.
 // The original's node framework + SGCar + PepSwitc + SGVehic run natively in the x86 emulation (tools/lib/m7-isl-veh-emu.mjs) next to the port's nodes (src/island/vehicles/car.ts, pepswitch.ts) with the
 // same scripted buttons; compared tick by tick: the records, the node fields, all game variables (the car's MOVE var bits), the vehicle globals, the camera, the sound calls.
+import '../lib/m8-cdheap.mjs';   // (WP-SAVE: the original's heap is 0xCD-filled: never-written node bytes start as 0xCD)
 import { Duel, B, lcg, randomKeys } from '../lib/m7-isl-veh-emu.mjs';
 import { vehicles } from '../../src/island/vehicles/common.ts';
+import { compareChainBlocks, cdPatchChain } from '../lib/m8-save-pepper.mjs';
 
 const MAXFAIL = 30;
 const CARS = ['AMBU', 'SPD0', 'SPD1', 'SPD2', 'PCAR'];
@@ -13,12 +15,14 @@ export default {
   async run(ctx) {
     const failures = [], notes = [];
     let checked = 0;
+    const blocks = {};      // WP-SAVE: save blocks of Pepper's chain compared (original serializer vs port saveBlock)
     const cover = { boarded: 0, left: 0, ticks: 0, crashes: 0, reversed: 0, sessions: 0 };
     const devs = new Map();
     const unhooked = new Map();
 
     const session = (label, dt, seed, syncMode) => {
       const d = new Duel(ctx, { keepKinds: ['SGCar'], keepRecords: (n) => CARS.includes(n), dt, maxFail: MAXFAIL, failures, exact: true });
+      cdPatchChain(d);      // WP-SAVE: the bytes of PepSwitc / SGVehic the constructors leave at the debug heap's 0xCD
       d.label = label; cover.sessions++;
       d.syncMode = syncMode;
       const W = d.P.world, mem = d.emu.cpu.mem, G = vehicles(W);
@@ -35,6 +39,7 @@ export default {
         for (const i of cars) d.rec(i);
         d.rec(d.P.pepper.index);
         d.globals(); d.vars(); d.camera(); d.sounds();
+        compareChainBlocks(d, blocks);      // WP-SAVE: PepSwitc (spot, flags), SGVehic
         for (const i of cars) {
           const n = W.records[i].name, pn = d.pnode(i, 'SGCar'), a = d.onode(i, 0x88fb35);
           d.eq(n + ' reset', mem.r8(a + 0x1a), pn.reset);
@@ -102,6 +107,7 @@ export default {
     for (const [id, e] of devs) notes.push(`KNOWN DEVIATION ${id}: ${e.count}x, first ${e.first}`);
     notes.push(`unhosted engine calls (returned 0): ${[...unhooked].map(([a, n]) => '0x' + a.toString(16) + ' x' + n).join(', ') || 'none'}`);
     notes.push(`coverage: ${JSON.stringify(cover)}`);
+    notes.push(`WP-SAVE save blocks of Pepper's chain compared (original serializer vs port saveBlock, tolerance 0): ${JSON.stringify(blocks)}`);
     return { checked, failures, notes };
   },
 };

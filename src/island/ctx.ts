@@ -10,6 +10,7 @@ import type { World } from '../game/world.ts';
 import type { GameRecord } from '../game/record.ts';
 import type { ZoneScene } from '../formats/exe.ts';
 import type { MessageTable } from '../ui/strings.ts';
+import type { SubtitleMode } from '../shell/zonegame.ts';
 import type { ZoneParticles } from '../fx/particles/zone.ts';
 
 export interface IslandCtx {
@@ -36,7 +37,11 @@ export interface IslandCtx {
   /** FUN_00439bf8 + FUN_00435a11: speak line `id` of `table` (voice = the id's voice field) and show its subtitle when the option is on; false while another line is busy */
   /** `id2` (WP3, FUN_00435a11's second voice): a second line spoken right after the first (the subtitle is both texts, FUN_0085b580); the talking NPCs pass `<NAME>B` / `<NAME>D` */
   /** `voice` false = the subtitle only, no FUN_00435a11 voice call (the hologram with the speech option off, var 9 == 0) */
-  say(table: MessageTable, id: string, id2?: string, voice?: boolean): boolean;
+  /** `subtitle` (zonegame.ts `SubtitleMode`, default `timed`): `held` = FUN_0045d47f at once, even when the voice is busy (then false is returned and the caller keeps the voice for later);
+   *  `none` = no subtitle (the talking NPCs' voice that waited). With `held` / `none` and `voice` false nothing is spoken and true is returned */
+  say(table: MessageTable, id: string, id2?: string, voice?: boolean, subtitle?: SubtitleMode): boolean;
+  /** DAT_05d4df1c .. = 0: the four subtitle lines cleared (the end of an NPC conversation, FUN_004249a6) */
+  clearSubtitle(): void;
   /** FUN_00435ad3: no speech is playing */
   speechIdle(): boolean;
   /** FUN_00435b07 */

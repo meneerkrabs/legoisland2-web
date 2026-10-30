@@ -20,6 +20,8 @@ import { registerCtor } from '../../game/setup.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import { ArgView } from '../args.ts';
 import { HALF_PI_F, placeAtBone } from './common.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
+import { CD_F32, CD_I32, findByTag, recPtr, recordHeader } from './saveutil.ts';
 
 export const CTOR_CARRY = 0x429d1b;
 
@@ -45,14 +47,14 @@ export class CarryNode implements BehaviourNode {
   carrier: GameRecord | null;
   /** argument record index of the carrier (resolved on the first update) */
   private carrierIdx: number;
-  /** +0x28: the gate var's value at the last update (the draw returns 1 when it is 1, else 2) */
-  varValue = 0;
+  /** +0x28: the gate var's value at the last update (the draw returns 1 when it is 1, else 2); 0xCD words until then (debug heap) */
+  varValue = CD_I32;
   /** +0x2c / +0x30: scale the carrier's matrix by `scale` (FUN_004295cb) */
   scaled = false; scale = 1.0;
   /** FUN_00429638(ctrl, a, b) as the story handler calls it (records 12 / 13) */
   storyReset(a: GameRecord | null | 0, b: number) { this.carrier = a || null; this.bone = b; this.timer = 0; this.pushPending = false; }
   /** +0x2e: the push of the release is pending; +0x34: lying time left; +0x38..+0x40: the push */
-  pushPending = false; timer = 0; push: [number, number, number] = [0, 0, 0];
+  pushPending = false; timer = CD_F32; push: [number, number, number] = [CD_F32, CD_F32, CD_F32];
 
   constructor(args: ArgView, attach?: Pick<Attach, 'var' | 'mask' | 'value'>) {
     this.var = attach?.var ?? 2; this.mask = attach?.mask ?? 0; this.value = attach?.value ?? 0;
@@ -60,6 +62,34 @@ export class CarryNode implements BehaviourNode {
     this.off = [args.f32(4), args.f32(8), args.f32(0xc)];
     this.carrierIdx = args.recIndex(0x10);
     this.carrier = null;
+  }
+
+  /**
+   * Save block (saver FUN_00429baa, 72 bytes): node +0x20 .. +0x44 raw (0x24 bytes) and then 0x24 more bytes:
+   * 0x00 i32 bone (+0x20)   0x04 u32 carrier record pointer (+0x24)   0x08 u32 varValue (+0x28)   0x0c u16 scaled (+0x2c)   0x0e u16 pushPending (+0x2e)   0x10 f32 scale (+0x30)   0x14 f32 timer (+0x34)
+   * 0x18 f32[3] push (+0x38).   0x24..0x47: with a carrier the first 0x24 bytes of the carrier's record header (tag, model ptr, animation ptr, six matrix floats); with none (the word is 0 or 1) the
+   * saver copies 0x24 bytes starting at its own stack local `local_18` (= the pointer word, then DAT_009da8bc, DAT_009da8c0 + stack padding, local_c = 0x24, then the destination address in the save
+   * buffer, saved ebp, return address, the two arguments): 0x24 u32 word, 0x28 DAT_009da8bc (0), 0x2c u16 DAT_009da8c0 (0), 0x30 u32 0x24, the rest is garbage of the process (written as 0; the tests
+   * mask 0x2e..0x2f and 0x34..0x47 here, and the model / animation pointers 0x28..0x2f of a carrier header).
+   * The fields the constructor never writes keep the debug heap's 0xCD (see the field defaults).
+   */
+  saveBlock(w: World, _rec: GameRecord, _c: Controller): Uint8Array {
+    const b = new BlockOut(0x48);
+    const car = this.carrier ?? (this.carrierIdx >= 0 ? w.records[this.carrierIdx] ?? null : null);
+    b.i32(0x00, this.bone).u32(0x04, recPtr(car)).u32(0x08, this.varValue).u16(0x0c, this.scaled ? 1 : 0).u16(0x0e, this.pushPending ? 1 : 0).f32(0x10, this.scale).f32(0x14, this.timer);
+    for (let k = 0; k < 3; k++) b.f32(0x18 + 4 * k, this.push[k]);
+    if (car) recordHeader(car, b.bytes, 0x24);
+    else b.u32(0x24, 0).u32(0x30, 0x24);
+    return b.bytes;
+  }
+  /** FUN_00429c73: the 0x24 bytes back, then the pointer word: 0 / 1 stay as they are (the port has no "1"), else the record whose tag it is (FUN_00419a79) */
+  loadBlock(w: World, _rec: GameRecord, _c: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.bone = b.i32(0x00); this.varValue = b.i32(0x08); this.scaled = b.u16(0x0c) !== 0; this.pushPending = b.u16(0x0e) !== 0; this.scale = b.f32(0x10); this.timer = b.f32(0x14);
+    for (let k = 0; k < 3; k++) this.push[k] = b.f32(0x18 + 4 * k);
+    const t = b.u32(0x24);
+    this.carrier = t === 0 || t === 1 ? null : findByTag(w, t);
+    this.carrierIdx = -1;
   }
 
   update(w: World, rec: GameRecord, _c: Controller): number {

@@ -33,6 +33,7 @@ export const G = {
   pepper: 0x9da5d0, pepperMat: 0x9da5d8, camera: 0x9da5e8, best: 0x9da640, target: 0x9da6d0, lock: 0x9da844, exprTimer: 0x9da848, expr: 0x9da7d0, textTable: 0x9da7d8,
   mailbox: 0x8ae088, createMode: 0x8adc74, groundRec: 0x9dec18, skipGround: 0x9dec1c, seaLevel: 0x9da858, varArray: 0x8a2d2c, objMode: 0x9da82c,
   pizzaA: 0x9da874, pizzaB: 0x9da870, near: 0x9dec14,
+  subLine: 0x5d4df1c,     // DAT_05d4df1c: the first of the four subtitle line buffers (FUN_0045d47f writes, FUN_004249a6 clears)
 };
 export const VAR_COUNT = 319;
 /** the node families of this verification (constructor addresses) */
@@ -66,7 +67,7 @@ export class IslNpcEmu {
     this.say = { left: 0, ticks: o.sayTicks ?? 60 };
     this.cs = { left: 0, ticks: o.cutsceneTicks ?? 0, held: false };
     this.speechNames = [];
-    this.subtitles = 0;
+    this.subtitles = [];      // the texts FUN_0045d47f got in the current tick
     this.strings = new Map();
     this.nodes = new Map();      // record index -> [node pointers in list order, with placeholder entries null]
     this.nodeOf = new Map();     // node pointer -> { rec, kind, ctor, attach }
@@ -77,9 +78,11 @@ export class IslNpcEmu {
     const L = this;
 
     // ---- allocator, runtime
-    hook(0x433d38, (c) => { c.eax = L.alloc(c.arg(0)); });
+    // (the original is a debug build: FUN_00433d38 -> __nh_malloc_dbg fills new blocks with 0xCD; a node field its constructor never writes holds 0xCDCDCDCD, and the port keeps that value too: WP-SAVE)
+    const dbgAlloc = (c) => { const n = c.arg(0) >>> 0, p = L.alloc(n); for (let i = 0; i < n; i++) mem.w8(p + i, 0xcd); c.eax = p; };
+    hook(0x433d38, dbgAlloc);
     hook(0x433d60, () => {});
-    hook(0x858d30, (c) => { c.eax = L.alloc(c.arg(0)); });
+    hook(0x858d30, dbgAlloc);
     hook(0x443c70, () => {});
     hook(0x417570, () => {});          // FUN_00417570: the variable index check of the accessors
     hook(0x85abc0, () => {});          // __chkesp
@@ -144,7 +147,14 @@ export class IslNpcEmu {
     hook(0x435ad3, (c) => { c.eax = L.say.left <= 0 ? 1 : 0; });
     hook(0x435a5e, () => {});
     hook(0x435b07, () => { logf('stopspeech'); L.say.left = 0; });
-    hook(0x45d47f, (c) => { L.subtitles++; c.eax = 0; });
+    hook(0x45d47f, (c) => {   // FUN_0045d47f(text): the subtitle; logged, and its text put into the first of the four line buffers (the split by pixel width is left out: FUN_0045d34b), which the native code clears
+      const s = mem.cstr(c.arg(0), 4096);
+      L.subtitles.push(s);
+      const t = s.replace(/^[\s]+/, '').slice(0, 199);
+      for (let i = 0; i < t.length; i++) mem.w8(G.subLine + i, t.charCodeAt(i) & 0xff);
+      mem.w8(G.subLine + t.length, 0);
+      c.eax = 0;
+    });
     hook(0x45c40c, (c) => { logf(`cutscene ${c.arg(0) | 0}`); L.cs.left = L.cs.ticks; c.eax = 1; });
     hook(0x45c432, (c) => { c.eax = L.cs.left > 0 || L.cs.held ? 1 : 0; });
     hook(0x45c456, (c) => { L.cs.held = c.arg(0) !== 0; });
@@ -443,7 +453,8 @@ export function createPair(ctx, loadIsland, o = {}) {
   const sfx = ic.sfx.bind(ic), stopSfx = ic.stopSfx.bind(ic), say = ic.say.bind(ic), startCs = ic.startCutscene.bind(ic), stopSpeech = ic.stopSpeech.bind(ic);
   ic.sfx = (id) => { events.push(`sfx ${id}`); sfx(id); };
   ic.stopSfx = (id) => { events.push(`stopsfx ${id}`); stopSfx(id); };
-  ic.say = (table, id, id2) => { const ok = say(table, id, id2); if (ok) events.push(`say ${id}${id2 ? `+${id2}` : ''}`); return ok; };
+  // (a `held` / `none` request without a voice speaks nothing: FUN_00435a11 is not called)
+  ic.say = (table, id, id2, voice, sub) => { const ok = say(table, id, id2, voice, sub); if (ok && !(voice === false && sub !== undefined && sub !== 'timed')) events.push(`say ${id}${id2 ? `+${id2}` : ''}`); return ok; };
   ic.startCutscene = (slot) => { events.push(`cutscene ${slot}`); return startCs(slot); };
   ic.stopSpeech = () => { events.push('stopspeech'); stopSpeech(); };
   ic.expression = (rec, n) => { events.push(`face ${n}`); };
@@ -499,12 +510,16 @@ export function stepPair(P, keys = []) {
   const mem = E.mem;
   mem.w32(G.pressed, w.input.pressed); mem.w32(G.held, w.input.held);
   mem.wf32(G.dt, w.dt); mem.wf32(G.invDt, 1 / w.dt);
-  E.log = []; E.randDraws = 0; E.subtitles = 0;
+  E.log = []; E.randDraws = 0; E.subtitles = [];
   let qi = 0; E.rand = () => (qi < pd.length ? pd[qi++] : 0);
   E.runPasses();
   if (E.say.left > 0) E.say.left--;
   if (E.cs.left > 0) E.cs.left--;
-  return { portEvents: pe, emuEvents: E.log, portDraws: pd.length, emuDraws: E.randDraws, subtitles: E.subtitles };
+  // the subtitle: the texts written this tick (the port's `held` say requests, as the bytes the original holds) and whether the four lines hold something after the tick
+  const ic = P.ic, bytes = (t) => [...t].map((ch) => String.fromCharCode(ch.charCodeAt(0) & 0xff)).join('');
+  const portSubtitles = (ic.subtitles ?? []).splice(0).map(bytes);
+  const subShown = { original: mem.r8(G.subLine) !== 0, port: /\S/.test(ic.heldText ?? '') };
+  return { portEvents: pe, emuEvents: E.log, portDraws: pd.length, emuDraws: E.randDraws, subtitles: E.subtitles, portSubtitles, subShown };
 }
 
 // =====================================================================================================================================================
@@ -652,6 +667,13 @@ export const hex = (v) => '0x' + (v >>> 0).toString(16);
 /**
  * run `ticks` ticks of both sides; `script(t, P)` returns the keys held (and places Pepper). Everything that differs is a failure in `st.fail` (tolerance 0). `st` is shared between calls.
  */
+/** the subtitle of a tick: the texts FUN_0045d47f got (the original's subtitle option is asked by the caller: var 0) and whether the four lines hold text (written at the conversation start, cleared at its end) */
+export function checkSubtitles(s, st, tag) {
+  st.checked++;
+  if (JSON.stringify(s.subtitles) !== JSON.stringify(s.portSubtitles)) { if (st.fail.length < 14) st.fail.push(`${tag}: subtitles: original ${JSON.stringify(s.subtitles)} port ${JSON.stringify(s.portSubtitles)}`); }
+  st.checked++;
+  if (s.subShown.original !== s.subShown.port) { if (st.fail.length < 14) st.fail.push(`${tag}: subtitle shown: original ${s.subShown.original} port ${s.subShown.port}`); }
+}
 export function newStats() { return { checked: 0, ticks: 0, fail: [], events: 0, states: new Set(), said: new Set(), cutscenes: 0, talks: 0 }; }
 export function runPair(P, ticks, script, st, label = '') {
   const { w } = P;
@@ -666,9 +688,7 @@ export function runPair(P, ticks, script, st, label = '') {
     if (JSON.stringify(s.portEvents) !== JSON.stringify(s.emuEvents)) { if (st.fail.length < 14) st.fail.push(`${tag}: events: original ${JSON.stringify(s.emuEvents)} port ${JSON.stringify(s.portEvents)}`); }
     st.checked++;
     if (s.portDraws !== s.emuDraws) { if (st.fail.length < 14) st.fail.push(`${tag}: random draws: original ${s.emuDraws} port ${s.portDraws}`); }
-    const says = (v) => s.portEvents.filter((e) => e.startsWith('say ')).length;
-    st.checked++;
-    if (s.subtitles !== (w.vars.get(0) !== 0 ? says() : 0)) { if (st.fail.length < 14) st.fail.push(`${tag}: subtitle calls ${s.subtitles} for ${says()} lines`); }
+    checkSubtitles(s, st, tag);
     st.events += s.portEvents.length;
     for (const e of s.portEvents) { if (e.startsWith('say ')) st.said.add(e); if (e.startsWith('cutscene')) st.cutscenes++; }
     for (const r2 of P.scope) { const n = sgOf(r2); if (n) { st.states.add(w.vars.get(n.var) & 0x7ff0f); if (n.talk & 0x40) st.talks++; } }

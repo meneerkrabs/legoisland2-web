@@ -21,7 +21,7 @@ export default async ({ page, shot, wait, log, key }) => {
     window.__rgbBot = () => {
       const z = __zone, a = z.game.assist, st = a.state, w = z.world;
       const mode = w.vars.get(0xfb);
-      const out = { hold: 0, tap: 0, mode, phase: st.phase, result: st.resultMode };
+      const out = { hold: 0, tap: 0, mode, phase: st.phase, result: st.resultMode, tick: w.tickCount };
       if (st.resultMode) return out;
       if (mode === 1) {
         const arrive = () => { const t = a.route[a.route.length - 1]; return Math.hypot(t[0] - st.pepper.x, t[1] - st.pepper.z) < 5 && st.phase >= 3; };
@@ -85,9 +85,13 @@ export default async ({ page, shot, wait, log, key }) => {
   /** play until `until(info)` is true or `ms` ran out; the aim keys are held for big corrections and tapped for the fine ones (one game tick each) */
   let dbgN = 0;
   const play = async (ms, until, onStep) => {
-    const t0 = Date.now();
-    while (Date.now() - t0 < ms) {
+    // (`ms` is game time: 30 ticks a second; a loaded page runs fewer ticks per second of wall time, so the limit is counted in ticks, with a wall-clock ceiling of 20 minutes)
+    const t0 = Date.now(), maxTicks = (ms * 30) / 1000;
+    let tick0 = -1;
+    while (Date.now() - t0 < 1200000) {
       const o = await page.evaluate(() => window.__rgbBot());
+      if (tick0 < 0) tick0 = o.tick;
+      if (o.tick - tick0 > maxTicks) break;
       if (process.env.DBG && o.mode === 4 && (++dbgN % 10 === 0)) { const d = await page.evaluate(() => { const st = __zone.game.assist.state, c = st.cannons[st.pepperCannon]; return c ? { rx: +c.rec.rx.toFixed(4), ry: +c.rec.ry.toFixed(4), timer: c.timer, ball: st.curBall >= 0 ? st.balls[st.curBall].state : -1, ticks: st.ticks, left: st.cannonsLeft } : null; }); log('dbg', JSON.stringify({ hold: o.hold, tap: o.tap, err: o.err && o.err.map((v) => +v.toFixed(4)), on: o.onTarget, wait: o.waiting }), JSON.stringify(d)); }
       if (until && until(o)) { await setHeld(0); return o; }
       if (onStep) await onStep(o);
@@ -149,11 +153,14 @@ export default async ({ page, shot, wait, log, key }) => {
   await wait(600);
   expect('the game ended in a win (phase 4, result 1)', s.phase === 4 && s.resultMode === 1, JSON.stringify(s));
   await wait(500);
-  expect('the banner (mode 4)', (await mode()) === 4);
+  // (the end banner is left as soon as ANY button is held: a key of the bot still down at the end takes the loop straight to the result menu, mode 5: the original's rule; waits are for
+  // the mode, not for a fixed time: a loaded page runs fewer ticks a second)
+  await page.waitForFunction(() => window.__zone.machine.mode === 4 || window.__zone.machine.mode === 5, null, { timeout: 120000 }).catch(() => {});
+  expect('the banner (mode 4), or the result menu (mode 5) when a key was still held', (await mode()) === 4 || (await mode()) === 5);
   await shot('8-banner');
   const v1 = await vars();
   expect('HISCORE_RGB = the score, TROPHY_RGB set', v1.hi === s.score && v1.trophy >= 1, JSON.stringify(v1));
-  await wait(1200); await key('Enter'); await wait(700);
+  if ((await mode()) === 4) { await wait(1200); await key('Enter'); await wait(700); }
   const m1 = await menu();
   expect('result menu page 16 (continue / retry)', (await mode()) === 5 && m1.page === 16, JSON.stringify(m1));
   await shot('9-result-menu');

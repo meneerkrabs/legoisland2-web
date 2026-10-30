@@ -395,6 +395,7 @@ export function setupZone(scene: ZoneScene, archive: Archive, profile: ZoneProfi
     if (!f) return false;
     const node = f(a);
     node.var = a.var; node.mask = a.mask; node.value = a.value;
+    node.ctor = a.ctor;
     if (!rec.ctrl) rec.ctrl = new Controller();
     // the controller flags the set-up code wrote (FUN_004238b7(ctrl, flags): 0x13 / 0x43 / 0x83 ... bit 2 enabled, 0x40 targetable) before this attach: the
     // emulated island set-up records them (the symbolic extraction of the other zones does not)

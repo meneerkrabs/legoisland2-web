@@ -13,6 +13,7 @@ import type { ZoneParticles } from '../../fx/particles/zone.ts';
 import { NO_HANDLE } from '../../fx/particles/zone.ts';
 import { f32, SND, ctxOf, playId } from './common.ts';
 import { distSq32 } from './exact.ts';
+import { BlockIn, BlockOut } from '../../island/blockio.ts';
 
 export const CTOR_GEMS = 0x62b220;
 /** _DAT_00914ff8 (4.0): a gem is picked up when the controller's squared distance to Pepper (+0x18) is below it */
@@ -77,6 +78,10 @@ export class GemNode implements BehaviourNode {
     }
     return NODE_NONE;
   }
+  /** FUN_0062b1c2 (`*out = node + 0x1c; return 4`): the state; the emitter handle (+0x18) and the node's gate are not saved */
+  saveBlock(): Uint8Array { return new BlockOut(4).i32(0, this.state).bytes; }
+  /** FUN_0062b1e7: a plain copy of the 4 bytes into +0x1c */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.state = new BlockIn(data).i32(0); }
   /** FUN_0062b16c */
   prerender(): void { /* returns 1 */ }
   /** FUN_0062b367: DAT_00914ffc = 0xbabababa (the shared twinkle handle is forgotten), the node is freed */

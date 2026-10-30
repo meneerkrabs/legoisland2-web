@@ -7,6 +7,8 @@
 //   record 44 G002  ctor FUN_00472c45, update FUN_00472adb  the train that crosses the backdrop (its smoke `trainsmoke01` is on: FUN_0044e920 gate (2, 1, 1), matrix = the record's live matrix)
 //   record 2 BRIK   ctor FUN_00472fd8, update FUN_00472d7d  the Brickster who pops up at three places (the same effect on bone 10, but its gate (1, 1, 1) is never changed: var 1 is always 0, it never emits)
 //   records 35..41 BFS6..BFS0: FUN_004b2d44 = ButterflyNode of src/island/ambient (the island's code), attached by frontend.ts
+// Save blocks (the front end writes SaveDef.lgo at its start: FUN_0041ad71 -> FUN_00418ec7(-2); docs/re/save.md): each class has `ctor` = the original constructor and the serializer / loader of its
+// vtable (+0x14 / +0x10, both a plain memcpy of a field range of the node block: see each class).
 // Field comments give the byte offset of the original's node block. `rng` is the replaceable FUN_004388ae source (rand() / 32767).
 import type { BehaviourNode, Controller } from '../game/controller.ts';
 import { NODE_CONTINUE, registerNode } from '../game/controller.ts';
@@ -16,6 +18,7 @@ import { buildMatrix } from '../formats/matrix.ts';
 import type { Pe } from '../formats/exe.ts';
 import { mulGame } from '../render/math.ts';
 import { gameRandom } from '../zones/common/tickrand.ts';
+import { BlockIn, BlockOut } from '../island/blockio.ts';
 
 /** random in [0, 1]: FUN_0085daf0 / 32767 (FUN_004388ae scales it); replaceable so tests are deterministic */
 // RNG: the C runtime generator behind the front end's FUN_004388ae draws (outfit / gag / butterfly picks); the tests replace `next`
@@ -83,6 +86,7 @@ const place = (rec: GameRecord, rx: number, ry: number, rz: number, x: number, y
 
 export class FePepperNode implements BehaviourNode {
   readonly kind = 'FEPepper';
+  ctor = 0x472743;
   var = 2; mask = 1; value = 1; stamp = 0xfffffffe;
   speed = f32(fh(0x3e4ccccd));   // +0x14 (float32): units per tick
   half = fh(0x42200000);         // +0x18 = 40: the crossing runs from -half to +half
@@ -109,6 +113,20 @@ export class FePepperNode implements BehaviourNode {
     this.flag = 0; this.dir = 0; this.counter = 0; this.timer = 0; this.gag = -1; this.gagLeft = 0;
     this.model = rec.model;
     for (const i of t.outfits) { const o = recs[i]; if (o) o.flags = 0; }   // the outfit records are hidden (flags := 0); FUN_00444550 / FUN_004446c0 only set part render attributes
+  }
+
+  /**
+   * Save block = node +0x24 .. +0x3c (saver FUN_004726fd returns 0x18 and points at node + 0x24, loader FUN_0047271b = 0x18 byte memcpy back): i32 flag (+0x24), i32 dir, i32 counter, f32 timer,
+   * i32 gag, i32 gagLeft. (The crossing's speed / duration / half-width and the model are not in the file: a load keeps the running crossing's own.)
+   */
+  saveBlock(w: World, rec: GameRecord): Uint8Array {
+    if (!this.inited) this.init(w, rec);
+    return new BlockOut(0x18).i32(0, this.flag).i32(4, this.dir).i32(8, this.counter).f32(0xc, this.timer).i32(0x10, this.gag).i32(0x14, this.gagLeft).bytes;
+  }
+  loadBlock(w: World, rec: GameRecord, _c: Controller, data: Uint8Array): void {
+    if (!this.inited) this.init(w, rec);
+    const b = new BlockIn(data);
+    this.flag = b.i32(0); this.dir = b.i32(4); this.counter = b.i32(8); this.timer = b.f32(0xc); this.gag = b.i32(0x10); this.gagLeft = b.i32(0x14);
   }
 
   /** FUN_004721f0 */
@@ -182,6 +200,7 @@ export class FePepperNode implements BehaviourNode {
  */
 export class FeFigureNode implements BehaviourNode {
   readonly kind = 'FEFigure';
+  ctor = 0x4729f6;
   var = 2; mask = 1; value = 1; stamp = 0xfffffffe;
   fl = 0;      // +0x18 (float32)
   cnt = 0;     // +0x1c
@@ -194,6 +213,16 @@ export class FeFigureNode implements BehaviourNode {
     place(rec, 0, fh(0x3e860a63), 0, fh(0xc0accccd), 8, fh(0x424ccccd));   // FUN_0043a5e4(rec + 0xc, 0, 0.2625, 0, -5.4, 8, 51.2)
     this.cnt = ftol(rand(300) + 300);
     this.fl = this.cnt;
+  }
+  /** Save block = node +0x18 .. +0x20 (saver FUN_004729b0 returns 8 and points at node + 0x18, loader FUN_004729ce = 8 byte memcpy back): f32 fl (+0x18), i32 cnt (+0x1c) */
+  saveBlock(w: World, rec: GameRecord): Uint8Array {
+    if (!this.inited) this.init(w, rec);
+    return new BlockOut(8).f32(0, this.fl).i32(4, this.cnt).bytes;
+  }
+  loadBlock(w: World, rec: GameRecord, _c: Controller, data: Uint8Array): void {
+    if (!this.inited) this.init(w, rec);
+    const b = new BlockIn(data);
+    this.fl = b.f32(0); this.cnt = b.i32(4);
   }
   update(w: World, rec: GameRecord, _c: Controller): number {
     if (!this.inited) this.init(w, rec);
@@ -213,6 +242,7 @@ export class FeFigureNode implements BehaviourNode {
 /** FUN_00472c45 / FUN_00472adb: the record (scale 0.4) waits at x = 64 for 300 ticks, then rides from x = -64 to 64 in 180 ticks, then waits 750 ticks, and so on */
 export class FeTrainNode implements BehaviourNode {
   readonly kind = 'FETrain';
+  ctor = 0x472c45;
   var = 2; mask = 1; value = 1; stamp = 0xfffffffe;
   fl = 300;       // +0x18 (float32)
   cnt = 300;      // +0x1c
@@ -229,6 +259,16 @@ export class FeTrainNode implements BehaviourNode {
     const fx = this.env.fx;
     this.fx = fx ? fx.start('trainsmoke01.par', () => rec.m as Float32Array, [fh(0x41200000), fh(0x41400000), 0], [fh(0xbfc90fdb), 0, 0], [2, 1, 1]) : FX_NONE;
     fx?.setMatrix(this.fx, () => rec.m as Float32Array); fx?.setMatrix(this.fx, () => rec.m as Float32Array);
+  }
+  /** Save block = node +0x18 .. +0x24 (saver FUN_00472bff returns 0xc and points at node + 0x18, loader FUN_00472c1d = 12 byte memcpy back): f32 fl (+0x18), i32 cnt (+0x1c), i32 phase (+0x20) */
+  saveBlock(w: World, rec: GameRecord): Uint8Array {
+    if (!this.inited) this.init(w, rec);
+    return new BlockOut(0xc).f32(0, this.fl).i32(4, this.cnt).i32(8, this.phase).bytes;
+  }
+  loadBlock(w: World, rec: GameRecord, _c: Controller, data: Uint8Array): void {
+    if (!this.inited) this.init(w, rec);
+    const b = new BlockIn(data);
+    this.fl = b.f32(0); this.cnt = b.i32(4); this.phase = b.i32(8);
   }
   update(w: World, rec: GameRecord, _c: Controller): number {
     if (!this.inited) this.init(w, rec);
@@ -261,6 +301,7 @@ const BRICK_POSES: { e: [number, number, number]; p: [number, number, number]; c
  */
 export class FeBricksterNode implements BehaviourNode {
   readonly kind = 'FEBrickster';
+  ctor = 0x472fd8;
   var = 2; mask = 1; value = 1; stamp = 0xfffffffe;
   fl = 0;       // +0x18 (float32)
   cnt = 0;      // +0x1c
@@ -290,6 +331,16 @@ export class FeBricksterNode implements BehaviourNode {
   private follow(rec: GameRecord) {
     const p = rec.anim?.pose(1);
     if (!p || p.length < 176) this.local.set(rec.m); else mulGame(p.subarray(160, 176), rec.m, this.local);
+  }
+  /** Save block = node +0x18 .. +0x24 (saver FUN_00472f92 returns 0xc and points at node + 0x18, loader FUN_00472fb0 = 12 byte memcpy back): f32 fl (+0x18), i32 cnt (+0x1c), i32 sel (+0x20) */
+  saveBlock(w: World, rec: GameRecord): Uint8Array {
+    if (!this.inited) this.init(w, rec);
+    return new BlockOut(0xc).f32(0, this.fl).i32(4, this.cnt).i32(8, this.sel).bytes;
+  }
+  loadBlock(w: World, rec: GameRecord, _c: Controller, data: Uint8Array): void {
+    if (!this.inited) this.init(w, rec);
+    const b = new BlockIn(data);
+    this.fl = b.f32(0); this.cnt = b.i32(4); this.sel = b.i32(8);
   }
   update(w: World, rec: GameRecord, _c: Controller): number {
     if (!this.inited) this.init(w, rec);

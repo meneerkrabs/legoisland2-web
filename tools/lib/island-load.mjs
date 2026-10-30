@@ -20,6 +20,8 @@ import { waypoints } from '../../src/game/walker.ts';
 import { BrickLibrary } from '../../src/formats/bricks.ts';
 import { installBrickLibrary, brickMorph, brickBurst } from '../../src/fx/bricks/island.ts';
 import { applyRosterRecords } from '../../src/island/vehicles/looks.ts';
+import { runCtorInits } from '../../src/island/blockio.ts';
+import { vehicles } from '../../src/island/vehicles/common.ts';
 
 /** zone table index of the island for a story node (the four ids 2 / 31 / 32 / 33, architecture.md 2.2) */
 export const islandZoneOf = (node) => { const e = eraOfNode(node); return e === 1 ? 31 : e === 2 ? 32 : e === 3 ? 33 : 2; };
@@ -51,7 +53,15 @@ export function loadIsland(ctx, opts = {}) {
     cutsceneActive() { return this.cutsceneLeft > 0 || this.held; },
     holdCutscene(on) { this.held = on; },
     text: { npc: null, hol: null },
-    say(table, id, id2) { if (this.sayLeft > 0) return false; this.said.push({ id, id2, text: table?.text?.(id) ?? id, tick: world.tickCount }); this.sayLeft = this.sayTicks; return true; },
+    // subtitle `held` (the talking NPCs, FUN_0045d47f): the text of the lines (a missing one empty) written at once, whatever the voice does, kept in `heldText` until clearSubtitle; every write is logged
+    // in `subtitles`. `held` / `none` without a voice: nothing is spoken. `timed` (default): the subtitle goes with the voice (not modelled)
+    heldText: null, subtitles: [],
+    say(table, id, id2, voice = true, subtitle = 'timed') {
+      if (subtitle === 'held') { const tx = (k) => { const t = table?.text?.(k) ?? k; return t === k ? '' : t; }; this.heldText = tx(id) + (id2 ? tx(id2) : ''); this.subtitles.push(this.heldText); }
+      if (subtitle !== 'timed' && voice === false) return true;
+      if (this.sayLeft > 0) return false; this.said.push({ id, id2, text: table?.text?.(id) ?? id, tick: world.tickCount }); this.sayLeft = this.sayTicks; return true;
+    },
+    clearSubtitle() { this.heldText = null; },
     speechIdle() { return this.sayLeft <= 0; },
     stopSpeech() { this.sayLeft = 0; },
     sfx(id) { this.sounds.push({ id, tick: world.tickCount }); },
@@ -64,6 +74,8 @@ export function loadIsland(ctx, opts = {}) {
     scene,   // WP4: mesh MATL part matrices (src/island/trigger/parts.ts)
   };
   installCtx(world, ictx);
+  vehicles(world).islandSetup();   // (FUN_004b6475: the dock / helipad taken words are static process memory, zeroed by the island's set-up)
+  runCtorInits(world);   // (what the island's afterSetup does: the nodes' constructor-time world reads, WP-SAVE)
   // opts.bricks (WP9): the FX_Bricks library (archives Bricks + BrickMorph) and the brick services of the real context (brickMorph / brickBurst)
   if (opts.bricks) {
     const arc = (n) => ctx.archives.find((a) => a.name.toLowerCase() === n.toLowerCase());

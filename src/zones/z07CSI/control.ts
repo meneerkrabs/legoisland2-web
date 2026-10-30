@@ -19,11 +19,14 @@ import type { World } from '../../game/world.ts';
 import { B } from '../../game/input.ts';
 import { vehicles } from '../../island/vehicles/common.ts';
 import { waypoints } from '../../game/walker.ts';
-import { ensureCsiLooks } from './looks.ts';
+import { ensureCsiLooks, reloadCsiRoster } from './looks.ts';
+import { BlockIn, BlockOut } from './blockio.ts';
 import { lookKey, tickLooks } from '../../island/vehicles/looks.ts';
-import { f32, ctxOf, playAt, playId, stop } from './common.ts';
+import { f32, fb, ctxOf, playAt, playId, stop } from './common.ts';
 
 export const CTOR_CONTROL = 0x57a579;
+/** the debug heap fills a new block with 0xCD: a float never written by the constructor reads as this (0xcdcdcdcd) */
+const CD_F = fb(0xcdcdcdcd);
 const VAR = { PEPPER_CONTROL: 0x5e, STORY: 0x58, STAGE: 0x56, SWITCH: 0x112 } as const;
 /** the records the node touches: JKIT (46: hidden while Pepper walks), HORS (48: the horse), LFG4 (12) / BFG6 (22): where the two ambience sounds sit (`DAT_00983804 + 0x51c / 0x92c` = the record's translation) */
 const REC = { JKIT: 46, HORSE: 48, SOUND_A: 12, SOUND_B: 22 } as const;
@@ -81,7 +84,7 @@ export class CsiControl implements BehaviourNode {
   var: number = VAR.PEPPER_CONTROL; mask = 0; value = 0;
   stamp = 0xfffffffe;
   /** node + 0x18 / +0x1c / +0x20: the spot FUN_00579a96 found to leave the horse */
-  spot: [number, number, number] = [0, 0, 0];
+  spot: [number, number, number] = [CD_F, CD_F, CD_F];
 
   /** FUN_00579a10 */
   update(w: World, rec: GameRecord, _ctrl: Controller): number {
@@ -175,6 +178,15 @@ export class CsiControl implements BehaviourNode {
     }
     if (state !== 0) { w.pep.mailbox = state; rec.anim?.start(state, 0); }
     if (mode !== 0) w.vars.set(VAR.PEPPER_CONTROL, mode | (word & 0x1000));
+  }
+
+  /** save FUN_0057a516 (vtable +0x14): `*out = node + 0x18; return 0xc` = the spot (x, y, z floats) */
+  saveBlock(): Uint8Array { return new BlockOut(12).f32(0, this.spot[0]).f32(4, this.spot[1]).f32(8, this.spot[2]).bytes; }
+  /** load FUN_0057a53b (vtable +0x10): memcpy of the 12 bytes to node + 0x18, then FUN_005b2a00 (the decor era table and the roster re-derived from the variables) */
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.spot = [b.f32(0), b.f32(4), b.f32(8)];
+    reloadCsiRoster(w);
   }
 
   /** FUN_0057a5ff: FUN_005b2f7d (the roster's cyclers freed), FUN_004434b0(DAT_05d58890), FUN_004434b0(DAT_05d58894) */

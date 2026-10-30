@@ -4,6 +4,7 @@
 // rand() it calls (0x85daf0) is hosted by a scripted sequence of 15-bit integers; the port's `rand` (src/island/ambient/common.ts) is fed the same integers through setAmbientRandom: every draw of a tick must match in count and order.
 import { Duel, B, REC, RECORDS_BASE, lcg, randomKeys } from './m7-isl-veh-emu.mjs';
 import { setAmbientRandom } from '../../src/island/ambient/common.ts';
+import { m8Hook } from './m8-d.mjs';
 
 export { Duel, B, REC, RECORDS_BASE, lcg, randomKeys };
 export const CTOR = { BUTTERFLY: 0x4b2d44, SWIFT_LEADER: 0x4b31db, SWIFT: 0x4b3a92, SPIN: 0x4bdbb2, BRIKIMAL: 0x4bd4a8, MUSIC: 0x4bc773, SEAAMIN: 0x4b1212, SOUND3D: 0x538779, BOTMUSIC: 0x536e16, GETO: 0x536961 };
@@ -31,6 +32,7 @@ export function ambientDuel(ctx, o) {
       duel.emu = emu;
       // the hooks must be in place BEFORE the constructors run (the decoder caches the hook it saw): FUN_004388ae natively, the CRT rand() scripted
       emu.cpu.hooks.delete(0x4388ae); emu.cpu.hooks.set(0x85daf0, (c) => { c.eax = script.emuDraw(); }); emu.cpu.invalidate();
+      emu.cpu.mem.write(emu.brk, new Uint8Array(0x800000).fill(0xcd));   // the original's debug heap fills new blocks with 0xCD (WP-SAVE: unwritten node bytes)
       o.beforeAttach?.(emu, duel);
     }, extraNative: [0x4388ae, 0x4388e7, 0x43891a, 0x438936, 0x43895b, ...(o.extraNative ?? [])], draw: o.draw ?? true, ...o.duel, dt: o.dt, maxFail: o.maxFail, failures: o.failures, tolFree: o.tolFree ?? 1e-4, exact: o.exact,
   });
@@ -38,6 +40,10 @@ export function ambientDuel(ctx, o) {
       // the constructors' draws (the nodes' random start values) are not part of the comparison unless the port makes them too (keepCtorDraws: the port's lazy constructor consumes them in its first update)
   d.script = script;
   d.cleanup = () => setAmbientRandom(null);
+  // WP-SAVE (worker d): the save blocks of this family's nodes against the original's serializer / loader during the duel (tools/lib/m8-d.mjs); the BOTMUSIC / GETO nodes belong to another family
+  const MINE = new Set([0x4b2149, 0x4b2d44, 0x4b31db, 0x4b3a92, 0x4bdbb2, 0x4bd4a8, 0x4bc773, 0x4b1212, 0x538779]);
+  const fam = [...(o.ctors ?? []), ...(o.pepperFirstCtors ?? [])].filter((c) => MINE.has(c));
+  if (fam.length && !o.noM8) d.m8 = m8Hook(d, fam, o.failures ?? d.failures, o.m8 ?? {});
   return d;
 }
 

@@ -13,6 +13,7 @@ import { buildMatrix } from '../../formats/matrix.ts';
 import { mulGame } from '../../render/math.ts';
 import { ad, sb, ml, fr, fromBits } from '../../zones/common/f32.ts';
 import { tryCtx } from '../ctx.ts';
+import { BlockIn, BlockOut, CD, CDF, keepRaw } from '../blockio.ts';
 import { wrapPi, rand, sfxAt, soundOf, recPos, setRot } from './common.ts';
 
 export const CTOR_BRIKIMAL = 0x4bd4a8;
@@ -52,18 +53,49 @@ export class BrikimalNode implements BehaviourNode {
   prevToggle = 0;      // +0x39 (byte)
   /** +0x3c: the brick-morph object's matrix (rotation with the tilt, translation = position + right * -0.45) */
   readonly matrix = new Float32Array(16);
-  wait = 0;            // +0x7c
+  wait = CDF;          // +0x7c (never written by the constructor: 0xCD; the update only tests it `<= 0`)
+  private raw: Uint8Array | null = null;
   private inited = false;
+  private stated = false;
   private rows: BrikimalRow[] = [];
 
-  /** the constructor FUN_004bd4a8 (first update) */
-  private init(w: World, rec: GameRecord) {
-    this.inited = true;
+  /** the constructor's reads of the record that the save block holds (home position +0x14, the matrix copy +0x3c, the kind +0x24): run right after the set-up (`ctorInit`) */
+  ctorInit(_w: World, rec: GameRecord): void {
+    if (this.stated) return;
+    this.stated = true;
     this.home = [rec.x, rec.y, rec.z];
-    rec.colObj?.setBox(1.6, 6.0, 2.666);      // FUN_00442780(rec, 1.6, 6.0, 2.666)
-    rec.flags = (rec.flags & ~RF_ENABLED) | 0x20;
     this.matrix.set(rec.m);
     this.animal = KIND_OF_RECORD[rec.index] ?? 0;
+    // the constructor hides the record (the brick-morph object draws the animal) and marks it 0x20; the fallback without a morph object re-enables it at the first update
+    rec.colObj?.setBox(1.6, 6.0, 2.666);      // FUN_00442780(rec, 1.6, 6.0, 2.666)
+    rec.flags = (rec.flags & ~RF_ENABLED) | 0x20;
+  }
+  /**
+   * Save block = node +0x28 .. +0x80 (saver FUN_004bd44a returns 0x58 and points at node + 0x28, loader FUN_004bd46f = 88 byte memcpy back; the home position +0x14, the morph handle +0x20 and the kind +0x24 are not
+   * in it): +0x00 f32 timerA (+0x28), +0x04 f32 0 (+0x2c), +0x08 f32 phase (+0x30), +0x0c f32 morphT (+0x34), +0x10 u8 toggle (+0x38), +0x11 u8 prevToggle (+0x39), +0x12 2 pad bytes,
+   * +0x14 16 x f32 the morph object's matrix (+0x3c), +0x54 f32 wait (+0x7c).
+   */
+  saveBlock(w: World, rec: GameRecord): Uint8Array {
+    this.ctorInit(w, rec);
+    const o = new BlockOut(0x58, CD).f32(0, this.timerA).f32(4, 0).f32(8, this.phase).f32(0xc, this.morphT).u8(0x10, this.toggle).u8(0x11, this.prevToggle);
+    for (let k = 0; k < 16; k++) o.f32(0x14 + 4 * k, this.matrix[k]);
+    o.f32(0x54, this.wait);
+    keepRaw(o, this.raw, [[0x12, 2]]);   // +0x3a / +0x3b: padding after the toggle bytes
+    return o.bytes;
+  }
+  loadBlock(w: World, rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    this.ctorInit(w, rec);
+    const b = new BlockIn(data);
+    this.raw = data.slice();
+    this.timerA = b.f32(0); this.phase = b.f32(8); this.morphT = b.f32(0xc); this.toggle = b.u8(0x10); this.prevToggle = b.u8(0x11);
+    for (let k = 0; k < 16; k++) this.matrix[k] = b.f32(0x14 + 4 * k);
+    this.wait = b.f32(0x54);
+  }
+
+  /** the constructor FUN_004bd4a8 (first update): the rest of its work (collision box, flags, the brick-morph object) */
+  private init(w: World, rec: GameRecord) {
+    this.inited = true;
+    this.ctorInit(w, rec);
     const c = tryCtx(w);
     if (c) for (let v = 0; v < 8; v++) this.rows.push(brikimalRow(c.pe, this.animal, v));
     this.morph = c?.brickMorph?.(rec, this.var, BRIKIMAL_FILES[this.animal], this.matrix) ?? null;

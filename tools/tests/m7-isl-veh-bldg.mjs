@@ -2,6 +2,7 @@
 // draw FUN_00535550 of src/island/trigger/building.ts against the ORIGINAL's constructors + update / draw hooks run natively in the x86 emulation (tools/lib/m7-isl-veh-trig.mjs). Every building attach of the five eras'
 // set-ups (the original's own argument blocks); Pepper scripted around the door points / pages with random PEPPER_CONTROL, Shift presses, cutscenes, record visibility. Compared per tick: the node blocks (state, angle,
 // timers, phase), the part matrices (FUN_0043ea60 buffers vs `partMatrix`), all record flags, Pepper's record (the door pushes him), the music house's matrix at draw time, the variables, sounds / emitter calls, cutscene starts.
+import { m8Hook, m8Note } from '../lib/m8-d.mjs';
 import { trigDuel, trigTick, bldgHooks, setKind } from '../lib/m7-isl-veh-trig.mjs';
 import { RECORDS_BASE, REC, lcg } from '../lib/m7-isl-veh-emu.mjs';
 
@@ -14,14 +15,15 @@ const WATCH = [5, 0xc, 0x5e, 0x26, 0xa5, 0xc4, 0x12, 0xa6, 0xb0, 0x58];
 export const makeBldgTest = (name, dts, eras) => ({
   name,
   async run(ctx) {
-    const failures = [], notes = [];
+    const failures = [], notes = [], m8Stats = [];
     let checked = 0;
     const cover = { sessions: 0, doors: 0, exitDoors: 0, swings: 0, pages: 0, houses: 0, scenarios: 0, ticks: 0, doorStates: [0, 0, 0, 0], exitWrites: 0, pushes: 0, pickups: 0, pageCutscenes: 0, swingWraps: 0, iconOrs: 0, dead: 0, houseDraws: 0 };
     const devs = new Map();
     for (const [era, node] of ERA_NODES.entries()) for (const dt of dts) {
       if (!eras.includes(era)) continue;
-      const d = trigDuel(ctx, { node, dt, bldg: true, keepKinds: ['building', 'building.door', 'building.swing', 'building.page', 'building.musichouse'], maxFail: MAXFAIL, failures, draw: true });
+      const d = trigDuel(ctx, { node, dt, bldg: true, keepKinds: ['building', 'building.door', 'building.swing', 'building.page', 'building.musichouse', 'building.popin'], maxFail: MAXFAIL, failures, draw: true });
       d.label = `bldg e${era} dt${dt}`; cover.sessions++;
+      m8Stats.push(m8Hook(d, [0x535e80, 0x5364a5, 0x535281, 0x5357cb, 0x534b89], failures, { label: d.label, every: 5, period: 43, hold: 17 }));   // WP-SAVE: save blocks vs the original's serializer / loader during the duel
       bldgHooks(d);
       const W = d.P.world, mem = d.emu.cpu.mem, att = d.O.profile.island.attaches;
       const rnd = lcg(5000 + era * 11 + (dt === 1 ? 0 : 5)), pick = (n) => Math.floor(rnd() * n);
@@ -173,6 +175,7 @@ export const makeBldgTest = (name, dts, eras) => ({
       for (const [id, e] of d.deviations) { const q = devs.get(id); if (q) q.count += e.count; else devs.set(id, { ...e }); }
     }
     for (const [id, e] of devs) notes.push(`KNOWN DEVIATION ${id}: ${e.count}x, first ${e.first}`);
+    for (const st of m8Stats) notes.push(m8Note(st));
     notes.push(`coverage: ${JSON.stringify(cover)}`);
     return { checked, failures, notes };
   },

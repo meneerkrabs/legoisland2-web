@@ -5,10 +5,12 @@
 import { speederDuel, CARS, DRIVERS, MOVE_VAR, CTOR_CAR, B, REC, RECORDS_BASE } from '../lib/m7-isl-veh-speeder.mjs';
 import { lcg } from '../lib/m7-isl-veh-emu.mjs';
 import { partMatrix } from '../../src/island/trigger/parts.ts';
+import { withCdHeap } from '../lib/m8-save-pizza.mjs';
 
 const MAXFAIL = 30;
 
-export default {
+// (WP-SAVE: the original is a debug build whose heap fills fresh node blocks with 0xCD; the nodes of this family keep that fill in the fields the constructors never write, so the oracle must allocate like it: tools/lib/m8-save-pizza.mjs)
+const suite = {
   name: 'm7-isl-veh-speeder',
   async run(ctx) {
     const failures = [], notes = [];
@@ -188,3 +190,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default { ...suite, run: (ctx) => withCdHeap(() => suite.run(ctx)) };

@@ -126,7 +126,11 @@ const ROLLING = [0x0e, 0x19, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2d];
 
 // ---------------------------------------------------------------------------------------------------------------------------------- FUN_0048e840 (shared)
 /** the node fields FUN_0048e840 reads and writes (node + 0x18 based: state, +0x1c trickMid, +0x28 / +0x30 stick, +0x40 rate, +0x5c speed, +0x60 maxSpeed, +0x78 progress) */
-export interface TrickNode { state: number; trickMid: number; steer: number; stickY: number; trickRate: number; speed: number; maxSpeed: number; progress: number }
+export interface TrickNode {
+  state: number; trickMid: number; steer: number; stickY: number; trickRate: number; speed: number; maxSpeed: number; progress: number;
+  /** the frames FUN_0048e840 computes while a stunt runs and keeps in the node (+0x44 Pepper's frame, +0x48 the board's frame, +0x4c the progress fraction): part of the save block (WP-SAVE); the island's SkateNode declares them */
+  trickPf?: number; trickBf?: number; trickF?: number;
+}
 /** the globals it uses: DAT_05d58004 (the trick score) and DAT_05d58008 (the "landing already counted" flag) */
 export interface TrickGlobals { trickScore: number; trickFlag: number }
 
@@ -169,6 +173,7 @@ export function skateTricks(n: TrickNode, g: TrickGlobals, w: World, rec: GameRe
     // the frame of both clips follows the progress
     const f = f32((n.progress * 1.0) / TRICK.DIV);
     const pf = f32((rec.anim?.frameCount ?? 0) * f), bf = f32((board?.anim?.frameCount ?? 0) * f);
+    n.trickF = f; n.trickPf = pf; n.trickBf = bf;       // node +0x4c / +0x44 / +0x48 (struct +0x34 / +0x2c / +0x30)
     board?.anim?.seek(bf);
     rec.anim?.seek(pf);
   } else n.trickMid = 0;

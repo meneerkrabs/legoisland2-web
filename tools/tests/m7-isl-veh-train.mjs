@@ -7,12 +7,14 @@ import { trainDuel } from '../lib/m7-isl-veh-train.mjs';
 import { platformBeside } from '../../src/island/pizza/train.ts';
 import { waypoints } from '../../src/game/walker.ts';
 import { startPizzaNodes } from '../../src/island/pizza/index.ts';
+import { withCdHeap } from '../lib/m8-save-pizza.mjs';
 
 const MAXFAIL = 30;
 const CARS = ['TRNL', 'TRNT', 'TRNC'];
 const POOL = [B.SPACE, B.SPACE, B.UP, B.UP | B.LEFT, B.SPACE | B.RIGHT, B.DOWN, B.ALT, B.ALT | B.LEFT, B.LEFT, B.RIGHT, B.SHIFT, B.SHIFT | B.SPACE, 0, 0, B.UP | B.SHIFT];
 
-export default {
+// (WP-SAVE: the original is a debug build whose heap fills fresh node blocks with 0xCD; the nodes of this family keep that fill in the fields the constructors never write, so the oracle must allocate like it: tools/lib/m8-save-pizza.mjs)
+const suite = {
   name: 'm7-isl-veh-train',
   async run(ctx) {
     const failures = [], notes = [];
@@ -147,3 +149,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default { ...suite, run: (ctx) => withCdHeap(() => suite.run(ctx)) };

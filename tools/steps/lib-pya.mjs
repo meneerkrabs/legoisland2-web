@@ -40,7 +40,13 @@ export function pya({ page, wait, log = () => {}, shot = async () => {} }) {
     const w = window.__zone.world, fire = (type, k) => window.dispatchEvent(new KeyboardEvent(type, { code: k, key: k, bubbles: true }));
     ks.forEach((k) => fire('keydown', k));
     const t0 = w.tickCount;
-    while (w.tickCount - t0 < ticks) await new Promise((r) => setTimeout(r, 0));
+    // (ends early when the zone changed under the walk (the story moved on: the old world never ticks again) or the game stands still for 20 s: this wait must never hang the bot)
+    let lastT = w.tickCount, lastAt = performance.now();
+    while (w.tickCount - t0 < ticks) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (window.__zone && window.__zone.world !== w) break;
+      if (w.tickCount !== lastT) { lastT = w.tickCount; lastAt = performance.now(); } else if (performance.now() - lastAt > 20000) break;
+    }
     [...ks].reverse().forEach((k) => fire('keyup', k));
   }, [keys, n]);
   const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };

@@ -26,6 +26,8 @@ import { ensureAnim } from '../ambient/common.ts';
 import { skateTricks } from '../../zones/z01bpk/skate.ts';
 import { headerOnlyCol } from '../colshapes.ts';
 import { crashSoundId } from './crashsound.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
+import { CD8, CD32S, CD32U, CD_F32 } from '../../game/heapfill.ts';
 
 /** the rolling sound by surface id (FUN_004b0b37: DAT_05d57fe0 0, fd0 1 / 8, fc8 3, fd4 4, fe8 6, fcc 7, fdc 9, fd8 10) */
 const ROLL_BY_SURFACE: Record<number, number> = { 0: 0x180, 1: 0x17f, 3: 0x181, 4: 0x184, 6: 0x182, 7: 0x185, 8: 0x17f, 9: 0x185, 10: 300 };
@@ -50,6 +52,37 @@ const TRICK_SOUND = 0x1ab;
 const UNSET = -107374176.0;    // a local of the original that is not written on one path: the debug heap fill 0xcccccccc read as a float
 const CAM_OFFSET = [0, 12.0, -14.0], CAM_EASE = fr(0.10000000149011612), CAM_NEAR = 13.0;
 
+/**
+ * The save block of the node (FUN_00492c61: `*out = node + 0x18; return 0x9c`, loader FUN_00492c86: the 0x9c byte memcpy back): node +0x18 .. +0xb3, in the order of the struct. The modelled fields
+ * and their offsets (node-relative; the block offset is this minus 0x18): u8 state / evaluated / grounded / onPipe / trickMid / pushes at +0x18 .. +0x1d, i32 animResult +0x20, rampX +0x24, steer
+ * +0x28, rampY +0x2c, stickY +0x30, f32 t +0x38, spin +0x3c, trickRate +0x40, yaw +0x54, speed +0x5c, maxSpeed +0x60, charge +0x64, y0 +0x68, jumpY +0x6c, v0 +0x70, vy +0x74, progress +0x78, pushTimer
+ * +0x7c, vx +0x8c, vyv +0x90, vz +0x94; also f32 trickPf +0x44 / trickBf +0x48 / trickF +0x4c (the frames FUN_0048e840 computes while a stunt runs: Pepper's frame, the board's frame, the progress
+ * fraction), u32 pipeRec +0xb0, and the input poll FUN_004376f9 writes into the node on every FUN_00490cd2 (u32 padHeld +0x80 = the held buttons, i32 padX +0x84 / padY +0x88 = the pad axes, 0 on the keyboard). Every other byte of the struct is state the island's code never writes after the constructor (the park's `locked` flag +0x1e, the camera numbers +0x9c = 8.0,
+ * +0xa8 = 10.0, +0xac = -14.0 ... ): `rest` holds the constructor's image of them and carries them through a save / load unchanged.
+ */
+type SkField = [off: number, kind: 'u8' | 'i32' | 'u32' | 'f32', name: string];
+const SK_FIELDS: SkField[] = [
+  [0x18, 'u8', 'state'], [0x19, 'u8', 'evaluated'], [0x1a, 'u8', 'grounded'], [0x1b, 'u8', 'onPipe'], [0x1c, 'u8', 'trickMid'], [0x1d, 'u8', 'pushes'],
+  [0x20, 'i32', 'animResult'], [0x24, 'i32', 'rampX'], [0x28, 'i32', 'steer'], [0x2c, 'i32', 'rampY'], [0x30, 'i32', 'stickY'],
+  [0x38, 'f32', 't'], [0x3c, 'f32', 'spin'], [0x40, 'f32', 'trickRate'], [0x44, 'f32', 'trickPf'], [0x48, 'f32', 'trickBf'], [0x4c, 'f32', 'trickF'], [0x54, 'f32', 'yaw'], [0x5c, 'f32', 'speed'], [0x60, 'f32', 'maxSpeed'], [0x64, 'f32', 'charge'],
+  [0x68, 'f32', 'y0'], [0x6c, 'f32', 'jumpY'], [0x70, 'f32', 'v0'], [0x74, 'f32', 'vy'], [0x78, 'f32', 'progress'], [0x7c, 'f32', 'pushTimer'],
+  [0x80, 'u32', 'padHeld'], [0x84, 'i32', 'padX'], [0x88, 'i32', 'padY'],
+  [0x8c, 'f32', 'vx'], [0x90, 'f32', 'vyv'], [0x94, 'f32', 'vz'], [0xb0, 'u32', 'pipeRec'],
+];
+const SK_BYTES = 0x9c, SK_BASE = 0x18;
+/**
+ * The constructor's image of the unmodelled bytes (FUN_00492cc2 on a fresh debug-heap block, every byte 0xCD): +0x1e = 0, +0x34 = 0, +0x58 = 0, +0x98 = 0, +0x9c = 0x41000000, +0xa0 = 0, +0xa4 = 0,
+ * +0xa8 = 0x41200000, +0xac = 0xc1600000; +0x1f and +0x50 stay 0xCD.
+ */
+function skateRestImage(): Uint8Array {
+  const b = new BlockOut(SK_BYTES);
+  b.bytes.fill(CD8);
+  b.u8(0x1e - SK_BASE, 0);
+  for (const o of [0x34, 0x58, 0x98, 0xa0, 0xa4]) b.u32(o - SK_BASE, 0);
+  b.u32(0x9c - SK_BASE, 0x41000000).u32(0xa8 - SK_BASE, 0x41200000).u32(0xac - SK_BASE, 0xc1600000);
+  return b.bytes;
+}
+
 export class SkateNode implements BehaviourNode {
   readonly kind = 'skate';
   var = 0x5e; mask = 4; value = 4;
@@ -60,8 +93,8 @@ export class SkateNode implements BehaviourNode {
   grounded = 1;            // +0x1a
   onPipe = 0;              // +0x1b (half-pipe "QPIP": the park only)
   trickMid = 0;            // +0x1c
-  pushes = 0;              // +0x1d
-  animResult = 0;          // +0x20
+  pushes = CD8;            // +0x1d (the constructor does not write it: 0xCD, so the FIRST push-off of a fresh node counts as the second one)
+  animResult = CD32S;      // +0x20 (not written by the constructor; the first update resets it)
   rampX = 0x10; steer = 0; // +0x24 / +0x28
   rampY = 0x10; stickY = 0;// +0x2c / +0x30
   t = 0;                   // +0x38: time in the air
@@ -77,7 +110,34 @@ export class SkateNode implements BehaviourNode {
   progress = 0;            // +0x78 (the trick progress of FUN_0048e840)
   trickRate = 0;           // +0x40 (the progress per tick of the running stunt)
   pushTimer = 0;           // +0x7c
-  vx = 0; vz = 0; vyv = 0; // +0x8c / +0x94 / +0x90: the velocity of this tick
+  vx = CD_F32; vz = CD_F32; vyv = CD_F32; // +0x8c / +0x94 / +0x90: the velocity of this tick (not written by the constructor)
+  /** the struct bytes the node's code never writes (see SK_FIELDS): kept as the block has them */
+  private rest = skateRestImage();
+  /** +0x44 / +0x48 / +0x4c: see SK_FIELDS (the stunt's frames, kept between ticks like the original's node does) */
+  trickPf = CD_F32; trickBf = CD_F32; trickF = CD_F32;
+  /** +0xb0: the record pointer of the half-pipe the board stands on (the park; 0 whenever a ground sweep hits something else while grounded: the island never has a pipe), +0xb0 .. is 0xCD until the first such sweep */
+  pipeRec = CD32U;
+  /** +0x80 / +0x84 / +0x88: the poll of FUN_00490cd2 (FUN_004376f9(0, node + 0x80)): the held buttons and the pad axes (the port has no pad on the board: 0) */
+  padHeld = CD32U; padX = CD32S; padY = CD32S;
+
+  saveBlock(): Uint8Array {
+    const o = new BlockOut(SK_BYTES);
+    o.bytes.set(this.rest);
+    const me = this as unknown as Record<string, number>;
+    for (const [off, kind, name] of SK_FIELDS) {
+      if (kind === 'u8') o.u8(off - SK_BASE, me[name]);
+      else if (kind === 'i32') o.i32(off - SK_BASE, me[name]);
+      else if (kind === 'u32') o.u32(off - SK_BASE, me[name]);
+      else o.f32(off - SK_BASE, me[name]);
+    }
+    return o.bytes;
+  }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    this.rest = Uint8Array.from(data);
+    const b = new BlockIn(data);
+    const me = this as unknown as Record<string, number>;
+    for (const [off, kind, name] of SK_FIELDS) me[name] = kind === 'u8' ? b.u8(off - SK_BASE) : kind === 'i32' ? b.i32(off - SK_BASE) : kind === 'u32' ? b.u32(off - SK_BASE) : b.f32(off - SK_BASE);
+  }
 
   private boardChecked = false;
   private board(w: World): GameRecord | null {
@@ -109,6 +169,7 @@ export class SkateNode implements BehaviourNode {
   /** FUN_00490cd2 (the island's branches): Down brakes, the board speeds up by itself to 0.75, the steering turns Pepper unless he is in the air */
   private input(w: World, rec: GameRecord) {
     const held = w.input.held;
+    this.padHeld = held >>> 0; this.padX = 0; this.padY = 0;      // FUN_004376f9(0, node + 0x80): the poll, the pad axes are 0 on the keyboard
     this.ramp(held);
     if ((held & B.DOWN) !== 0 && this.state !== 0x20) { if (this.speed <= 0) this.speed = 0; else this.speed = sb(this.speed, BRAKE); }
     if (MAX_SPEED <= this.speed) this.speed = MAX_SPEED; else this.speed = ad(this.speed, PUSH);
@@ -306,7 +367,7 @@ export class SkateNode implements BehaviourNode {
         hitName = h.rec.name;
         w.pep.surfaceAtFeet = w.col.lastSurface();
         if (hitName === 'QPIP') this.onPipe = 1;
-        else if (this.grounded !== 0) this.onPipe = 0;
+        else if (this.grounded !== 0) { this.onPipe = 0; this.pipeRec = 0; }
         if (this.jumpY <= h.point[1]) {
           ground = h.point[1]; rec.y = ground;
           if (this.t !== 0) { next = 0x21; this.t = 0; this.y0 = 0; this.jumpY = 0; this.v0 = 0; this.vy = 0; this.grounded = 1; }

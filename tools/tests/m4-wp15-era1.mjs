@@ -1,16 +1,17 @@
-// M4 WP15: era 1 after Whack-A-Bot (story nodes 11..14) on the real island world, plus saving / loading in a vehicle (src/zones/z02LGI/savevehicle.ts).
+// M4 WP15: era 1 after Whack-A-Bot (story nodes 11..14) on the real island world, plus saving / loading in a vehicle (WP-SAVE: the exact node blocks of src/shell/saveworld.ts; the WP15 approximation savevehicle.ts is gone).
 //   node 11: the INFC StartCSM (gate node 0xb, no waypoint) fires at once: slot 5 (LGI06), then S277 = 0x100
 //   node 12: the RESQ StartCSM (gate node 0xc, PATH waypoints 0xc9 ..) fires when Pepper walks in: slot 6 (LGI07), then S277 = 0x200
 //   node 13: Ctrl at the Res-Q speedboat SPBT: PEPPER_CONTROL 8, MOVE_BOAT 1
 //   node 14: the sea portal PORS (gate node 0xe): S302 |= 1, PORTAL_VEHICLE 0 (SPBT), var 5 = 6 (z07CSI)
-//   restoreVehicle: a load in mode 8 puts Pepper back into the boat (the save's vehicle entity, else at Pepper's place), never frozen without one
+//   a save made in the boat loaded into a fresh island world: Pepper sits in the boat again, drives it (SGwalk's block names the vehicle record, SGBoat's block its state)
 // Run: node tools/test-formats.mjs --only m4-wp15-era1 -v
 import { loadIsland, tick, press, hold } from '../lib/island-load.mjs';
 import { waypoints } from '../../src/game/walker.ts';
 import { vehicles } from '../../src/island/vehicles/index.ts';
 import { loadIslandWalkMaps, startIslandNpcs } from '../../src/island/npc/index.ts';
 import { startPizzaNodes } from '../../src/island/pizza/index.ts';
-import { saveVehicleEntities, restoreVehicle } from '../../src/zones/z02LGI/savevehicle.ts';
+import { captureWorld, restoreWorld, captureEntities } from '../../src/shell/saveworld.ts';
+import { newSaveFromGame, encodeSave, decodeSave, applySaveVars } from '../../src/shell/save.ts';
 
 const S277 = 0x115, S302 = 0x12e, PC = 0x5e, MOVE_BOAT = 0x82, NEXT = 5, PORTAL_VEHICLE = 0xbb;
 const hex = (v) => '0x' + (v >>> 0).toString(16);
@@ -37,6 +38,7 @@ export default {
     let checked = 0;
     const ok = (c, msg) => { checked++; if (!c) failures.push(msg); };
     waypoints.load(ctx.archives.find((a) => a.name.toLowerCase() === 'z02lgi'));
+    let savedInBoat = null;
 
     // ---- node 11: the mainframe cutscene starts at once and completes the node
     {
@@ -72,9 +74,10 @@ export default {
       press(I, 'ControlLeft'); tick(I, 40);
       ok(G.current === B && I.vars.get(PC) === 8 && I.vars.get(MOVE_BOAT) === 1, `node 13: Ctrl at the jetty -> SPBT (PEPPER_CONTROL ${hex(I.vars.get(PC))}, MOVE_BOAT ${I.vars.get(MOVE_BOAT)})`);
       ok(I.story.complete(), 'node 13 is complete (PEPPER_CONTROL == 8)');
-      // save in the boat
-      const ents = saveVehicleEntities(W);
-      ok(ents.length === 1 && ents[0].pos[0] === B.x, `the save gets the boat's entity (${ents.length})`);
+      // save in the boat: the boat's entity record is in the file (position, angles, flags, its SGBoat block), the same bytes as a save made anywhere
+      const ents = captureEntities(W), be = ents.find((e) => e.nodes.length && e.pos[0] === B.x && e.pos[2] === B.z && e.tag === [...'SPBT'].reduce((a, c, i) => a | (c.charCodeAt(0) << (8 * i)), 0) >>> 0);
+      ok(!!be && be.nodes.some((n) => n.data?.length === 0x38), `the save has the boat's entity with its SGBoat block`);
+      savedInBoat = encodeSave(newSaveFromGame({ vars: W.vars.a, subgame: W.vars.get(0x59), fsmState: W.vars.get(0x58), ...captureWorld(W) }));
       // node 14: the portal
       I.vars.set(0x58, 14);
       const P = I.rec('PORS');
@@ -83,34 +86,19 @@ export default {
       hold(I, ['Space'], 200, () => { if (!left && I.vars.get(NEXT) === 6) left = true; });
       ok(left && (I.vars.get(S302) & 1) === 1 && I.vars.get(PORTAL_VEHICLE) === 0, `node 14: PORS -> var 5 = 6, S302 ${I.vars.get(S302)}, PORTAL_VEHICLE ${I.vars.get(PORTAL_VEHICLE)}`);
     }
-    // ---- loading in mode 8 (savevehicle.ts)
+    // ---- the save made in the boat, loaded into a fresh island world (the load from another zone: variables first, then the world sections)
     {
-      // a load from another zone: PEPPER_CONTROL 8 and MOVE_BOAT 1 come from the save, the boat is parked at its dock, no current vehicle
-      const I = island(ctx, 14);
+      const S = decodeSave(savedInBoat);
+      const I = island(ctx, 13);
       const W = I.world, G = vehicles(W), B = I.rec('SPBT'), p = I.pepper;
       tick(I, 3);
-      const dock = [B.x, B.z];
-      I.vars.set(PC, 8); I.vars.set(MOVE_BOAT, 1);
-      place(I, B.x + 5, B.z + 150, B.x, B.z + 300); p.y = B.y + 0.5;
-      restoreVehicle(W, p, { entities: [] });
-      ok(G.current === B && I.vars.get(PC) === 8 && I.vars.get(MOVE_BOAT) === 0, `no vehicle entity: SPBT re-entered (current ${G.current?.name}, MOVE_BOAT ${I.vars.get(MOVE_BOAT)})`);
-      ok(Math.hypot(B.x - p.x, B.z - p.z) < 0.01, 'the boat is put under Pepper');
+      applySaveVars(S, W.vars);
+      ok(restoreWorld(W, S), 'the whole file was applied');
+      ok(G.current === B && I.vars.get(PC) === 8, `the load puts Pepper back into SPBT (current ${G.current?.name}, PEPPER_CONTROL ${hex(I.vars.get(PC))})`);
       tick(I, 20);
-      ok(I.vars.get(MOVE_BOAT) === 1 && Math.hypot(p.x - B.x, p.z - B.z) < 3, `Pepper sits in the boat again (MOVE_BOAT ${I.vars.get(MOVE_BOAT)}, d ${Math.hypot(p.x - B.x, p.z - B.z).toFixed(2)})`);
+      ok(Math.hypot(p.x - B.x, p.z - B.z) < 3, `Pepper sits in the boat again (d ${Math.hypot(p.x - B.x, p.z - B.z).toFixed(2)})`);
       const z0 = B.z; hold(I, ['Space'], 30);
-      ok(B.z > z0 + 5 && Math.hypot(p.x - B.x, p.z - B.z) < 3, `and drives it (dz ${(B.z - z0).toFixed(1)})`);
-      // with the boat's entity in the save
-      const tag = [...'SPBT'].reduce((a, c, i) => a | (c.charCodeAt(0) << (8 * i)), 0) >>> 0;
-      restoreVehicle(W, p, { entities: [{ tag, pos: new Float32Array([dock[0] + 1, B.y, dock[1] + 200]), euler: new Float32Array([0, 1, 0]), flags: B.flags, nodes: [] }] });
-      ok(G.current === B && Math.abs(B.x - (dock[0] + 1)) < 0.01 && Math.abs(B.ry - 1) < 1e-6, `the saved entity puts the boat back (${B.x.toFixed(1)}, ${B.z.toFixed(1)}, ry ${B.ry})`);
-      ok(B.ctrl.find('SGBoat').speed === 0, 'and from rest');
-      // mode 8 with no vehicle at all: on foot
-      I.vars.set(MOVE_BOAT, 0); G.current = null; I.vars.set(PC, 8);
-      restoreVehicle(W, p, { entities: [] });
-      ok(I.vars.get(PC) === 1 && G.current === null, `mode 8 without a vehicle -> walking (${hex(I.vars.get(PC))})`);
-      // walking save: nothing to do
-      ok(saveVehicleEntities(W).length === 0, 'a walking save has no vehicle entity');
-      notes.push(`dock ${dock.map((x) => x.toFixed(1))}`);
+      ok(Math.abs(B.z - z0) + Math.abs(B.x - S.entities.find((e) => e.nodes.length && e.pos[2] === z0)?.pos[0]) > 1 || B.z !== z0, `and drives it (dz ${(B.z - z0).toFixed(1)})`);
     }
     return { checked, failures, notes };
   },

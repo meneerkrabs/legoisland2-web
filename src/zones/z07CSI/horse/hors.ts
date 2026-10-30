@@ -27,8 +27,11 @@ import { distSq32, rand32, play, playAt } from '../common.ts';
 import { f, fb, rotateFromEuler, setEulerExact, normalize, transformPoint, sweepF, probeF } from './math.ts';
 import type { V3 } from './math.ts';
 import { applyEmulatedSetupState } from './setup.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
 
 export const CTOR_HORSE = 0x579178;
+/** the debug heap fills a new node block with 0xCD (FUN_00433d38 -> __nh_malloc_dbg): fields the constructor never writes read as this float */
+const CD_F = fb(0xcdcdcdcd);
 /** the record the node sits on: HORS (`DAT_00983804 + 0x1380`); the castle's own records the code names by address: the ground (3, `+ 0x138`) and the broken bridge BRGE (4, `+ 0x1a0`) */
 export const REC_HORSE = 48, REC_GROUND = 3, REC_BRIDGE = 4;
 /** SWITCH_CSI_HORSE */
@@ -107,18 +110,20 @@ export class HorseNode implements BehaviourNode {
   stamp = 0xfffffffe;
   // ---- the node block (see the header); fields the constructor does not set start as 0 (a fresh heap block)
   st = 0;                 // +0x18
-  omega = 0;              // +0x1c
-  jumpY0 = 0;             // +0x20
+  omega = CD_F;           // +0x1c (never written by the constructor: the debug heap's 0xCD)
+  jumpY0 = CD_F;          // +0x20 (0xCD)
   hop = 0;                // +0x24
+  /** +0x28: never written by the constructor or by the update (a fresh heap block's word); kept only so that a loaded block is saved again unchanged */
+  word28 = -842150451;   // 0xcdcdcdcd
   turnRate = TURN_START;  // +0x2c
   turnAccel = TURN_STEP;  // +0x30
   pitch = 0;              // +0x34
   backTicks = 0;          // +0x38
-  sx = 0; sy = 0; sz = 0; syaw = 0;   // +0x3c .. +0x48
+  sx = 0; sy = 0; sz = 0; syaw = CD_F;   // +0x3c .. +0x48
   sound = 0;              // +0x4c
   idle = 0;               // +0x50
   active = 0;             // +0x54
-  standT = 0;             // +0x58
+  standT = CD_F;          // +0x58 (0xCD)
   /** DAT_05d58964: set once the horse has been Pepper's vehicle (never cleared again) */
   pending = 0;
   /** the set-up's final visibility / place is applied once, at the first update (after the castle's own set-up code, which hides the horse again: setup.ts); tests that place the record themselves set it */
@@ -150,6 +155,29 @@ export class HorseNode implements BehaviourNode {
       }
     }
     this.sx = rec.m[12]; this.sy = rec.m[13]; this.sz = rec.m[14];   // +0x3c / +0x40 / +0x44 = the record's translation (x, y, z)
+  }
+
+  /**
+   * save FUN_0057900b (vtable +0x14; the size is FUN_0057900b's 0x44 + 4, the buffer protocol: the serializer is called again with the destination): the node's bytes +0x18 .. +0x5b (0x44 bytes: the
+   * fields of the header above), then the VALUE of the game variable the node's +0x00 names (FUN_00417575(*node): var 0x112, the horse switch).
+   */
+  saveBlock(w: World): Uint8Array {
+    const o = new BlockOut(0x48);
+    o.i32(0x00, this.st).f32(0x04, this.omega).f32(0x08, this.jumpY0).f32(0x0c, this.hop).i32(0x10, this.word28);
+    o.f32(0x14, this.turnRate).f32(0x18, this.turnAccel).f32(0x1c, this.pitch).f32(0x20, this.backTicks);
+    o.f32(0x24, this.sx).f32(0x28, this.sy).f32(0x2c, this.sz).f32(0x30, this.syaw);
+    o.i32(0x34, this.sound).f32(0x38, this.idle).i32(0x3c, this.active).f32(0x40, this.standT);
+    o.i32(0x44, w.vars.get(this.var));
+    return o.bytes;
+  }
+  /** load FUN_005790c9 (vtable +0x10): the 0x44 bytes back to node + 0x18, the variable word to the game variable (FUN_00417597(node +0, value)) */
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.st = b.i32(0x00); this.omega = b.f32(0x04); this.jumpY0 = b.f32(0x08); this.hop = b.f32(0x0c); this.word28 = b.i32(0x10);
+    this.turnRate = b.f32(0x14); this.turnAccel = b.f32(0x18); this.pitch = b.f32(0x1c); this.backTicks = b.f32(0x20);
+    this.sx = b.f32(0x24); this.sy = b.f32(0x28); this.sz = b.f32(0x2c); this.syaw = b.f32(0x30);
+    this.sound = b.i32(0x34); this.idle = b.f32(0x38); this.active = b.i32(0x3c); this.standT = b.f32(0x40);
+    w.vars.set(this.var, b.i32(0x44));
   }
 
   /** FUN_005769a8(rec, node, controller, var value) */

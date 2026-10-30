@@ -11,15 +11,13 @@
 //   node tools/browse.mjs "http://localhost:5489/?zone=z02LGI&node=52&mute=1&debug=1&hold=1" tools/steps/m4-era3.mjs --size 1280x800 --out /tmp/wp17
 // Long walks are teleports (Pepper put next to the target, facing it); the keys do the actions (walk in, Space throw, Shift skip, Enter in menus).
 // Env: STOP=<phase> ends after that phase (intro, pages, radio, heads, police, tower, cnt, par, era4); FROM=cnt starts in z36CNT (URL ?zone=z36CNT&node=59&mute=1&hold=1),
-//      FROM=radio starts at node 55 (URL ?zone=z02LGI&node=55&mute=1&hold=1), FROM=tower at node 58 (node=58), FROM=asb at z39ASB (zone=z39ASB&node=62), FROM=abort the two aborts (zone=z36CNT&node=59), FROM=end node 68 (node=68), FROM=era4 starts at node 61 (URL ?zone=z02LGI&node=61&mute=1&hold=1).
+//      FROM=pages starts after the landing of the full story (island era 3, node 53 / 54: the cutscenes of the arrival are skipped first), FROM=radio starts at node 55 (URL ?zone=z02LGI&node=55&mute=1&hold=1), FROM=tower at node 58 (node=58), FROM=asb at z39ASB (zone=z39ASB&node=62), FROM=abort the two aborts (zone=z36CNT&node=59), FROM=end node 68 (node=68), FROM=era4 starts at node 61 (URL ?zone=z02LGI&node=61&mute=1&hold=1).
 import { island, pathNode, teleportTo } from './lib-island.mjs';
-import { parBotStep } from '../lib/par-bot.mjs';
-import { apoBotStep } from '../lib/apo-bot.mjs';
-import { Bot as MapBot, CODE as MAP_CODE } from '../lib/z41map-bot.mjs';
-import { PLAN1 as BRP_PLAN } from '../../src/zones/z42BRP/bot-plan.ts';
+import { makeRunner, installStoryTrace, playMini } from './lib-story.mjs';
+import { ogelArc } from './lib-ogelarc.mjs';
 
 const BOTS = [['BBY0', 0x8a], ['BBB0', 0x2b], ['BBG0', 0xc9], ['BBR0', 0x0f]];
-const PAR_KEYS = [[4, 'ArrowUp'], [8, 'ArrowDown'], [1, 'ArrowLeft'], [2, 'ArrowRight'], [0x40, 'ShiftLeft']];
+const D = new URL('.', import.meta.url).pathname;
 
 export default async (h) => {
   const { page, wait, log, shot, key } = h;
@@ -91,30 +89,39 @@ export default async (h) => {
 
   let s;
   const from = process.env.FROM ?? '';
-  const ORDER = ['', 'radio', 'tower', 'cnt', 'era4', 'asb', 'end'];
+  const ORDER = ['', 'pages', 'radio', 'tower', 'cnt', 'era4', 'asb', 'end'];
   if (from === 'abort') return abortRuns();
   if (!ORDER.includes(from)) throw new Error(`FROM=${from}?`);
   const runs = (p) => ORDER.indexOf(from) <= ORDER.indexOf(p);
-  if (!from) {
-    await S.waitIsland();
-    s = await S.state();
-    expect('island era 3 (zone id 33), node 52', s.arch === 'z02LGI' && s.sub === 33 && s.node === 52, JSON.stringify(s));
-    {
-      const sp = await shown(['TOWE', 'CTRL', 'PLAT', 'SHTL', 'TBOB', 'PAG1', 'PAG2', 'PAG3', 'PAG4']);
-      expect('era 3 start: the Space Port (TOWE / CTRL / PLAT / SHTL) is not built yet, the 4 pages are out', sp.TOWE === 0 && sp.CTRL === 0 && sp.PLAT === 0 && sp.SHTL === 0 && sp.PAG1 + sp.PAG2 + sp.PAG3 + sp.PAG4 === 4, JSON.stringify(sp));
-    }
-    await S.start();
-    await shot('e3-00-start');
+  if (!from || from === 'pages') {
+    if (from === 'pages') {
+      // the full story lands the helicopter (tools/steps/m4-era2.mjs, tail): node 53 (LGI09 fires at once at the pizzeria trigger) -> node 54
+      await S.start(); await cs(); await wait(500);
+      await S.until(async () => (await S.state()).node === 54, 8000);
+      s = await S.state();
+      expect('after the landing + LGI09: walking, var 0x54 & 4, S277 = 4, node 54', s.ctrl === 1 && s.s277 === 4 && s.node === 54, JSON.stringify(s));
+      await shot('e3-01-node54');
+    } else {
+      await S.waitIsland();
+      s = await S.state();
+      expect('island era 3 (zone id 33), node 52', s.arch === 'z02LGI' && s.sub === 33 && s.node === 52, JSON.stringify(s));
+      {
+        const sp = await shown(['TOWE', 'CTRL', 'PLAT', 'SHTL', 'TBOB', 'PAG1', 'PAG2', 'PAG3', 'PAG4']);
+        expect('era 3 start: the Space Port (TOWE / CTRL / PLAT / SHTL) is not built yet, the 4 pages are out', sp.TOWE === 0 && sp.CTRL === 0 && sp.PLAT === 0 && sp.SHTL === 0 && sp.PAG1 + sp.PAG2 + sp.PAG3 + sp.PAG4 === 4, JSON.stringify(sp));
+      }
+      await S.start();
+      await shot('e3-00-start');
 
-    // ---- node 52 -> 53 -> 54: the era intro (HSE2), then LGI09 at the pizzeria (PIZB, gate node 0x35)
-    if (phase('intro')) return;
-    s = await S.state();
-    expect('the era intro (LGIBR08) plays at once', s.cs, JSON.stringify(s));
-    await cs(); await wait(500);
-    await S.until(async () => (await S.state()).node === 54, 8000);
-    s = await S.state();
-    expect('after LGIBR08 + LGI09: walking, var 0x54 & 4, S277 = 4, node 54', s.ctrl === 1 && ((await v(0x54)) & 4) === 4 && s.s277 === 4 && s.node === 54, JSON.stringify(s));
-    await shot('e3-01-node54');
+      // ---- node 52 -> 53 -> 54: the era intro (HSE2), then LGI09 at the pizzeria (PIZB, gate node 0x35)
+      if (phase('intro')) return;
+      s = await S.state();
+      expect('the era intro (LGIBR08) plays at once', s.cs, JSON.stringify(s));
+      await cs(); await wait(500);
+      await S.until(async () => (await S.state()).node === 54, 8000);
+      s = await S.state();
+      expect('after LGIBR08 + LGI09: walking, var 0x54 & 4, S277 = 4, node 54', s.ctrl === 1 && ((await v(0x54)) & 4) === 4 && s.s277 === 4 && s.node === 54, JSON.stringify(s));
+      await shot('e3-01-node54');
+    }
 
     // ---- node 54: the four pages
     if (phase('pages')) return;
@@ -168,25 +175,30 @@ export default async (h) => {
     const BIT = { BBY0: 1, BBR0: 2, BBG0: 4, BBB0: 8 };
     const botOf = (name) => page.evaluate((n) => { const z = window.__zone, r = z.world.records.find((x) => x.name === n); const hn = r?.ctrl?.nodes.find((x) => x.kind === 'BotHit'); const p = z.loaded.pepper;
       return hn ? { armed: hn.armed, dying: hn.dying, v: z.sh.vars.get(hn.var), d: Math.hypot(r.x - p.x, r.z - p.z) } : null; }, name);
+    // (waits are counted in game ticks, not wall time: 600 ticks of dancing take 20 s of game time, and a loaded page runs slower than 30 ticks per second)
     for (const [name] of BOTS) {
       if (((await v(0x8e)) & BIT[name]) !== 0) { log(name, 'already collected (it came to Pepper while she danced with another bot)'); continue; }
       let dazed = false;
-      const t0 = Date.now();
       await S.teleportNear(name, 5, 0);
-      while (Date.now() - t0 < 45000 && !dazed) {
-        const b = await botOf(name);
-        if (!b || ((await v(0x8e)) & BIT[name]) !== 0) break;
-        dazed = b.armed === 0;
-        if (!dazed && b.d > 9) await S.teleportNear(name, 5, 0);
-        await wait(250);
+      for (let round = 0; round < 6 && !dazed; round++) {
+        // dance for up to 900 ticks with Pepper next to the bot (re-placed when the bot wanders off: it walks its own route, Pepper must stay within 12)
+        dazed = await S.untilTicks(async () => {
+          const b = await botOf(name);
+          if (!b || ((await v(0x8e)) & BIT[name]) !== 0) return true;
+          if (b.armed === 0) return true;
+          if (b.d > 9) await S.teleportNear(name, 5, 0);
+          return false;
+        }, 900, 100);
       }
+      const b1 = await botOf(name);
+      dazed = dazed && (!b1 || b1.armed === 0 || ((await v(0x8e)) & BIT[name]) !== 0);
       if (dazed) await shot(`e3-05-${name}-dazed`);
       const h0 = await v(0x8e);
       let got = (h0 & BIT[name]) !== 0;
-      for (let k = 0; k < 3 && !got; k++) {
+      for (let k = 0; k < 4 && !got; k++) {
         await S.teleportNear(name, 4, k * 2);
         await page.keyboard.down('ArrowUp');
-        got = await S.until(async () => ((await v(0x8e)) & BIT[name]) !== 0, 2500, 30);
+        got = await S.untilTicks(async () => ((await v(0x8e)) & BIT[name]) !== 0, 90, 30);
         await page.keyboard.up('ArrowUp');
       }
       expect(`bot head ${name} (danced out, walked into)`, got, `COLORED_BOTHEADS ${(await v(0x8e)).toString(16)} ${JSON.stringify(await botOf(name))}`);
@@ -221,72 +233,21 @@ export default async (h) => {
     expect('tower: S284 = 1, the FSM leaves for z36CNT (node 59)', fired && s?.node === 59, JSON.stringify(s));
   }
 
-  // ---- node 59: z36CNT, the centrifuge (the perfect player of tools/steps/m3-z36cnt.mjs)
+  // ---- node 59: z36CNT, the centrifuge (tools/steps/m3-z36cnt.mjs: the perfect player; stopped when the zone is left) and node 60: z38PAR, the parachute
+  //      (tools/steps/m3-z38PAR.mjs: the page-side pilot, decided inside the page every 4 ms: a pilot that decides in this process loses runs when the machine is loaded)
   if (runs('cnt')) {
     if (phase('cnt')) return;
+    const R = makeRunner(h, { allowGoto: false });
+    await R.arm();
     await waitArch('z36CNT');
-    const dbg = () => page.evaluate(() => { const z = window.__zone; return z ? { mode: z.machine.mode, arch: z.info.archive, node: z.sh.vars.get(0x58), d: z.game?.debug?.() ?? null } : null; }).catch(() => null);
-    const until = async (cond, ms = 240000) => { const t0 = Date.now(); for (;;) { const x = await dbg(); if (x && (await cond(x))) return x; if (Date.now() - t0 > ms) return null; await wait(40); } };
-    await until((x) => x.arch === 'z36CNT' && x.mode === 1);
-    await key('Enter'); await wait(400); await key('Enter'); await wait(500);
-    await key('ShiftLeft'); await until((x) => x.d?.state === 2);
-    await key('ShiftLeft'); await until((x) => x.d?.state === 3);
-    await shot('e3-08-cnt');
-    for (;;) {
-      const x = await dbg();
-      if (!x || x.mode !== 2 || x.d?.state !== 3) break;
-      if (x.d.zone === 'top' && !x.d.latchL) await page.keyboard.press('ArrowLeft', { delay: 70 });
-      else if (x.d.zone === 'bottom' && !x.d.latchR) await page.keyboard.press('ArrowRight', { delay: 70 });
-      await wait(8);
-    }
-    await until((x) => x.mode === 4 || x.mode === 5, 120000);
-    s = await dbg();
-    expect('z36CNT won (result 1)', s?.d?.result === 1, JSON.stringify(s?.d));
-    await wait(300); await key('Enter'); await wait(600);
-    for (let i = 0; i < 12 && (await menu()).item !== 1; i++) { await key('ArrowDown'); await wait(170); }
-    await key('Enter');
+    let r = await playMini(R, h, { file: D + 'm3-z36cnt.mjs', zone: 'z36CNT', label: 'z36CNT', ms: 20 * 60000 });
+    expect('z36CNT won through the result menu (Continue)', r.ok, r.fails.join(' | '));
     await waitArch('z38PAR');
     s = await zst();
     expect('Continue: node 60 = z38PAR', s.arch === 'z38PAR' && s.node === 60, JSON.stringify(s));
-  }
-
-  // ---- node 60: z38PAR, the parachute (tools/lib/par-bot.mjs)
-  if (runs('cnt')) {
     if (phase('par')) return;
-    const dbg = () => page.evaluate(() => { const z = window.__zone; return z && z.game ? { mode: z.machine.mode, arch: z.info.archive, node: z.sh.vars.get(0x58), tick: z.world.tickCount, ...z.game.debug() } : null; }).catch(() => null);
-    const held = new Set();
-    const setKeys = async (mask) => {
-      for (const [bit, code] of PAR_KEYS) {
-        const want = (mask & bit) !== 0;
-        if (want && !held.has(code)) { await page.keyboard.down(code); held.add(code); }
-        if (!want && held.has(code)) { await page.keyboard.up(code); held.delete(code); }
-      }
-    };
-    // the scripted pilot reacts with the latency of the page round trips: a lost run (result 2) is retried from the result menu (page 19, item 0 Opnieuw)
-    // (a smaller viewport keeps the page round trips short enough for the pilot, as in tools/steps/m3-z38PAR.mjs)
-    const vp = page.viewportSize();
-    await page.setViewportSize({ width: 640, height: 480 });
-    let won = false;
-    for (let attempt = 0; attempt < 3 && !won; attempt++) {
-      await page.waitForFunction(() => window.__zone?.info.archive === 'z38PAR' && window.__zone.machine.mode === 1, null, { timeout: 120000 }).catch(() => {});
-      await wait(500); await key('Enter'); await wait(500); await key('Enter'); await wait(800);
-      for (let i = 0; i < 6000; i++) {
-        const x = await dbg();
-        if (!x || x.mode !== 2 || x.over) break;
-        await setKeys(parBotStep(x, { land: 3 }));
-        await wait(40);
-      }
-      await setKeys(0);
-      s = await dbg();
-      won = s?.result === 1;
-      log('z38PAR attempt', attempt, JSON.stringify({ score: s?.score, result: s?.result }));
-      await page.waitForFunction(() => window.__zone.machine.mode === 4 || window.__zone.machine.mode === 5, null, { timeout: 30000 }).catch(() => {});
-      await wait(900); await key('Enter'); await wait(700);
-      if (won) { await shot('e3-08-par-won'); await key('Enter'); }
-      else { for (let i = 0; i < 12 && (await menu()).item !== 0; i++) { await key('ArrowUp'); await wait(170); } await key('Enter'); }
-    }
-    expect('z38PAR won (result 1)', won, JSON.stringify({ score: s?.score, result: s?.result }));
-    await page.setViewportSize(vp);
+    r = await playMini(R, h, { file: D + 'm3-z38PAR.mjs', zone: 'z38PAR', label: 'z38PAR', ms: 20 * 60000 });
+    expect('z38PAR won through the result menu (Continue)', r.ok, r.fails.join(' | '));
     await waitArch('z02LGI');
   }
 
@@ -316,115 +277,14 @@ export default async (h) => {
     expect('node 61: TOWE -> LGI13, S284 = 2, the FSM leaves for z39ASB (node 62)', fired && s?.node === 62 && s?.arch === 'z39ASB', JSON.stringify(s));
   }
 
-  // ---- nodes 62..67: z39ASB (test aid F9 = the shuttle at the finish), z40aPO (tools/lib/apo-bot.mjs), z40OGL (stub, F9), z41MAP (tools/lib/z41map-bot.mjs),
-  //      z42BRP (stub, F9) -> the outro movie (node 67) -> credits -> island node 68
+  // ---- nodes 62..67: the Ogel arc (tools/steps/lib-ogelarc.mjs: z39ASB, z40aPO, z40OGL, z41MAP, z40OGL, z42BRP with their own win bots, the outro movie, the island at node 68)
   if (runs('asb')) {
     if (phase('asb')) return;
-    const continueMenu = async () => {
-      await page.waitForFunction(() => window.__zone && (window.__zone.machine.mode === 4 || window.__zone.machine.mode === 5), null, { timeout: 600000 });
-      await wait(1000); await key('Enter'); await wait(700);
-      for (let i = 0; i < 12 && (await menu()).item !== 1; i++) { await key('ArrowDown'); await wait(170); }
-      const m = await menu();
-      await key('Enter');
-      return m;
-    };
-    const held = new Set();
-    const setKeys = async (mask, table) => {
-      for (const [bit, code] of table) {
-        const want = (mask & bit) !== 0;
-        if (want && !held.has(code)) { await page.keyboard.down(code); held.add(code); }
-        if (!want && held.has(code)) { await page.keyboard.up(code); held.delete(code); }
-      }
-    };
-    const visited = [];
-    let outro = false, creditsShot = false, brpPorted = false;
-    const t0 = Date.now();
-    for (let i = 0; Date.now() - t0 < 1200000; i++) {
-      const z = await Promise.race([
-        page.evaluate(() => ({ arch: window.__zone?.info.archive, mode: window.__zone?.machine.mode, node: window.__zone?.sh.vars.get(0x58), movie: !!document.querySelector('.le2-movie') })).catch(() => ({})),
-        new Promise((r) => setTimeout(() => r({ hung: true }), 20000)),
-      ]);
-      if (z.hung) { log('the page does not answer (20 s)'); continue; }
-      if (process.env.DEBUG) log('loop', i, JSON.stringify(z));
-      if (z.movie) { outro = true; await key('Space'); await wait(800); continue; }
-      if (z.arch === 'z02LGI' && i > 0) break;
-      if (outro && !creditsShot) { creditsShot = true; await wait(1500); await shot('e3-12-credits'); }
-      if (z.arch && visited.at(-1) !== `${z.arch}:${z.node}`) { visited.push(`${z.arch}:${z.node}`); log('zone', z.arch, 'node', z.node, 'mode', z.mode); await shot(`e3-11-${z.arch}`); }
-      if (outro && z.arch !== 'z02LGI') { await key('Enter'); await wait(1000); continue; }     // the credits after the outro movie (the front end stage): a key ends them
-      if (!z.arch || z.mode === 7 || z.mode === 0) { await wait(500); continue; }
-      if (z.mode === 3) { await key('Escape'); await wait(500); continue; }
-      if (z.mode === 1 || z.mode === 9 || z.mode === 10) { await key('Enter'); await wait(500); continue; }
-      if (z.mode === 4 || z.mode === 5) { await continueMenu(); await wait(1500); continue; }
-      if (z.mode !== 2) { await wait(300); continue; }
-      if (z.arch === 'z39ASB') { await key('F9'); await wait(800); continue; }
-      if (z.arch === 'z40aPO') {
-        const dbg = () => page.evaluate(() => { const zz = window.__zone; return zz && zz.game ? { mode: zz.machine.mode, ...zz.game.debug() } : null; }).catch(() => null);
-        for (let k = 0; k < 120 && (await dbg())?.cutscene; k++) { await page.keyboard.down('ShiftLeft'); await wait(70); await page.keyboard.up('ShiftLeft'); await wait(70); }
-        if ((await dbg())?.mode !== 2) continue;
-        const T = [[4, 'ArrowUp'], [8, 'ArrowDown'], [1, 'ArrowLeft'], [2, 'ArrowRight'], [0x40, 'ShiftLeft']];
-        for (let k = 0; k < 9000; k++) { const d = await dbg(); if (!d || d.mode !== 2 || d.over) break; await setKeys(apoBotStep(d, { land: 3 }), T); await wait(30); }
-        await setKeys(0, [[4, 'ArrowUp'], [8, 'ArrowDown'], [1, 'ArrowLeft'], [2, 'ArrowRight'], [0x40, 'ShiftLeft']]);
-        const d = await dbg();
-        expect('z40aPO won (result 1)', d?.result === 1, JSON.stringify({ score: d?.score, result: d?.result }));
-        continue;
-      }
-      if (z.arch === 'z41MAP') {
-        const bot = new MapBot('win', { latency: 2 });
-        const T = Object.entries(MAP_CODE).map(([b, c]) => [+b, c]);
-        for (let k = 0; k < 40000; k++) {
-          const g = await page.evaluate(() => { const zz = window.__zone; return zz && zz.info.archive === 'z41MAP' && zz.machine.mode === 2 ? zz.game.debug() : null; }).catch(() => null);
-          if (!g) break;
-          if (k % 500 === 0) { log('z41MAP play', k, JSON.stringify({ result: g.result, papa: g.papa && { level: g.papa.level, state: g.papa.state, score: g.papa.score } })); await shot(`e3-11-z41MAP-${k}`); }
-          await setKeys(bot.step(g), T); await wait(12);
-        }
-        await setKeys(0, Object.entries(MAP_CODE).map(([b, c]) => [+b, c]));
-        log('z41MAP', JSON.stringify(await zst()));
-        continue;
-      }
-      if (z.arch === 'z42BRP' && (await page.evaluate(() => !!window.__zone.game)) && !process.env.BRP) {
-        // z42BRP is ported (M6, tools/steps/m6-z42BRP.mjs plays it to the outro, the credits and node 68); its in-page bot is slow headless: the arc ends here
-        // unless BRP=1; the end of the game is checked with FROM=end (URL ?zone=z02LGI&node=68)
-        brpPorted = true;
-        break;
-      }
-      if (z.arch === 'z42BRP' && (await page.evaluate(() => !!window.__zone.game))) {
-        // the ported palace (M6): the bot of tools/steps/m6-z42BRP.mjs (the recorded side run, the look-ahead bot on the roof) through the input mapper
-        if (!(await page.evaluate(() => !!window.__bot))) {
-          await page.evaluate(async (plan) => {
-            const zz = window.__zone, w = zz.world, inp = zz.sh.input;
-            const bot = await import('/src/zones/z42BRP/bot.ts');
-            const nodes = await import('/src/zones/z42BRP/nodes.ts');
-            const codes = { 1: 'ArrowLeft', 2: 'ArrowRight', 4: 'ArrowUp', 8: 'ArrowDown', 0x20: 'AltLeft', 0x80: 'Space', 0x10: 'ControlLeft' };
-            const flat = [];
-            for (const [m, n] of plan) for (let k = 0; k < n; k++) flat.push(m);
-            const St = nodes.stateOf(w);
-            const B = window.__bot = { mask: 0, p2: null };
-            const orig = inp.update.bind(inp);
-            inp.update = () => {
-              let mask = 0;
-              if (zz.machine.mode === 2) {
-                const t = w.tickCount;
-                if (w.vars.get(0xfa) === 1) mask = t >= 16 ? (flat[t - 16] ?? 0) : 0;
-                else if (St.endState === 0) { B.p2 ??= new bot.Phase2Bot(w, new nodes.ZoneLoop()); mask = B.p2.step(); }
-              }
-              for (const [bit, code] of Object.entries(codes)) inp.setKey(code, (mask & +bit) !== 0);
-              B.mask = mask;
-              orig();
-            };
-          }, BRP_PLAN);
-          log('z42BRP: the M6 bot plays the palace');
-        }
-        await wait(500);
-        continue;
-      }
-      await key('F9'); await wait(900);
-    }
-    log('zones', visited.join(' '));
-    const first = +(visited[0] ?? ':62').split(':')[1];
-    const arc = ['z39ASB:62', 'z40aPO:63', 'z40OGL:64', 'z41MAP:65', 'z40OGL:66', 'z42BRP:67'].filter((x) => +x.split(':')[1] >= first);
-    expect(`the Ogel arc ran ${arc.join(' ')}`, arc.every((x) => visited.includes(x)), visited.join(' '));
-    if (brpPorted) { log('z42BRP (node 67) reached: the ported palace is played by tools/steps/m6-z42BRP.mjs (BRP=1 runs its bot here)'); return finish(); }
-    expect('the outro movie played after z42BRP', outro);
+    const R = makeRunner(h, { allowGoto: false });
+    await R.arm();
+    await installStoryTrace(page);
+    const r = await ogelArc(h, R, { fromNode: process.env.FROM === 'asb' ? 62 : 62, stamp: () => '' });
+    expect('the Ogel arc ran z39ASB:62 z40aPO:63 z40OGL:64 z41MAP:65 z40OGL:66 z42BRP:67 and ended in the island at node 68', r.ok, r.fails.join(' || '));
   }
 
   // ---- node 68: the end of the game: free roam on the island (era 4 code, zone id 2), NS_OFF never completes

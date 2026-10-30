@@ -13,7 +13,7 @@ export default async (h) => {
     // the zone game's sayFrom is what the island context finally calls (after the restored `say` hook rewrote the request): log there
     const zg = window.__zone.game.ictx.zg, o = zg.sayFrom.bind(zg);
     window.__said = [];
-    zg.sayFrom = (t, a, b) => { const r = o(t, a, b); if (r) window.__said.push({ a, b: b ?? null, r, v: t.voice(a), v2: b ? t.voice(b) : null, text: t.text(a), tick: window.__zone.world.tickCount }); return r; };
+    zg.sayFrom = (t, a, b, ...m) => { const r = o(t, a, b, ...m); if (r) window.__said.push({ a, b: b ?? null, r, v: t.voice(a), v2: b ? t.voice(b) : null, text: t.text(a), tick: window.__zone.world.tickCount }); return r; };
   });
   const N = Number(process.env.TALKS ?? 6);
   for (let i = 0; i < N; i++) {

@@ -14,6 +14,8 @@ import { PROBE_DEAD } from '../../game/probe.ts';
 import { setRot } from '../../island/ambient/common.ts';
 import { f32, playAt, posOf, stop } from './common.ts';
 import { fb, nameIs4 } from './exact.ts';
+import { BlockIn, BlockOut } from '../../island/blockio.ts';
+import { CD_F32 } from '../hubsave.ts';
 
 export const CTOR_TUMBLEWD = 0x629d7e;
 /**
@@ -47,7 +49,7 @@ export class TumbleweedNode implements BehaviourNode {
   stamp = 0xfffffffe;
   home: [number, number, number] = [0, 0, 0];   // +0x14 / +0x18 / +0x1c
   vy = VY_START;     // +0x20
-  yNow = 0;          // +0x24
+  yNow = CD_F32;     // +0x24 (never written by the constructor: the debug heap's 0xCD fill; the update writes it every tick)
   timer = 0;         // +0x28
   state = 0;         // +0x2c
   spin = SPIN_START; // +0x30
@@ -115,6 +117,16 @@ export class TumbleweedNode implements BehaviourNode {
       }
     }
     rec.m[13] = f32(rec.m[13] + LIFT);
+  }
+
+  /** FUN_00629d20 (the saver: `*out = node + 0x20; return 0x14`): vy, yNow, timer, state, spin; home (+0x14 / +0x18 / +0x1c) is not saved: the load keeps the constructor's */
+  saveBlock(): Uint8Array {
+    return new BlockOut(0x14).f32(0, this.vy).f32(4, this.yNow).f32(8, this.timer).i32(12, this.state).f32(16, this.spin).bytes;
+  }
+  /** FUN_00629d45: a plain copy of the 0x14 bytes into +0x20 */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.vy = b.f32(0); this.yNow = b.f32(4); this.timer = b.f32(8); this.state = b.i32(12); this.spin = b.f32(16);
   }
 
   /** FUN_00629eb5: the sounds of the matching patterns are stopped */

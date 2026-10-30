@@ -3,19 +3,19 @@
 // speaks the next hint of the table (the SAME lihol N.str file feeds the original's hosted FUN_00439bf8 lookup and the port's table), flickers (random draws from identical streams), scales out on Shift / cutscene / timeout.
 // Compared per tick: the record's matrix / Euler angles / flags (the frustum bit the renderer sets and the blink clears vs the port's RF_NO_DRAW), the node block (state / show / face / timer / hint letter / scale / shimmer /
 // flicker counter), var 0xc6, DAT_009da844 (holoActive), the speech calls (voice ids, stop), the camera-hold calls, all variables; random draws are consumed in lockstep.
+import { m8Hook, m8Note } from '../lib/m8-d.mjs';
 import { trigDuel, trigTick, holoServices, setObjective, lcg } from '../lib/m7-isl-veh-trig.mjs';
 import { RECORDS_BASE, REC, fr } from '../lib/m7-isl-veh-emu.mjs';
 import { loadMessages } from '../../src/ui/strings.ts';
 import { setIslandRandom } from '../../src/island/rng.ts';
 import { cRand } from '../lib/c-rand.mjs';
-import { RF_NO_DRAW } from '../../src/game/record.ts';
 
 const MAXFAIL = 30;
 
 export const makeHoloTest = (name, dts) => ({
   name,
   async run(ctx) {
-    const failures = [], notes = [];
+    const failures = [], notes = [], m8Stats = [];
     let checked = 0;
     const cover = { sessions: 0, ticks: 0, activations: 0, byAlert: 0, byHold: 0, says: 0, stops: 0, queued: 0, blinks: 0, shimmers: 0, scaleOuts: 0, timeouts: 0, camCalls: 0, faceObjective: 0, hints: new Set() };
     const devs = new Map();
@@ -29,6 +29,12 @@ export const makeHoloTest = (name, dts) => ({
       const so = () => { nO++; const v = so0(); drawsO.push(v); return v; }, sp = () => { nP++; const v = sp0(); drawsP.push(v); return v; };
       const d = trigDuel(ctx, { node, dt, keepKinds: ['hOLO'], argZero: true, maxFail: MAXFAIL, failures, rng: { range: (x) => (x <= 0 ? 0 : cRand(so(), x)) } });
       d.label = `holo n${node} dt${dt}`; cover.sessions++;
+      m8Stats.push(m8Hook(d, [0x88df51], failures, { label: d.label, period: 41, hold: 13, snapWhen: (dd) => { const h = dd.P.world.records.flatMap((r) => (r.ctrl?.nodes ?? []).filter((n) => n.kind === 'hOLO'))[0]; return !!h && h.qWord > -1; }, afterLoad: (dd) => {
+        // the camera hold word DAT_05d4dcbc is not in the save: the port's mock has no such state and calls cameraHold(false) at every dismissal; the original calls FUN_0045f750 only while the word is 2
+        // (set by the activation, FUN_0088d2cb): after a load into a hologram that is up, put the word where the activation left it, so that both sides dismiss the same way
+        const pn = dd.P.world.records.flatMap((r) => (r.ctrl?.nodes ?? []).filter((n) => n.kind === 'hOLO'))[0];
+        dd.emu.cpu.mem.w32(0x5d4dcbc, pn && pn.st === 2 ? 2 : 0);
+      } }));   // WP-SAVE: save blocks vs the original's serializer / loader during the duel
       setIslandRandom(() => sp());
       try {
         holoServices(d, table);
@@ -52,6 +58,7 @@ export const makeHoloTest = (name, dts) => ({
         let holdLeft = 0;
         for (let t = 0; t < total; t++) {
           // the scenario script
+          if (t % 300 === 30 && Math.floor(t / 300) % 3 === 1) { d.sayLeft = 55; d.P.ictx.sayLeft = 55; }   // the speech channel is busy when the hint scales in: the line waits (WP-SAVE: the queued voice word +0x58)
           if (t % 300 === 40) { holdLeft = 26; }                                   // Shift held 26 ticks: activation (20 ticks hold)
           if (t % 300 === 150) { setHoloTimer(Math.ceil(6 / dt)); alertLeft = 1; }   // the story's alert
           if (t % 300 === 233 && Math.floor(t / 300) % 2 === 0) { holdLeft = 2; }   // (every other cycle: the others run into the 210 tick timeout)                                    // a Shift tap while it is up: sends it away
@@ -69,7 +76,7 @@ export const makeHoloTest = (name, dts) => ({
           const heldNow = holdLeft > 0 ? 0x40 : 0;
           if (holdLeft > 0) holdLeft--;
           // the renderer's frustum bit before the pre-render pass (FUN_00444370)
-          mem.w16(hflags(), mem.r16(hflags()) | 1);
+          mem.w16(hflags(), mem.r16(hflags()) | 1); W.records[hi].flags |= 1;
           d.said.length = 0; d.psaid.length = 0; d.camLog.length = 0; d.pcam.length = 0;
           const was = [mem.r8(oNode + 0x1c), mem.r8(oNode + 0x1d)];
           trigTick(d, heldNow); cover.ticks++;
@@ -86,13 +93,14 @@ export const makeHoloTest = (name, dts) => ({
           eq('holoActive DAT_009da844', mem.r32(0x9da844), d.P.ictx.shared.holoActive ?? 0); eq('var 0xc6', mem.r32(0x8a2d2c + 4 * 0xc6), W.vars.get(0xc6) | 0);
           // the record: matrix / Euler / flags; the blink: the original clears the frustum bit, the port sets RF_NO_DRAW for the frame
           const r = W.records[hi];
-          d.rec(hi, 0xfffe & ~RF_NO_DRAW);
-          eq('blink (frustum bit 0 cleared / RF_NO_DRAW)', (mem.r16(hflags()) & 1) === 0, (r.flags & RF_NO_DRAW) !== 0);
+          d.rec(hi, 0xffff);   // every flag bit, the frustum bit included (the blink clears it in both)
+          eq('blink (frustum bit 0 cleared)', (mem.r16(hflags()) & 1) === 0, (r.flags & 1) === 0);
+          if (W.records[hi].ctrl.ran[0]) eq('blink: the draw hook (only called for a node that ran) skips the record exactly then', (mem.r16(hflags()) & 1) === 0, pNode.draw() === 1);
           if (mem.r8(oNode + 0x1d) === 4) cover.blinks++; if (mem.r8(oNode + 0x1d) === 3) cover.shimmers++;
           if (was[0] !== 2 && mem.r8(oNode + 0x1c) === 2) { cover.activations++; if (alertLeft) cover.byAlert++; else cover.byHold++; alertLeft = 0; }
           if (was[1] !== 2 && mem.r8(oNode + 0x1d) === 2) { cover.scaleOuts++; if (pNode.timer > 210) cover.timeouts++; }
           if (mem.r8(oNode + 0x57) === 2) cover.faceObjective++;
-          cover.hints.add(mem.r8(oNode + 0x1f));
+          cover.hints.add(mem.r8(oNode + 0x1f)); if (mem.r32(oNode + 0x58) >>> 0 !== 0xffffffff && mem.r32(oNode + 0x58) !== 0) cover.queued++;
           if (t % 11 === 0) d.vars(); 
         }
         for (const [id, e] of d.deviations) { const q = devs.get(id); if (q) q.count += e.count; else devs.set(id, { ...e }); }
@@ -102,6 +110,7 @@ export const makeHoloTest = (name, dts) => ({
     }
     for (const [id, e] of devs) notes.push(`KNOWN DEVIATION ${id}: ${e.count}x, first ${e.first}`);
     cover.hints = [...cover.hints].map((x) => String.fromCharCode(x)).join('');
+    for (const st of m8Stats) notes.push(m8Note(st));
     notes.push(`coverage: ${JSON.stringify(cover)}`);
     return { checked, failures, notes };
   },

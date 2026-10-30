@@ -92,15 +92,15 @@ export default {
     // ---- the port side
     const W = I.world;
     const portRecs = recs.map((r) => ({ index: r.i, model: r.model, colObj: r.col, m: Float32Array.from(r.m), x: r.x, y: r.y, z: r.z, variant: 0 }));
-    const attach = new Map(), local = new Map();   // rec -> Map(slot -> {child, bone}) / Map(slot -> matrix)
+    const attach = new Map(), local = new Map();   // MODEL object -> Map(slot -> {child, bone}) / Map(slot -> matrix) (the original keeps the attachments in the model's array: records that share a model share them)
     const am = (map, rec) => { let m = map.get(rec); if (!m) map.set(rec, (m = new Map())); return m; };
     const host = {
       records: portRecs,
       model: (g, i) => xm(g, i),
       sfx: (id) => sounds.push('port' + id),
       setModel: (rec, m) => { rec.model = m; },
-      setAttach: (rec, slot, bone, child) => { if (child) am(attach, rec).set(slot, { child, bone }); else am(attach, rec).delete(slot); },
-      attachLocal: (rec, slot, m) => { if (m) am(local, rec).set(slot, m); else am(local, rec).delete(slot); },
+      setAttach: (rec, slot, bone, child) => { if (child) am(attach, rec.model).set(slot, { child, bone }); else am(attach, rec.model).delete(slot); },
+      attachLocal: (rec, slot, m) => { if (m) am(local, rec.model).set(slot, m); else am(local, rec.model).delete(slot); },
       shiny: () => {},
     };
     const st = new DecorState(pe, host, era);
@@ -127,7 +127,7 @@ export default {
         for (let k = 0; k < 16; k++) if (bits(p.m[k]) !== mem.u32(b + 0xc + k * 4) && Math.abs(fl(mem.u32(b + 0xc + k * 4)) - p.m[k]) > 1e-5 * (1 + Math.abs(p.m[k]))) { bad++; failures.push(`${label}: record ${ri} matrix[${k}] ${fl(mem.u32(b + 0xc + k * 4))} / ${p.m[k]}`); break; }
         const arr = mem.u32(modelPtr.get(ptrModel.get(mem.u32(b + 4))) ?? 0) ;
         const marr = mem.u32(mem.u32(b + 4) + 0xc);
-        const a = attach.get(p) ?? new Map(), l = local.get(p) ?? new Map();
+        const a = attach.get(p.model) ?? new Map(), l = local.get(p.model) ?? new Map();
         for (let slot = 0; slot < 10; slot++) {
           const on = mem.u32(marr + slot * 16) !== 0, v = a.get(slot);
           if (on !== !!v) { bad++; failures.push(`${label}: record ${ri} attachment ${slot} ${on} / ${!!v}`); continue; }
@@ -163,6 +163,31 @@ export default {
     }
     ok(bad === 0 && enters > 30, `FUN_00420bb7 / FUN_00420dc4: ${enters} Enters and ${ticks} ticks identical to the original (records, models, collision, attachments, slots)`);
     ok(sounds.filter((s) => typeof s === 'number').length === sounds.filter((s) => typeof s === 'string').length, 'the swap sound is played once per Enter on both sides');
+    // ---- WP-SAVE (F3): the loader's apply. A random stored decor (valid sets, variants around the set's count so that the `count < variant` fall-back happens) goes into the global
+    // DAT_009d9fd0 (what FUN_00421f7b does) and FUN_00421bbe(-1) applies it natively; the port's `applyStored` on a copy must leave the same records (variant words, models, collision
+    // objects, attachments), the same 8 swap slots and the same (clamped) stored decor.
+    {
+      let sb = 0, n = 0, clamped = 0;
+      const nsetsB = nsets;
+      for (let k = 0; k < 80 && sb === 0; k++) {
+        const b = new Uint8Array(0x380);
+        // (an entry keeps the KIND of its default set: a set with slot -1 swaps the record's model for a template's (shared by records), the others attach to the record's own model; Enter never changes the set)
+        const kindOf = (set) => st.rows[set].slot === -1;
+        for (let i = 0; i < 0x1c0; i++) { let set; do { set = Math.floor(rnd() * nsetsB); } while (kindOf(set) !== kindOf(t.entries[i].set)); b[i * 2] = set;
+          const off = [-3, -2, -1, 1, 2][Math.floor(rnd() * 5)]; b[i * 2 + 1] = Math.max(0, Math.min(255, era[set] + off)); }   // (not `count` itself: the original's `count < variant` lets it through and reads one entry past the set)
+        for (let i = 0; i < b.length; i++) mem.w8(0x9d9fd0 + i, b[i]);
+        cpu.call(0x421bbe, [0xffffffff]);
+        const pb = Uint8Array.from(b);
+        st.applyStored(pe, decorGroupOfZone(2), pb);
+        sb += cmp('blob ' + k);
+        const nat = mem.read(0x9d9fd0, 0x380);
+        if (nat.some((x, i) => x !== pb[i])) { sb++; failures.push(`blob ${k}: the clamped stored decor differs from the original's global`); }
+        if (b.some((x, i) => x !== pb[i])) clamped++;
+        n++;
+      }
+      ok(sb === 0 && clamped > 20, `FUN_00421bbe(-1) on ${n} random stored decors (${clamped} with the variant fall-back): records, models, attachments and the stored decor identical to the original`);
+      notes.push(`decor blob apply: ${n} random stored decors compared with FUN_00421bbe(-1) natively`);
+    }
     notes.push(`decor swap: ${enters} Enters, ${ticks} ticks compared with the original`);
     void W; void decorModel; void decorStore;
     return { checked, failures: failures.slice(0, 30), notes };

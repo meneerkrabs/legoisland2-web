@@ -137,9 +137,9 @@ export default {
       ok(JSON.stringify(hid) === JSON.stringify(['KST2', 'KST0']), `collected before (bits 1, 4): hidden ${hid}`);
       H2.log.length = 0; tick(H2, 1);
       ok(!H2.log.some((l) => /^p3 KST[02] /.test(l)) && H2.log.filter((l) => l.startsWith('p3 KST')).length === 7, 'hidden krystals do not play (their gates are closed)');
-      // the node's save state (FUN_007e319e / FUN_007e31c3: 4 bytes at +0x18)
+      // the node's save block (FUN_007e319e / FUN_007e31c3: 4 bytes at +0x18)
       const kn = new KrystalNode({ var: 0x31, mask: 1, value: 0 });
-      kn.loadState(3); ok(kn.saveState() === 3, 'save / load state');
+      kn.loadBlock(null, null, null, new Uint8Array([3, 0, 0, 0])); ok(new DataView(kn.saveBlock().buffer).getInt32(0, true) === 3, 'save / load state');
     }
 
     // ---- (d) the HUD

@@ -17,6 +17,7 @@ import type { World } from '../../game/world.ts';
 import type { Attach } from '../../formats/zonesetup.ts';
 import { ArgView } from '../../island/args.ts';
 import { ensureAnim, rand, setRot, wrapPi, PI, TWO_PI } from '../../island/ambient/common.ts';
+import { BlockIn, BlockOut } from '../z07CSI/blockio.ts';
 
 export const CTOR_GULL = 0x4b4000;
 
@@ -124,6 +125,14 @@ export class GullNode implements BehaviourNode {
   }
   /** FUN_004b3f4c returns 1 and does nothing */
   prerender(): void { /* nothing */ }
+  /** save FUN_004b3fa2 (vtable +0x14): `*out = node + 0x20; return 8` = the state word (int) and the turn step (float) */
+  saveBlock(): Uint8Array { return new BlockOut(8).i32(0, this.state).f32(4, this.turn).bytes; }
+  /** load FUN_004b3fc7 (vtable +0x10): memcpy of the 8 bytes back to node + 0x20 (the node exists already: the lazy construct must not run again) */
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.state = b.i32(0); this.turn = b.f32(4);
+    this.built = true;
+  }
 }
 
 /** the constructor FUN_004b4000 of every gull the set-up attached (run once after the set-up, when the loader's animation instances exist) */

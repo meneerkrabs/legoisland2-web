@@ -15,6 +15,8 @@ import type { GameRecord } from '../../game/record.ts';
 import { RF_NO_DRAW } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { V } from '../../game/vars.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
+import { CD8 } from '../../game/heapfill.ts';
 
 export const CTOR_SWIMSPLASH = 0x88d1f6;
 /** DAT_00982b80 / DAT_00982b84 (both 1.0), DAT_05defbb4 (a global nothing writes: 0.0) */
@@ -26,6 +28,12 @@ export class SwimSplashNode implements BehaviourNode {
   stamp = 0xfffffffe;
   /** DAT_05defbb8 / DAT_05defbbc / DAT_05defbc0: Pepper's position at the previous draw (BSS, 0) */
   prev: [number, number, number] = [0, 0, 0];
+  /** node +0x15: a byte nothing in the executable writes (the node is 0x18 bytes, the constructor does not touch +0x14 .. +0x17: the debug heap's 0xCD); the save block carries it as it is */
+  b15 = CD8;
+
+  /** FUN_0088d1b0 / FUN_0088d1ce (vtable +0x14 / +0x10): `*out = node + 0x15; return 1` and the 1 byte memcpy back */
+  saveBlock(): Uint8Array { return new BlockOut(1).u8(0, this.b15).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.b15 = new BlockIn(data).u8(0); }
 
   /** FUN_0088cfa5 */
   update(): number { return NODE_STOP; }

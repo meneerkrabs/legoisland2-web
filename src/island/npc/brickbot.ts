@@ -32,6 +32,10 @@ import { rand } from '../rng.ts';
 import { ad, sb, ml, fr, fromBits } from '../../zones/common/f32.ts';
 import { normalise3 } from '../../zones/exact.ts';
 import { ArgView } from '../args.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
+import { CD_F, CD_I16, CD_I32, CD_U8 } from './cd.ts';
+import { EMU_RECORDS_BASE, EMU_RECORD_STRIDE } from '../args.ts';
+import { recordOfTag, tagOf } from '../../shell/saveworld.ts';
 import { tryCtx } from '../ctx.ts';
 import { FX_NONE, GATE_OFF, GATE_ON, HALF_PI as FX_HALF_PI, fxGate, fxMatrix, fxStart, fxStartSwirl, recMatrix, registerFxStart } from '../emitters.ts';
 import { pizzaHitOn } from '../pizza/pizza.ts';
@@ -135,20 +139,45 @@ export class BotFollowNode implements BehaviourNode {
   /** +0x14: the distance behind the leader (argument +4 * 8) */ dist = 0;
   /** +0x18: type 0..2 (the clip variant, FUN_00531944), 3 = rides on top of the leader */ type = 0;
   /** +0x1c / +0x58: 5 places and Euler angles of the leader (a delay of 4 ticks), +0x98: the last written entry */
-  hist: number[][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
-  eul: number[][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  hist: number[][] = Array.from({ length: 5 }, () => [CD_F, CD_F, CD_F]);
+  eul: number[][] = Array.from({ length: 5 }, () => [CD_F, CD_F, CD_F]);
   idx = 0;
   /** +0xa8 gag timer, +0xac gag state (0 mirror, 1 waiting for the leader's clip to restart, 2 tap, 3 spin), +0xb0 the leader's clip mirrored,
    *  +0xb4 our clip, +0xb8 our frame, +0xbc tap ticks */
-  gag = 0; state = 0; leaderClip = -1; ownClip = -1; frame = 0; taps = 0;
+  gag = 0; state = 0; leaderClip = -1; ownClip = CD_I32; frame = 0; taps = CD_I32;
+  /** block bytes +0x80 .. +0x8c (node +0x9c / +0xa0 / +0xa4): never read or written by the node's code; keep what a loaded block held */
+  private pad = new Uint8Array(12).fill(CD_U8);
   constructor(args: BotFollowArgs) { this.args = args; }
+
+  // ----------------------------------------------------------------------------------------------- save block: FUN_00531bbd (vtable +0x14: buffer protocol) / FUN_00531c99 (+0x10)
+  // 0xa4 bytes of the node from +0x1c, then 4 bytes: the first dword (the 4 name characters) of the leader record (zeros without one). Block offsets (node offset - 0x1c):
+  //   +0x00 5 x (f32 x 3) hist   +0x3c 5 x (f32 x 3) eul   +0x78 u32 the leader POINTER of the original process (a word of the heap of the original: the loader overwrites it from the name
+  //   at +0xa4 (FUN_00419a79), so it is no state; written as the oracle machine's record address EMU_RECORDS_BASE + index * 0x68, 0 without a leader)
+  //   +0x7c i32 idx   +0x80 / +0x84 / +0x88 (unused words)   +0x8c f32 gag   +0x90 i32 state   +0x94 i32 leaderClip   +0x98 i32 ownClip   +0x9c f32 frame   +0xa0 i32 taps   +0xa4 u32 leader's name tag
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array {
+    const o = new BlockOut(0xa8);
+    for (let i = 0; i < 5; i++) for (let k = 0; k < 3; k++) { o.f32(12 * i + 4 * k, this.hist[i][k]); o.f32(0x3c + 12 * i + 4 * k, this.eul[i][k]); }
+    const L = this.leader;
+    o.u32(0x78, L ? EMU_RECORDS_BASE + L.index * EMU_RECORD_STRIDE : 0).i32(0x7c, this.idx);
+    o.bytes.set(this.pad, 0x80);
+    o.f32(0x8c, this.gag).i32(0x90, this.state).i32(0x94, this.leaderClip).i32(0x98, this.ownClip).f32(0x9c, this.frame).i32(0xa0, this.taps).u32(0xa4, L ? tagOf(L.name) : 0);
+    return o.bytes;
+  }
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    for (let i = 0; i < 5; i++) { this.hist[i] = [b.f32(12 * i), b.f32(12 * i + 4), b.f32(12 * i + 8)]; this.eul[i] = [b.f32(0x3c + 12 * i), b.f32(0x3c + 12 * i + 4), b.f32(0x3c + 12 * i + 8)]; }
+    this.idx = b.i32(0x7c); this.pad = data.slice(0x80, 0x8c);
+    this.gag = b.f32(0x8c); this.state = b.i32(0x90); this.leaderClip = b.i32(0x94); this.ownClip = b.i32(0x98); this.frame = b.f32(0x9c); this.taps = b.i32(0xa0);
+    this.leader = recordOfTag(w, b.u32(0xa4));      // FUN_00419a79(&tag)
+  }
 
   init(w: World) {
     if (this.inited) return;
     this.inited = true;
     this.leader = this.args.leader >= 0 ? w.records[this.args.leader] ?? null : null;
     this.dist = ml(this.args.dist, UNITS);
-    this.gag = 0; this.ownClip = -1; this.frame = 0; this.state = 0;
+    // (+0xb4 `ownClip` / +0xbc `taps` are not written by the constructor FUN_00531d45: they keep 0xCDCDCDCD; the node's code sets them before it reads them: `leaderClip` is -1 until then)
+    this.gag = 0; this.frame = 0; this.state = 0;
     if (this.args.type < 1) { const g = botGlobals(w); this.type = g.nextType; g.nextType++; if (2 < g.nextType) g.nextType = 0; }
     else this.type = this.args.type;
   }
@@ -300,14 +329,26 @@ export class BotHitNode implements BehaviourNode {
   stamp = 0xfffffffe;
   readonly args: BotHitArgs;
   inited = false;
-  /** +0x1c: scale while shrinking, +0x20: dazed clip count, +0x22: 0 / 10 shrinking / -1 gone */ scale = 0; count = 0; dying = 0;
+  /** +0x1c: scale while shrinking, +0x20: dazed clip count, +0x22: 0 / 10 shrinking / -1 gone */ scale = CD_F; count = CD_I16; dying = 0;
   /** +0x24: armed (waiting for the hit), +0x25: the hit reaction is still to start, +0x26: how it was hit (1 pizza, 2 hand-over, 3 fall, -1 forced) */
-  armed = 1; fresh = 1; how = 0;
+  armed = 1; fresh = 1; how = CD_I16;
   /** +0x28: the NPC the bot harasses (its MOVE var: |= 0x20000 at the start, |= 1 when the bot is hit), +0x2a: era-3 wave running, +0x2c: wave pause */
   victim = 0; waving = 0; pause = 0;
   /** +0x14 the Explode01 emitter, +0x18 the swirl01 swirl */
   explodeH = FX_NONE; swirlH = FX_NONE;
   constructor(args: BotHitArgs) { this.args = args; }
+
+  // ----------------------------------------------------------------------------------------------- save block: FUN_00532727 (vtable +0x14) / FUN_0053274c (+0x10)
+  // the 0x14 bytes at node +0x1c: +0x00 f32 scale, +0x04 i16 count, +0x06 i16 dying, +0x08 u8 armed, +0x09 u8 fresh, +0x0a i16 how, +0x0c i16 victim, +0x0e i16 waving, +0x10 f32 pause
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array {
+    return new BlockOut(0x14).f32(0, this.scale).i16(4, this.count).i16(6, this.dying).u8(8, this.armed).u8(9, this.fresh).i16(0xa, this.how).i16(0xc, this.victim).i16(0xe, this.waving).f32(0x10, this.pause).bytes;
+  }
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.scale = b.f32(0); this.count = b.i16(4); this.dying = b.i16(6); this.armed = b.u8(8); this.fresh = b.u8(9); this.how = b.i16(0xa); this.victim = b.i16(0xc); this.waving = b.i16(0xe); this.pause = b.f32(0x10);
+    // the loader switches the swirl on again when the bot was knocked down (count != 0) and is not gone: FUN_0044ea60(swirl, 2, 1, 1)
+    if (this.count !== 0 && this.dying !== -1) fxGate(w, this.swirlH, GATE_ON);
+  }
   /** the constructor's two emitters (idempotent; `finishEmitters` runs it for every bot, whatever its gate) */
   startFx(w: World, rec: GameRecord) {
     if (this.explodeH === FX_NONE) this.explodeH = fxStart(w, FX_EXPLODE, recMatrix(rec), FX_EXPLODE_OFS, [-FX_HALF_PI, 0, 0], GATE_OFF);
@@ -317,7 +358,7 @@ export class BotHitNode implements BehaviourNode {
   init(w: World, rec: GameRecord, ctrl: Controller) {
     if (this.inited) return;
     this.inited = true;
-    this.count = 0; this.dying = 0; this.armed = 1; this.fresh = 1; this.waving = 0; this.pause = 0;
+    this.dying = 0; this.armed = 1; this.fresh = 1; this.waving = 0; this.pause = 0;
     this.mask = 0; this.value = 0;      // finding BB1: the constructor FUN_005327b1 (4 parameters) writes mask = value = 0 into the node (0x532817 / 0x532820): the attach's gate (eras 1 / 2) is gone, the node runs every tick
     // FUN_0044e920(Explode01, rec + 0xc, 0, 4, 0, -pi / 2, 0, 0, off) and FUN_0044e990(swirl01.swl, ..., (0, 3.2, -2), -pi / 2, off): the ctor's emitters (+0x14 / +0x18)
     this.startFx(w, rec);
@@ -449,6 +490,9 @@ export class BotHarassNode implements BehaviourNode {
   stamp = 0xfffffffe;
   inited = false;
   /** +0x18: face timer */ face = FACE_TIME;
+  // save block: FUN_00532a6e (vtable +0x14) / FUN_00532a93 (+0x10, memcpy): the 4 bytes at node +0x18: f32 face timer
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array { return new BlockOut(4).f32(0, this.face).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { this.face = new BlockIn(data).f32(0); }
 
   /** FUN_00532acc: the bot's MOVE var is reset unless the bot is gone (0x4000) */
   init(w: World) {
@@ -494,11 +538,23 @@ export class BotHideNode implements BehaviourNode {
   /** +0x14: the node to hide behind (< 0: the ring DAT_008eaaf8, -2: never move on), +0x16 / +0x18 / +0x1a: var / value / op of FUN_0051dc50 every 300 ticks */
   anchor = -1; actVar = 0; actValue = 0; actOp = 0;
   /** +0x1c: the record to hide from (0 = Pepper), +0x20: the running clip */ target: GameRecord | null = null; runClip = RUN_CLIP_DEFAULT;
-  /** +0x24: state (0 hide, 1 peek, 2 run to the new node, 3 go round the old one), +0x28 / +0x2a: old / current ring index */ state = 0; prev = 0; ring = 0;
+  /** +0x24: state (0 hide, 1 peek, 2 run to the new node, 3 go round the old one), +0x28 / +0x2a: old / current ring index */ state = 0; prev = CD_I16; ring = 0;
   /** +0x2c: ticks out of view, +0x30: relocation timer, +0x34: hidden time */ away = 0; reloc = 0; hidden = 0;
+  /** +0x38 / +0x3c / +0x40: the node's scratch vector of the circle step (FUN_00532bb1 keeps the last offset from the anchor, (normalised direction) * radius, in the node; in state 3's turn to run it holds the record's first matrix row * radius) */
+  circleOff: [number, number, number] = [CD_F, CD_F, CD_F];
   private nodes: number[] = RING_DEFAULT;
   private out: StepOut = { yaw: 0, dist: 0 };
   constructor(args: BotHideArgs) { this.args = args; }
+
+  // ----------------------------------------------------------------------------------------------- save block: FUN_00533b4a (vtable +0x14) / FUN_00533b6f (+0x10, memcpy)
+  // the 0x20 bytes at node +0x24: +0x00 i32 state, +0x04 i16 prev, +0x06 i16 ring, +0x08 f32 away, +0x0c f32 reloc, +0x10 f32 hidden, +0x14 / +0x18 / +0x1c f32 circleOff
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array {
+    return new BlockOut(0x20).i32(0, this.state).i16(4, this.prev).i16(6, this.ring).f32(8, this.away).f32(0xc, this.reloc).f32(0x10, this.hidden).f32(0x14, this.circleOff[0]).f32(0x18, this.circleOff[1]).f32(0x1c, this.circleOff[2]).bytes;
+  }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.state = b.i32(0); this.prev = b.i16(4); this.ring = b.i16(6); this.away = b.f32(8); this.reloc = b.f32(0xc); this.hidden = b.f32(0x10); this.circleOff = [b.f32(0x14), b.f32(0x18), b.f32(0x1c)];
+  }
 
   init(w: World, _rec: GameRecord, ctrl: Controller) {
     if (this.inited) return;
@@ -607,6 +663,7 @@ export class BotHideNode implements BehaviourNode {
           rec.ry = aNew;
           this.state = 2;
           setRot(rec);
+          this.circleOff = [ml(rec.m[0], radius), ml(rec.m[1], radius), ml(rec.m[2], radius)];     // (the node's scratch gets the matrix row * radius)
           this.stepForward(rec, ml(RUN_SPEED, dt));
         }
         break;
@@ -626,7 +683,8 @@ export class BotHideNode implements BehaviourNode {
     this.stepForward(rec, k);
     const d = [sb(rec.x, P[0]), sb(rec.y, P[1]), sb(rec.z, P[2])];
     normalise3(d);
-    rec.x = ad(P[0], ml(d[0], radius)); rec.y = ad(P[1], ml(d[1], radius)); rec.z = ad(P[2], ml(d[2], radius));
+    this.circleOff = [ml(d[0], radius), ml(d[1], radius), ml(d[2], radius)];
+    rec.x = ad(P[0], this.circleOff[0]); rec.y = ad(P[1], this.circleOff[1]); rec.z = ad(P[2], this.circleOff[2]);
   }
 
   // ----------------------------------------------------------------------------------------------- FUN_00533ac2
@@ -647,7 +705,10 @@ export class BotPcOnlyNode implements BehaviourNode {
   stamp = 0xfffffffe;
   readonly args: BotPcOnlyArgs;
   /** +0x14 / +0x18 the two PATH nodes, +0x1c TBOB, +0x20 y last tick, +0x24 run time, +0x28 which node, +0x2a arrived, +0x2b falling */
-  which = 0; arrived = 0; falling = 0; lastY = 0; run = 0;
+  which = 0; arrived = 0; falling = 0; lastY = CD_F; run = CD_F;
+  // save block: FUN_0053de05 (vtable +0x14) / FUN_0053de2a (+0x10, memcpy): the 0xc bytes at node +0x20: +0x00 f32 lastY, +0x04 f32 run, +0x08 i16 which, +0x0a u8 arrived, +0x0b u8 falling
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array { return new BlockOut(0xc).f32(0, this.lastY).f32(4, this.run).i16(8, this.which).u8(0xa, this.arrived).u8(0xb, this.falling).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void { const b = new BlockIn(data); this.lastY = b.f32(0); this.run = b.f32(4); this.which = b.i16(8); this.arrived = b.u8(0xa); this.falling = b.u8(0xb); }
   private out: StepOut = { yaw: 0, dist: 0 };
   constructor(args: BotPcOnlyArgs) { this.args = args; }
 

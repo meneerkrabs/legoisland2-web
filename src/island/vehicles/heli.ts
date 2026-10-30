@@ -17,7 +17,7 @@ import { buildMatrix } from '../../formats/matrix.ts';
 import { wrapWorld } from '../../game/swim.ts';
 import { partMatrix } from '../trigger/parts.ts';
 import { ad, sb, ml, dv, fr } from '../../zones/common/f32.ts';
-import { ICON, VV, vehicles, berthPos, fabs, cutsceneActive, sfx, stopSfx, sfxFreq, setVehicleMatrix, leanFrame, padAxis, normalize } from './common.ts';
+import { Blk, PAD_WORDS, FILL_CD, ctorSeq, runSetups, ICON, VV, vehicles, berthPos, fabs, cutsceneActive, sfx, stopSfx, sfxFreq, setVehicleMatrix, leanFrame, padAxis, normalize } from './common.ts';
 
 /** DAT_009daa4c (FUN_004b0f16): the helicopter's engine */
 export const SND_HELI = 0x132;
@@ -40,7 +40,8 @@ export class HeliNode implements BehaviourNode {
   readonly kind = 'SGHeli';
   var = 0; mask = 0; value = 0;
   stamp = 0xfffffffe;
-  private init = false;
+  readonly seq = ctorSeq();
+  init = false;
   state = 0;               // +0x18: 0 take-off, 1 flying, 2 landing
   vx = 0; vy = 0; vz = 0;  // +0x1c / +0x20 / +0x24
   pad = -1;                // +0x28: the helipad the helicopter occupies
@@ -49,7 +50,33 @@ export class HeliNode implements BehaviourNode {
   wobble = 0;              // +0x34
   engineHz = ENGINE_IDLE;  // +0x38
 
-  private setup(w: World, rec: GameRecord) {
+  /**
+   * The save block, FUN_004324fd (vtable +0x14: `FUN_0085c0b0(buf, node + 0x18, 0x24); FUN_0085c0b0(buf + 0x24, &DAT_009daa50, 0x28)`, size 0x4c) and the loader FUN_0043258a (the copies back):
+   *   +0x00 u8 state (node +0x18; +0x01..+0x03 never written: `raw`)   +0x04 / +0x08 / +0x0c f32 vx / vy / vz   +0x10 i16 pad (+0x28; +0x12 never written)   +0x14 f32 rotorMain   +0x18 f32 rotorTail
+   *   +0x1c f32 wobble   +0x20 f32 engineHz   +0x24 ten dwords = the helipads' taken flags DAT_009daa50 (shared with the Ptera / glider constructors; the same words in every helicopter's block)
+   */
+  private readonly raw = FILL_CD(0x24);
+  saveBlock(w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array {
+    if (!this.init) runSetups(w);
+    const o = new Blk(0x4c);
+    o.b.set(this.raw, 0);
+    o.w8(0, this.state);
+    o.wf(4, this.vx); o.wf(8, this.vy); o.wf(0xc, this.vz); o.w16(0x10, this.pad);
+    o.wf(0x14, this.rotorMain); o.wf(0x18, this.rotorTail); o.wf(0x1c, this.wobble); o.wf(0x20, this.engineHz);
+    for (let i = 0; i < 10; i++) o.w32(0x24 + 4 * i, PAD_WORDS[i]);   // the static words DAT_009daa50 (module-wide, `common.ts`)
+    return o.b;
+  }
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    if (!this.init) runSetups(w, true);
+    const i = new Blk(data);
+    this.raw.set(data.subarray(0, 0x24));
+    this.state = i.u8(0);
+    this.vx = i.f32(4); this.vy = i.f32(8); this.vz = i.f32(0xc); this.pad = i.i16(0x10);
+    this.rotorMain = i.f32(0x14); this.rotorTail = i.f32(0x18); this.wobble = i.f32(0x1c); this.engineHz = i.f32(0x20);
+    for (let k = 0; k < 10; k++) PAD_WORDS[k] = i.u32(0x24 + 4 * k);
+  }
+
+  setup(w: World, rec: GameRecord) {
     this.init = true;
     const G = vehicles(w);
     let best = -1, bestD = PAD_SEARCH_SQ;
@@ -84,7 +111,7 @@ export class HeliNode implements BehaviourNode {
   }
 
   update(w: World, rec: GameRecord, ctrl: Controller): number {
-    if (!this.init) this.setup(w, rec);
+    if (!this.init) runSetups(w);
     const G = vehicles(w);
     const focusCtrl = w.focus?.ctrl;
     if (!focusCtrl || !focusCtrl.enabled) return NODE_NONE;

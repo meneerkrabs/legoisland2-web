@@ -11,6 +11,7 @@ import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { tryCtx } from '../ctx.ts';
 import { ftol } from './common.ts';
+import { BlockIn, BlockOut, CD, keepRaw } from '../blockio.ts';
 
 export const CTOR_MUSIC = 0x4bc773;
 
@@ -53,6 +54,7 @@ export class MusicNode implements BehaviourNode {
   /** what was asked of the music (tests): every FUN_004432c0 key and FUN_00443310 level in order */
   readonly log: string[] = [];
   private inited = false;
+  private raw: Uint8Array | null = null;
 
   private play(w: World, key: string) {
     if (!this.keys.has(key)) return;           // FUN_004432c0(0) for a key that was not loaded: nothing
@@ -61,6 +63,27 @@ export class MusicNode implements BehaviourNode {
   }
   private groove(w: World, level: number) { this.log.push(`groove ${level}`); tryCtx(w)?.musicGroove?.(level); }
   private notified(w: World): number { return (tryCtx(w)?.musicNotified?.() ?? 0) & 0xff; }
+
+  /**
+   * Save block = node +0x44 .. +0x78 (saver FUN_004bc715 returns 0x34 and points at node + 0x44, loader FUN_004bc73a = the 0x34 byte memcpy back; the keys / segment handles at +0x18 .. +0x40 and the
+   * record's +0x14 radius are not saved): +0x00 u32 0 (+0x44), +0x04 i32 mode (+0x48), +0x08 u8 building (+0x4c), +0x0c u32 0 (+0x50), +0x10 u8 main (+0x54), +0x14 i32 grooveWant (+0x58),
+   * +0x18 i32 grooveCur (+0x5c), +0x1c i32 story node (+0x60), +0x20 u32 0 (+0x64), +0x24 i32 last notification (+0x68), +0x28 i32 sub (+0x6c), +0x2c u8 flag (+0x70), +0x30 i32 timer (+0x74).
+   * The constructor's work (the key loads, the first segment) is the port's first update: a save / load before it runs it first.
+   */
+  saveBlock(w: World): Uint8Array {
+    if (!this.inited) this.init(w);
+    const o = new BlockOut(0x34, CD).i32(0, 0).i32(0x04, this.mode).u8(0x08, this.building).i32(0x0c, 0).u8(0x10, this.main).i32(0x14, this.grooveWant).i32(0x18, this.grooveCur).i32(0x1c, this.node)
+      .i32(0x20, 0).i32(0x24, this.last).i32(0x28, this.sub).u8(0x2c, this.flag).i32(0x30, this.timer);
+    keepRaw(o, this.raw, [[9, 3], [0x11, 3], [0x2d, 3]]);   // the padding after the byte fields is never written (0xCD)
+    return o.bytes;
+  }
+  loadBlock(w: World, _rec: GameRecord, _ctrl: unknown, data: Uint8Array): void {
+    if (!this.inited) this.init(w);
+    const b = new BlockIn(data);
+    this.raw = data.slice();
+    this.mode = b.i32(0x04); this.building = b.u8(0x08); this.main = b.u8(0x10); this.grooveWant = b.i32(0x14); this.grooveCur = b.i32(0x18); this.node = b.i32(0x1c);
+    this.last = b.i32(0x24); this.sub = b.i32(0x28); this.flag = b.u8(0x2c); this.timer = b.i32(0x30);
+  }
 
   /** the constructor FUN_004bc773 (first update) */
   private init(w: World) {

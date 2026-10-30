@@ -23,7 +23,7 @@ export default {
       ok(registeredCtors().includes(CTOR.PEPPSW) && registeredCtors().includes(CTOR.LOON) && !registeredCtors().includes(CTOR.DEAD), 'constructors registered (the third class is dead: never attached)');
       ok(H.pepper.ctrl.nodes.map((n) => n.kind).join() === 'PeppSw,SGwalk,sgswim,skate', `node ${node}: Pepper's chain ${H.pepper.ctrl.nodes.map((n) => n.kind)}`);
       ok(vehicles(w).board === REC.SKBD, 'DAT_009daa7c = 0x1c');
-      ok(H.L.skipped.every((s) => s.ctorName === 'seabed'), `node ${node}: skipped only the sea / sky records (${JSON.stringify(H.L.skipped)})`);
+      ok(H.L.skipped.length === 0, `node ${node}: no constructor skipped (the sky is the scene node of src/island/ambient/seabed.ts) (${JSON.stringify(H.L.skipped)})`);
       // FUN_007651a3 / FUN_00420837(4)
       ok(R.filter((r) => r.variant).length === 22, `node ${node}: 22 decor records carry a variant word (${R.filter((r) => r.variant).length})`);
       let hidden = 0;

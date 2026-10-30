@@ -30,6 +30,26 @@ export const BURST_PARAMS = Float32Array.from([
   6.0, 6.4, 0.3, 0.2, 0.5, 0.3, 0.2, 0.5, 0, 0, 0, 0, 0.5, 0, STACK_FILL, 0.05, STACK_FILL, 0, 0, 0, 0, -5.0, 0, STACK_FILL,
 ]);
 
+/**
+ * FUN_00447da0 hands FUN_0044a070 the path "%s\brickmorph\%s" (DAT_009836f8 = the directory of the executable + "_Data\\", the file name from the call): the slot keeps it in a
+ * 0x104 byte descriptor per model (slot +0x680 + 0x104 k), the save game stores the 0x1040 bytes, and the load re-opens the model from it (FUN_0044d570). The root is the machine of
+ * the player's own install in the original (command line of the process); the port has no such directory, so it writes the retail installer's default location. A save of the original
+ * loads with any root (the file name is what follows `brickmorph\`), and the port's own saves carry this constant. Settable (`setBrickDataRoot`) for tools.
+ */
+export let BRICK_DATA_ROOT = 'C:\\Program Files\\LEGO Media\\LEGO Eiland 2\\_Data\\';
+const ROOT_KEY = 'le2.brickDataRoot';
+try { const r = typeof window !== 'undefined' ? window.localStorage.getItem(ROOT_KEY) : null; if (r) BRICK_DATA_ROOT = r; } catch { /* no storage */ }   // learned from a save of the original game (`learnBrickRoot`, save.ts)
+export function setBrickDataRoot(root: string) { BRICK_DATA_ROOT = root; try { if (typeof window !== 'undefined') window.localStorage.setItem(ROOT_KEY, root); } catch { /* no storage */ } }
+/** FUN_00447da0's sprintf("%s\brickmorph\%s") */
+export const brickModelPath = (file: string) => `${BRICK_DATA_ROOT}\\brickmorph\\${file}`;
+/** the model descriptor: 0x104 bytes each, MAX_MODELS of them */
+export const DESC_SIZE = 0x104;
+/** the file name a descriptor path stands for (what follows `brickmorph\`; a path of any other shape does not open in the engine's archives), or null */
+export function brickFileOfPath(path: string): string | null {
+  const k = path.toLowerCase().lastIndexOf('brickmorph\\');
+  return k < 0 ? null : path.slice(k + 11);
+}
+
 /** a brick model of a slot (TBrickModel: FUN_0044d570's block of 0x7c bytes) */
 export class BrickModel {
   readonly file: string;
@@ -66,6 +86,8 @@ export class BrickFxSlot {
   readonly params: Float32Array[] = Array.from({ length: MAX_MODELS }, () => new Float32Array(24));
   /** the same parameter blocks as 32-bit integers (callback 8 reads its brick range as ints) */
   readonly iparams: Int32Array[] = this.params.map((f) => new Int32Array(f.buffer));
+  /** +0x680: the 16 model descriptors (0x104 bytes each: the path FUN_00447da0 built, NUL terminated, the rest zero), the part of the slot the save game stores for the models */
+  readonly desc = new Uint8Array(MAX_MODELS * DESC_SIZE);
   /** +0x1700: the sound handle of the running morph (0xbabababa none) */
   sound = NO_SLOT;
   /** +0x1708: 0 set up, 1 running, 2 done, 3 waiting */
@@ -78,6 +100,28 @@ export class BrickFxSlot {
   drawn = false;
   constructor(index: number, record: GameRecord, v: number, flag: number) { this.index = index; this.record = record; this.v = v; this.flag = flag; }
 }
+
+/** what FUN_00449be0 reads out of a used slot image (src/fx/bricks/save.ts decodes the 0x16aa bytes): the raw field values, bytes as numbers */
+export interface SlotImage {
+  /** +0x1a: the game variable */
+  v: number;
+  /** +5: the 16 callback function ids */
+  fn: Uint8Array;
+  /** +0x15: the slot state (dword), +0x19 running, +0x1e one-shot, +0x63 callback played (bytes) */
+  state: number; running: number; oneShot: number; started: number;
+  /** +0x1f: time of the morph, +0x665: the wait after it (float32) */
+  time: number; wait: number;
+  /** +0x23: the 16 visibility words */
+  vis: Int32Array;
+  /** +0x64: the 16 x 24 parameter words */
+  params: Int32Array;
+  /** +0x664: the current stage, +0x669: the number of models */
+  stage: number; count: number;
+  /** +0x66a: the 16 model descriptors */
+  desc: Uint8Array;
+}
+/** DAT_00892020 / DAT_008b5b30: 1.0 and 10.0, the loader's replay runs at DAT_008b1718 = 1 / 10 per step and plays 10 x (the saved time) steps */
+const LOAD_DT = Math.fround(1 / 10), LOAD_STEPS_PER_SECOND = 10;
 
 export interface BrickFxEnv {
   /** game variables */
@@ -123,6 +167,9 @@ export class BrickFxManager {
     const data = this.lib.model(file) ?? { name: '', centreMode: -1, centre: [0, 0, 0], bricks: [], layers: 0, invExtent: [0, 0, 0], invExtentSq: 0 } as BrickModelData;
     const m = new BrickModel(file, data, this.lib, s.record.m, matrix);
     for (const b of m.bricks) b.visible = false;   // FUN_0044dba0
+    // FUN_0044a070 copies the path (with its NUL) into the descriptor of the new model before it builds it
+    const path = brickModelPath(file);
+    for (let k = 0; k < path.length && k < DESC_SIZE - 1; k++) s.desc[s.models.length * DESC_SIZE + k] = path.charCodeAt(k) & 0xff;
     s.models.push(m);
     return m;
   }
@@ -143,8 +190,57 @@ export class BrickFxManager {
     s.stage = ((v % n) + n) % n;
     return Math.trunc(v / n);
   }
+  /**
+   * FUN_00449be0, one used slot image: the slot is rebuilt from the saved fields exactly like the original does (the slot memory is zeroed first: the sound handle is 0, the +0x1711 flag and
+   * the swap flag 0), every model is re-created from its descriptor by FUN_0044d570 ALONE (no FUN_0044dba0: the bricks have no normalised place and the model no extent, the matrix is zero),
+   * and then the slot continues from the saved moment. When the saved stage is the one its game variable asks for (and no one-shot is saved), nothing runs and a stage that draws its
+   * bricks (visibility 2) just shows them; else the callback of the variable's stage plays at once and the morph is replayed: 10 x time steps of FUN_0044c300 + FUN_0044d330 of every
+   * brick at dt 1/10, the time counting up again by (1 / 10) * dt per step. `sim.dt` stays 1/10 like DAT_008b1718 (the next update sets it again).
+   */
+  restoreSlot(i: number, rec: GameRecord, img: SlotImage): BrickFxSlot {
+    const s = new BrickFxSlot(i, rec, img.v, 0);
+    s.sound = 0;
+    s.desc.set(img.desc);
+    for (let k = 0; k < MAX_MODELS; k++) { s.vis[k] = img.vis[k]; s.fn[k] = img.fn[k]; }
+    for (let k = 0; k < MAX_MODELS; k++) s.iparams[k].set(img.params.subarray(k * 24, k * 24 + 24));
+    s.state = img.state | 0; s.running = img.running !== 0; s.oneShot = img.oneShot !== 0; s.started = img.started !== 0;
+    s.time = Math.fround(img.time); s.wait = Math.fround(img.wait); s.stage = img.stage;
+    for (let k = 0; k < img.count && k < MAX_MODELS; k++) s.models.push(this.loadModel(s, k));
+    this.slots[i] = s;
+    const n = s.models.length;
+    if (!n) return s;   // (the original divides by the model count: a used slot without models does not occur)
+    const t = this.env.vars.get(s.v) % n;
+    if (t === s.stage && !s.oneShot) {
+      if (s.vis[s.stage] === 2) for (const b of s.models[s.stage]?.bricks ?? []) b.visible = true;
+      return s;
+    }
+    this.sim.dt = LOAD_DT;
+    let steps = Math.trunc(Math.fround(LOAD_STEPS_PER_SECOND * s.time));   // (fld 10.0; fmul time; __ftol: the x87 runs in 24-bit precision, every result is a float32)
+    this.call(s, s.fn[t] ?? 0, s.params[t], t, s.iparams[t]);
+    s.time = 0; s.started = true; s.running = true;
+    for (; steps > 0; steps--) {
+      this.step(s);
+      for (const m of s.models) for (const b of m.bricks) b.rebuild();
+      s.time = Math.fround(s.time + Math.fround(Math.fround(1 / 10) * LOAD_DT));   // fld 1.0; fdiv 10.0; fmul DAT_008b1718; fadd time; fstp: each x87 result a float32
+    }
+    return s;
+  }
+  /** FUN_0044d570(descriptor k) as the loader uses it: the model of the descriptor's file (`BrickMorph/<file>`), or an empty one when the path does not open */
+  private loadModel(s: BrickFxSlot, k: number): BrickModel {
+    let end = k * DESC_SIZE;
+    while (end < (k + 1) * DESC_SIZE && s.desc[end]) end++;
+    let path = '';
+    for (let j = k * DESC_SIZE; j < end; j++) path += String.fromCharCode(s.desc[j]);
+    const file = brickFileOfPath(path);
+    const src = file ? this.lib.model(file) : null;
+    const data: BrickModelData = src
+      ? { ...src, bricks: src.bricks.map((b) => ({ ...b, norm: [0, 0, 0] as [number, number, number] })), invExtent: [0, 0, 0], invExtentSq: 0 }
+      : { name: '', centreMode: -1, centre: [0, 0, 0], bricks: [], layers: 0, invExtent: [0, 0, 0], invExtentSq: 0 };
+    return new BrickModel(file ?? '', data, this.lib, s.record.m, new Float32Array(16));
+  }
+
   /** FUN_0044a5a0 (FUN_00447ed0): the wait after the morph, seconds */
-  setWait(i: number, seconds: number) { const s = this.slot(i); if (s) s.wait = seconds; }
+  setWait(i: number, seconds: number) { const s = this.slot(i); if (s) s.wait = Math.fround(seconds); }   // (stored as a float32 in slot +0x172c)
   /** FUN_0044a350 (FUN_00447e70): draw every model of the slot with `m` instead of the record's matrix */
   setParent(i: number, m: Float32Array | null) { const s = this.slot(i); if (s && m) for (const x of s.models) x.parent = m; }
 

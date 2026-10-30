@@ -29,6 +29,9 @@ import type { Attach } from '../../formats/zonesetup.ts';
 import type { Pe } from '../../formats/exe.ts';
 import { rand, randTrunc } from '../rng.ts';
 import { ArgView } from '../args.ts';
+import type { MessageTable } from '../../ui/strings.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
+import { CD_F, CD_I16, CD_I32, CD_U8 } from './cd.ts';
 import { tryCtx } from '../ctx.ts';
 import { ad, sb, ml, fr, sq, fromBits } from '../../zones/common/f32.ts';
 import { eulerRotation } from '../../zones/exact.ts';
@@ -138,17 +141,63 @@ export class SgmfigNode implements BehaviourNode {
   /** +0x20: sound (id; the original keeps the handle of FUN_00443580) */ sound = 0;
   /** +0x28 */ animSetIndex = 0; set: AnimSet = { ...ANIM_SET_DEFAULT };
   /** +0x2a / +0x2c */ rewardVar = 0; rewardOp = 0;
-  /** +0x32: the clip before the conversation / pizza reaction */ savedClip = 0;
+  /** +0x32: the clip before the conversation / pizza reaction (unwritten by the constructor: 0xCD) */ savedClip = CD_I16;
   /** +0x36: falling, +0x37: pushed back by Pepper, +0x38: the conversation camera is due */ falling = 0; pushed = 0; camDue = 0;
-  /** +0x3c..+0x44: the place before the push */ saved: [number, number, number] = [0, 0, 0];
+  /** +0x3c..+0x44: the place before the push */ saved: [number, number, number] = [CD_F, CD_F, CD_F];
   /** +0x48: fall velocity */ fallVel = FALL_START;
   /** +0x4c: talk flags: 2 pointing, 0x10 Pepper in front within the talk radius, 0x40 talking */ talk = 0;
   /** +0x50: the customer type (the objective's default target: `talk50`) */ talk50 = 0;
   /** +0x52: cutscene slot; -10 / -20 / -30 while the cutscene's reward is pending / done */ slot = -1;
-  /** +0x54: conversation timer */ timer = 0;
+  /** +0x54: conversation timer */ timer = CD_F;
   /** +0x58: which pair of lines (0: A/B, 1: C/D), +0x59: conversations held */ line = 0; talks = 0;
-  /** +0x5c / +0x60: the lines whose voice waits for the speech channel (null = none) */ pending: [string, string | null] | null = null;
+  /** +0x5c / +0x60: the lines whose voice waits for the speech channel (null = none); the original keeps their speech ids (FUN_00439bf8's second result: the number in the table's 4 character field), see `speechIds` */
+  get pending(): [string, string | null] | null { return this._pending; }
+  private _pending: [string, string | null] | null = null;
+  /** +0x5c / +0x60 as the original holds them: the speech ids of the pending lines (-1 = none; the conversation waits while +0x5c >= 0). Set with `setPending`. */
+  speechIds: [number, number] = [CD_I32, CD_I32];     // (the constructor never writes them: a fresh debug-heap block holds 0xCDCDCDCD, negative = nothing pending)
+  /** the bytes of the save block this node does not model (+0x30, +0x34, +0x64, +0x68: never read by the node's code; they keep what a loaded block held so a load / save round trip is lossless) */
+  private rawBlock: Uint8Array | null = new Uint8Array(0x3c).fill(CD_U8);
   /** walker step output */ private out: StepOut = { yaw: 0, dist: 0 };
+
+  /** assign +0x5c / +0x60: the pending lines and their speech ids (`table.voice`, the original's FUN_00439bf8 result; -1 when the line has no number or does not exist) */
+  private setPending(p: [string, string | null] | null, table: MessageTable | null = null, speechOn = true) {
+    this._pending = p;
+    // (the original keeps no ids while the speech setting (variable 9) is off: FUN_004254a5 writes -1 / -1 then; the port's own wait for the speech channel (`pending`) is unchanged by that)
+    this.speechIds = p && table && speechOn ? [table.voice(p[0]), p[1] === null ? -1 : table.voice(p[1])] : [-1, -1];
+  }
+
+  // ----------------------------------------------------------------------------------------------- save block: FUN_0042610b (vtable +0x14) / FUN_00426129 (+0x10)
+  // the 0x3c bytes at node +0x30 .. +0x6c, copied out and back as they are. Block offset = node offset - 0x30:
+  //   +0x02 i16 savedClip   +0x06 u8 falling   +0x07 u8 pushed   +0x08 u8 camDue   +0x0c / +0x10 / +0x14 f32 saved place   +0x18 f32 fallVel   +0x1c u32 talk
+  //   +0x20 i16 talk50   +0x22 i16 slot   +0x24 f32 timer   +0x28 i8 line   +0x29 i8 talks   +0x2c / +0x30 i32 speech ids of the pending lines
+  //   +0x00 / +0x04 / +0x34 / +0x38: never written or read by the node's code (the constructor leaves them as the allocation was)
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array {
+    const o = new BlockOut(0x3c);
+    if (this.rawBlock) o.bytes.set(this.rawBlock);
+    o.i16(0x02, this.savedClip).u8(0x06, this.falling).u8(0x07, this.pushed).u8(0x08, this.camDue);
+    o.f32(0x0c, this.saved[0]).f32(0x10, this.saved[1]).f32(0x14, this.saved[2]).f32(0x18, this.fallVel);
+    o.u32(0x1c, this.talk).i16(0x20, this.talk50).i16(0x22, this.slot).f32(0x24, this.timer).u8(0x28, this.line).u8(0x29, this.talks);
+    o.i32(0x2c, this.speechIds[0]).i32(0x30, this.speechIds[1]);
+    return o.bytes;
+  }
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.rawBlock = data.slice(0, 0x3c);
+    this.savedClip = b.i16(0x02); this.falling = b.u8(0x06); this.pushed = b.u8(0x07); this.camDue = b.u8(0x08);
+    this.saved = [b.f32(0x0c), b.f32(0x10), b.f32(0x14)]; this.fallVel = b.f32(0x18);
+    this.talk = b.u32(0x1c); this.talk50 = b.i16(0x20); this.slot = b.i16(0x22); this.timer = b.f32(0x24);
+    this.line = (b.u8(0x28) << 24) >> 24; this.talks = (b.u8(0x29) << 24) >> 24;
+    // the pending lines: the original keeps the speech ids and speaks them by id (FUN_00435a11(+0x5c, +0x60)); the port speaks by tag, found again through the table's number field
+    const id0 = b.i32(0x2c), id1 = b.i32(0x30);
+    this.speechIds = [id0, id1];
+    if (id0 < 0) this._pending = null;
+    else {
+      const t = tryCtx(w)?.text.npc ?? null;
+      const tagOf = (id: number) => (id < 0 ? null : t?.entries.find((e) => e.field.length > 0 && e.field.charCodeAt(0) >= 0x30 && e.field.charCodeAt(0) <= 0x39 && parseInt(e.field, 10) === id)?.tag ?? null);
+      const t0 = tagOf(id0);
+      this._pending = t0 === null ? null : [t0, tagOf(id1)];
+    }
+  }
 
   constructor(args: SgmfigArgs, attach: Attach | null = null) { this.args = args; this.attach = attach; }
 
@@ -413,8 +462,11 @@ export class SgmfigNode implements BehaviourNode {
     const has = (id: string) => !!table && table.text(id) !== id;
     const id1 = name + c0, id2 = has(name + c1) ? name + c1 : null;
     if (table) {
-      if (ctx && ctx.speechIdle() && ctx.say(table, id1, id2 ?? undefined)) this.pending = null;
-      else this.pending = [id1, id2];
+      // the voice (speech option, var 9) starts when the channel is idle (FUN_00435ad3 -> FUN_00435a11), else its ids wait in +0x5c / +0x60 for the update; with the option off nothing waits.
+      // The subtitle (subtitle option, var 0: FUN_0045d47f of the A text + the B text) is written now, whether the voice starts or waits; the voice that starts later shows nothing more
+      const speechOn = w.vars.get(9) !== 0;
+      const spoken = ctx ? ctx.say(table, id1, id2 ?? undefined, speechOn, w.vars.get(0) !== 0 ? 'held' : 'none') : false;
+      this.setPending(spoken ? null : [id1, id2], table, speechOn);
     }
     ctx?.cameraHold?.(true);
     if (point) {
@@ -446,8 +498,8 @@ export class SgmfigNode implements BehaviourNode {
         end = false;
         if (ctx && ctx.speechIdle()) {
           const t = ctx.text.npc;
-          if (t) ctx.say(t, this.pending[0], this.pending[1] ?? undefined);
-          this.pending = null;
+          if (t) ctx.say(t, this.pending[0], this.pending[1] ?? undefined, true, 'none');   // (FUN_00435a11 only: the subtitle was written at the start)
+          this.setPending(null);
         }
       }
     } else {
@@ -455,7 +507,7 @@ export class SgmfigNode implements BehaviourNode {
       this.timer = -1;
       w.vars.or(PC, 0x100);
       if (speechOn) ctx?.stopSpeech();
-      this.pending = null;
+      this.setPending(null);
       end = true;
     }
     if (this.camDue) {
@@ -477,6 +529,7 @@ export class SgmfigNode implements BehaviourNode {
     if (this.timer <= 2) { this.talk &= ~2; if (ctrl.walker) waypoints.turnToPoint(ctrl.walker, null); }
     if (end) {
       if (pep && (w.vars.get(PC) & 0x10) === 0) { pep.anim?.start(PEP_IDLE, 0); w.pep.mailbox = PEP_IDLE; w.vars.set(PC, 1); }
+      ctx?.clearSubtitle();                         // DAT_05d4dd7c / de4c / df1c / dfec = 0 (whatever the subtitle option says now)
       rec.anim?.start(this.savedClip, 0);
       if (pep?.ctrl) pep.ctrl.flags |= CF_ENABLED;
       ctx?.holdCutscene(false);

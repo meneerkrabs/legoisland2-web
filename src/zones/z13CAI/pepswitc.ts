@@ -24,6 +24,7 @@ import { islandBrickFx } from '../../fx/bricks/island.ts';
 import { NO_SLOT } from '../../fx/bricks/manager.ts';
 import { VehicleLooks, changeLook, tickLooks, looksOf, LOOKS_KEY, VARIANT_VEHICLE, ROSTER_STRIDE } from '../../island/vehicles/looks.ts';
 import type { HubContext } from '../../hub/ctx.ts';
+import { BlockIn, BlockOut } from '../z07CSI/blockio.ts';
 
 export const CTOR_PEPSWITC_CAI = 0x61c2a4;
 /** FUN_0061c2a4's constructor tail (the roster of the hub) and the roster table `DAT_00914bc8` it fills (0x18 bytes per entry: record, record pointer, cycler, SwapText set, game variable, brick effect) */
@@ -51,6 +52,16 @@ export class CaiPepSwitch implements BehaviourNode {
   readonly kind = 'pepswitc';
   var = 0x5e; mask = 0; value = 0;
   stamp = 0xfffffffe;
+
+  /** the byte at +0x1c (the constructor writes +0x14 / +0x18 only: a fresh heap block's byte); kept so that a loaded block is saved again unchanged */
+  byte1c = 0xcd;
+  /** save FUN_0061c241 (vtable +0x14): `*out = node + 0x1c; return 1` */
+  saveBlock(): Uint8Array { return new BlockOut(1).u8(0, this.byte1c).bytes; }
+  /** load FUN_0061c266 (vtable +0x10): memcpy of the byte back to node + 0x1c, then FUN_006277a0 = FUN_004202ef(0x914bc8) (the roster's stored looks re-applied from the variables, the busy list cleared) */
+  loadBlock(w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    this.byte1c = new BlockIn(data).u8(0);
+    reloadCaiRoster(w);
+  }
 
   /** FUN_0061c0e0 */
   update(w: World, _rec: GameRecord, _ctrl: Controller): number {
@@ -102,6 +113,18 @@ export function constructRoster(w: World, run: (fn: number) => unknown): void {
   for (const r of w.records) r.variant = 0;
   const w0 = w.records[LOOK_RECORD];
   if (w0) w0.variant = VARIANT_VEHICLE;
+}
+
+/** FUN_004202ef(0x914bc8) on a roster that exists: the stored look of every entry's game variable applied, the busy list cleared (one that does not exist yet reads the variables when it is built) */
+export function reloadCaiRoster(w: World): void {
+  const looks = looksOf(w);
+  if (!looks) return;
+  for (const e of looks.entries) {
+    if (e.varIdx === -1) continue;
+    const v = w.vars.get(e.varIdx) | 0;
+    e.part = v & 0xff; e.variant = v >> 8;
+  }
+  looks.busy.fill(-1);
 }
 
 /** the look cycler of the roster (FUN_004202ef): built at the first pre-render, when the library of the brick effects is installed (the zone game does that after the set-up) */

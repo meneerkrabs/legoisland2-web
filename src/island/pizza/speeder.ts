@@ -5,9 +5,10 @@
 //                 falls apart (brick burst 0xd)                                                                                         -> SpeederNode.update
 //   FUN_00537d54  pre-render: pitch to the ground under both axles (FUN_005373a6), placed between them                                  -> SpeederNode.prerender
 //   FUN_00537ea9  draw: the wheels (MATL parts 2..5) roll with the distance driven, the front pair steers                                -> SpeederNode.prerender
-//   FUN_005382fb  destroy (engine sound off)    FUN_005380c8 / FUN_005380ed save / load (not ported)
+//   FUN_005382fb  destroy (engine sound off)    FUN_005380c8 / FUN_005380ed save / load  -> SpeederNode.saveBlock / loadBlock
 //   FUN_00536f00 / FUN_00536fea / FUN_005370e4  per car: engine stop / engine at the car / horn       FUN_0053727a / FUN_005371eb  engine pitch
 //   FUN_005385d3  driver constructor (node 0x28, handler table 0x8eaeb8): the gate moves into the node, sitting clip 0x43                  -> DriverNode
+//                 (save / load FUN_00538575 / FUN_0053859a: 8 bytes from +0x20 -> DriverNode.saveBlock / loadBlock)
 //   FUN_00538346  driver update: in the car while (var & mask) == value, else standing at a PATH node                                     -> DriverNode.update
 //   FUN_005383ca  driver pre-render: on the car's seat (MATL part 1), popping up while the car is in bricks                              -> DriverNode.prerender
 // The cars do not move by themselves: the Human1 node on the same record (WP3) drives the walker this node creates along its route; SGCar
@@ -29,6 +30,8 @@ import { randTrunc } from '../rng.ts';
 import { PI_F, TWO_PI_F, sfx, sfxAt } from './common.ts';
 import { ad, sb, ml, sq, fr } from '../../zones/common/f32.ts';
 import { toWorld } from '../../zones/exact.ts';
+import { BlockIn, BlockOut } from '../blockio.ts';
+import { CD_F32, CD_U32 } from './saveutil.ts';
 
 export const CTOR_SPEEDER = 0x538126, CTOR_DRIVER = 0x5385d3;
 
@@ -48,7 +51,7 @@ export const SND_CAR = {
 
 export const CAR = {
   /** FUN_00538126 walker tuning: speed 0.1333 (0x3e088886), lane 0.5, turn rate 0.1, radii 1 / 2, limit 3 */
-  SPEED: 0.13333320617675781, LANE: 0.5, TURN: 0.10000000149011612, RADIUS_MIN: 1.0, RADIUS_MAX: 2.0, RADIUS_LIMIT: 3.0,
+  SPEED: 0.13333329558372498, LANE: 0.5, TURN: 0.10000000149011612, RADIUS_MIN: 1.0, RADIUS_MAX: 2.0, RADIUS_LIMIT: 3.0,
   /** the obstacle segment: from pos - fwd * 5.28 (+2 up) along fwd * 25.28 (0x8925c4 / 0x8925c0), radius / skin 4 */
   BACK: 5.28000020980835, AHEAD: 25.280000686645508, LIFT: 2.0, RAY_MASK: 3, RAY_R: 4.0,
   /** off-screen time after which a car Pepper left goes back to where he took it (0x8924dc) */
@@ -123,10 +126,10 @@ export class SpeederNode implements BehaviourNode {
   inited = false;
   /** +0x18 engine wobble phase, +0x1c engine rate */
   wobble = 0; rate: number = CAR.RATE_IDLE;
-  /** +0x20: skip the pre-render (never set by the island's code), +0x21: Pepper moved it, +0x24: off-screen ticks */
-  skipPrerender = false; moved = false; offTicks = 0;
-  /** +0x28..+0x30 / +0x38..+0x40: position and Euler at the update (where Pepper took it; the wheel / steer reference) */
-  saved = [0, 0, 0]; savedEuler = [0, 0, 0];
+  /** +0x20: skip the pre-render (never set by the island's code), +0x21: Pepper moved it, +0x24: off-screen ticks (0xCD word of the debug heap until the first drive), +0x22: 2 pad bytes (0xCD) */
+  skipPrerender = false; moved = false; offTicks = CD_F32; pad22 = 0xcdcd;
+  /** +0x28..+0x30 / +0x38..+0x40: position and Euler at the update (where Pepper took it; the wheel / steer reference); the Euler words are 0xCD until the first update */
+  saved = [0, 0, 0]; savedEuler = [CD_F32, CD_F32, CD_F32];
   /** +0x34 wheel angle */
   wheel = 0;
   private front = [0, 0, 0]; private back = [0, 0, 0];
@@ -135,6 +138,30 @@ export class SpeederNode implements BehaviourNode {
     this.var = attach?.var ?? 2; this.mask = attach?.mask ?? 0; this.value = attach?.value ?? 0;
     this.startNode = args.i32(0);
     this.ctrlFlags = attach?.ctrlFlags;
+  }
+
+  /**
+   * Save block = node +0x18 .. +0x44 (saver FUN_005380c8 returns 0x2c and points at node + 0x18, loader FUN_005380ed is the memcpy back):
+   * 0x00 f32 wobble (+0x18)   0x04 f32 rate (+0x1c)   0x08 u8 skipPrerender (+0x20)   0x09 u8 moved (+0x21)   0x0a u16 pad (0xCDCD)   0x0c f32 offTicks (+0x24)   0x10 f32[3] saved position (+0x28)
+   * 0x1c f32 wheel (+0x34)   0x20 f32[3] saved Euler (+0x38).
+   * The constructor's work (walker, position) is done here first when the node has not run yet (the zone game's startPizzaNodes does it right after the set-up).
+   */
+  saveBlock(w: World, rec: GameRecord, ctrl: Controller): Uint8Array {
+    if (!this.inited) this.init(w, rec, ctrl);
+    const b = new BlockOut(0x2c);
+    b.f32(0x00, this.wobble).f32(0x04, this.rate).u8(0x08, this.skipPrerender ? 1 : 0).u8(0x09, this.moved ? 1 : 0).u16(0x0a, this.pad22).f32(0x0c, this.offTicks);
+    for (let k = 0; k < 3; k++) b.f32(0x10 + 4 * k, this.saved[k]);
+    b.f32(0x1c, this.wheel);
+    for (let k = 0; k < 3; k++) b.f32(0x20 + 4 * k, this.savedEuler[k]);
+    return b.bytes;
+  }
+  loadBlock(w: World, rec: GameRecord, ctrl: Controller, data: Uint8Array): void {
+    if (!this.inited) this.init(w, rec, ctrl);   // (the original's constructor has run long before the load)
+    const b = new BlockIn(data);
+    this.wobble = b.f32(0x00); this.rate = b.f32(0x04); this.skipPrerender = b.u8(0x08) !== 0; this.moved = b.u8(0x09) !== 0; this.pad22 = b.u16(0x0a); this.offTicks = b.f32(0x0c);
+    for (let k = 0; k < 3; k++) this.saved[k] = b.f32(0x10 + 4 * k);
+    this.wheel = b.f32(0x1c);
+    for (let k = 0; k < 3; k++) this.savedEuler[k] = b.f32(0x20 + 4 * k);
   }
 
   /** the constructor's work that needs the world (the walker, the box) */
@@ -316,8 +343,10 @@ export class DriverNode implements BehaviourNode {
   car: GameRecord | null = null;
   /** +0x18 */
   readonly outNode: number;
-  /** +0x20: pop-up height while the car is in bricks; +0x24: placed at the out node */
-  rise = 0; placed = false;
+  /** +0x20: pop-up height while the car is in bricks; +0x24: the byte "placed at the out node" (0xCD from the debug heap until the update writes 0 / 1: the first out-of-car update then does NOT place him) + 3 pad bytes */
+  rise = 0; placedWord = CD_U32;
+  get placed() { return (this.placedWord & 0xff) !== 0; }
+  set placed(v: boolean) { this.placedWord = ((this.placedWord & ~0xff) | (v ? 1 : 0)) >>> 0; }
   private started = false;
 
   constructor(args: ArgView, attach?: Attach) {
@@ -326,6 +355,17 @@ export class DriverNode implements BehaviourNode {
     this.carIdx = args.recIndex(0);
     this.outNode = args.i32(4);
   }
+
+  /** Save block = node +0x20 .. +0x28 (saver FUN_00538575 returns 8 and points at node + 0x20, loader FUN_0053859a is the memcpy back): 0x00 f32 rise, 0x04 u32 placed byte + 3 pad bytes. */
+  saveBlock(_w: World, _rec: GameRecord, _c: Controller): Uint8Array { return new BlockOut(8).f32(0, this.rise).u32(4, this.placedWord).bytes; }
+  loadBlock(_w: World, _rec: GameRecord, _c: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.rise = b.f32(0); this.placedWord = b.u32(4);
+    this.started = true;   // (the constructor's FUN_0043b6a3(anim, 0x43, 0) ran at the set-up; the object records restored the clip before the node blocks)
+  }
+
+  /** the constructor's FUN_0043b6a3(anim, 0x43, 0), run at the set-up in attach order (after the same record's SGMFIG start clip: `startWalkerNodes`) */
+  init(_w: World, rec: GameRecord) { if (!this.started) { this.started = true; rec.anim?.start(0x43, 0); } }
 
   update(w: World, rec: GameRecord, _c: Controller): number {
     void _c;

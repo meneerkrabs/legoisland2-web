@@ -11,7 +11,7 @@
 // draw): the port has no flag 1 in the record, RF_NO_DRAW is the same effect for the frame.
 import { NODE_NONE, NODE_STOP } from '../../game/controller.ts';
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
-import { RF_NO_COLLIDE, RF_NO_DRAW } from '../../game/record.ts';
+import { RF_NO_COLLIDE, RF_FRUSTUM } from '../../game/record.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
@@ -22,6 +22,7 @@ import { BTN_ACTION } from './building.ts';
 import { rand } from '../rng.ts';
 import { ad, sb, ml, fr } from '../../zones/common/f32.ts';
 import { mulGame } from '../../render/math.ts';
+import { BlockIn, BlockOut, CD, CD32, CDF, keepRaw } from '../blockio.ts';
 
 export const CTOR_HOLO = 0x88df51;
 export const VAR_HOLO_ACTIVE = 0xc6, VAR_SPEECH_ON = 9;
@@ -49,23 +50,65 @@ export class HoloNode implements BehaviourNode {
   var = 0; mask = 0; value = 0;
   stamp = 0xfffffffe;
   /** node +0x1c: 0 idle, 3 action held, 2 up, 1 closing; +0x1d: 1 scale in, 0 shown, 3 / 4 flicker, 2 scale out; +0x57: 1 / 2 / 3 facing */
-  st = 0; show = 0; face = 0;
+  st = 1; show = CD; face = CD;   // (show / face are never written by the constructor: 0xCD from the debug heap; the activation sets them)   // (the constructor FUN_0088df51 starts the state byte at 1 = closing: the first update clears var 0xc6 and goes idle)
   /** node +0x18 timer, +0x1f hint letter, +0x44 scale, +0x48 / +0x4c flicker */
-  timer = 0; letter = 0x40; scale = 0; flick = 0;
+  timer = 0; letter = 0x40; scale = CDF; flick = CDF;
   /** node +0x48: the shear of the shimmer (state 3), 0 after the activation */
-  shimmer = 0;
+  shimmer = CDF;
   /** node +0x1e: hide the record again when it goes away (constructor arg 0) */
-  readonly hideAfter: boolean;
+  hideAfter: boolean;
   /** node +0x20..0x34: the record's position / Euler angles when it was called */
-  saved = [0, 0, 0, 0, 0, 0];
-  /** node +0x50: the hint id; +0x58: a line waiting for the speech channel */
-  id = ''; queued: string | null = null;
+  saved: number[] = [CDF, CDF, CDF, CDF, CDF, CDF];
+  /** node +0x50: the hint id ('HOLO' + letter); +0x58: the voice id of a line waiting for the speech channel (i32, -1 none; the zeroed allocation leaves 0 until the first hint is up) */
+  id = ''; qWord = CD32;
+  private raw: Uint8Array | null = null;
+  /** a line waits for the speech channel (the original's `-1 < +0x58`) */
+  get queued(): boolean { return this.qWord > -1; }
   /** node +0x38..0x40: Pepper's position of the previous frame */
-  prevPep = [0, 0, 0];
+  prevPep = [CDF, CDF, CDF];
   private init = false;
   /** DAT_05defbc8 */
   private alert = false;
   constructor(at: Attach) { this.hideAfter = (at.arg ?? 0) === 0; }
+
+  /**
+   * Save block = node +0x18 .. +0x5c (saver FUN_0088df0b returns 0x44 and points at node + 0x18, loader FUN_0088df29 = 0x44 byte memcpy back):
+   *   +0x00 f32 timer (node +0x18)      +0x04 u8 st (+0x1c)   +0x05 u8 show (+0x1d)   +0x06 u8 hideAfter (+0x1e)   +0x07 u8 letter (+0x1f)
+   *   +0x08..0x20 the record's x y z rx ry rz when it was called (+0x20..+0x38)      +0x20..0x2c Pepper's x y z of the previous frame (+0x38..+0x44)
+   *   +0x2c f32 scale (+0x44)   +0x30 f32 shimmer (+0x48)   +0x34 f32 flicker clock (+0x4c)
+   *   +0x38..0x3d 'HOLO', letter, 0 = the hint id (node +0x50..+0x55; all 0 before the first hint)   +0x3e pad (+0x56)   +0x3f u8 face (+0x57)
+   *   +0x40 i32 queued voice id (+0x58)
+   */
+  saveBlock(): Uint8Array {
+    const o = new BlockOut(0x44, CD);
+    o.f32(0x00, this.timer).u8(0x04, this.st).u8(0x05, this.show).u8(0x06, this.hideAfter ? 1 : 0).u8(0x07, this.letter);
+    for (let i = 0; i < 6; i++) o.f32(0x08 + 4 * i, this.saved[i]);
+    for (let i = 0; i < 3; i++) o.f32(0x20 + 4 * i, this.prevPep[i]);
+    o.f32(0x2c, this.scale).f32(0x30, this.shimmer).f32(0x34, this.flick);
+    if (!this.id) keepRaw(o, this.raw, [[0x38, 6]]);
+    keepRaw(o, this.raw, [[0x3e, 1]]);
+    if (this.id) { for (let i = 0; i < 4; i++) o.u8(0x38 + i, this.id.charCodeAt(i)); o.u8(0x3c, this.id.charCodeAt(4)); }
+    if (this.id) o.u8(0x3d, 0);   // the id string's terminator (+0x55)
+    o.u8(0x3f, this.face).i32(0x40, this.qWord);
+    return o.bytes;
+  }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.raw = data.slice();
+    this.timer = b.f32(0x00); this.st = b.u8(0x04); this.show = b.u8(0x05); this.letter = b.u8(0x07); this.hideAfter = b.u8(0x06) !== 0;
+    for (let i = 0; i < 6; i++) this.saved[i] = b.f32(0x08 + 4 * i);
+    for (let i = 0; i < 3; i++) this.prevPep[i] = b.f32(0x20 + 4 * i);
+    this.scale = b.f32(0x2c); this.shimmer = b.f32(0x30); this.flick = b.f32(0x34);
+    this.id = b.u8(0x38) !== 0x48 ? '' : String.fromCharCode(b.u8(0x38), b.u8(0x39), b.u8(0x3a), b.u8(0x3b), b.u8(0x3c));
+    this.face = b.u8(0x3f); this.qWord = b.i32(0x40);
+  }
+
+  /** the blink state 4 of this frame: the draw hook draws nothing (the original's cleared frustum bit; never a port-only bit in the record flags) */
+  private blink = false;
+  /** FUN_0088d41f's draw hook is the default draw FUN_00444480, which skips a record whose frustum bit the blink cleared */
+  draw(): number { return this.blink ? 1 : 0; }
+  /** the constructor FUN_0088df51's record work (flag 0x10; hidden when the argument is 0): right after the set-up */
+  ctorInit(_w: World, rec: GameRecord): void { if (!this.init) this.setup(rec); }
 
   private setup(rec: GameRecord) {
     this.init = true;
@@ -131,6 +174,7 @@ export class HoloNode implements BehaviourNode {
 
   /** FUN_0088d666 */
   prerender(w: World, rec: GameRecord) {
+    this.blink = false;
     const c = tryCtx(w), pep = w.focus, cam = w.camera.c;
     if (!pep) return;
     // (the view's forward row is added twice: `... + DAT_009da624 + DAT_009da624`)
@@ -150,7 +194,7 @@ export class HoloNode implements BehaviourNode {
         const dx = sb(pep.x, hx), dy = sb(pep.y, hy), dz = sb(pep.z, hz);
         L = HOLO_STILL_D2 <= ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz)) ? HOLO_FLICKER_FAR : HOLO_FLICKER_STILL;
       }
-      if (this.queued && c?.speechIdle()) { const t = c.text.hol; if (t) c.say(t, this.queued); this.queued = null; }
+      if (this.queued && c?.speechIdle()) { const t = c.text.hol; if (t) c.say(t, this.id); this.qWord = -1; }
       const r = rand(10);
       if (r > sb(10, L)) { this.show = 4; this.flick = 0; }
       else if (r > sb(10, ad(L, L))) { this.show = 3; this.flick = 0; this.shimmer = sb(rand(1), 0.5); }
@@ -161,9 +205,9 @@ export class HoloNode implements BehaviourNode {
         const t = c?.text.hol;
         if (t && c) {
           // (finding V9: with the speech option off (var 9 == 0) FUN_00435a11 is not called: only the subtitle)
-          if (w.vars.get(VAR_SPEECH_ON) === 0) { c.say(t, this.id, undefined, false); this.queued = null; }
-          else if (c.speechIdle()) { c.say(t, this.id); this.queued = null; }
-          else this.queued = this.id;
+          if (w.vars.get(VAR_SPEECH_ON) === 0) { c.say(t, this.id, undefined, false); this.qWord = -1; }
+          else if (c.speechIdle()) { c.say(t, this.id); this.qWord = -1; }
+          else this.qWord = t.voice(this.id) | 0;
         }
       }
     } else if (this.show === 2) {
@@ -173,7 +217,6 @@ export class HoloNode implements BehaviourNode {
         rec.rx = s[3]; rec.ry = s[4]; rec.rz = s[5];
         rec.setEuler(s[3], s[4], s[5], s[0], s[1], s[2]);
         if (this.hideAfter) rec.hide();
-        rec.flags &= ~RF_NO_DRAW;
         this.st = 1;
         c?.cameraHold?.(false);
         return;
@@ -181,11 +224,10 @@ export class HoloNode implements BehaviourNode {
     }
     hy = ad(ad(sb(2, ad(this.scale, this.scale)), hy), 3);
     rec.m.set(buildMatrix(rec.rx, rec.ry, rec.rz, hx, hy, hz, this.scale, this.scale, this.scale));
-    rec.flags &= ~RF_NO_DRAW;
     if (this.show === 3 || this.show === 4) {
       this.flick = ad(ml(1, fr(w.dt)), this.flick);
       if (this.flick <= HOLO_FLICKER_TICKS) {
-        if (this.show === 4) rec.flags |= RF_NO_DRAW;
+        if (this.show === 4) { rec.flags &= ~RF_FRUSTUM; this.blink = true; }   // the original clears the frustum bit (flag 1) after the frustum test: the record is not drawn this frame
         else {
           // FUN_0043ac78 + the clamps + FUN_0043a9e5(rec + 0xc, copy, shear)
           const pick = (v: number) => (v < HOLO_SHIMMER_MIN ? this.shimmer : v);

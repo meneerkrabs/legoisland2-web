@@ -2,6 +2,7 @@
 // update code run natively in the x86 emulation (tools/lib/m7-isl-veh-trig.mjs): every attach of the five eras' set-ups (the original's own argument blocks), Pepper scripted around the waypoints / the portal boxes with
 // random PEPPER_CONTROL, vehicle kinds, buttons, clips, cutscene lengths, gate variables; per tick compared: all game variables, the cutscene starts (FUN_0045c40c slot) and walker pins (FUN_004625d7 node), the node
 // fields (slot / armed / nearest, portal distance memory / age), the portal records' matrix / Euler angles / flags.
+import { m8Hook, m8Note } from '../lib/m8-d.mjs';
 import { trigDuel, trigTick, setKind, setClip, lcg } from '../lib/m7-isl-veh-trig.mjs';
 import { RECORDS_BASE, REC } from '../lib/m7-isl-veh-emu.mjs';
 import { waypoints } from '../../src/game/walker.ts';
@@ -15,7 +16,7 @@ const CTOR_CSM = 0x51e19c, CTOR_PORTAL = 0x51ea3c;
 export const makeTrigTest = (name, dts, eras) => ({
   name,
   async run(ctx) {
-    const failures = [], notes = [];
+    const failures = [], notes = [], m8Stats = [];
     let checked = 0;
     const cover = { sessions: 0, scenarios: 0, ticks: 0, triggers: 0, portals: 0, csStarts: 0, pins: 0, opApplied: 0, zoneSets: 0, controlSets: 0, iconOrs: 0, walkRequests: 0, synthetic: 0 };
     const devs = new Map();
@@ -25,6 +26,7 @@ export const makeTrigTest = (name, dts, eras) => ({
       if (!eras.includes(era)) continue;
       const d = trigDuel(ctx, { node, dt, keepKinds: ['StartCSM', 'StartCSM.portal'], maxFail: MAXFAIL, failures });
       d.label = `trig e${era} dt${dt}`; cover.sessions++;
+      m8Stats.push(m8Hook(d, [0x51e19c, 0x51ea3c], failures, { label: d.label, every: 5, period: 43, hold: 17 }));   // WP-SAVE: save blocks vs the original's serializer / loader during the duel
       d.pinSpy(true);
       try {
         const W = d.P.world, mem = d.emu.cpu.mem, att = d.O.profile.island.attaches;
@@ -164,6 +166,7 @@ export const makeTrigTest = (name, dts, eras) => ({
       } finally { d.pinSpy(false); }
     }
     for (const [id, e] of devs) notes.push(`KNOWN DEVIATION ${id}: ${e.count}x, first ${e.first}`);
+    for (const st of m8Stats) notes.push(m8Note(st));
     notes.push(`coverage: ${JSON.stringify(cover)}`);
     return { checked, failures, notes };
   },

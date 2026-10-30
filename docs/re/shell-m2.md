@@ -32,7 +32,7 @@ Ported 1:1: `StoryFsm.complete` (`FUN_00404aa0`), `zoneOf` (`be7`), `advance` (`
 
 Findings:
 * `sw.dat` (vars 15..234, 220 dwords) is written at launch from the live (= .data) array and read straight back, so the "new game" defaults are: vars 15..234 = their launch values, then `NUM_BRICKS` (0x4f) = `NUM_PIZZAS` (0xb0) = 11, `PEPPHOUSE_SIZE` (0xb3) = `MOVE_PIZ3` (0xb4) = 0, `MOVE_CNST` (0xb5) = 1, `PAGES_SET` (0x26) = 0. Vars < 15, >= 235 are not reset by a new game (zone-local ones are cleared on every zone start anyway).
-* The snapshot array is **not saved** and not reset by a new game or a load. A rewind after loading a save therefore restores whatever (usually 0) was in `DAT_00983854[node]`: e.g. aborting WAB after loading into node 9 sets var 5 to 0, which makes the island loop see `var5 != var59` and return zone 0. Ported as is (`StoryFsm.snap` is plain state); the lead may want to guard this.
+* The snapshot array is **not saved** and not reset by a new game or a load. A rewind after loading a save therefore restores whatever (usually 0) was in `DAT_00983854[node]`: e.g. aborting WAB after loading into node 9 sets var 5 to 0, which makes the island loop see `var5 != var59` and return zone 0. Ported as is (`StoryFsm.snap` is plain state): decided in WP-SAVE (V2) to keep it as the original's own behaviour, a conscious faithful quirk.
 * Node 56 (`COLORED_BOTHEADS == 15`) is already complete on entry (the var stays 15 from node 8): the story advances through it on the next frame.
 * `FUN_00404dc9` also copies `DAT_0089df28` to `DAT_0089df2c` before each zone run (a frame/timer snapshot, not ported).
 
@@ -62,7 +62,7 @@ Names: `_data//Save%02d.lgo` (slot 0..6), `_data//SaveDef.lgo` (slot -2). Little
 Checksum (`FUN_00418e7f(L)` with L = offset of the checksum dword = length - 8): xor of the dwords at offsets 8, 12, ... while `i < L - 4`. Entity records make L unaligned (30 + ...), so the walk is byte offset based. Validation (`FUN_0041ac8f`): version 0xd, dword at length-4 = 0xc0cc00c, checksum at length-8. The load menu captions use only the header (`FUN_0041aa2e`: version + marker 0x8088008, no checksum). `FUN_00419bb9`: same node and subgame -> restore in place, else pending override.
 There is no real save file on disk to compare with. The layout above is complete in the sense that every read/write in the writer and reader was accounted for; what is *interpreted* (field names inside entity records, brick slots, walker structs) is partial, those parts are carried as raw bytes.
 
-API notes: `newSaveFromGame` fills what the port cannot produce with zeros / empty sections: walkers and camera zero, no objects, no entities, 64 empty brick slots, decor zero (pass `defaultDecor(pe)` for the original defaults). Such a file is valid for the original checksum, but loading it in the real game would need walkers/camera/decor to be plausible.
+API notes: `newSaveFromGame` builds the file from the sections `captureWorld` (src/shell/saveworld.ts) produces from the live world: walkers, camera, frame counter, object records, decor, entity records with every node's block, bricks (WP-SAVE, docs/re/save.md; the sections that are empty here are only those a zone does not have). The file is valid for the original's checksum and loads in the original; `SaveGame.entityBytes` keeps the entity section exactly as stored because the reader walks it with the live node list.
 
 ## 4. Options (`options.ts`)
 

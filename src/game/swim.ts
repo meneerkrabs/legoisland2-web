@@ -9,6 +9,8 @@ import type { World } from './world.ts';
 import { PC, V } from './vars.ts';
 import { B } from './input.ts';
 import { ST, SND } from './walk.ts';
+import { BlockIn, BlockOut } from '../island/blockio.ts';
+import { CD8 } from './heapfill.ts';
 
 const CLIP_SWIM = 9, CLIP_TREAD = 0x41;
 
@@ -51,13 +53,27 @@ export class SwimNode implements BehaviourNode {
   var: number; mask: number; value: number;
   stamp = 0xfffffffe;
   /** node +0x18: 0 while the dive clip plays, then the clip's result */
-  phase = 0;
+  phase = CD8;     // (the constructor does not write it; the first update resets it: the stamp is stale)
   /** node +0x1c: swim speed 0..0.8 */
   speed = 0;
+  /** node +0x19 .. +0x1b: bytes only the constructor / the loader touch (the constructor clears +0x19; the other two stay as the allocation left them: 0), kept verbatim for the save block */
+  pad19 = 0xcd0000 | (CD8 << 8);     // +0x19 = 0 (the constructor), +0x1a / +0x1b = 0xCD
   accessory: GameRecord | null = null;
   /** the pad stick (FUN_004376f9 out +4 / +8, -128..127; 0 for the keyboard) */
   padX = 0; padY = 0;
   constructor(v: number = V.PEPPER_CONTROL, mask: number = PC.SWIM, value: number = PC.SWIM) { this.var = v; this.mask = mask; this.value = value; }
+
+  /**
+   * FUN_0088cecd / FUN_0088ceeb (vtable +0x14 / +0x10): the 8 bytes at node +0x18 as they are (`*out = node + 0x18; return 8`, an 8 byte memcpy back):
+   * u8 phase (+0x18, the dive clip's result), 3 bytes +0x19..+0x1b (`pad19`), f32 speed (+0x1c).
+   */
+  saveBlock(_w: World, _rec: GameRecord, _ctrl: Controller): Uint8Array {
+    return new BlockOut(8).u8(0, this.phase).u8(1, this.pad19).u8(2, this.pad19 >> 8).u8(3, this.pad19 >> 16).f32(4, this.speed).bytes;
+  }
+  loadBlock(_w: World, _rec: GameRecord, _ctrl: Controller, data: Uint8Array): void {
+    const b = new BlockIn(data);
+    this.phase = b.u8(0); this.pad19 = b.u8(1) | (b.u8(2) << 8) | (b.u8(3) << 16); this.speed = b.f32(4);
+  }
 
   /** FUN_0088c740. Every arithmetic result of the original is a float32 (the x87 runs in 24-bit precision), so every operation is wrapped in Math.fround here, see docs/re/engine-m1.md "Differential test". */
   update(w: World, rec: GameRecord, _ctrl: Controller): number {
