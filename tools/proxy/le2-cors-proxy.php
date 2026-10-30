@@ -1,6 +1,6 @@
 <?php
 /**
- * CORS-proxy voor LEGO Eiland 2 in de browser (legoeiland2-web).
+ * CORS-proxy voor LEGO Eiland 2 in de browser (legoisland2-web).
  *
  * archive.org stuurt bij de "gewone" downloads geen CORS-headers (of negeert Range). Dit bestand haalt alleen de twee
  * Nederlandse ISO's van archive.org op, met Range-ondersteuning, en stuurt ze met CORS-headers door naar de app.

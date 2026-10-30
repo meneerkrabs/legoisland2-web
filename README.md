@@ -3,7 +3,7 @@
 **English** · [Nederlands](README.nl.md)
 
 A web port of the Dutch release *LEGO Eiland 2: De Wraak van Dondersteen* (LEGO Island 2: The Brickster's Revenge, Silicon Dreams, 2001;
-Dutch edition 2002), written in TypeScript with Vite. Play it at **https://meneerkrabs.github.io/legoeiland2-web/**.
+Dutch edition 2002), written in TypeScript with Vite. Play it at **https://meneerkrabs.github.io/legoisland2-web/**.
 
 Status: playable from start to finish. Every zone is ported (the island, the six hubs, all mini-games and rooms); a bot plays the whole story from "Nieuw spel" (new game)
 to the end. The port is now being made exact against the original step by step (differential tests run the original's code in an x86 emulator next to the port; see
