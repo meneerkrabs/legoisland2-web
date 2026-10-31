@@ -36,6 +36,13 @@ Opties > Afbeeldingen, see [docs/re/widescreen.md](docs/re/widescreen.md)), **In
 menu) and **Mods**: import a mod in the format of the [LI2 Mod Manager](https://github.com/JeffRuLz/LI2-Mod-Manager) (a zip, a rar or a folder; file replacements and
 patches of the executable, including the 2 GB HD Texture Pack). Mods are kept in your browser and apply the next time you play, see [docs/re/mods.md](docs/re/mods.md).
 
+**HD textures** (port extra): the start screen has an "HD-textures" checkbox for webfischi's HD Texture Pack (all 5000+ textures four times sharper), **on by default on
+capable devices** (a desktop-class browser with enough memory and storage room; phones and tablets get it unchecked, with a short explanation, and can still turn it on). The
+textures are read on demand from webfischi's upload on archive.org (through a byte-range relay): only the zones you visit are fetched (the island is about 65 MB) and kept in your
+browser, instead of a 2.2 GB download up front; MEGA is the fallback. Fetching happens in the background while you already play; a zone that is not ready yet starts with the original
+textures and is sharper the next time, and unchecking stops it and offers to remove what was stored. Off = exactly the original look. Nothing of the pack is hosted here. Details:
+[docs/re/mods.md](docs/re/mods.md).
+
 The **mod catalogue** (in the mods section) adds the known community mods with one click, with the authors' names and a link to their original topic on Rock Raiders
 United. **No mod is stored in this repository or on the website**: on "Toevoegen" (add) your browser fetches the mod directly from where its author published it (MEGA,
 Rock Raiders United, GitHub, archive.org; the last three through the same relay as the ISO). Nothing is switched on by itself. "IXS-look" is built in your browser from

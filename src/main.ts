@@ -8,7 +8,9 @@ import { loadRestore, RESTORE_FEATURES } from './restore/flag.ts';
 import { collectDropped, createModsSection, saveEffects } from './mods/ui.ts';
 import { openModStore } from './mods/store.ts';
 import { loadActiveMods } from './mods/manage.ts';
-import { ModdedFiles, withMods } from './mods/overlay.ts';
+import { ModdedFiles, ModLayer, withMods } from './mods/overlay.ts';
+import { hd, hdLazyForGame } from './mods/hd.ts';
+import { createHdOption, hdJoinsGame, showHdBadge } from './mods/hdui.ts';
 import type { ActiveMod } from './mods/overlay.ts';
 import { EffectMap, reportPatches } from './mods/effects.ts';
 
@@ -30,6 +32,11 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string,
   n.append(...kids);
   return n;
 };
+
+/** HD-textures (src/mods/hd.ts): opens when the game has what the player needs first (play() below); the background install of the pack waits for it */
+let openHdGate: () => void = () => {};
+const hdGate = new Promise<void>((r) => { openHdGate = r; });
+const hdGateFor = (lib: { source: string; cached: boolean }) => () => (lib.source === 'archive' && !lib.cached ? hdGate : new Promise<void>((r) => setTimeout(r, 2500)));
 
 const mb = (bytes: number) => `${(bytes / 1e6).toFixed(bytes < 1e7 ? 1 : 0)} MB`;
 const SOURCE_NAMES = { iso: 'Van je eigen ISO', cd: 'Van je eigen cd-map', dev: 'Uit public/data (dev)', archive: 'Van archive.org' };
@@ -119,6 +126,11 @@ async function startScreen() {
     el('details', { id: 'le2-restored-list', hidden: !prefs.restored, title: 'Elk onderdeel van de herstelde inhoud los aan of uit' }, el('summary', { textContent: 'Onderdelen van de herstelde inhoud' }),
       ...RESTORE_FEATURES.filter((f) => !('unfinished' in f)).map((f) => checkbox(`le2-rf-${f.id}`, f.label, f.id, !prefs.restoredOff.includes(f.id), (v) => { const off = new Set(storedPrefs().restoredOff); if (v) off.delete(f.id); else off.add(f.id); storePrefs({ restoredOff: [...off] }); }))));
 
+  // HD-textures: checked by default on capable devices; starts the background install when wanted (docs/re/mods.md)
+  const hdOption = await createHdOption(hdGateFor(lib));
+  options.append(hdOption.element);
+  if (hdOption.wanted() && !hd.running) void hd.start(hdGateFor(lib)());
+
   // mods: the executable is only read here when that costs nothing (own ISO, dev copy, a download that is already stored)
   const mods = await createModsSection({
     error: showError,
@@ -189,6 +201,14 @@ function showLoadBadge(files: GameFiles) {
   update();
 }
 
+/** the game data the player needs first is in (or arrives): after a short pause the background install of the HD pack may start; at the latest after a minute */
+function openHdGateSoon(files: GameFiles) {
+  const st = files.loading, go = () => setTimeout(openHdGate, 3000);
+  if (!st || st.complete) return go();
+  const off = st.subscribe(() => { if (st.complete || st.error) { off(); go(); } });
+  setTimeout(() => { off(); openHdGate(); }, 60000);
+}
+
 /** The game: start-up movies, then the zone loop (src/shell): front end, story, zones. `?intro=0` skips the movies, `?start=frontend` goes straight to the front end,
  * `?zone=z02LGI[&node=N]` starts in that zone, `?save=N` loads save slot N (docs/engine-api.md "Dev / test URLs"). */
 async function play(files: GameFiles, params = new URLSearchParams(location.search)) {
@@ -196,6 +216,8 @@ async function play(files: GameFiles, params = new URLSearchParams(location.sear
   const prefs = currentPrefs(`?${params.toString()}`);
   files = await applyMods(files, params, prefs.debugMenu);
   showLoadBadge(files);
+  showHdBadge();
+  hdJoinsGame(files);
   const only = params.get('movie');
   if (only) { await runMovie(files, only); showFiles(files); return; }
   const [{ Shell, registerZoneRunner }, { runFrontEnd }, { runPlayZone }] = await Promise.all([import('./shell/shell.ts'), import('./shell/frontend.ts'), import('./shell/playzone.ts')]);
@@ -215,6 +237,7 @@ async function play(files: GameFiles, params = new URLSearchParams(location.sear
   (window as unknown as { __shell?: unknown }).__shell = sh;
   if (params.get('devcorner') === '1' && prefs.debugMenu) (await import('./devcorner/index.ts')).openOnStart(sh);   // debug mode only: the corner opens when the front end starts
   recordModReport(files);
+  openHdGateSoon(files);
   document.title = GAME_TITLE; // the loading status lines went to the tab title
   if (sh.params.intro) await sh.runIntro();
   await sh.run();
@@ -235,7 +258,10 @@ async function applyMods(files: GameFiles, params: URLSearchParams, debugMenu: b
   try {
     const active = await loadActiveMods(await openModStore());
     if (debugMenu) active.push(DEBUG_MENU_MOD);
-    const out = withMods(files, active);
+    let out = withMods(files, active);
+    const lazy = await hdLazyForGame(currentPrefs(`?${params.toString()}`).hd);   // the HD pack read on demand (src/mods/hdremote.ts): only when it was fetched here before and the option is not off
+    if ((hd.running || lazy) && !(out instanceof ModdedFiles)) out = new ModdedFiles(out, new ModLayer([]));   // the HD pack is being installed / fetched per zone: it joins this layer (an empty layer changes nothing)
+    if (lazy && out instanceof ModdedFiles) out.lazy = lazy;
     if (out instanceof ModdedFiles) (window as unknown as { __le2Mods?: unknown }).__le2Mods = { layer: out.layer, files: out, mods: active.map((m) => m.title) };
     return out;
   } catch (e) {

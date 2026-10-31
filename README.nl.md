@@ -35,6 +35,13 @@ Opties > Afbeeldingen, zie [docs/re/widescreen.md](docs/re/widescreen.md)), **In
 importeer een mod in het formaat van de [LI2 Mod Manager](https://github.com/JeffRuLz/LI2-Mod-Manager) (een zip, een rar of een map; bestandsvervangers en patches van het programma,
 ook de 2 GB grote HD Texture Pack). Mods worden in je browser bewaard en gelden bij de volgende keer Spelen, zie [docs/re/mods.md](docs/re/mods.md).
 
+**HD-textures** (extra van de port): op het beginscherm staat een vinkje "HD-textures" voor het HD Texture Pack van webfischi (alle 5000+ plaatjes vier keer zo scherp), **standaard
+aan op geschikte apparaten** (een browser op een computer met genoeg geheugen en opslagruimte; telefoons en tablets krijgen het uitgevinkt, met een korte uitleg, en kunnen het
+toch aanzetten). De plaatjes worden op aanvraag gelezen uit de upload van webfischi op archive.org (via een tussenserver voor bytebereiken): alleen de zones die je bezoekt worden
+opgehaald (het eiland is ongeveer 65 MB) en in je browser bewaard, in plaats van 2,2 GB vooraf; MEGA is de terugval. Het ophalen gebeurt op de achtergrond terwijl je al speelt; een zone
+die nog niet klaar is begint met de originele plaatjes en is de volgende keer scherper, en uitvinken stopt het en biedt aan wat bewaard is te verwijderen. Uit = precies het originele
+beeld. Niets van het pakket staat hier. Details: [docs/re/mods.md](docs/re/mods.md).
+
 De **Mod-catalogus** (in het mods-onderdeel) laat de bekende community-mods met één klik toevoegen, met de namen van de makers en een link naar hun oorspronkelijke topic op
 Rock Raiders United. **Geen enkele mod staat in deze repo of op de website**: bij "Toevoegen" haalt je browser de mod rechtstreeks op bij de plek waar de maker hem publiceerde
 (MEGA, Rock Raiders United, GitHub, archive.org; de laatste drie via dezelfde doorgeefserver als de ISO). Niets staat vanzelf aan. "IXS-look" wordt in je browser gemaakt van

@@ -13,6 +13,10 @@ export interface FileSource {
   read(path: string): Promise<Uint8Array>;
   /** loose files (mods) that replace / add members of the archive `name` (paths relative to its root); see src/mods */
   archiveOverrides?(name: string): { path: string; size: number; load(): Promise<Uint8Array>; done?(replaced: boolean): void }[];
+  /** a zone ended and its mod files were released: mods that arrived meanwhile (the HD pack installed in the background) apply from the next zone load (src/mods/overlay.ts) */
+  zoneBoundary?(): void;
+  /** before an archive's overrides are applied: lets lazily fetched mod files (the HD pack read on demand from archive.org, src/mods/hdremote.ts) be fetched / decided for this archive */
+  prepareOverrides?(name: string): Promise<void>;
 }
 
 export class GameData {
@@ -21,6 +25,7 @@ export class GameData {
   private archives = new Map<string, Promise<Archive>>();
   /** archives whose mod files are (being) put in: the loose files of src/mods replace members (`Archive.override`) */
   private overlays = new Map<string, Promise<void>>();
+  private prepares = new Map<string, Promise<void>>();
   private pe: Promise<Pe> | null = null;
   private starts: number[] | null = null;
   /** `source`: a URL prefix of a plain game folder (dev), or the game's files from the library (archive.org / own ISO). */
@@ -53,15 +58,21 @@ export class GameData {
     return a;
   }
 
-  private applyOverrides(name: string, a: Archive): Promise<void> {
+  private async applyOverrides(name: string, a: Archive): Promise<void> {
     const key = name.toLowerCase();
+    if (this.files?.prepareOverrides && !this.overlays.has(key)) {
+      let pr = this.prepares.get(key);
+      if (!pr) this.prepares.set(key, pr = this.files.prepareOverrides(name).catch(() => { /* the archive keeps its original files */ }));
+      await pr;
+    }
     const have = this.overlays.get(key);
     if (have) return have;
     const list = this.files?.archiveOverrides?.(name) ?? [];
     if (!list.length) return Promise.resolve();
     const p = (async () => {
       for (const o of list) {
-        try { o.done?.(a.override(o.path, await o.load())); } catch (e) { console.warn(`mod-bestand ${o.path} niet geladen, het spelbestand blijft`, e); }   // a missing / damaged stored file must not stop the zone
+        // (not `o.done?.(a.override(...))`: for an entry without `done` that skips the override altogether)
+        try { const replaced = a.override(o.path, await o.load()); o.done?.(replaced); } catch (e) { console.warn(`mod-bestand ${o.path} niet geladen, het spelbestand blijft`, e); }   // a missing / damaged stored file must not stop the zone
       }
     })();
     this.overlays.set(key, p);
@@ -75,10 +86,13 @@ export class GameData {
   async releaseZoneOverrides() {
     for (const [key, p] of [...this.overlays]) {
       if (!/^z\d\d/.test(key)) continue;
+      this.prepares.delete(key);
       await p.catch(() => { /* a failed load has nothing to release */ });
       this.overlays.delete(key);
       (await this.archives.get(key))?.clearOverrides();
     }
+    for (const key of [...this.prepares.keys()]) if (/^z\d\d/.test(key)) this.prepares.delete(key);   // zones that had nothing to apply decide again at their next visit
+    this.files?.zoneBoundary?.();
   }
 
   private rawArchive(name: string, status?: Status): Promise<Archive> {

@@ -70,3 +70,8 @@ html, body { margin: 0; height: 100%; background: #000; color: #eee; font-family
 .bdb-catentry .bdb-moddesc { opacity: .8; margin: .2rem 0; }
 .bdb-busy .bdb-catentry button { opacity: .4; pointer-events: none; }
 .bdb-start > * { flex-shrink: 0; }
+.bdb-hd { flex-basis: 100%; text-align: center; }
+.bdb-hdnote { font-size: .8rem; opacity: .8; max-width: 38rem; margin: .15rem auto; }
+.bdb-hdnote.bdb-warn { opacity: 1; }
+.bdb-hdtrack { width: min(60vw, 20rem); height: .45rem; margin: .3rem auto 0; }
+.le2-hdbadge { bottom: 2.6rem; }

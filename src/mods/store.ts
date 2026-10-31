@@ -134,7 +134,9 @@ const ROOT = 'le2-mods';
 export class OpfsModStore implements ModStore {
   readonly persistent = true;
   private root: FileSystemDirectoryHandle;
-  private writing = new Set<string>();
+  /** import folders being written in this page (shared by every instance of the store in the page, so a second `list()` does not take them for leftovers) */
+  private static writingAll = new Set<string>();
+  private get writing() { return OpfsModStore.writingAll; }
   private constructor(root: FileSystemDirectoryHandle) { this.root = root; }
 
   static async open(): Promise<OpfsModStore> {
@@ -160,7 +162,8 @@ export class OpfsModStore implements ModStore {
       const m = await this.readJson(h as FileSystemDirectoryHandle);
       if (m) out.push(m); else if (!this.writing.has(name)) orphans.push(name);
     }
-    for (const o of orphans) await this.root.removeEntry(o, { recursive: true }).catch(() => { /* gone already */ });
+    // leftovers of a cut-off import are removed - but not while another tab is importing (the background install of the HD pack holds this lock)
+    if (orphans.length && !(await installLockHeld())) for (const o of orphans) await this.root.removeEntry(o, { recursive: true }).catch(() => { /* gone already */ });
     return out.sort((a, b) => a.seq - b.seq);
   }
 
@@ -202,7 +205,21 @@ export class OpfsModStore implements ModStore {
   }
 }
 
-/** the persistent store, or a memory store for this session when OPFS does not work */
-export async function openModStore(): Promise<ModStore> {
-  try { const s = await OpfsModStore.open(); await s.list(); return s; } catch (e) { console.warn('mods: OPFS niet beschikbaar, de mods blijven alleen in dit venster', e); return new MemoryModStore(); }
+/** the Web Lock the background install of the HD pack (src/mods/hd.ts) holds while it downloads / imports, so that no other tab cleans up its half-written files */
+export const INSTALL_LOCK = 'le2-hd-install';
+/** true when some page (this one or another tab) holds the install lock right now */
+export async function installLockHeld(): Promise<boolean> {
+  try {
+    const locks = (globalThis as { navigator?: Navigator }).navigator?.locks;
+    if (!locks?.query) return false;
+    return ((await locks.query()).held ?? []).some((l) => l.name === INSTALL_LOCK);
+  } catch { return false; }
+}
+
+let shared: Promise<ModStore> | null = null;
+/** the persistent store, or a memory store for this session when OPFS does not work. One store per page: the start screen, the game and the background install share it. */
+export function openModStore(): Promise<ModStore> {
+  return (shared ??= (async () => {
+    try { const s = await OpfsModStore.open(); await s.list(); return s; } catch (e) { console.warn('mods: OPFS niet beschikbaar, de mods blijven alleen in dit venster', e); return new MemoryModStore(); }
+  })());
 }

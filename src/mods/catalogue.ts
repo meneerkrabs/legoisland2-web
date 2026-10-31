@@ -13,6 +13,7 @@ import { importPicked } from './manage.ts';
 import type { ImportOptions, ImportProgress, PickedFile } from './manage.ts';
 import { megaOpen, megaStream } from './mega.ts';
 import { IXS_FILES, IXS_LOOK_FILES, buildIxsLook, readIxsBanks } from './ixslook.ts';
+import { installLockHeld } from './store.ts';
 import type { ModStore } from './store.ts';
 
 /** the byte-range relay (nginx on krokantekrab; CORS only for this site and the dev ports 5498 / 5499) */
@@ -73,7 +74,7 @@ export const CATALOGUE: CatalogueEntry[] = [
     description: 'Alle 5000+ plaatjes van het spel vier keer zo scherp (opgeschaald met waifu2x). Een groot pakket: 512 MB downloaden, 2,2 GB in de opslag van je browser.',
     size: 511662626, unpacked: 2164645632, host: 'MEGA (rechtstreeks)', thread: THREADS.hd,
     fit: 'data', fitNote: `${DATA} (Volgens JappaWakka werkt het ook op de Nederlandse versie.)`,
-    portNote: 'Werkt volledig: de port laadt de grotere plaatjes (met mipmaps) per zone en laat ze weer los als je de zone verlaat. Het eiland gebruikt dan ongeveer 560 MB geheugen in plaats van 180 MB.',
+    portNote: 'Werkt volledig: de port laadt de grotere plaatjes (met mipmaps) per zone en laat ze weer los als je de zone verlaat. Het eiland gebruikt dan ongeveer 560 MB geheugen in plaats van 180 MB. Op het beginscherm staat het vinkje "HD-textures" (standaard aan op geschikte apparaten): dat haalt dit pakket zonder de MEGA-download per zone op bij archive.org; deze knop is de volledige installatie in een keer.',
     status: 'live', source: { kind: 'mega', link: 'https://mega.nz/#!c4ACiQYI!ILA2jq_veMz2t1HuZeOfeszz0Mk1-38PwN_VYtVikD0' },
   },
   {
@@ -219,6 +220,7 @@ export async function tempFile(): Promise<TempFile> {
 /** leftovers of a download that was cut off (tab closed): removed when the mod list opens */
 export async function cleanTemp(): Promise<void> {
   try {
+    if (await installLockHeld()) return;   // the background install of the HD pack is downloading into it (this page or another tab)
     const nav = (globalThis as { navigator?: Navigator }).navigator;
     if (!nav?.storage?.getDirectory) return;
     await (await nav.storage.getDirectory()).removeEntry(TMP, { recursive: true }).catch(() => { /* none */ });

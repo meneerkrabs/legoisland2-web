@@ -7,6 +7,7 @@ import type { GameFiles, MediaFile } from '../files.ts';
 import { normalizePath } from '../files.ts';
 import type { LoadState } from '../engine/bytesource.ts';
 import type { PatchLine } from './package.ts';
+import type { HdLazy } from './hdremote.ts';
 import { applyPatches } from './patch.ts';
 import type { PatchResult } from './patch.ts';
 
@@ -37,7 +38,10 @@ export class ModLayer {
   /** filled when the executable is read: result per patch line, same order as `patches` */
   patchResults: PatchResult[] = [];
 
-  constructor(mods: readonly ActiveMod[]) {
+  constructor(mods: readonly ActiveMod[]) { this.add(mods); }
+
+  /** put more mods on top of the ones already in (they win where they replace the same file) */
+  add(mods: readonly ActiveMod[]) {
     for (const m of mods) {
       for (const f of m.files) {
         const key = normalizePath(f.path);
@@ -73,7 +77,24 @@ export class ModdedFiles implements GameFiles {
   /** the unpatched executable (for the effect report), once read */
   originalExe: Uint8Array | null = null;
 
+  /** mods that became available while the game runs (the HD pack that finished downloading in the background): they join the layer at the next zone change, see `zoneBoundary` */
+  private pending: ActiveMod[] = [];
+
   constructor(base: GameFiles, layer: ModLayer) { this.base = base; this.layer = layer; }
+
+  /** the HD pack read on demand (src/mods/hdremote.ts): complete archives of it replace members like a mod's files (below the mods' own: those win) */
+  lazy: HdLazy | null = null;
+
+  queue(mods: readonly ActiveMod[]) { this.pending.push(...mods); }
+  /** called when a zone ended and its mod files were let go of (`GameData.releaseZoneOverrides`): from now on the zones that load see the queued mods */
+  zoneBoundary() {
+    this.lazy?.newZone();
+    if (!this.pending.length) return;
+    this.layer.add(this.pending);
+    this.pending = [];
+    (globalThis as { dispatchEvent?: (e: Event) => boolean }).dispatchEvent?.(new Event('le2-mods-changed'));
+  }
+  prepareOverrides(name: string): Promise<void> { return this.lazy?.prepare(name) ?? Promise.resolve(); }
 
   get source() { return this.base.source; }
   get route() { return this.base.route; }
@@ -112,7 +133,10 @@ export class ModdedFiles implements GameFiles {
     return this.base.read(path);
   }
 
-  archiveOverrides(name: string) { return this.layer.archiveOverrides(name); }
+  archiveOverrides(name: string) {
+    const own = this.layer.archiveOverrides(name), lz = this.lazy?.overrides(name) ?? [];
+    return lz.length ? [...lz, ...own] : own;
+  }
 }
 
 /** wrap `files` when there is anything to apply; otherwise they are returned as they are (nothing changes without mods) */

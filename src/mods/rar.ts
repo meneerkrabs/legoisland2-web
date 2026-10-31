@@ -186,7 +186,21 @@ function decodeRarName(raw: Uint8Array, unicode: boolean): string {
 
 interface Block4 extends RarEntry { head: Uint8Array; dataAt: number }
 /** the blocks of a RAR 1.5 - 4.x archive, or null when the archive needs "whole" mode (solid / not this format) */
-async function walkBlocks(src: ByteRange, name: string): Promise<{ main: Uint8Array; files: Block4[] } | null> {
+/** reads that go forward are served from a window of this size: a header every ~100 kB would cost one asynchronous read each (5000+ of them for the HD pack), and on a busy main thread every one waits for a frame */
+const WALK_WINDOW = 4 << 20;
+function windowed(src: ByteRange): ByteRange {
+  let from = 0, buf: Uint8Array | null = null;
+  return {
+    size: src.size,
+    async read(s, e) {
+      if (!buf || s < from || e > from + buf.length) { from = s; buf = await src.read(s, Math.min(src.size, Math.max(e, s + WALK_WINDOW))); }
+      return buf.subarray(s - from, e - from);
+    },
+  };
+}
+
+async function walkBlocks(plain: ByteRange, name: string): Promise<{ main: Uint8Array; files: Block4[] } | null> {
+  const src = windowed(plain);
   const first = await src.read(0, Math.min(src.size, 64));
   if (!MARKER4.every((b, i) => first[i] === b)) return null;
   let pos = 7;

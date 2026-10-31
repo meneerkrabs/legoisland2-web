@@ -186,3 +186,41 @@ coast), which the more opaque IXS sea mostly hides, and where it shows (shore ed
   the pack (JS heap 624 MB). In node the same import (`--rar`) peaks at 285 MB RSS;
 * **Not checked with the real pack**: a pack with its own `Balloon12/24.fnt` + `.tga` (the real pack has no font; `logicalFont` is tested with a synthetic 4x font only), Safari / Firefox
   (WebCrypto, OPFS and quota differences; MEGA's CORS was only tried from Chromium), the GPU memory, and the GPU memory of the front end (z60FRE: 303 MB of RGBA pictures + 144 MB of `.wib` frames in the pack) on a weak GPU.
+
+## HD-textures on the start screen (`hd.ts`, `hdremote.ts`, `hdui.ts`)
+
+A port extra, not a feature of the original: the HD Texture Pack (webfischi) as a start-screen checkbox **"HD-textures"**, kept in `le2-display` as `hd` (`null` = never chosen,
+`true` / `false` = the player's choice, which always wins; `?hd=1|0` overrides for one visit). Two sources behind the one checkbox, `hdBackend()` picks the first that works:
+
+1. **archive.org, on demand** (`hdremote.ts`, primary): webfischi's own upload, item `lego-island-2-hd-textures`, `HD Texture.zip` (709 MB, per-member deflate, 10,200 entries of which
+   5,034 are the pack under `HD Texture/`; `__MACOSX/` and `.DS_Store` are ignored), read through the byte-range relay
+   (`https://le2.143-47-181-190.sslip.io/ia/lego-island-2-hd-textures/HD%20Texture.zip`; `?relay=<base>` points a test at another one). The zip's central directory (1.2 MB) is read
+   once and kept as `le2-hd/index.json`. Nothing is imported as a mod: per **archive** (zone) the members are fetched in a few merged ranges (the pack is laid out per archive: the
+   island is 4 requests / 64 MB for 543 files = 223 MB unpacked; Overlays 1 / 19 MB), inflated (`DecompressionStream`, CRC checked by `zip.ts`) and stored in OPFS `le2-hd/<archive>/` with
+   `done.json` LAST. Complete archives replace members through `ModdedFiles.archiveOverrides` (below the mods' own files, which win). When a zone loads
+   (`GameData.applyOverrides` -> `FileSource.prepareOverrides` -> `HdLazy.prepare`): complete -> HD at once; not cached -> its fetch starts and the zone WAITS up to 4 s for it
+   (most zones are 10-65 MB), then goes on with the ORIGINAL textures, and the fetch finishes in the background for the next visit. A zone never switches halfway: what an archive
+   decided stays until the zone ends (`newZone()`); the shared archives (Overlays, menu ...) never wait (they are not released, so HD only from the next page load). After the game is up the
+   island, the shared archives and Pepper's house are fetched ahead (`PRIORITY`). One fetch per archive across tabs (Web Lock `le2-hd-fill-<archive>`); a cut-off fetch (reload) leaves a
+   folder without `done.json` that the next visit removes, and starts over for that archive.
+2. **MEGA, whole pack** (fallback when the relay cannot serve the item): the catalogue entry `hd-texture` (512 MB RAR, 2,16 GB unpacked) is downloaded, unpacked file by file and
+   imported as an ordinary, enabled mod (credits as in the catalogue; a copy the player imported by hand is reused). Web Lock `le2-hd-install`, temp file `le2-tmp/dl-*`, `mod.json` last;
+   a reload mid-download restarts from the beginning after cleaning up (`OpfsModStore.list`, `cleanTemp`). It joins a running game at the next zone change (`ModdedFiles.queue` / `zoneBoundary`).
+
+* **Default** (`hdCapability` / `judgeCapability`): on only for a desktop-class device: no mobile UA (`userAgentData.mobile`, UA string, or a touch-primary `(pointer: coarse)`),
+  `navigator.deviceMemory >= 8` when the browser reports it (Chrome caps at 8; Safari / Firefox do not report it and pass; the island needs ~620 MB JS heap with the pack against ~180 MB
+  without), a persistent store (OPFS) and `navigator.storage.estimate()` showing 1.2 GB free for the on-demand source (2.8 GB for MEGA). A device that fails the cheap checks is not probed.
+  Otherwise the box is unchecked with the reason, and can still be turned on (a confirm names the reason). `?hdcaps=mobile|lowmem|noroom` pretends to be such a device (tests).
+  With a stored MEGA mod the store is the truth (the mod list can switch it off).
+* **Background**: started from the start screen only (the direct-entry URLs `?zone=` / `?play=` / `?save=` never fetch anything; they use what is cached), after the game data the player needs first (local
+  data: 2.5 s after the start screen; first visit from archive.org: when the cabinet download is done, then 3 s after the shell is up, at most a minute). Progress: a bar and a line under the
+  checkbox, and in the game the corner badge `#le2-hdbadge`. The game is never held up except the bounded wait above.
+* **Exactness**: with the box off (`hd: false`) nothing is wrapped, nothing is read: `withMods` returns the original files. The layer is also wrapped (EMPTY, reads fall through) only while
+  something is being fetched or cached for the checkbox.
+* **Unchecking** stops what is being fetched (aborted fetches remove their own files); with something stored a confirm offers to remove it (OK) or only switch it off (Cancel). A failure
+  (relay / MEGA gone, quota exceeded) shows a Dutch message, unchecks the box and stores `hd: false`.
+* **Why a worker** (`hdworker.ts` / `hdfill.ts`): a first version did the fetching on the main thread; with the game running every `await` of a stream hop then waits for a frame (headless software GL: 100+ ms),
+  so 65 MB took 4-6 minutes. In the worker the island's 65 MB take ~18 s (the relay gives ~3.5 MB/s) and the longest main-thread stall during a fetch is 2 ms. The same reason made the members of an archive
+  go into a few pack files (`p<n>.bin`, one OPFS file per request group) that are read whole once (`HdLazy.readFile`), and `rar.ts` `walkBlocks` read its headers through a 4 MB window. The MEGA
+  fallback still imports on the main thread (a file per member): fine on an idle page (45 s unpack), slow while a game runs in software GL.
+* Check: `sh tools/m5-botslot.sh node tools/hd-check.mjs lowend|lazy|first|island|interrupt|uncheck --profile <dir>` (headless, muted, own profile for a real quota; dev server on :5498 for the relay's CORS).
