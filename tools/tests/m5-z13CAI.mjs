@@ -20,10 +20,11 @@ import { GullNode } from '../../src/zones/z13CAI/bunny.ts';
 import { FlowNode } from '../../src/zones/z13CAI/flow.ts';
 import { CaiPepSwitch, LOOK_RECORD } from '../../src/zones/z13CAI/pepswitc.ts';
 import '../../src/zones/index.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const kindsOf = (world) => { const k = {}; for (const r of world.records) for (const n of r.ctrl?.nodes ?? []) k[n.kind] = (k[n.kind] ?? 0) + 1; return k; };
 
-export default {
+const __test = {
   name: 'm5-z13CAI',
   run(ctx) {
     const failures = [], notes = [];
@@ -201,3 +202,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

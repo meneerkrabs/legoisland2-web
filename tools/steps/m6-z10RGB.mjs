@@ -164,6 +164,8 @@ export default async ({ page, shot, wait, log, key }) => {
   const m1 = await menu();
   expect('result menu page 16 (continue / retry)', (await mode()) === 5 && m1.page === 16, JSON.stringify(m1));
   await shot('9-result-menu');
+  // (an aim key of the bot that was still down when the menu opened has moved the cursor: Continue is item 1)
+  for (let i = 0; i < 4 && (await menu()).item !== 1; i++) { await key((await menu()).item > 1 ? 'ArrowUp' : 'ArrowDown'); await wait(170); }
   await key('Enter'); await wait(2500);
   const v2 = await vars();
   log('after continue', JSON.stringify(v2), 'mode', await mode());

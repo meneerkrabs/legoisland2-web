@@ -5,13 +5,15 @@
 //   * state injection (both sides get the same node field written between two ticks: the states 0xd, 0x15, 0x1c, 0x1d that no code of the executable sets, see docs/re/m6/z09JST.md);
 //   * preset game variables (0x18 / 0xcb: "only raised" rule) and a compare of the variable writes;
 //   * instruction coverage of the original (the `trace` hook of `cpu.call`): the set of executed addresses of the zone's code, per scenario and over all;
-//   * a tighter tolerance (1e-5 relative to max(1, |value|), float32 noise) than the first test (2e-3).
+//   * tolerance 0: every float of the node, the vectors, the records and the camera compares bit for bit.
 // Nothing of the executable is stored here, only addresses.
 import { loadZone, loadExe } from './engine-load.mjs';
 import { JstEmu } from './jst-emu.mjs';
 import '../../src/zones/z09JST.ts';
 import { startDuel, giveAnimations, INTRO_CAMERA, applyRestart, rememberRestart } from '../../src/zones/z09jst/rig.ts';
-import { MsvcRng } from '../../src/zones/z09jst/duel.ts';
+import { MsvcRng } from './msvc-rng.mjs';
+import { setTickCountSource } from '../../src/game/crt.ts';
+import { startTickClock } from '../../src/zones/common/tickrand.ts';
 import { START_CLIPS } from '../../src/zones/z09jst/consts.ts';
 import { RIG_OF } from '../../src/zones/z09jst/consts.ts';
 import { popupLines, finalLines } from '../../src/zones/z09jst/screens.ts';
@@ -28,7 +30,7 @@ export class Cov {
   count(lo, hi) { let n = 0; for (let x = lo; x < hi; x++) if (this.has(x)) n++; return n; }
 }
 
-/** the original's node record (DAT_05d5b0a8): offset, kind, name of the field in the port's `JoustDuel` (ints are compared exactly, floats within the tolerance) */
+/** the original's node record (DAT_05d5b0a8): offset, kind, name of the field in the port's `JoustDuel` (ints and floats are compared exactly) */
 export const NODE_FIELDS = [
   [0x3c, 'i', 'steer'], [0x44, 'i', 'level'], [0x48, 'i', 'variant'], [0x4c, 'i', 'state'], [0x58, 'i', 'hitsP'], [0x5c, 'i', 'hitsE'], [0xf8, 'i', 'bonusSpeed'], [0xfc, 'i', 'precision'],
   [0x100, 'i', 'camMode'], [0x108, 'i', 'score'], [0x10c, 'i', 'roundPts'], [0x110, 'i', 'medal'], [0x118, 'i', 'popup'], [0xd0, 'i', 'toggle'],
@@ -100,7 +102,8 @@ function fxNames(log) {
   return out;
 }
 
-export const TOL = 1e-5;
+/** every float compares bit for bit (the port rounds every x87 operation to float32 like the original's 24-bit mode) */
+export const TOL = 0;
 /** the level the previous port duel ended with (what `rememberRestart` stores when the zone is left) */
 function rememberRestartFrom(prevDuel) { rememberRestart(prevDuel); }
 const F32 = new Float32Array(1);
@@ -142,7 +145,7 @@ export function runScenario(ctx, o) {
   const plog = [], vlog = [];
   const snd = {
     play2D: (i) => plog.push(`p2 ${i}`), stop2D: (i) => plog.push(`s2 ${i}`), rate: (i, h) => plog.push(`r ${i} ${h}`),
-    play3D: (i, p) => plog.push(`p3 ${i} ${[0, 1, 2].map((k) => p[k].toFixed(2)).join(',')}`),
+    play3D: (i, p) => plog.push(`p3 ${i} ${[0, 1, 2].map((k) => p[k].toString()).join(',')}`),
   };
   const effects = [];
   // restartOf: the zone restarts in place: the oracle is the previous scenario's emulator (constructor else branch) and the port a rebuilt zone with the carried-over state
@@ -161,6 +164,8 @@ export function runScenario(ctx, o) {
   S0.duel.onEffect = (n) => effects.push(n);
   plog.length = 0; vlog.length = 0;
   const d = S0.duel;
+  // the reaction variant scales rand() by FUN_00435c91 = GetTickCount() - base: the port reads the shared clock (src/game/crt.ts), pinned here to the oracle's stand-in (one tick = dt * 1000 / 30 ms, base 0 at the start)
+  setTickCountSource(() => Math.trunc(d.ticks * 1000 * dtP / 30)); startTickClock();
   if (prev) { rememberRestartFrom(prev.d); if (!o.noCarry) applyRestart(d, 1); }
   // ---- the oracle
   let emu, anims;
@@ -281,5 +286,6 @@ export function runScenario(ctx, o) {
   }
   for (const id of [0x18, 0xcb]) { checked++; if ((emu.vars.get(id) ?? 0) !== (W.vars.get(id) | 0)) fail(`variable ${id.toString(16)}: original ${emu.vars.get(id) ?? 0} port ${W.vars.get(id)}`); }
   const unh = [...emu.unhooked.entries()].map(([x, c]) => `0x${x.toString(16)}x${c}`).join(' ');
+  setTickCountSource(null);
   return { checked, failures, states, stateTicks, ticks: n, panels, worst, floats, exact, unhooked: unh, d, emu, anims, rngO, S, result: d.result };
 }

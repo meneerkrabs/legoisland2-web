@@ -2,12 +2,13 @@
 // (tools/lib/m5-z07CSI-emu.mjs) next to the port's nodes with the same random numbers (the C runtime's rand() is one scripted LCG for both; FUN_004388ae's own x87 code runs natively), compared
 // tick by tick: records (matrix, Euler angles, flags), the nodes' fields, the animation clips and frames, game variables, every sound and emitter call.
 import { makeCsiDuel, onodeOf, NATIVE_CTORS, B } from '../lib/m5-z07CSI-emu.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MAXFAIL = 30;
 const RATS = Array.from({ length: 10 }, (_, k) => 57 + k);       // RAT0..RAT9 (node 15 .. 29)
 const GOBLETS = Array.from({ length: 10 }, (_, k) => 184 + k);   // GOB0..GOB9
 
-export default {
+const __test = {
   name: 'm5-z07CSI-pickups',
   async run(ctx) {
     const failures = [], notes = [];
@@ -22,17 +23,17 @@ export default {
       const scale = dt === 1 ? 1 : 2;
       const compare = () => {
         for (const i of RATS) {
-          d.rec(i, 0xffff, 1e-6);
+          d.rec(i, 0xffff);
           const pn = W.records[i].ctrl.nodes.find((n) => n.kind === 'Rat'), a = onodeOf(d, i, NATIVE_CTORS.RAT);
           if (!pn || !a) { d.fail(`${d.label} t${d.t} rat ${i}: node missing (port ${!!pn}, original ${!!a})`); continue; }
           d.eq(`rat${i} mode`, mem.r32(a + 0x24), pn.mode);
           d.eq(`rat${i} loops`, mem.r32(a + 0x2c) | 0, pn.loops);
-          d.cmp(`rat${i} keep`, mem.f32(a + 0x20), pn.keep, 1e-7, '', 0);
-          d.cmp(`rat${i} timer`, mem.f32(a + 0x28), pn.timer, 1e-7, '', 0);
-          d.cmp(`rat${i} turn`, mem.f32(a + 0x30), pn.turn, 1e-7, '', 0);
-          for (let k = 0; k < 3; k++) d.cmp(`rat${i} home`, mem.f32(a + 0x14 + 4 * k), pn.home[k], 1e-7, `[${k}]`, 0);
+          d.cmp(`rat${i} keep`, mem.f32(a + 0x20), pn.keep);
+          d.cmp(`rat${i} timer`, mem.f32(a + 0x28), pn.timer);
+          d.cmp(`rat${i} turn`, mem.f32(a + 0x30), pn.turn);
+          for (let k = 0; k < 3; k++) d.cmp(`rat${i} home`, mem.f32(a + 0x14 + 4 * k), pn.home[k], 0, `[${k}]`);
           const an = d.O.world.records[i].anim, pa = W.records[i].anim;
-          if (an && pa) { d.eq(`rat${i} clip`, an.clip, pa.clip); d.cmp(`rat${i} frame`, an.frame, pa.frame, 1e-7, '', 0); }
+          if (an && pa) { d.eq(`rat${i} clip`, an.clip, pa.clip); d.cmp(`rat${i} frame`, an.frame, pa.frame); }
           cover.modes.add(pn.mode);
         }
         d.vars();
@@ -64,7 +65,7 @@ export default {
       W.records[first].ctrl.nodes.find((n) => n.kind === 'Goblet').startEmitter(d.P.fx, W.records[first]);
       const compare = () => {
         for (const i of GOBLETS) {
-          d.rec(i, 0xffff, 1e-6);
+          d.rec(i, 0xffff);
           const pn = W.records[i].ctrl?.nodes.find((n) => n.kind === 'Goblet'), a = onodeOf(d, i, NATIVE_CTORS.GOBLET);
           if (pn && a) d.eq(`goblet${i} state`, mem.r32(a + 0x18) | 0, pn.state);
           else if (!!pn !== !!a) d.fail(`${d.label} t${d.t} goblet ${i}: node missing (port ${!!pn}, original ${!!a})`);
@@ -91,3 +92,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

@@ -42,9 +42,10 @@ export default {
     // ============================================================ the room
     ok(typeof zoneGameFor('z50LTC') === 'function', 'zone game registered');
     ok(ctorFactory(CTOR_LTC_PEPSWITC) !== undefined, 'pepswitc constructor 0x83ab7b registered');
-    const fresh = () => {
+    const fresh = (dt = 1) => {
       persisted.toggle = 0;
       const L = loadZone(ctx, 'z50LTC');
+      L.world.dt = dt;
       const room = buildLtc(L.world, L, L.pe);
       return { L, w: L.world, p: L.pepper, room, g: room.g, rec: (n) => L.world.records.find((r) => r.name === n) };
     };
@@ -106,6 +107,25 @@ export default {
       R3.g.onTwinkle = (rec, start) => ev.push([R3.w.tickCount, rec.name, start]);
       tick(R3, 12);
       ok(ev.length >= 3 && ev[0][2] === true && ev.some((e) => e[1] === ev[0][1] && e[2] === false && e[0] === ev[0][0] + 3), `twinkle starts in tick 1 and stops 3 ticks later (${JSON.stringify(ev.slice(0, 3))})`);
+    }
+
+    // ---- the 60 Hz step (dt = 0.5): the appear timer, the portal's arming age and the animations are dt-scaled floats (twice the ticks), the twinkle is an integer counter per update
+    {
+      const R = fresh(0.5);
+      const set1 = R.room.people.filter((q) => q.entry.cond === 1);
+      const ticks = [];
+      for (let i = 1; i <= 160; i++) { const before = R.room.people.filter((q) => q.entry.cond === 1 && R.w.records[q.entry.record].enabled).length; tick(R); const after = R.room.people.filter((q) => q.entry.cond === 1 && R.w.records[q.entry.record].enabled).length; if (after < before) ticks.push(i); }
+      ok(ticks.length === set1.length && ticks[0] === 1 && ticks.slice(1).every((t, i) => t - ticks[i] === 2 * CHANGE_DELAY), `dt 0.5: vanish ticks ${ticks} (first in tick 1, then every 10: the timer falls 0.5 per tick)`);
+      const R3 = fresh(0.5);
+      const ev = [];
+      R3.g.onTwinkle = (rec, start) => ev.push([R3.w.tickCount, rec.name, start]);
+      tick(R3, 12);
+      ok(ev.length >= 2 && ev[0][2] === true && ev.some((e) => e[1] === ev[0][1] && e[2] === false && e[0] === ev[0][0] + 3), `dt 0.5: the twinkle still stops 3 updates later (${JSON.stringify(ev.slice(0, 3))})`);
+      const R4 = fresh(0.5);
+      tick(R4, 59);
+      ok(R4.room.portal.age === 29.5, `dt 0.5: the portal's age counts 0.5 per tick (${R4.room.portal.age} after 59 ticks)`);
+      tick(R4, 1);
+      ok(R4.room.portal.age === 30, 'dt 0.5: the portal arms after 60 ticks');
     }
 
     // ---- talking

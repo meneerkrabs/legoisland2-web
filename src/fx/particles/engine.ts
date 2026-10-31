@@ -2,9 +2,10 @@
 // FUN_0044f900 gate, FUN_0044f9e0 stop, FUN_0044fa00 collision list, FUN_0044fa30 parameter override, FUN_0044f090 extra source pool, FUN_0044f2c0 / f220 update)
 // and the public `fx` hooks the zones call.
 //
-// Timing: `update(dt, frame)` is called once per logic frame with `dt` = DAT_008b1718 (1.0 at 30 Hz) and `frame` = DAT_009da5cc (the frame counter the script
+// Timing: `update(dt, frame)` is called once per sim step (= one drawn frame of the original: 60 Hz, dt = DAT_008b1718 = 1.0 for the first 5 frames, then 0.5) with that step's `dt` and `frame` = DAT_009da5cc (the frame counter the script
 // windows are measured on). Draw: see draw.ts.
-import { initTables, msvcRand, PState, type RandFn } from './core.ts';
+import { initTables, PState, type RandFn } from './core.ts';
+import { rand as crtRand } from '../../game/crt.ts';
 import { ParticleDefs, type ParticleFiles } from './defs.ts';
 import { initSource, Source, updateSource, type CollNode, type EngineHost, type MatrixSource } from './source.ts';
 import { matIdentity } from './mat.ts';
@@ -16,6 +17,8 @@ import { initSwirl, Swirl, updateSwirl } from './swirl.ts';
 export const NO_HANDLE = 0xbabababa;
 /** swirl handles are `0x1000 + index` */
 export const SWIRL_BASE = 0x1000;
+/** length of the dt history (a power of two) */
+export const DT_LOG = 64;
 const MAX_SOURCES = 150, MAX_SWIRLS = 150, MAX_DRAW = 0x1000, MAX_MODELS = 0x400;
 
 /** the override slots of `setParam` (FUN_0044fa30: the types the original accepts) */
@@ -23,7 +26,7 @@ export const PARAM = { FORCE: 0, LIFE: 2, DLIFE: 3, SIZE: 4, ESIZE: 5, DENSITY: 
 const PARAM_TYPES = new Set<number>([0, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 16, 17]);
 
 export interface EngineOptions {
-  /** the C runtime `rand()` (0..32767): inject the shared game RNG (WP-TIME); default an MSVC LCG */
+  /** the C runtime `rand()` (0..32767): default the shared game RNG (src/game/crt.ts) */
   rand?: RandFn;
   /** FUN_00417575: game variables (the gates of the sources, var 10 = pause) */
   getVar?: (i: number) => number;
@@ -38,6 +41,10 @@ export class ParticleEngine implements EngineHost {
   readonly defs: ParticleDefs;
   readonly clock = { frame: 0 };
   dt = 1;
+  /** the dt of the last DT_LOG updates (`dtAt`): the draw pass owes one spin step per sim step */
+  private readonly dtLog = new Float32Array(DT_LOG);
+  /** number of updates run */
+  updates = 0;
   readonly identity = new Float32Array(16);
   /** DAT_05d3b0a0 (set by z27TRX through FUN_0076b070) and the camera position DAT_009da5e8..f0 */
   lod = false;
@@ -63,7 +70,7 @@ export class ParticleEngine implements EngineHost {
   readonly modelList: Particle[] = [];
 
   constructor(files: ParticleFiles, opts: EngineOptions = {}) {
-    this.ps = new PState(opts.rand ?? msvcRand());
+    this.ps = new PState(opts.rand ?? crtRand);
     initTables(this.ps);
     this.defs = new ParticleDefs(files);
     matIdentity(this.identity);
@@ -196,8 +203,9 @@ export class ParticleEngine implements EngineHost {
   /** FUN_0044f2c0 (FUN_0044f220 while paused): advance every source by `dt` ticks at frame counter `frame`; fills `drawList` */
   update(dt: number, frame: number): void {
     this.dt = Math.fround(dt);                       // DAT_008b1718 is a float32 global
+    this.dtLog[this.updates & (DT_LOG - 1)] = this.dt; this.updates++;
     this.clock.frame = frame;
-    this.invZoom = 1.0 / this.zoom;
+    this.invZoom = Math.fround(1.0 / this.zoom);        // _DAT_05d3b098 = 1.0 / DAT_0089df2c (float32)
     this.drawList.length = 0; this.modelList.length = 0;
     if (this.paused) { this.repaint(); return; }
     for (const s of this.sources) if (s.active && s.started) updateSource(s, this);
@@ -208,6 +216,8 @@ export class ParticleEngine implements EngineHost {
       if (s.started) updateSource(s, this);
     }
   }
+  /** the dt of update number `i` (0-based; only the last DT_LOG are kept) */
+  dtAt(i: number): number { return this.dtLog[i & (DT_LOG - 1)]; }
   /** FUN_0044f220: the paused frame: re-list the particles that exist */
   private repaint(): void {
     for (const s of this.sources) if (s.started) this.relist(s);

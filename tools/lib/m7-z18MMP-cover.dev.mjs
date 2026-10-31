@@ -1,3 +1,7 @@
+import { setTickCountSource } from '../../src/game/crt.ts';
+import { startTickClock, msClock } from '../../src/zones/common/tickrand.ts';
+/** pin the shared clock (GetTickCount - base) to `ms` milliseconds */
+const pinClock = (ms) => { setTickCountSource(() => 100); startTickClock(); setTickCountSource(() => 100 + ms); };
 import { bootWorld, snapshotFromZone, Z18Bot, KEY } from './m6-z18MMP-bot.mjs';
 import { createMmpHarness, snapshotWorld, restoreWorld, f32, CovSet } from './m7-z18MMP-emu.mjs';
 import { REC, VAR, PS, SND } from '../../src/zones/z18mmp/consts.ts';
@@ -11,7 +15,7 @@ const bitsOf = (keys) => keys.reduce((a, k) => a | KEYBITS[k], 0);
 function makeRng(seed) {
   const g = { s: seed >>> 0 };
   const next = () => { g.s = (Math.imul(g.s, 1664525) + 1013904223) >>> 0; return g.s / 4294967296; };
-  g.float = (x) => next() * x; g.int = (n) => Math.trunc(next() * n);
+  g.float = (x) => (x <= 0 ? 0 : Math.fround(Math.fround(next()) * Math.fround(x))); g.int = (n) => Math.trunc(g.float(msClock())) % n;      // the port's pick: ftol(FUN_004388ae((float)(GetTickCount - base))) % n over the pinned clock
   return g;
 }
 
@@ -20,15 +24,14 @@ export default {
   run(ctx) {
     const failures = [], notes = [];
     let checked = 0;
-    const MAXFAIL = 40;
+    const MAXFAIL = +(process.env.Z18_MAXFAIL ?? 40);
     const stats = { ticks: 0, cov: new CovSet() };
     const bad = (msg) => { if (failures.length < MAXFAIL) failures.push(msg); else if (failures.length === MAXFAIL) failures.push('... more failures'); };
     const ok = (c, msg) => { checked++; if (!c) bad(msg); };
-    // float32 compare: the original stores float32 everywhere; the port keeps doubles between its float32 stores. |port - original| <= max(4 ulp32(original), 3e-7) (about 2.4e-7 relative: 40x tighter than 1e-5)
+    // float32 compare, tolerance 0 (WP-TIME: the port's nodes are bit-exact now): every compared number is identical (NaN = NaN)
     const ulp32 = (v) => { v = Math.abs(v); return v < 1e-30 ? 1e-45 : Math.pow(2, Math.floor(Math.log2(v)) - 23); };
-    const tolOf = (b) => Math.max(4 * ulp32(b), 3e-7);
     const maxErr = { rel: 0, at: '' };
-    const close = (a, b) => a === b || Math.abs(a - b) <= tolOf(b);
+    const close = (a, b) => a === b || (Number.isNaN(a) && Number.isNaN(b));
     const num = (a, b, msg) => { checked++; if (!close(a, b)) bad(`${msg}: port ${a}, original ${b}`); };
     const eqv = (a, b, msg) => { checked++; if (JSON.stringify(a) !== JSON.stringify(b)) bad(`${msg}: port ${JSON.stringify(a)}, original ${JSON.stringify(b)}`); };
 
@@ -37,6 +40,8 @@ export default {
       const G = bootWorld(ctx, seed);
       G.w.dt = dt;
       G.sh.rng = makeRng(seed * 7919 + 13);
+      pinClock(3);
+      if (process.env.TRAP_RY) { const r = G.rs[121]; let v = r.ry; Object.defineProperty(r, 'ry', { get() { return v; }, set(x) { if (Math.fround(x) !== x) console.log('TRAP ry', x, new Error().stack.split('\n').slice(2, 4).join(' | ')); v = x; } }); }
       const log = [];
       G.sh.sounds = {
         play2D: (id) => log.push(['2d', id]), stop2D: (id) => log.push(['stop2d', id]),
@@ -77,7 +82,7 @@ export default {
         for (let k = 0; k < 16 && same; k++) if (!close(a.m[k], b.m[k])) { same = false; bk = k; }
         for (let k = 0; k < 3 && same; k++) if (!close(a.e[k], b.e[k])) { same = false; bk = 16 + k; }
         checked++;
-        if (!same) { const pv = bk < 16 ? a.m[bk] : a.e[bk - 16], ov = bk < 16 ? b.m[bk] : b.e[bk - 16]; bad(`${label}: record ${i} ${G.rs[i].name} ${bk >= 0 ? (bk < 16 ? 'm[' + bk + ']' : 'euler[' + (bk - 16) + ']') : 'flags'}: port ${bk >= 0 ? pv : a.flags}, original ${bk >= 0 ? ov : b.flags}${bk >= 0 ? ` (${((pv - ov) / ulp32(ov)).toFixed(1)} ulp)` : ''}`); }
+        if (!same) { const pv = bk < 16 ? a.m[bk] : a.e[bk - 16], ov = bk < 16 ? b.m[bk] : b.e[bk - 16]; bad(`${label}: record ${i} ${G.rs[i].name} ${bk >= 0 ? (bk < 16 ? 'm[' + bk + ']' : 'euler[' + (bk - 16) + ']') : 'flags'}: port ${bk >= 0 ? pv : a.flags}, original ${bk >= 0 ? ov : b.flags} [euler port ${a.e} original ${b.e}]${bk >= 0 ? ` (${((pv - ov) / ulp32(ov)).toFixed(1)} ulp)` : ''}`); }
         const aa = G.rs[i].anim ? [G.rs[i].anim.clip, G.rs[i].anim.frame] : null;
         if (aa && origAnim[i]) { checked++; if (aa[0] !== origAnim[i][0] || !close(aa[1], origAnim[i][1])) bad(`${label}: record ${i} ${G.rs[i].name} animation: port ${JSON.stringify(aa)} original ${JSON.stringify(origAnim[i])}`); }
       }
@@ -147,7 +152,7 @@ export default {
         if (!ok1 || failures.length > MAXFAIL) break;
       }
     };
-    const put = (G, x, y, z, ry) => { const p = G.rs[REC.PEPPER]; p.x = x; p.y = y; p.z = z; if (ry !== undefined) p.ry = ry; p.rebuildYaw(); p.savePrev(); G.nodes.pepper.state = PS.FREE; return p; };
+    const put = (G, x, y, z, ry) => { const p = G.rs[REC.PEPPER]; p.x = x; p.y = y; p.z = z; if (ry !== undefined) p.ry = Math.fround(ry); p.rebuildYaw(); p.savePrev(); G.nodes.pepper.state = PS.FREE; return p; };
         let tmark = Date.now(), tlabel = 'start';
     const lap = (label) => { notes.push(`[time] ${tlabel}: ${Date.now() - tmark} ms, ${stats.ticks} ticks so far`); tmark = Date.now(); tlabel = label; };
     const lcg = (seed) => { let q = seed >>> 0; return () => { q = (Math.imul(q, 1103515245) + 12345) >>> 0; return q / 4294967296; }; };
@@ -284,7 +289,7 @@ export default {
               let ry = f32(ang + T);
               for (let k = 0; k < 40 && f32(ry - f32(ang)) !== T; k++) ry = f32(ry + (f32(ry - f32(ang)) < T ? 1 : -1) * 2 ** (Math.floor(Math.log2(Math.abs(ry))) - 23));
               if (f32(ry - f32(ang)) === T) edge++;
-              rat.ry = ry; rat.setEuler(rat.rx, rat.ry, rat.rz, rat.x, rat.y, rat.z);
+              rat.ry = Math.fround(ry); rat.setEuler(rat.rx, rat.ry, rat.rz, rat.x, rat.y, rat.z);
             } } });
           notes.push(`rats dt ${dt}: float-equality injections that hit diff == 0.087266 exactly: ${edge}`);
         }
@@ -402,6 +407,13 @@ export default {
           m.flags |= 2; m.anim.start(0x5a, 0); put(G, m.x + 0.5, m.y, m.z - 0.5);
           H.tickMs = T; G.run.beforeTick(1);
           const s0 = snapshotWorld(G), orig = H.emuPass(0); restoreWorld(G, s0);
+          { // the port's pick over the same pinned clock: the same squeal as the original's ftol(rand * tick) % 3
+            pinClock(T); G.log.length = 0; G.w.tick();
+            const mine = G.log.filter((e) => e[0] === '2d' && SND.SQUEAL.includes(e[1])).map((e) => SND.SQUEAL.indexOf(e[1]));
+            const idO = orig.log.filter((e) => e[0] === '2d' && SND.SQUEAL.includes(e[1])).map((e) => SND.SQUEAL.indexOf(e[1]));
+            eqv(mine, idO, `the port's squeal variant at tick ${T} ms, seed ${seed}`);
+            restoreWorld(G, s0); pinClock(3);
+          }
           const id = orig.log.filter((e) => e[0] === '2d' && SND.SQUEAL.includes(e[1])).map((e) => SND.SQUEAL.indexOf(e[1]));
           const draw = H.rands.find((r) => r[0] === (T <= 0 ? 0 : T));
           const expect = draw ? Math.trunc(draw[1]) % 3 : 0;
@@ -410,11 +422,12 @@ export default {
         }
         // the distribution of the original's choice over the 32768 values of rand() against the port's uniform int(3), for tick values of a real run
         const dist = [3, 1000, 60000, 150000, 299000].map((T) => { const c = [0, 0, 0]; for (let k = 0; k <= 32767; k++) c[Math.trunc(k / 32767 * T) % 3]++; return `T=${T}: ${c.map((v) => (100 * v / 32768).toFixed(2)).join('/')} %`; });
-        notes.push(`KNOWN DEVIATION (inherent): the mummy-hit squeal (FUN_006a4fd0 at 0x6a5... FUN_00435c91 = GetTickCount - base) is ftol(rand/32767 * milliseconds) % 3 in the original: a function of the wall clock; the port draws int(3). Identical for tick = 3 (all compared ticks), distribution of the original: ${dist.join('; ')} (the port: 33.33 % each)`);
+        notes.push(`the mummy-hit squeal (FUN_006a4fd0, FUN_00435c91 = GetTickCount - base) is ftol(rand/32767 * milliseconds) % 3: the port's default source reads the shared clock (src/zones/common/tickrand.ts) and now makes the same pick (compared at 5 clock values x 12 seeds); distribution of the pick over the 32768 values of rand(): ${dist.join('; ')}`);
       }
     } catch (e) { bad(`test crashed: ${e.stack || e}`); }
     notes.push(`event-driven compare skipped ${skipped} uneventful ticks`);
     if (process.env.MMP_COV) globalThis.process.getBuiltinModule('node:fs').writeFileSync(process.env.MMP_COV, JSON.stringify(Array.from(stats.cov.buf).flatMap((v, i) => (v ? [i + 0x400000] : []))));
+    setTickCountSource(null);
     return { checked, failures, notes };
   },
 };

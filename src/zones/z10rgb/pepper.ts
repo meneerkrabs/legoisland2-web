@@ -18,6 +18,7 @@ import { ST } from '../../game/walk.ts';
 import { CLIP, K, MODE, PHASE, REC, VAR, f32 } from './consts.ts';
 import { allocBall, launchBall, placeBall, releaseBall } from './balls.ts';
 import { toWorld24 } from './shared.ts';
+import { ad, ml, sb } from '../common/f32.ts';
 import type { RgbState, PepperCannon } from './shared.ts';
 
 const F = Math.fround;
@@ -45,9 +46,9 @@ export function initPepperCannons(st: RgbState): void {
   st.savedFov = st.fov;
 }
 
-/** FUN_0043b92a: true when the current clip ends within `n` more frames (the original returns 2) */
-export function clipEnding(anim: { frame: number; frameCount: number }, n: number, dt = 1): boolean {
-  return anim.frameCount < n * dt + 1 + anim.frame;
+/** FUN_0043b92a: true when the current clip ends within `n` more frames (the original returns 2): `(float) frameCount < (1.0 + frame) + n * DAT_008b1718`, float32 steps in the asm's order (`dt` = `world.dt`) */
+export function clipEnding(anim: { frame: number; frameCount: number }, n: number, dt: number): boolean {
+  return anim.frameCount < ad(ad(1, anim.frame), ml(n, dt));
 }
 
 export class PepSwitcNode implements BehaviourNode {
@@ -63,8 +64,8 @@ export class PepSwitcNode implements BehaviourNode {
     let best = -1, bestD: number = K.ENTER_R2;
     st.cannons.forEach((c, i) => {
       if ((c.rec.flags & RF_ENABLED) !== RF_ENABLED) return;
-      const dx = c.rec.x - p.x, dy = c.rec.y - p.y, dz = c.rec.z - p.z;
-      const d = dx * dx + dy * dy + dz * dz;
+      const dx = sb(c.rec.x, p.x), dy = sb(c.rec.y, p.y), dz = sb(c.rec.z, p.z);
+      const d = ad(ad(ml(dz, dz), ml(dy, dy)), ml(dx, dx));          // fVar3 * fVar3 + fVar2 * fVar2 + fVar1 * fVar1 (float32 steps)
       if (d < bestD) { best = i; bestD = d; }
     });
     return best;
@@ -128,7 +129,7 @@ export class PepSwitcNode implements BehaviourNode {
     if (pressed & B.CTRL) { this.leaveCannon(); return; }
     if (pressed & B.SPACE) { this.fire(); return; }
     let used = false;
-    const step = K.AIM_STEP * w.dt;
+    const step = ml(K.AIM_STEP, w.dt);
     if (held & B.DOWN) {
       rec.rx = F(rec.rx - step);       // the euler angles are single floats in the record
       if (rec.rx < K.PITCH_MIN) rec.rx = K.PITCH_MIN;
@@ -176,7 +177,7 @@ export class PepSwitcNode implements BehaviourNode {
     st.bind(w);
     st.modePrev = st.modeNow;
     st.modeNow = w.vars.get(VAR.MODE);
-    for (const c of st.cannons) c.timer = c.timer - 1 * w.dt <= 0 ? 0 : c.timer - 1 * w.dt;
+    for (const c of st.cannons) { const t = sb(c.timer, ml(1, w.dt)); c.timer = t <= 0 ? 0 : t; }     // `timer - 1.0 * DAT_008b1718 <= 0 ? 0 : timer - 1.0 * DAT_008b1718`
     switch (st.modeNow) {
       case MODE.HIT:
         if (st.modePrev === MODE.CANNON) { this.leaveCannon(); this.cannonLost(); }
@@ -205,7 +206,7 @@ export class PepSwitcNode implements BehaviourNode {
         if (st.modeNow === MODE.WALK && rec.y < K.FALL_Y) {
           // in the water: back on the bridge, the camera moves along (eye = old offset + the bridge point)
           const c = w.camera.c;
-          const ex = c[0] - c[3] + st.bridge[0], ey = c[1] - c[4] + st.bridge[1], ez = c[2] - c[5] + st.bridge[2];
+          const ex = ad(sb(c[0], c[3]), st.bridge[0]), ey = ad(sb(c[1], c[4]), st.bridge[1]), ez = ad(sb(c[2], c[5]), st.bridge[2]);
           rec.setEuler(0, 0, 0, st.bridge[0], st.bridge[1], st.bridge[2]);
           c[3] = st.bridge[0]; c[4] = st.bridge[1]; c[5] = st.bridge[2];
           c[0] = ex; c[1] = ey; c[2] = ez;
@@ -221,8 +222,8 @@ export class PepSwitcNode implements BehaviourNode {
   prerender(w: World, _rec: GameRecord, ctrl: Controller): void {
     const walk = ctrl.find<WalkNode>('SGwalk');
     if (!walk || !ctrl.ran[ctrl.nodes.indexOf(walk)]) return;
-    const c = w.camera.c, dx = walk.vx * w.dt, dz = walk.vz * w.dt;
-    c[3] += dx; c[5] += dz; c[0] += dx; c[2] += dz;
+    const c = w.camera.c, dx = ml(walk.vx, w.dt), dz = ml(walk.vz, w.dt);          // `vx * DAT_008b1718 + c[k]`, float32 steps
+    c[3] = ad(dx, c[3]); c[5] = ad(dz, c[5]); c[0] = ad(dx, c[0]); c[2] = ad(dz, c[2]);
   }
 
   destroy(): void { /* FUN_005f53ff frees the node */ }
@@ -274,7 +275,7 @@ export class PeppHitNode implements BehaviourNode {
     return NODE_CONTINUE;
   }
 
-  /** FUN_00618360 */
+  /** FUN_00618360: the jump has no dt factor in the original (gravity, bounce and the camera step are per update, i.e. per drawn frame) */
   private fly(w: World, rec: GameRecord): void {
     const st = this.st, c = w.camera.c;
     if (st.vulnerable) rec.anim?.start(CLIP.HIT_FLY, 0);
@@ -285,11 +286,11 @@ export class PeppHitNode implements BehaviourNode {
     }
     c[0] += this.vx; c[2] += this.vz;
     const raw = w.col.terrainHeight(rec.x, rec.y, rec.z, 4), ground = Math.fround(raw);   // the original compares single floats
-    if (ground < rec.y) this.vy -= K.HIT_G;
+    if (ground < rec.y) this.vy = F(this.vy - K.HIT_G);
     else {
       rec.m[13] = ground;
-      this.vy *= K.HIT_BOUNCE;
-      this.vz *= 0.5;
+      this.vy = F(this.vy * K.HIT_BOUNCE);
+      this.vz = F(this.vz * 0.5);
       if (Math.abs(this.vy) < K.HIT_REST) {
         this.vy = 0; this.vz = 0;
         rec.anim?.start(CLIP.HIT_LAND, 0);

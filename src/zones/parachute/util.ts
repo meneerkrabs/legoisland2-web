@@ -1,22 +1,20 @@
 // Shared pure helpers of the two parachute mini-games (z38PAR "Parachute", z40aPO "Parachute landing on Ogel"). DOM-free: node tests drive them.
 import type { GameRecord } from '../../game/record.ts';
-import { gameRandom } from '../common/tickrand.ts';
+import { randFrom, crtRand } from '../common/crtrand.ts';
+import type { RandSource } from '../common/crtrand.ts';
 
 /** 2 pi as the executable has it: the float constant 0x40c90fdb at 0x892094 (6.2831855), used for every angle wrap of the pilot code */
 export const TWO_PI = 6.2831855;
 
-// RNG: the C runtime generator (the injectable `source` returns [0, 1); tests script it)
-const defaultSource = (): number => gameRandom();
-let source: () => number = defaultSource;
-/** replace the random source (tests); `f` returns [0, 1) */
-export function setRandomSource(f: (() => number) | null) { source = f ?? defaultSource; }
+// RNG: the shared C runtime generator (src/game/crt.ts); tests inject a scripted rand() source
+let source: RandSource = crtRand;
+/** replace the rand() source (tests): `f` returns the C runtime's rand(), 0 .. 32767; null = the shared generator */
+export function setRandSource(f: RandSource | null) { source = f ?? crtRand; }
+/** legacy test helper: `f` returns [0, 1), the draw is `floor(f() * 32768)` (the 15 bit rand()); null = the shared generator */
+export function setRandomSource(f: (() => number) | null) { source = f ? () => Math.floor(f() * 32768) & 0x7fff : crtRand; }
 
-/** FUN_004388ae(max): `rand() / 32767 * max` with the CRT's rand() in 0..32767 (0 for max <= 0) */
-export function rand(max: number): number {
-  if (max <= 0) return 0;
-  const r = Math.floor(source() * 32768);
-  return Math.fround(Math.fround(r / 32767) * max);   // 24-bit x87: the division and the product each round to float32
-}
+/** FUN_004388ae(max): `(float) rand() / 32767.0f * max` in float32 (24-bit x87), 0 without a draw for max <= 0 */
+export function rand(max: number): number { return randFrom(source, max); }
 
 export type Vec3 = [number, number, number];
 

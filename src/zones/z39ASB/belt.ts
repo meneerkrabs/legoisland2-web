@@ -11,6 +11,9 @@
 // All floats of the original are float32; constants are written with their hex pattern and the address where they are used.
 import { GameRecord, RF_ENABLED, RF_FRUSTUM, RF_NO_DRAW } from '../../game/record.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
+import { crtRand, randFrom } from '../common/crtrand.ts';
+import type { RandSource } from '../common/crtrand.ts';
+import { getTickCount } from '../../game/crt.ts';
 
 /**
  * The original clears the frustum bit (flags & 1) of out-of-window asteroids and sets it inside the window (FUN_007b959c) and the draw hook draws HULL or SHUT; the port's renderer
@@ -106,13 +109,16 @@ export function medalIndex(score: number): 0 | 1 | 2 {
 }
 
 // ---------------------------------------------------------------------------------------------------------------- random numbers
-/** the C runtime's rand() (FUN_0085daf0, MSVC LCG): 0..32767 */
-export class MsvcRand {
-  seed: number;
-  constructor(seed = (Date.now() & 0xffffffff) >>> 0) { this.seed = seed >>> 0; }
-  next(): number { this.seed = (Math.imul(this.seed, 214013) + 2531011) >>> 0; return (this.seed >>> 16) & 0x7fff; }
-  /** FUN_004388ae(range): rand() / 32767 * range (0 for range <= 0) */
-  range(range: number): number { return range <= 0 ? 0 : (this.next() / 32767) * range; }
+/**
+ * The zone's random numbers: the C runtime's rand() (FUN_0085daf0, the shared generator src/game/crt.ts unless a test injects a scripted source, 0 .. 32767) and FUN_004388ae(x) on top of it
+ * (`(float) rand() / 32767.0f * x`, every operation float32; x <= 0 draws nothing).
+ */
+export class BeltRng {
+  src: RandSource;
+  constructor(src: RandSource = crtRand) { this.src = src; }
+  next(): number { return this.src(); }
+  /** FUN_004388ae(x) */
+  range(x: number): number { return randFrom(this.src, x); }
 }
 
 // ---------------------------------------------------------------------------------------------------------------- engine sound pitch
@@ -190,7 +196,12 @@ export class AsteroidBelt {
   readonly recs: BeltRecords;
   /** the camera struct DAT_009da5e8: eye (0..2) and target (3..5) */
   readonly cam: { [i: number]: number };
-  readonly rng: MsvcRand;
+  readonly rng: BeltRng;
+  /**
+   * FUN_00435c91: milliseconds since the zone's start. The hit test scales rand() with it for its sound picks (`ftol(FUN_004388ae((float) ms)) & 1` / `% 3`), so the real clock is used (the pick
+   * only has to be random); tests script it
+   */
+  ms: () => number;
   readonly vars: BeltVars;
   readonly engine = new EngineModel();
   emit: (e: BeltEvent) => void;
@@ -225,8 +236,12 @@ export class AsteroidBelt {
   /** per asteroid: rotation speeds (rx, ry, rz) and drift (x, y) per tick (the table at DAT_05d5d538 + 0x18 i) */
   readonly ast: { rxv: number; ryv: number; rzv: number; vx: number; vy: number }[] = [];
 
-  constructor(recs: BeltRecords, cam: { [i: number]: number }, rng: MsvcRand, vars: BeltVars, emit: (e: BeltEvent) => void = () => {}) {
+  constructor(recs: BeltRecords, cam: { [i: number]: number }, rng: BeltRng, vars: BeltVars, emit: (e: BeltEvent) => void = () => {}, ms?: () => number) {
     this.recs = recs; this.cam = cam; this.rng = rng; this.vars = vars; this.emit = emit;
+    const base = getTickCount();
+    this.ms = ms ?? (() => Math.max(1, getTickCount() - base));
+    // FUN_007b780c (called by this constructor before the layout): the star positions nothing reads, two FUN_004388ae(64) draws for each of the 50 stars; only the draws matter (the order of the sequence)
+    for (let i = 0; i < 100; i++) rng.range(64);
     // FUN_007b96a0: the shuttle at (0, 0, -768); FUN_007b7e00: scratch variables
     recs.shut.setEuler(0, 0, 0, 0, 0, C.START_Z);
     recs.shut.rx = recs.shut.ry = recs.shut.rz = 0;
@@ -362,7 +377,7 @@ export class AsteroidBelt {
     cam[3] = cam[0]; cam[4] = cam[1]; cam[5] = f(cam[2] + 1);
     this.camOff = off;
     // HUD values
-    this.gauge = this.hull / C.HULL_START;
+    this.gauge = f(this.hull / C.HULL_START);       // DAT_05d4e138 is a float
     if (this.hull < C.HULL_WARN) this.frameTint = this.hull <= 0 ? 0x7f7f7f : (Math.trunc(this.frame) & 0x10) === 0 ? 0x7f7f7f : 0xffffff;   // the executable's values (alpha 0 as written: 0x7f7f7f / 0xffffff); it flashes with the frame counter +0x2c8, not with the hull
     this.scoreText = String(this.score);
     this.moveAsteroids(dt);
@@ -381,6 +396,9 @@ export class AsteroidBelt {
     this.emit({ type: 'state', from, to });
   }
 
+  /** `ftol(FUN_004388ae((float) FUN_00435c91())) % n` (also `& 1` for n = 2) */
+  private pick(n: number): number { return Math.trunc(this.rng.range(this.ms())) % n; }
+
   /** FUN_007b7f68: near miss / collision against the camera position of the previous tick (the camera struct still holds it) */
   private hitTest() {
     const cam = this.cam;
@@ -397,13 +415,13 @@ export class AsteroidBelt {
       if (C.HIT_Z_MID <= dz) {
         if (!warn) {
           warn = true;
-          this.emit({ type: 'warn', pos: [a.x, a.y, a.z], miss: (this.rng.next() & 1) as 0 | 1, final: this.hits === 4 });
+          this.emit({ type: 'warn', pos: [a.x, a.y, a.z], miss: this.pick(2) as 0 | 1, final: this.hits === 4 });
         }
       } else if (!already) {
-        const voice = (this.rng.next() & 1) as 0 | 1;
+        const voice = this.pick(2) as 0 | 1;
         already = true;
-        const yell = (this.rng.next() & 1) as 0 | 1;
-        const impact = (this.rng.next() % 3) as 0 | 1 | 2;
+        const yell = this.pick(2) as 0 | 1;
+        const impact = this.pick(3) as 0 | 1 | 2;
         this.hitTimer = C.HIT_TIMER; this.shakeX = 0; this.shakeVel = 1;
         this.hits += 1;
         const slot = 5 - this.hits;

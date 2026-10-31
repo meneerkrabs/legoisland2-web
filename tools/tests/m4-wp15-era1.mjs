@@ -26,10 +26,10 @@ function island(ctx, node) {
 function place(I, x, z, fx, fz) {
   const p = I.pepper, w = I.world;
   p.x = x; p.z = z; const g = w.col.groundRay(x, 200, z); if (g > -1e30) p.y = g;
-  p.ry = Math.atan2(fx - x, fz - z); p.rebuildYaw(); p.savePrev();
+  p.ry = Math.atan2(fx - x, fz - z); p.rebuildYaw();
 }
 /** put the boat at (x, z) facing (fx, fz) */
-function placeBoat(b, x, z, fx, fz) { const yaw = Math.atan2(fx - x, fz - z); b.setEuler(0, yaw, 0, x, b.y, z); b.rx = 0; b.ry = yaw; b.rz = 0; b.savePrev(); }
+function placeBoat(b, x, z, fx, fz) { const yaw = Math.atan2(fx - x, fz - z); b.setEuler(0, yaw, 0, x, b.y, z); b.rx = 0; b.ry = yaw; b.rz = 0; }
 
 export default {
   name: 'm4-wp15-era1',

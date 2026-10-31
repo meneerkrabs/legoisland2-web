@@ -105,7 +105,7 @@ export default {
     ok(ab.length === 1 && Math.abs(ab[0][1] - 4.0) < 0.05, `the replaced segment reports an abort at the cut (${JSON.stringify(ab)})`);
     ok(st.length === 2 && Math.abs(st[1][1] - 4.0) < 0.05, `the new segment reports its start at the cut (${JSON.stringify(st)})`);
 
-    // 5) ambience beds (FUN_00443230 / FUN_00875b16): the first pass starts after the 6-frame delay, a pass ends at the SMF's end-of-track and the next one starts within a frame
+    // 5) ambience beds (FUN_00443230 / FUN_00875b16): the first pass starts after the 6-pass (6/60 s) delay, a pass ends at the SMF's end-of-track and the next one starts within a frame (1/60 s)
     const files = { has: () => true, async read(rel) { let cur = ctx.dataRoot; for (const part of rel.split('/')) { const n = ci(cur, part); if (!n) throw new Error('missing ' + rel); cur = n; } return new Uint8Array(fs.readFileSync(cur)); } };
     const rd = (rel) => readTolerant(files, rel);
     for (const e of tables.ambience) {
@@ -114,16 +114,16 @@ export default {
       const smf = parseSmf(mid), tl = smfTimeline(smf);
       ok(tl.length > 5, `${e.key}: sequence length ${tl.length}`);
       const r = new MidiRenderer(SR, 32);
-      r.start(smf, parseDls(dls), 6 / 30);
+      r.start(smf, parseDls(dls), 6 / 60);
       const Lb = new Float32Array(512), Rb = new Float32Array(512);
       const starts = [];
       let lastPass = 0;
       const startOf = (frame) => frame / SR;
       // the pass counter changes when the next pass starts
-      while (r.frame < (0.2 + tl.length * 2.05) * SR) { r.render(Lb, Rb, 512); if (r.passes !== lastPass) { starts.push(startOf(r.frame)); lastPass = r.passes; } }
+      while (r.frame < (0.1 + tl.length * 2.05) * SR) { r.render(Lb, Rb, 512); if (r.passes !== lastPass) { starts.push(startOf(r.frame)); lastPass = r.passes; } }
       ok(starts.length >= 2, `${e.key}: restarts (${starts.length})`);
-      if (starts.length >= 1) ok(Math.abs(starts[0] - (0.2 + tl.length + 1 / 60)) < 0.03, `${e.key}: second pass starts at ${starts[0].toFixed(3)} s, want 0.2 + ${tl.length.toFixed(3)} + 1/60`);
-      if (starts.length >= 2) ok(Math.abs(starts[1] - starts[0] - (tl.length + 1 / 60)) < 0.03, `${e.key}: pass period ${(starts[1] - starts[0]).toFixed(3)} s, want ${(tl.length + 1 / 60).toFixed(3)}`);
+      if (starts.length >= 1) ok(Math.abs(starts[0] - (0.1 + tl.length + 1 / 120)) < 0.03, `${e.key}: second pass starts at ${starts[0].toFixed(3)} s, want 0.1 + ${tl.length.toFixed(3)} + 1/120`);
+      if (starts.length >= 2) ok(Math.abs(starts[1] - starts[0] - (tl.length + 1 / 120)) < 0.03, `${e.key}: pass period ${(starts[1] - starts[0]).toFixed(3)} s, want ${(tl.length + 1 / 120).toFixed(3)}`);
     }
     return { checked, failures };
   },

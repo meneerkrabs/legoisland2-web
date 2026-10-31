@@ -11,6 +11,7 @@ import type { ScreenLine } from '../../shell/helpscreen.ts';
 import type { ZoneGame, ZoneGameCtx } from '../../shell/zonegame.ts';
 import { Gear, JstGameNode, startDuel, applyRestart, rememberRestart } from './rig.ts';
 import { JoustDuel } from './duel.ts';
+import { startTickClock } from '../common/tickrand.ts';
 import { REC, SAY } from './consts.ts';
 import { JoustSound } from './sound.ts';
 import { finalLines, popupLines } from './screens.ts';
@@ -18,6 +19,7 @@ import type { PanelLine } from './screens.ts';
 
 export async function createJstGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   const { world, gr, hud, archive } = ctx;
+  startTickClock();                                          // FUN_00435c81 (the zone's start, LE2.c:126202): the base of FUN_00435c91, which scales the reaction variant's random pick
   const recs = world.records;
   const ga = ctx.sh.audio.ga;
   const sound = new JoustSound(ga);
@@ -98,12 +100,12 @@ export async function createJstGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
       sound.listener(world.camera.c, [world.camera.c[3], world.camera.c[4], world.camera.c[5]]);
       hud.visible = playing && duel.state !== 0x21;
     },
-    draw2d(ui, dt, mode) {
+    draw2d(ui, _dt, mode) {
       if (reticleMode(mode) && duel.reticle) drawReticle(ui);        // every loop mode but the pause menu and the controls help (DAT_05d5ad04 != 3 / 9)
       if (mode === MODE.PLAY) {
         if (duel.state === 0x21) {
           drawIntroScreen(ui, ctx.panelEnv(), popupLines(duel).map(toScreen));
-          hud.visible = true; hud.draw(ui, dt * 30); hud.visible = false;
+          hud.visible = true; hud.draw(ui, world.dt); hud.visible = false;
         }
       }
     },

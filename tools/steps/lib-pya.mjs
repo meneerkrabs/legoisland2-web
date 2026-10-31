@@ -32,7 +32,7 @@ const TURN_PER_TICK = 0.17;   // measured in the Pyramid: 10 ticks of Left / Rig
 export function pya({ page, wait, log = () => {}, shot = async () => {} }) {
   const H = hub({ page, wait, log, shot }, 'z16PYA');
   /** Pepper's place, yaw, tick and the control word */
-  H.me = () => page.evaluate(() => { const z = window.__zone, p = z.loaded.pepper; return { x: p.x, y: p.y, z: p.z, ry: p.ry, t: z.world.tickCount, ctrl: z.sh.vars.get(0x5e), node: z.sh.vars.get(0x58), cs: !!z.game?.debug?.().cutscene }; });
+  H.me = () => page.evaluate(() => { const z = window.__zone, p = z.loaded.pepper; return { x: p.x, y: p.y, z: p.z, ry: p.ry, t: z.world.tickCount / 2, ctrl: z.sh.vars.get(0x5e), node: z.sh.vars.get(0x58), cs: !!z.game?.debug?.().cutscene }; });
   /** hold keys for `n` game ticks */
   H.keys = (keys, n) => page.evaluate(async ([ks, ticks]) => {
     // the keys go down and up as DOM keyboard events at the page (what the input mapper listens to, like Playwright's own keyboard and browse.mjs's mode-1 tap), released after exactly
@@ -42,7 +42,7 @@ export function pya({ page, wait, log = () => {}, shot = async () => {} }) {
     const t0 = w.tickCount;
     // (ends early when the zone changed under the walk (the story moved on: the old world never ticks again) or the game stands still for 20 s: this wait must never hang the bot)
     let lastT = w.tickCount, lastAt = performance.now();
-    while (w.tickCount - t0 < ticks) {
+    while (w.tickCount - t0 < ticks * 2) {   // (`ticks` are game ticks of 1/30 s: two steps of the 60 Hz loop each)
       await new Promise((r) => setTimeout(r, 0));
       if (window.__zone && window.__zone.world !== w) break;
       if (w.tickCount !== lastT) { lastT = w.tickCount; lastAt = performance.now(); } else if (performance.now() - lastAt > 20000) break;

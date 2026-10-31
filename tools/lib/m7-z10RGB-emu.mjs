@@ -8,7 +8,8 @@ import '../../src/island/ambient/misc.ts';   // registers SeaAmin: the port's SE
 import * as Z from '../../src/zones/z10RGB.ts';
 import { initRgb, bindRigs } from '../../src/zones/z10rgb/game.ts';
 import { updateBalls, placeBall, launchBall } from '../../src/zones/z10rgb/balls.ts';
-import { Lcg } from '../../src/zones/z10rgb/shared.ts';
+import { MsvcRng } from './msvc-rng.mjs';
+import { setRandSource, randF } from '../../src/game/crt.ts';
 import { shotScale } from '../../src/zones/z10rgb/pepper.ts';
 import { REC, VAR, PHASE, MODE, K, RIGS } from '../../src/zones/z10rgb/consts.ts';
 import { SOUND_DEFS } from '../../src/zones/z10rgb/sound.ts';
@@ -33,9 +34,9 @@ export function createHarness(ctx, T) {
     const build = (seed, dt = 1) => {
       shotScale.value = K.SHOT_SCALE_FIRST;
       // the port: the zone as the game builds it, the walk node off
-      const lcgP = new Lcg(seed * 7919 + 13);
+      const lcgP = new MsvcRng(seed * 7919 + 13);
       const replay = { q: [], calls: 0 };
-      Z.options.rng = () => lcgP.next();      // the nine cannon delays are drawn at construction (same sequence as the original's)
+      setRandSource(() => lcgP.next());      // the nine cannon delays are drawn at construction (same sequence as the original's): the port's rand() is the shared crt.ts one, scripted
       const P = loadZone(ctx, 'z10RGB');
       const w = P.world; w.externalInput = true; w.dt = dt;
       const st = Z.state;
@@ -49,8 +50,17 @@ export function createHarness(ctx, T) {
         at: (n, p) => snd.push(['3d', nameToId[n], fr(p[0]), fr(p[1]), fr(p[2])]),
       };
       initRgb(st, w, { pe, archive: arch });
-      st.rng = { next: () => { const e = replay.q.shift(); replay.calls++; if (!e) throw new Error('the port draws a random number the original did not'); st.__lastFrac = e; return e; } };
-      st.rand = (x) => { const e = replay.q.shift(); replay.calls++; if (!e) { bad('the port draws a random number the original did not'); return 0; } if (e.x !== x) bad(`random number: port asks rand(${x}), original rand(${e.x})`); return e.f * x; };
+      // the port's draws of the tick replay the original's integers: `st.rand` checks the range asked, then FUN_004388ae's float32 formula (crt.ts randF) runs on the replayed rand()
+      setRandSource(() => replay.r);
+      st.rand = (x) => {
+        const e = replay.q.shift(); replay.calls++;
+        if (!e) { bad('the port draws a random number the original did not'); return 0; }
+        if (e.x !== x) bad(`random number: port asks rand(${x}), original rand(${e.x})`);
+        replay.r = e.r;
+        const v = randF(x);
+        if (v !== e.f) bad(`random number: port rand(${x}) = ${v}, original ${e.f}`);
+        return v;
+      };
       // the original's world: the same zone data, anims bound; its records are the mirror of the emulated memory
       const O = loadZone(ctx, 'z10RGB');
       const ow = O.world; ow.dt = dt;
@@ -69,7 +79,7 @@ export function createHarness(ctx, T) {
       mem.addRegion({ lo: RB, hi: RB + NREC * 0x68 + 0x100, name: 'rec' });
       mem.addRegion({ lo: HEAP, hi: HEAP + 0x100000, name: 'heap' });
       mem.addRegion({ lo: MB, hi: MB + 0x10000, name: 'misc' });
-      const H = { cpu, mem, log: [], calls: [], brk: HEAP, handles: new Map(), tokens: new Map(), rands: [], lcg: new Lcg(S.seed * 7919 + 13), allocs: [], unhooked: new Set(), nodes: {} };
+      const H = { cpu, mem, log: [], calls: [], brk: HEAP, handles: new Map(), tokens: new Map(), rands: [], lcg: new MsvcRng(S.seed * 7919 + 13), allocs: [], unhooked: new Set(), nodes: {} };
       const rs = ow.records;
       const recPtr = (r) => RB + r.index * 0x68;
       const recOf = (p) => (p === 0 ? null : rs[(p - RB) / 0x68]);
@@ -111,11 +121,13 @@ export function createHarness(ctx, T) {
       hook(0x41766c, (c) => { ow.vars.andNot(c.arg(0), c.arg(1) | 0); });
       hook(0x4388ae, (c) => {
         const x = c.argf(0);
-        const f = x <= 0 ? 0 : H.lcg.next();
-        H.rands.push({ x, f });
-        c.fpush(f * x);
+        // FUN_004388ae: x <= 0 gives 0.0 without a draw, else `(float) rand() / 32767.0f * x` in float32 steps (24-bit x87) on the hosted CRT rand
+        let f = 0, r = -1;
+        if (x > 0) { r = H.lcg.next(); f = fr(fr(r / 32767) * fr(x)); }
+        H.rands.push({ x, r, f });
+        c.fpush(f);
       });
-      hook(0x4388e7, (c) => { c.fpush(Math.sqrt(c.argf(0))); });
+      hook(0x4388e7, (c) => { c.fpush(fr(Math.sqrt(c.argf(0)))); });      // fsqrt at 24-bit precision
       hook(0x85d640, (c) => { const sp = c.esp; c.fpush(Math.atan2(mem.f64(sp + 4), mem.f64(sp + 12))); });
       hook(0x85d1c4, (c) => { c.fpush(Math.sin(mem.f64(c.esp + 4))); });
       hook(0x85d374, (c) => { c.fpush(Math.cos(mem.f64(c.esp + 4))); });
@@ -124,7 +136,7 @@ export function createHarness(ctx, T) {
       hook(0x43b6a3, (c) => { anim(c.arg(0)).start(c.arg(1) | 0, c.argf(2)); });
       hook(0x43b76a, (c) => { c.eax = anim(c.arg(0)).advance(c.argf(1), ow.dt); });
       hook(0x43b753, (c) => { c.fpush(anim(c.arg(0)).frameCount); });
-      hook(0x43b92a, (c) => { const a = anim(c.arg(0)); c.eax = a.frameCount < c.argf(1) * ow.dt + 1.0 + a.frame ? 2 : 0; });
+      hook(0x43b92a, (c) => { const a = anim(c.arg(0)); c.eax = a.frameCount < fr(fr(1.0 + a.frame) + fr(c.argf(1) * ow.dt)) ? 2 : 0; });      // FUN_0043b92a: (1.0 + frame) + n * DAT_008b1718 in float32 steps, as the asm 0x43b949 .. 0x43b95d
       hook(0x43bc22, (c) => { c.eax = MB; });
       // collision over the port's own world (records synced from the memory first)
       hook(0x441a90, (c) => {
@@ -198,7 +210,7 @@ export function createHarness(ctx, T) {
       H.nodes.cannon = [];
       for (let k = 0; k < 9; k++) {
         const blk = H.brk; H.brk += 32;
-        mem.w32(blk, Math.trunc(H.lcg.next() * 90)); mem.w32(blk + 4, 0); mem.w32(blk + 8, 0); mem.wf32(blk + 12, 2.0); mem.w32(blk + 16, 0);
+        mem.w32(blk, Math.trunc(fr(fr(H.lcg.next() / 32767) * 90))); mem.w32(blk + 4, 0); mem.w32(blk + 8, 0); mem.wf32(blk + 12, 2.0); mem.w32(blk + 16, 0);
         H.nodes.cannon.push(ctor(0x61a57f, [rec(REC.CC[k]), blk, 0, 0xfa, 1, 1], 0x78));
       }
       cpu.call(0x5f8050, [], { maxSteps: 3_000_000, trace: H.cov ?? undefined });
@@ -268,7 +280,7 @@ export function createHarness(ctx, T) {
     };
     /** compare two states (port a, original b); `label` names the tick */
     const compare = (a, b, label, S) => {
-      const tol = S.tol ?? 3e-4;
+      const tol = S.tol ?? 0;
       const cmpv = (x, y, path) => {
         if (Array.isArray(x)) { for (let i = 0; i < x.length; i++) cmpv(x[i], y[i], `${path}[${i}]`); return; }
         if (x !== null && typeof x === 'object') { for (const k of Object.keys(x)) cmpv(x[k], y[k], `${path}.${k}`); return; }
@@ -325,7 +337,7 @@ export function createHarness(ctx, T) {
       if (gate(0xfb, 2, 2)) run(0x6186f2, [at(REC.PEPP), H.nodes.hit]);
       H.syncOut();
       // ---- the port: the same tick; its random numbers replay the original's
-      S.replay.q = H.rands.map((r) => ({ x: r.x, f: r.f }));
+      S.replay.q = H.rands.map((r) => ({ x: r.x, r: r.r, f: r.f }));
       S.replay.calls = 0;
       S.snd.length = 0; S.said.length = 0;
       updateBalls(st);
@@ -342,7 +354,7 @@ export function createHarness(ctx, T) {
         const pa = w.records[i].anim, oa = r.anim;
         if (!pa || !oa) return;
         T.checked++;
-        if (pa.clip !== oa.clip || Math.abs(pa.frame - oa.frame) > 1e-3) bad(`${label}: animation of record ${i} ${r.name}: port clip ${pa.clip} frame ${pa.frame}, original clip ${oa.clip} frame ${oa.frame}`);
+        if (pa.clip !== oa.clip || pa.frame !== oa.frame) bad(`${label}: animation of record ${i} ${r.name}: port clip ${pa.clip} frame ${pa.frame}, original clip ${oa.clip} frame ${oa.frame}`);
       });
       const a = readPortState(S), b = readEmuState(S);
       // KNOWN DEVIATION (docs/re/m6/z10RGB.md section 7): at the phases 4 / 5 the original writes COMPLETE_SUB_GAME (0x53) = 1, the port does not (its runner checks the story machine while playing)

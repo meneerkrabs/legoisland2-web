@@ -73,6 +73,16 @@ export default {
       ok(!log.includes('fov 0.5'), 'the delayed command has not run yet');
       const t = run(r, env);
       ok(log.includes('fov 0.5') && t + 2 >= 30 && t + 2 <= 36, `a 1 s delay is 30 ticks (the script ended after ${t + 2} ticks)`);
+      // the same script at the 60 Hz step (dt 0.5, the timers count `0.03333 * dt` per tick): twice the ticks; at the real sequence (dt 1 for five ticks, then 0.5) 5 + 2 * 25 ticks
+      for (const [dtMode, lo, hi] of [[0.5, 60, 68], ['real', 54, 62]]) {
+        const W2 = makeWorld(), E2 = makeEnv(W2.w), R2 = new CutsceneRunner(E2.env);
+        R2.allocate(1);
+        R2.define(0, 't', script([cmd({ cmd: 12, actor: 'CMRA', name: 'SETFOV', fov: 0.5, delay: 1 })]));
+        R2.start(0);
+        let n = 0;
+        while (R2.active() && n < 400) { W2.w.dt = dtMode === 'real' ? (n < 5 ? 1 : 0.5) : dtMode; R2.tick(); n++; W2.w.frame++; }
+        ok(E2.log.includes('fov 0.5') && n >= lo && n <= hi, `a 1 s delay at dt ${dtMode} (the script ended after ${n} ticks, want ${lo}..${hi})`);
+      }
       ok(!r.active() && log.at(-1) === 'bars 0' && log.includes('fov 1') && (w.vars.get(0x5e) & 0x100) === 0, 'the end restores the FOV, removes the bars and clears the busy bit');
     }
     // a wait on an id nobody signals blocks the command for ever; the script ends when no command ran in a frame
@@ -152,7 +162,8 @@ export default {
       const p = [0, 0, 0], xs = []; let n = 0;
       while (!m.step(p) && n < 500) { n++; xs.push(p[0]); }
       ok(p[0] === 30 && p[1] === 0, 'the eased move ends exactly on the target');
-      ok(Math.abs(xs[0] - 0.4 * 0.08) < 1e-9 && Math.abs(xs[1] - xs[0] - 0.4 * 0.16) < 1e-9, `ease in: the step grows by 0.4 * 0.08 per tick (${xs[0].toFixed(4)}, ${(xs[1] - xs[0]).toFixed(4)})`);
+      ok(Math.abs(xs[0] - 0.4 * 0.08) < 1e-6 && Math.abs(xs[1] - xs[0] - 0.4 * 0.16) < 1e-6,   // (float32 phase / unit: 0.4f * 0.08f)
+          `ease in: the step grows by 0.4 * 0.08 per tick (${xs[0].toFixed(4)}, ${(xs[1] - xs[0]).toFixed(4)})`);
       const steps = xs.map((x, i) => x - (xs[i - 1] ?? 0));
       ok(Math.max(...steps) <= 0.4 * 1.08 + 1e-9, 'at most 0.4 per tick plus one ease step (the phase may overshoot 1 by 0.08)');
       ok(steps.at(-2) < steps[Math.floor(steps.length / 2)], 'slower again at the end (ease out)');
@@ -183,11 +194,12 @@ export default {
         cmd({ cmd: 0, actor: 'NOPE', flag: false }),
         cmd({ cmd: 12, actor: 'CMRA', fov: 7 }),
       ]));
-      actors.PEPP.anim = { clip: 0, frame: 0, frameCount: 6, start(c) { this.clip = c; this.frame = 0; return true; }, advance(rate) { this.frame += rate; return 0; } };
+      actors.PEPP.anim = { clip: 0, frame: 0, frameCount: 6, start(c) { this.clip = c; this.frame = 0; return true; }, advance(rate, dt = 1) { this.frame += rate * dt; return 0; } };
       r.start(0); r.tick();
       ok(w.vars.get(0x20) === 5, 'SETSWITCH writes the variable');
       ok(actors.BOB.ctrl && (actors.BOB.ctrl.flags & 2) === 0, 'ENABLEAI false clears the controller bit 2');
-      ok(Math.abs(r.moveSpeed.max - 0.6) < 1e-9 && Math.abs(r.moveSpeed.ease - 0.06) < 1e-9, 'SETMOVESPEED a b: max 0.1 a, ease 0.02 b');
+      ok(Math.abs(r.moveSpeed.max - 0.6) < 1e-6 && Math.abs(r.moveSpeed.ease - 0.06) < 1e-6,   // float32 products: 6 * 0.1f, 3 * 0.02f
+          'SETMOVESPEED a b: max 0.1 a, ease 0.02 b');
       ok(actors.PEPP.anim.clip === 3, 'SETANIM starts the clip the env maps the name to');
       const t = run(r, env);
       ok(!r.active() && t < 20, `the script ends (FOLLOW ran on but did not keep it alive, the animation finished): ${t} ticks`);
@@ -237,6 +249,19 @@ export default {
       const minTicks = cut.commands.filter((x) => x.cmd === 2).reduce((s, x) => s + Math.ceil(((table.text(x.textId).length + 20) / 20) / SEC_PER_TICK), 0);
       ok(t >= minTicks - 10, `the script lasts at least the sum of the minimum times (${t} >= ${minTicks - 10} ticks = ${(t / 30).toFixed(1)} s)`);
       notes.push(`ogl02 runs ${t} ticks (${(t / 30).toFixed(1)} s) with speech finishing instantly (muted)`);
+      // the same script at the 60 Hz step (dt 0.5): the timers are `0.03333 * dt` per tick, so it takes about twice the ticks and says the same lines
+      {
+        const { w: wd, actors: ad } = makeWorld();
+        ad.SHTL.name = 'SHTL'; wd.dt = 0.5;
+        const ed = makeEnv(wd, { waypoint: wp, text: (id) => table.text(id) });
+        const rd = new CutsceneRunner(ed.env); rd.allocate(1); rd.define(0, 'ogl02', cut);
+        rd.start(0); rd.tick();
+        const saidD = []; let seenD = '', td = 1;
+        while (rd.active() && td < 10000) { rd.tick(); ed.env.tickSpeech(); td++; wd.frame++; if (rd.subtitle && rd.subtitle.id !== seenD) { seenD = rd.subtitle.id; saidD.push(seenD); } }
+        ok(saidD.join() === said.join(), `dt 0.5: the same eight lines in order: ${saidD}`);
+        ok(td > 1.7 * t && td < 2.3 * t, `dt 0.5: about twice the ticks (${td} against ${t})`);
+        notes.push(`ogl02 at dt 0.5: ${td} ticks`);
+      }
       // with Shift held every line is skipped: the script is over in a handful of ticks
       const { w: w3 } = makeWorld();
       const e3 = makeEnv(w3, { waypoint: wp, text: (id) => table.text(id) });

@@ -7,9 +7,10 @@ import { expandMessage } from '../../ui/strings.ts';
 import type { BannerSpec } from '../../shell/helpscreen.ts';
 import { MODE } from '../../shell/loopmachine.ts';
 import { B } from '../../game/input.ts';
-import { BotNode, CTOR, LINE, PepNode, REC, SND, WAB, WabShared, initCamera, medalOfScore, scoreOf } from './wab.ts';
+import { BotNode, CTOR, crtPick, LINE, PepNode, REC, SND, WAB, WabShared, initCamera, medalOfScore, scoreOf } from './wab.ts';
 import type { WabFx, WabHost } from './wab.ts';
-import { msClock, tickPick } from '../common/tickrand.ts';
+import { startTickClock } from '../common/tickrand.ts';
+import { seedFromTime } from '../../game/crt.ts';
 import type { SoundSlot } from '../../audio/sfx.ts';
 import { GATE_OFF, type ZoneParticles } from '../../fx/particles/zone.ts';
 import { restoreHooks } from '../../restore/flag.ts';
@@ -74,6 +75,9 @@ export function wabEffects(ctx: ZoneGameCtx, fx: ZoneParticles): WabFx {
 
 export function createWabGame(ctx: ZoneGameCtx, fx: ZoneParticles | null = null): ZoneGame {
   const { world, hud, sh } = ctx;
+  // FUN_00569ca6 srand(time()) once at the zone's start; the clock base FUN_00435c81 is taken at the start and again at every restart of the loop (the port reloads the zone per attempt: only the seed is skipped then)
+  if (ctx.attempt === 0) seedFromTime();
+  startTickClock();
   const shared = takeShared();
   if (!shared?.bot || !shared.pep) throw new Error('z05WAB: the behaviour nodes were not attached by the zone set-up');
   // the three positional sounds go through GameAudio's 3D slots (the listener = the fixed camera, FUN_004434d0); muted / no audio: silent
@@ -87,7 +91,7 @@ export function createWabGame(ctx: ZoneGameCtx, fx: ZoneParticles | null = null)
     stop: (id) => sh.audio.stop(id),
     play3d: (id, pos) => { restoreHooks.cue?.(id === SND.HIT_BOT ? 'wab-hit' : id === SND.HIT_INFO ? 'wab-info' : 'wab-miss', ctx); const s = slots3.get(id); if (pos && s && ga) { try { ga.sfx.play3D(s, { x: pos[0], y: pos[1], z: pos[2] }); } catch { /* silent */ } } },
     say: (id) => { ctx.say(id); },
-    random: (n) => tickPick(msClock(world), n),     // RNG: ftol(FUN_004388ae(FUN_00435c91())) & 3 / & 7 / % 3 (src/zones/common/tickrand.ts)
+    random: crtPick,     // ftol(FUN_004388ae((float) FUN_00435c91())) & 3 / & 7 / % 3 on the shared generator and the real zone clock
     ...frameHost(ctx),
   };
   if (fx) host.fx = wabEffects(ctx, fx);

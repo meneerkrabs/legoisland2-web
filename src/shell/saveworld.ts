@@ -111,7 +111,6 @@ export function applyEntitySection(w: World, bytes: Uint8Array): boolean {
       rec.rx = dv.getFloat32(p + 12, true); rec.ry = dv.getFloat32(p + 16, true); rec.rz = dv.getFloat32(p + 20, true);
       eulerRotation(rec.m, rec.rx, rec.ry, rec.rz);
       rec.flags = (rec.flags & ~0xffff) | dv.getUint16(p + 24, true);
-      rec.savePrev();
       p += 26;
       const ctrl = rec.ctrl;
       if (!ctrl) return skip();
@@ -163,7 +162,6 @@ export function restoreWorld(w: World, save: SaveGame, o: { bricks?: boolean } =
   if (saveParts.walkers) saveParts.walkers.apply(w, { walkers: save.walkers, tags: save.walkerTags });
   const cam = new Float32Array(save.camera.buffer.slice(save.camera.byteOffset, save.camera.byteOffset + CAMERA_BYTES));
   w.camera.c.set(cam.subarray(0, 18));
-  w.camera.savePrev();
   w.frame = save.frameCounter >>> 0;
   if (!applyObjects(w, save.objects)) return false;
   saveParts.decor?.apply(w, save.decor);

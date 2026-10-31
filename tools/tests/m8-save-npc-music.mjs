@@ -6,10 +6,11 @@
 import { Duel } from '../lib/m7-isl-veh-emu.mjs';
 import { makeEnv, bots } from '../lib/m7-isl-veh-ambient-sc.mjs';
 import { compareBlocks, nativeNodes, portNodes, origBlock, origLoad, hex } from '../lib/m8-save.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const ONLY = new Set([0x536e16, 0x536961]);
 
-export default {
+const __test = {
   name: 'm8-save-npc-music',
   async run(ctx) {
     const origTick = Duel.prototype.tick;
@@ -65,3 +66,4 @@ export default {
     return { checked: r.checked + st.blocks, failures, notes: [`${st.compares} tick compares, ${st.blocks} blocks compared, ${st.rounds} load rounds (${st.loaded} nodes loaded); ${cov}`] };
   },
 };
+export default guarded(__test);

@@ -244,7 +244,7 @@ export class SpeedsterNode implements BehaviourNode {
   }
 
   /** FUN_006c61cf(car, lean, steer, clip): the driver figure (record 13, the MFIG rig): clip 10 shows the frame of the steering (0 .. count - 1), other clips play once and fall back to 10 */
-  private poseDriver(_w: World, lean: number, steer: number, clip: number) {
+  private poseDriver(w: World, lean: number, steer: number, clip: number) {
     const d = this.driver, a = d.anim;
     if (a) {
       const cur = a.clip;
@@ -252,7 +252,7 @@ export class SpeedsterNode implements BehaviourNode {
       if (clip === 10 || clip === cur) {
         if (cur === 10) seek();
         else {
-          const r = a.advance(1.0);
+          const r = a.advance(1.0, w.dt);
           if (r !== 0 && cur !== 8) { a.start(10, 0); seek(); }
         }
       } else a.start(clip, 0);
@@ -417,7 +417,7 @@ export class SpeedsterNode implements BehaviourNode {
     const pressed = (buttons ^ this.prevButtons) & buttons;
     this.prevButtons = buttons;
     if (pressed & 0x40) {
-      const r = sh.rng.int(3);
+      const r = sh.rng.tick(3);
       sh.sounds.play(r === 0 ? SND.HONK1 : r === 1 ? SND.HONK2 : SND.HONK3);
       clip = 6;
     }
@@ -581,7 +581,7 @@ export class SpeedsterNode implements BehaviourNode {
       const tHead = f32(Math.atan2(tx, tz));                      // local_268
       if (wall !== 0) {
         free = 0;
-        sh.sounds.play(sh.rng.int(2) === 0 ? SND.BUMP1 : SND.BUMP2);
+        sh.sounds.play(sh.rng.tick(2) === 0 ? SND.BUMP1 : SND.BUMP2);
         const sy = f32(Math.sin(newYaw)), cy = f32(Math.cos(newYaw));
         const dotTF = f32(f32(f32(tz * cy) + f32(0 * 0)) + f32(tx * sy));                  // local_2a0
         const dotTV = f32(f32(f32(tz * this.vz) + f32(0 * this.vy)) + f32(tx * this.vx));
@@ -807,7 +807,7 @@ export class SpeedsterNode implements BehaviourNode {
   private cowHit(cow: GameRecord) {
     const a = cow.anim;
     if (a && a.clip !== 1) {
-      this.shared.sounds.play(this.shared.rng.int(2) === 0 ? SND.COW2 : SND.COW1);
+      this.shared.sounds.play(this.shared.rng.tick(2) === 0 ? SND.COW2 : SND.COW1);
       a.start(1, 0);
     }
   }

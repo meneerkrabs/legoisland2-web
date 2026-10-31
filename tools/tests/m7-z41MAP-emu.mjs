@@ -36,6 +36,8 @@ export default {
       w.dt = dt;
       const rngP = makeRng(seed * 7919 + 13);
       S.env.rng = () => rngP.next();
+      const Eh = { msv: 1000 };
+      S.env.ms = () => Eh.msv;
       const plog = [];
       S.env.sfx = (id) => plog.push(['2d', id]);
       S.env.say = (id) => plog.push(['say', id]);
@@ -46,7 +48,7 @@ export default {
       const clones = createClones(w);
       const H = createHarness(ctx, w, S, { nBase });
       H.init();
-      return { L, w, S, H, rngP, plog, dt, clones, nBase, label: '' };
+      return { L, w, S, H, rngP, plog, dt, clones, nBase, Eh, label: '' };
     };
 
     const compareTick = (E, orig, label) => {
@@ -103,7 +105,7 @@ export default {
       for (const i of [0x3f, 0xda]) ck(w.vars.get(i) === orig.vars[i], `variable 0x${i.toString(16)} port ${w.vars.get(i)}, original ${orig.vars[i]}`);
       // sounds / speech / loops / splats in order (the emulator's var and emitter-stop entries are not part of the port's recorder)
       const o = orig.log.filter((e) => e[0] !== 'var' && e[0] !== 'emit');
-      const sameLog = o.length === plog.length && o.every((e, i) => e[0] === plog[i][0] && e.slice(1).every((v, q) => (typeof v === 'number' ? close(plog[i][q + 1], v, 1e-4) : v === plog[i][q + 1])));
+      const sameLog = o.length === plog.length && o.every((e, i) => e[0] === plog[i][0] && e.slice(1).every((v, q) => (typeof v === 'number' ? close(plog[i][q + 1], v, 0) : v === plog[i][q + 1])));
       checked++;
       if (!sameLog) bad(`${label}: sounds/speech: port ${JSON.stringify(plog)} original ${JSON.stringify(o)}`);
       // random numbers: the same number of draws (and therefore the same generator state)
@@ -127,6 +129,7 @@ export default {
       press(w, mask);
       const held = w.input.held, pressed = w.input.pressed;
       H.rng.s = rngP.s; H.rng.n = 0;
+      E.Eh.msv = H.msv = 1000 + 37 * (stats.ticks % 997) + (stats.ticks % 7);     // the scripted clock of this tick (the same value for both sides)
       let orig; const q0 = performance.now();
       try { orig = H.pass(held, pressed, E.dt); } catch (e) { bad(`${label}: the original function failed: ${e.message}`); H.reset(); return false; }
       const q1 = performance.now(); stats.tPass = (stats.tPass ?? 0) + q1 - q0;

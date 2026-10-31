@@ -13,7 +13,8 @@ import { World } from '../../src/game/world.ts';
 import { GameVars } from '../../src/game/vars.ts';
 import { readInitialVars } from '../../src/shell/tables.ts';
 import { feStageRecords, feStageNodes, feStartWalker, feStartVars } from '../../src/shell/frontend.ts';
-import { feTables, rng } from '../../src/shell/fenodes.ts';
+import { feTables } from '../../src/shell/fenodes.ts';
+import { setRandSource } from '../../src/game/crt.ts';
 import { setAmbientRandom } from '../../src/island/ambient/common.ts';
 
 /** a seeded rand(): the MSVC LCG (FUN_0085daf0: seed * 214013 + 2531011, bits 16..30); `range` = FUN_004388ae's draw */
@@ -21,7 +22,7 @@ export class Lcg {
   constructor(seed) { this.s = seed >>> 0; }
   int() { this.s = (Math.imul(this.s, 214013) + 2531011) >>> 0; return (this.s >>> 16) & 0x7fff; }
   next() { return this.int() / 32767; }
-  range(x) { return x <= 0 ? 0 : this.next() * x; }
+  range(x) { return x <= 0 ? 0 : Math.fround(Math.fround(this.int() / 32767) * Math.fround(x)); }   // (float)rand() / 32767 * x, float32 operations (x87 at 24 bit)
   /** the island rng source's value for the same draw (rng.ts: rand() = floor(v * 32768)) */
   source() { return (this.int() + 0.5) / 32768; }
 }
@@ -97,10 +98,9 @@ export function buildFePort(ctx, rngP) {
   const W = new World();
   W.vars = v; W.externalInput = true; W.zone = 'z60FRE'; W.records = data.records; W.col.records = data.records;
   W.input = { pressed: 0, held: 0 };
-  const prevNext = rng.next;
-  rng.next = () => rngP.next();
+  setRandSource(() => rngP.int());      // the nodes draw through the shared generator (src/game/crt.ts)
   setAmbientRandom(() => rngP.source());
-  const restore = () => { rng.next = prevNext; setAmbientRandom(null); };
+  const restore = () => { setRandSource(null); setAmbientRandom(null); };
   try {
     feStartVars(W.vars);
     feStageRecords(W, archive);

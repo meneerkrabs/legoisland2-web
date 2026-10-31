@@ -83,8 +83,8 @@ export default {
     ok(Object.values(PAR_CTOR).every((a) => registeredCtors().includes(a)), 'six constructors registered');
 
     // ============================================================ the zone loads
-    const fresh = (seedv = 1) => { seeded(seedv); const L = loadZone(ctx, 'z38PAR', { pe: loadExe(ctx.dataRoot) }); const run = startParRun(L.world, L.archive); const pilot = L.pepper.ctrl.find('ParPilot'); return { L, w: L.world, run, pilot, p: L.pepper, hud: new ParHud() }; };
-    const step = (G, mask = 0) => { G.w.input.setVirtual(mask); G.w.tick(); if (!G.run.over) G.hud.update(G.run, G.p.ry); };
+    const fresh = (seedv = 1, dt = 1) => { seeded(seedv); const L = loadZone(ctx, 'z38PAR', { pe: loadExe(ctx.dataRoot) }); L.world.dt = dt; const run = startParRun(L.world, L.archive); const pilot = L.pepper.ctrl.find('ParPilot'); return { L, w: L.world, run, pilot, p: L.pepper, hud: new ParHud() }; };
+    const step = (G, mask = 0) => { G.w.input.setVirtual(mask); G.w.tick(); if (!G.run.over) G.hud.update(G.run, G.p.ry, G.w.dt); };
     {
       const G = fresh();
       ok(G.L.skipped.every((s) => ['SeaAmin', 'seabed'].includes(s.ctorName)), `only the sea nodes are skipped: ${G.L.skipped.map((s) => s.ctorName)}`);
@@ -168,6 +168,29 @@ export default {
       const M = fresh(); step(M);
       M.p.x = 400; M.p.z = 400; M.p.y = M.run.recs.rings[2].y - 9; step(M); M.p.y = M.run.recs.rings[1].y - 9; step(M);
       ok(M.run.ring[2] === RING_MISSED && M.run.ring[1] === RING_MISSED && M.run.spoken.includes('LESGPT13'), 'both upper rings missed: LESGPT13');
+    }
+
+    // ============================================================ the same scripted WIN at the game's 60 Hz step (world.dt = 0.5): every dt-scaled quantity halves per tick
+    {
+      const G = fresh(1, 0.5);
+      let t = 0; const st = [];
+      for (; t < 12000 && !G.run.over; t++) {
+        const m = parBotStep(parSnapshot(G.w), { land: 3 });
+        const before = G.pilot.state; step(G, m);
+        if (G.pilot.state !== before) st.push(`${before}>${G.pilot.state}@${t}`);
+      }
+      notes.push(`WIN run at dt 0.5: ${t} ticks, score ${G.run.score}, rings ${G.run.ring}, states ${st.join(' ')}`);
+      ok(G.run.over && G.run.ring.join() === '1,1,1', `dt 0.5: all three rings passed (${G.run.ring})`);
+      ok(G.run.score >= 4500 && st.some((x) => x.startsWith('1>2')) && st.some((x) => x.startsWith('2>3')) && st.some((x) => x.startsWith('4>5')), `dt 0.5: state sequence ${st}`);
+      // the free fall covers the same height per game time: the same drop takes twice the ticks
+      const A = fresh(2, 1), Bq = fresh(2, 0.5);
+      for (let i = 0; i < 20; i++) step(A, 0);
+      for (let i = 0; i < 39; i++) step(Bq, 0);      // (the first tick only leaves state 0: 19 moves of dt 1 = 38 moves of dt 0.5 after it)
+      near(A.p.y, Bq.p.y, 5e-3, 'dt 0.5: 38 ticks of free fall = 19 ticks at dt 1');
+      // the HUD's blink counter steps 1 * dt (float32): half a frame per tick at dt 0.5
+      const hh = new ParHud(), rr = { score: 0, ring: [1, 0, 0], windDir: 0, startAlt: 2000, y: 2000, height: 100, refAlt: 2000, chuteOk: false, speak() {} };
+      hh.update(rr, 0, 0.5); hh.update(rr, 0, 0.5);
+      ok(hh.blink[0] === 147, `dt 0.5: the ring icon's blink counter advanced 1 in two frames (${hh.blink[0]})`);
     }
 
     // ============================================================ scripted WIN: all rings at the dive angle, chute, landing on target 3
@@ -258,20 +281,20 @@ export default {
       const f = G.hud.frame;
       ok(f.text === '0' && f.rings.join() === '146,116,86' && f.chuteIcon === HUD_TEX.CHUTE_NO, `initial HUD: ${f.text} ${f.rings} ${f.chuteIcon}`);
       // compass: (wind - yaw) -> 72 frames from texture 14
-      G.run.windDir = 0; G.p.ry = 0; G.hud.update(G.run, 0); ok(G.hud.frame.compass === 14 + 0 || G.hud.frame.compass === 14 + 72 - 0, `compass at 0 rad: ${G.hud.frame.compass}`);
-      G.run.windDir = Math.PI; G.p.ry = 0; G.hud.update(G.run, 0); ok(Math.abs(G.hud.frame.compass - (14 + 36)) <= 1, `compass at pi: ${G.hud.frame.compass}`);
+      G.run.windDir = 0; G.p.ry = 0; G.hud.update(G.run, 0, 1); ok(G.hud.frame.compass === 14 + 0 || G.hud.frame.compass === 14 + 72 - 0, `compass at 0 rad: ${G.hud.frame.compass}`);
+      G.run.windDir = Math.PI; G.p.ry = 0; G.hud.update(G.run, 0, 1); ok(Math.abs(G.hud.frame.compass - (14 + 36)) <= 1, `compass at pi: ${G.hud.frame.compass}`);
       // ring icons: passed = the blink frames 146 .. 175, missed = 178 / 177 / 176
-      G.run.ring = [1, 2, 0]; const seen = []; for (let i = 0; i < 40; i++) { G.hud.update(G.run, 0); seen.push(G.hud.frame.rings[0]); }
+      G.run.ring = [1, 2, 0]; const seen = []; for (let i = 0; i < 40; i++) { G.hud.update(G.run, 0, 1); seen.push(G.hud.frame.rings[0]); }
       ok(seen[0] === 146 && seen[1] === 147 && Math.max(...seen) === 175 && seen.includes(146, 5), `ring 1 blinks 146 .. 175: ${seen.slice(0, 8)}...${Math.max(...seen)}`);
       ok(G.hud.frame.rings[1] === 0xb1 && G.hud.frame.rings[2] === 0x56, 'missed ring 2: icon 177; open ring 3: 86');
       // gauge: the chute becomes allowed below a quarter of the start height; the marker is the altitude fraction
-      const R = fresh(); R.run.y = 1360; R.hud.update(R.run, 0);
+      const R = fresh(); R.run.y = 1360; R.hud.update(R.run, 0, 1);
       ok(!R.run.chuteOk && R.hud.frame.gauge.marker === 1 && R.hud.frame.gauge.segments.filter((x) => x === 10).length === 9, 'gauge at the start: marker 1, 9 upper segments red (10), 3 lower green (11)');
-      R.run.y = 341; R.hud.update(R.run, 0); ok(!R.run.chuteOk, 'y 341: not yet');
-      R.run.y = 339; R.run.refAlt = 341; R.run.height = 330; R.hud.update(R.run, 0);
+      R.run.y = 341; R.hud.update(R.run, 0, 1); ok(!R.run.chuteOk, 'y 341: not yet');
+      R.run.y = 339; R.run.refAlt = 341; R.run.height = 330; R.hud.update(R.run, 0, 1);
       ok(R.run.chuteOk && R.run.spoken.includes('LESGPT12') && R.hud.frame.gauge.segments.every((x) => x === 11), 'y 339: the chute is allowed (LESGPT12), all segments green');
-      R.hud.update(R.run, 0); ok(R.hud.frame.chuteIcon === HUD_TEX.CHUTE_OK, 'the right icon follows one update later (9)');
-      R.run.height = 170.5; R.hud.update(R.run, 0); near(R.hud.frame.gauge.marker, 0.5, 1e-9, 'second phase: marker = height / height at the unlock');
+      R.hud.update(R.run, 0, 1); ok(R.hud.frame.chuteIcon === HUD_TEX.CHUTE_OK, 'the right icon follows one update later (9)');
+      R.run.height = 170.5; R.hud.update(R.run, 0, 1); near(R.hud.frame.gauge.marker, 0.5, 1e-9, 'second phase: marker = height / height at the unlock');
       const g = gaugeRects(0); ok(g.marker[1] + 16 === 508 && g.segs.length === 12 && g.segs[11][1] === 316 && g.cap.join() === '716,516,776,576', 'gauge rectangles on the 800 x 600 grid');
     }
 

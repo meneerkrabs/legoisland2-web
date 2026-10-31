@@ -21,6 +21,8 @@ import {
   SND, PICK_SOUND, HIT_SOUND, PICKS, TOPPINGS_PER_ROUND, ROUNDS, POINTS_MATCH, POINTS_ROUND, POINTS_CITIZEN, GAUGE_START, GAUGE_DECAY,
   SLOT_POS, CITIZEN_RATES, CITIZEN_CLIPS, CAM_LOOK, CAM_EYE, CAM_EASE, HAND_ROT_Z, HAND_OFFSET, TOPPING_HAND_OFFSET, finishScore,
 } from './rules.ts';
+import { crtRand, randFrom, pickFrom } from '../common/crtrand.ts';
+import type { RandSource } from '../common/crtrand.ts';
 
 /** constructor addresses of the zone (the extraction's attaches, docs/re/zone-setup.md) */
 export const CTOR = { PEPPER: 0x816ba0, PAPA: 0x8132e0, MAMA: 0x81611f, TOPPING: 0x815e1a, SLUG: 0x81529f, PLANET: 0x814b0f, CITIZEN: 0x81483d } as const;
@@ -103,7 +105,10 @@ export class ToppingSlot {
 
 /** the hooks the host fills in (sound, speech, particles); the defaults only record what happened */
 export interface MapEnv {
-  rng(): number;
+  /** the C runtime's rand() (0 .. 32767, FUN_0085daf0) behind FUN_004388ae: the zone game passes the shared generator (src/game/crt.ts), tests a scripted source */
+  rng: RandSource;
+  /** FUN_00435c91: milliseconds since the zone's start; the picks of Papa's swing / round end, Pepper's throw and the topping's hit sound scale rand() by it (the zone game: the real clock) */
+  ms(): number;
   sfx(id: number): void;
   say(id: string): void;
   /** FUN_004433f0: the 3D loop of a topping in the air (null = stop, FUN_004434b0) */
@@ -112,10 +117,10 @@ export interface MapEnv {
   puff(pos: [number, number, number]): void;
 }
 
-/** a small deterministic generator (tests); the game uses the C runtime generator (`gameRandom`, game.ts) */
-export function lcg(seed: number): () => number {
+/** the C runtime's generator (FUN_0085daf0: MSVC LCG, 0 .. 32767) with a private state (tests; the game draws from the shared one, src/game/crt.ts) */
+export function lcg(seed: number): RandSource {
   let s = seed >>> 0;
-  return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+  return () => { s = (Math.imul(s, 0x343fd) + 0x269ec3) >>> 0; return (s >>> 16) & 0x7fff; };
 }
 
 export class MapState {
@@ -151,9 +156,9 @@ export class MapState {
   sounds: number[] = [];
 
   constructor() {
-    const rng = lcg(1);
     this.env = {
-      rng,
+      rng: crtRand,
+      ms: () => 100000,
       sfx: (id) => { this.sounds.push(id); },
       say: (id) => { this.spoken.push(id); },
       flight: () => { /* silent */ },
@@ -161,8 +166,10 @@ export class MapState {
     };
   }
   sfx(id: number) { this.env.sfx(id); }
-  /** FUN_004388ae(x) of the original: a random float in [0, x) */
-  rand(x: number): number { return this.env.rng() * x; }
+  /** FUN_004388ae(x) of the original: `(float) rand() / 32767.0f * x` stored as a float (x87 at 24 bit; can equal x) */
+  rand(x: number): number { return randFrom(this.env.rng, x); }
+  /** `ftol(FUN_004388ae((float) FUN_00435c91())) % n` (`& 1` / `& 3` for n = 2 / 4) */
+  pick(n: number): number { return pickFrom(this.env.rng, this.env.ms(), n); }
   say(id: string) { this.env.say(id); }
 }
 
@@ -319,8 +326,8 @@ export function throwTopping(w: World, slot: ToppingSlot | null, dir: number) {
   const S = stateOf(w);
   if (!slot || slot.state !== 1) return;
   const th = [SND.THROW1, SND.THROW2, SND.THROW3, SND.THROW4];
-  S.sfx(th[Math.floor(S.rand(4)) & 3]);
-  if ((Math.floor(S.rand(2)) & 1) === 0) S.sfx(SND.VOCAL2); else S.sfx(SND.VOCAL1);
+  S.sfx(th[S.pick(4)]);
+  if (S.pick(2) === 0) S.sfx(SND.VOCAL2); else S.sfx(SND.VOCAL1);
   slot.state = 2; slot.t = 0; slot.dir = dir;
   S.flying++;
 }
@@ -375,7 +382,7 @@ export class PapaNode extends MapNode {
     this.count = n;
     for (let i = 0; i < 4; i++) {
       if (i < n) {
-        const r = Math.min(3, Math.floor(S.rand(4)));
+        const r = Math.trunc(S.rand(4));       // `1 << ftol(FUN_004388ae(4.0))`: can be 4 when rand() is 32767 (the HUD icon index 4 is the gauge arrow's texture)
         this.target[i] = 1 << r; this.pending[i] = 1; S.hudIcons[i] = r;
       } else { this.target[i] = -1; this.pending[i] = 0; S.hudIcons[i] = -1; }
     }
@@ -415,7 +422,7 @@ export class PapaNode extends MapNode {
         let na = addf(mulf(this.speed, w.dt), this.angle);
         if (-PI <= na) { if (PI < na) na = subf(na, TWO_PI); } else na = addf(na, TWO_PI);
         if ((na < 0 && 0 <= this.angle) || (0 <= na && this.angle < 0)) {
-          if ((Math.floor(S.rand(2)) & 1) === 0) { this.state = 3; this.slow = 1; }
+          if (S.pick(2) === 0) { this.state = 3; this.slow = 1; }
         }
         this.angle = na;
         this.x = this.swing;
@@ -459,7 +466,7 @@ export class PapaNode extends MapNode {
         for (let i = 0; i < this.count; i++) if (this.landed[i] !== this.target[i]) wrong = true;
         if (!wrong) {
           this.score += (Math.trunc(this.gauge) * 100) >> 1;
-          S.sfx(Math.trunc(S.rand(5)) % 5 < 3 ? SND.PAPA_YEAH : SND.PAPA_CHEERS);
+          S.sfx(S.pick(5) < 3 ? SND.PAPA_YEAH : SND.PAPA_CHEERS);
         }
         this.level++;
         this.state = 7;
@@ -641,7 +648,7 @@ export class ToppingNode extends MapNode {
                 s.state = 4; s.life = 12;
                 mama.state = 3;
                 S.sfx(SND.HIT_PAPA);
-                const r = Math.floor(S.rand(3)) % 3;
+                const r = S.pick(3);
                 S.sfx(r === 0 ? SND.PAPA_EEK : r === 1 ? SND.PAPA_OUCH : SND.PAPA_YEOW);
                 S.log.push('papa');
               }
@@ -919,19 +926,29 @@ export class SlugNode extends MapNode {
 export class PlanetNode extends MapNode {
   readonly kind = 'Planet';
   init() { /* nothing */ }
-  tick(w: World, rec: GameRecord) {
-    const S = stateOf(w);
+  tick(w: World) { drawPlanet(w); }
+}
+
+/**
+ * The draw hook FUN_00814964 of PLAN: the planet turns by DAT_05d5f4a4 about Y (tilt -0.5, at (25, 10, 30)), the galaxy (GALA, record 0x484) by the same angle about Z, then the angle
+ * grows by 0.005. It runs once per DRAWN frame of the original in every loop mode (fade, intro, help, play, pause, banner: the draw pass FUN_0042271b is part of every pass), i.e. once
+ * per sim step and never times dt: the node calls it in the update modes (2 and 4), the zone game's `everyTick` in the others.
+ */
+export function drawPlanet(w: World) {
+  const S = stateOf(w);
+  const rec = recOf(w, 'PLAN');
+  if (rec) {
     rec.m.set(identity());
     rotY(rec.m, S.planetAngle);
     rotZ(rec.m, -0.5);
     setPos(rec.m, 25, 10, 30);
-    const gala = recOf(w, 'GALA');
-    if (gala) {
-      const x = gala.m[12], y = gala.m[13], z = gala.m[14];
-      gala.m.set(identity()); rotZ(gala.m, S.planetAngle); setPos(gala.m, x, y, z);
-    }
-    S.planetAngle = addf(S.planetAngle, f32(0.005));
   }
+  const gala = recOf(w, 'GALA');
+  if (gala) {
+    const x = gala.m[12], y = gala.m[13], z = gala.m[14];
+    gala.m.set(identity()); rotZ(gala.m, S.planetAngle); setPos(gala.m, x, y, z);
+  }
+  S.planetAngle = addf(S.planetAngle, f32(0.005));
 }
 
 // ------------------------------------------------------------------------------------------------ registration and set-up

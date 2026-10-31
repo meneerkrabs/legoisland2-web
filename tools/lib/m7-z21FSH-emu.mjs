@@ -5,6 +5,8 @@
 // Hosted (not the subject): game variables, animation instances (the port's AnimInstance: FUN_0043b6a3 / 76a / 72b / 73f / 753 / 64d, the bone matrix FUN_0043bc58 from the port's pose),
 // sound / speech / music / cutscene / emitter calls (logged), text draws (logged), the random numbers (the port's generator), atan2; the ground ray FUN_0043cd62 -> 004425f0 -> 00441b10 runs
 // natively on the LAND collision object built by the original loader FUN_0043f370 from the archive.
+import { setTickCountSource } from '../../src/game/crt.ts';
+import { startTickClock } from '../../src/zones/common/tickrand.ts';
 import { createCpu } from '../../src/formats/x86emu.ts';
 import { loadExe, loadZone } from './engine-load.mjs';
 import { colMember } from '../../src/game/zone.ts';
@@ -24,6 +26,9 @@ const F32 = new Float32Array(1), U32 = new Uint32Array(F32.buffer);
 export const f32 = (v) => { F32[0] = v; return F32[0]; };
 export const bitsOf = (v) => { F32[0] = v; return U32[0]; };
 
+/** the pinned `GetTickCount - base` of both sides */
+export const PINNED_MS = 5000;
+
 /** a deterministic generator whose draws are recorded (the constructors of the original are fed the same numbers) */
 export function recordingRng(seed) {
   const r = { s: seed >>> 0, draws: [], count: 0, next() { r.s = (Math.imul(r.s, 1664525) + 1013904223) >>> 0; const v = r.s / 4294967296; r.count++; if (r.recording) r.draws.push(v); return v; }, recording: true };
@@ -32,6 +37,7 @@ export function recordingRng(seed) {
 
 /** the zone world as the m6 test builds it, with the rods' / Bertha's animation instances, only the zone's own nodes on the records, and recorders for the environment */
 export function loadFsh(ctx, { seed = 7, dt = 1 } = {}) {
+  setTickCountSource(() => 100); startTickClock(); setTickCountSource(() => 100 + PINNED_MS);      // the port's msClock() reads PINNED_MS (FUN_00435c81 / FUN_00435c91)
   const pe = loadExe(ctx.dataRoot);
   const L = loadZone(ctx, 'z21FSH');
   const w = L.world;
@@ -121,8 +127,8 @@ export function createHarness(ctx, W, opts = {}) {
   hook(0x4175ca, (c) => { w.vars.add(c.arg(0), c.arg(1) | 0); });
   // ---- random numbers: FUN_004388ae(x) = rand * x from the port's generator (or the queue the constructors are fed from)
   hook(0x4388ae, (c) => { H.randCalls++; const v = H.randSource ? H.randSource.next() : rng.next(); c.fpush(c.argf(0) > 0 ? f32(f32(v) * f32(c.argf(0))) : 0); });      // FUN_004388ae: fild r; fdiv 32767.0f; fmul max (24-bit: both round); max <= 0 gives 0
-  // GetTickCount: the original draws `ftol(FUN_004388ae(tick)) % N`; the port models it as randI(N). The host returns N (read from the `mov ecx, N; idiv ecx` that follows the call) so that both are the same decision
-  hook(0x435c91, (c) => { let n = 3; const ra = c.retAddr; for (let k = 0; k < 48; k++) if (pe.at(ra + k) === 0xb9 && pe.at(ra + k + 5) === 0xf7 && pe.at(ra + k + 6) === 0xf9) { n = pe.u32(ra + k + 1); break; } c.eax = n; });
+  // FUN_00435c91 = GetTickCount - base: the original draws `ftol(FUN_004388ae(tick)) % N`; both sides read the same pinned 5000 ms (the port's clock is pinned in `loadFsh`)
+  hook(0x435c91, (c) => { c.eax = PINNED_MS; });
   // ---- animation instances (the port's own: not the subject)
   const animOf = (ptr) => rs[(ptr - AB) / 0x40]?.anim;
   hook(0x43b6a3, (c) => { push(['anim', (c.arg(0) - AB) / 0x40, c.arg(1) | 0, c.argf(2)]); animOf(c.arg(0))?.start(c.arg(1) | 0, c.argf(2)); });

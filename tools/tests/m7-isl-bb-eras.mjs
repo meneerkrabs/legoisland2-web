@@ -7,7 +7,7 @@ export default {
   name: 'm7-isl-bb-eras',
   run(ctx) {
     const notes = [], st = newStats(), cov = newCov();
-    for (const [node, dt] of [[30, 1], [52, 1], [61, 1]]) {
+    for (const [node, dt] of [[30, 1], [30, 0.5], [52, 1], [52, 0.5], [61, 1], [61, 0.5]]) {
       const P = createBB(ctx, { node, dt, seed: 200 + node, pizza: node >= 52 });
       const w = P.w, sc = dt === 1 ? 1 : 2, c = newCov();
       setVar(P, 0x5e, 1); setVar(P, 9, 1);

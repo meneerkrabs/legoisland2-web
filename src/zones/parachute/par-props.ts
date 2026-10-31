@@ -7,6 +7,7 @@ import { NODE_STOP } from '../../game/controller.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
 import { parRun } from './par-run.ts';
 import { rand, transformPoint } from './util.ts';
+import { toWorld as toWorldExact } from '../exact.ts';
 
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 const f = Math.fround;
@@ -38,8 +39,9 @@ export class ParBoat extends PropNode {
 
 /** one of the three pterodactyls: the Lissajous path of FUN_004677a0 (x = sin(2 t) R + 35.784, z = cos(t) R + 29.474), flapping at twice the speed */
 interface BirdDef { radius: number; y: number; step: number; phase0: number; heading: number; fly: 'birdFly1' | 'birdFly2' | 'birdFly3'; call: 'birdCall1' | 'birdCall2' | 'birdCall3' }
+/** `heading` of the first bird is the float 0x892440 (0.15707964f) the original subtracts */
 export const BIRDS: BirdDef[] = [
-  { radius: 60, y: 934.517, step: 0.016, phase0: 0, heading: -0.15707964, fly: 'birdFly1', call: 'birdCall1' },
+  { radius: 60, y: 934.517, step: 0.016, phase0: 0, heading: -f(0.15707964), fly: 'birdFly1', call: 'birdCall1' },
   { radius: 65, y: 954.517, step: 0.011, phase0: 8, heading: 0, fly: 'birdFly2', call: 'birdCall2' },
   { radius: 48, y: 944.517, step: 0.014, phase0: 15, heading: 0, fly: 'birdFly3', call: 'birdCall3' },
 ];
@@ -65,9 +67,9 @@ export class ParBirds extends PropNode {
       if (rand(50) < 1) run.sound.at(def.call, pos);       // FUN_004677a0: `push 0x42480000` (50.0) before FUN_004388ae, then `< 1.0`: a call about every 50 ticks per bird (M7 oracle: it was rand(2) = every other tick)
       run.sound.at(def.fly, pos);
       const t = this.phase[i];
-      const nx = f(Math.sin(t + t) * def.radius + BIRD_CENTRE[0]), nz = f(Math.cos(t) * def.radius + BIRD_CENTRE[1]);
+      const nx = f(f(Math.sin(t + t) * def.radius) + BIRD_CENTRE[0]), nz = f(f(Math.cos(t) * def.radius) + BIRD_CENTRE[1]);   // the product rounds to float32 before the sum (24-bit x87)
       this.phase[i] = f(f(def.step) * w.dt + t);            // the phases are float node fields (+0x1c / +0x20 / +0x24)
-      const h = f(Math.atan2(nx - pos[0], nz - pos[2]) + def.heading);     // (double)(nx - x): the differences of two floats are not rounded again
+      const h = f(Math.atan2(f(nx - pos[0]), f(nz - pos[2])) + def.heading);     // the two differences are stored as floats (24-bit x87: fsub rounds, 0x4678ba .. 0x4678cf) before the atan2
       rec.setEuler(0, h, 0, nx, def.y, nz);
       rec.anim?.advance(2, w.dt);
     });
@@ -121,7 +123,7 @@ export class ParCanopy extends PropNode {
     // bone 8 of the pilot's rig (the pack): translation of the bone matrix in model space, then into the world with the pilot's matrix
     let pos: number[] = [pep.x, pep.y, pep.z];
     const pose = pep.anim?.pose(1);
-    if (pose && pose.length >= 9 * 16) pos = pep.toWorld([pose[8 * 16 + 12], pose[8 * 16 + 13], pose[8 * 16 + 14]]);
+    if (pose && pose.length >= 9 * 16) pos = toWorldExact(pep.m, [pose[8 * 16 + 12], pose[8 * 16 + 13], pose[8 * 16 + 14]]);   // FUN_0043ab72 at 24 bit
     // FUN_00468338: the matrix is built with the scale of this moment (FUN_0043a742), THEN the scale moves on (DAT_05d57d30: 1 opening, 2 closing); M7 oracle: the port moved it first
     const s = this.scale;
     rec.m.set(buildMatrix(pep.rx, pep.ry, pep.rz, pos[0], pos[1], pos[2], s, s, s));

@@ -7,6 +7,7 @@
 //   FUN_005f3d78  advance(rate, noWrap)                     FUN_005f3f1b  seek(frame)                        FUN_005f3d6a  mode
 //   FUN_005f3ce1  matrix of the last record                 FUN_005f3cf6  matrix of bone `i` of the last record's pose
 import type { GameRecord } from '../../game/record.ts';
+import { toWorld } from '../exact.ts';
 
 export class MfigMan {
   /** *manager (the position the master is placed at) and manager[1] (its Euler angles): references to the duel node's vectors */
@@ -18,7 +19,7 @@ export class MfigMan {
   clip: number[] = [];
   /** manager + 8: 1 = the last record follows the master, 0 = it runs on its own */
   mode = 1;
-  /** the frame step of the engine's advance function (FUN_0043b76a multiplies the rate by DAT_008b1718): 1 at 30 Hz, 0.5 at 60 Hz; the duel sets it every tick */
+  /** the frame step of the engine's advance function (FUN_0043b76a multiplies the rate by DAT_008b1718 = `world.dt`); the duel sets it every tick before it advances anything */
   dt = 1;
 
   constructor(table: readonly (readonly number[])[], pos: number[], rot: number[]) { this.table = table; this.pos = pos; this.rot = rot; }
@@ -105,7 +106,6 @@ export class MfigMan {
   boneWorld(bone: number): [number, number, number] | null {
     const l = this.boneLocal(bone);
     if (!l) return null;
-    const w = this.rider.toWorld(l);
-    return [w[0], w[1], w[2]];
+    return toWorld(this.rider.m, l);                      // FUN_0043ab72 per operation in float32
   }
 }

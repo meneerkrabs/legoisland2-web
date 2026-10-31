@@ -88,7 +88,7 @@ export function createMmpHarness(ctx, G, opts = {}) {
   hook(0x43cd62, (c) => { const p = c.arg(0); H.probes++; c.fpush(w.col.terrainHeight(mem.f32(p), mem.f32(p + 4), mem.f32(p + 8), c.argf(1))); });
   hook(0x441ac0, () => { throw new Error('z18MMP emu: FUN_00441ac0 (probe sweep) is not expected'); });
   // the controller probe request of the rats (FUN_00427014) and the probe pass FUN_00427233 (run after the update pass, as in the loop FUN_006a26a8) execute natively
-  cpu.exec = [[0x6a2000, 0x6ad000], [0x858d30, 0x873e00], [0x42373e, 0x423760], [0x43a4a1, 0x43a8e0], [0x43cec0, 0x43cf30], [0x427014, 0x427070], [0x427233, 0x4277d0]];
+  cpu.exec = [[0x6a2000, 0x6ad000], [0x858d30, 0x873e00], [0x42373e, 0x423760], [0x43a4a1, 0x43a8e0], [0x43cec0, 0x43cf57], [0x427014, 0x427070], [0x427233, 0x4277d0]];
   cpu.fallback = (a) => { H.unhooked.add(a); throw new Error(`z18MMP emu: unhooked call to 0x${a.toString(16)}`); };
   cpu.invalidate();
   if (H.cov) { const run0 = cpu.run.bind(cpu), cov = H.cov; cpu.run = (o = {}) => run0({ ...o, trace: (cc, at) => { cov.add(at); o.trace?.(cc, at); } }); }

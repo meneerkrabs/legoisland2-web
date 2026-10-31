@@ -16,6 +16,7 @@ import { MODE } from '../shell/loopmachine.ts';
 import { waypoints } from '../game/walker.ts';
 import { ZoneParticles, GATE_OFF } from '../fx/particles/zone.ts';
 import { euler24 } from './common/x87.ts';
+import { startTickClock } from './common/tickrand.ts';
 import { installCtx } from '../island/ctx.ts';
 import { makeFshCtx } from './z21fsh/ctx.ts';
 
@@ -69,7 +70,7 @@ registerZoneGame('z21FSH', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   const bad = checkRecords(world.records);
   if (bad.length) throw new Error(`z21FSH: ${bad.join('; ')}`);
   const S = prepareFsh(world, sh.pe);
-  S.rng = { next: Math.random };
+  startTickClock();                // FUN_006f3511 calls FUN_00435c81 before its loop: the cast sound / catch line picks scale rand() by the ms since here
   const lods = S.tables!.lods;
   // the shoal's fish are drawn through helper records that carry the three fish models (the original draws the model objects with hand-made matrices)
   S.clones = [];

@@ -3,13 +3,13 @@ import { parseBlk } from '../../src/formats/anim.ts';
 import { AnimInstance } from '../../src/game/anim.ts';
 import { B } from '../../src/game/input.ts';
 import { prepareTrx } from '../../src/zones/z27trx/prepare.ts';
-import { TrxRun } from '../../src/zones/z27trx/run.ts';
+import { TrxRun, makeRandom } from '../../src/zones/z27trx/run.ts';
 import { bindGate, meshParts } from '../../src/zones/z27trx/gate.ts';
 import { clockText } from '../../src/zones/z27TRX.ts';
 import { BANNER } from '../../src/zones/z27trx/consts.ts';
 import { VAR, PHASE } from '../../src/zones/z27trx/consts.ts';
 import { makeTrxBot } from '../lib/trx-bot.mjs';
-import { createTrxHarness, snapshotWorld, restoreWorld, quantize, SPEC, KIND_OF_PORT, f32 } from '../lib/m7-z27TRX-emu.mjs';
+import { createTrxHarness, snapshotWorld, restoreWorld, quantize, SPEC, KIND_OF_PORT, f32, TRX_MS } from '../lib/m7-z27TRX-emu.mjs';
 
 // z27TRX, differential test (WP-VERIFY, docs/re/m6/z27TRX.md "Differential test"): the ORIGINAL code of the rex node (FUN_0076a39b: phases, probes, rumble, footsteps, rider, cameras),
 // of the props (gate, volcano, swinging logs, boulders, eggs, brontosaurus, spectators) and of the zone's record loop + constructors runs in the x86 emulation over one update pass from
@@ -67,7 +67,7 @@ export default {
       const w = L.world;
       w.dt = dt;
       const sink = new Sink(), rk = makeKeyed(seed * 7919 + 13, w);
-      const rng = { float: (max) => (max <= 0 ? 0 : f32(f32(rk.draw() / 32767) * max)), int: (n) => (n <= 1 ? 0 : rk.draw() % n) };
+      const rng = makeRandom(() => rk.draw(), () => TRX_MS);       // the port's own random code (float32 FUN_004388ae, the ms-scaled pick) on the keyed integer source
       let g = null;
       if (o.prepare !== false) {
         g = prepareTrx(w, L.pepper, { rigs, models: L.scene.models, pe, sound: sink, rng, say: (id) => { sink.log.push(['say', id]); return true; } });

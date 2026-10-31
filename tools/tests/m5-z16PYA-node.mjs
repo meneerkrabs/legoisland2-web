@@ -11,6 +11,7 @@ import { tickIslandBrickFx } from '../../src/fx/bricks/island.ts';
 import { Hud } from '../../src/shell/hud.ts';
 import { setIslandRandom } from '../../src/island/rng.ts';
 import { loadExe } from '../lib/engine-load.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // M5 z16PYA, node tests (no browser): the Pyramid's set-up through the emulation (attaches by node, chain, hidden templates, variants, arrival, texts, objective, cutscene slots), Pepper's
 // mode switch PeppSw in the real node chain (board on / off, the groove level, the temple sound), the HUD, the roster's Speedster look, the shared Oasis nodes in this hub's world
@@ -27,7 +28,7 @@ const KINDS = {
   40: { Sky: 1, PeppSw: 1, scorpion: 11, SGwalk: 1, sgswim: 1, skate: 1, Tumblewd: 2, Gems: 5, 'StartCSM.portal': 1, hOLO: 1, SGMFIG: 1 },
 };
 
-export default {
+const __test = {
   name: 'm5-z16PYA-node',
   run(ctx) {
     const failures = [], notes = [];
@@ -269,4 +270,5 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);
 void ROSTER_VA; void PyaPepSwitch;

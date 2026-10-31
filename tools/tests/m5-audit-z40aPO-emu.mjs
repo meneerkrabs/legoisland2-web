@@ -34,7 +34,7 @@ export default {
       const nx = (s) => (Math.imul(s, 1103515245) + 12345) & 0x7fffffff;
       const portRng = () => { sp = nx(sp); return ((sp >> 8) & 0x7fff) / 32768; };
       // FUN_004388ae at 24-bit precision (control word 0x7f): `rand() / 32767` and the product with `x` each round to float32
-      const rngO = { range: (x) => { so = nx(so); return f32(f32(((so >> 8) & 0x7fff) / 32767) * x); } };
+      const rngO = { int: () => { so = nx(so); return (so >> 8) & 0x7fff; } };
       // ---- the port (its constructors draw the asteroids' random speeds first: 28 numbers)
       setRandomSource(portRng);
       const L = loadZone(ctx, 'z40aPO');
@@ -77,11 +77,10 @@ export default {
       const nf = (o) => mem.f32(node + o), ni = (o) => mem.r32(node + o) | 0;
       const hudP = new ApoHud();
 
-      const TOLK = +(process.env.APO_TOL ?? 0);       // bit exact: the port rounds every operation like the 24-bit x87 (APO_TOL scales the old tolerances for comparisons)
-      const cmp = (tick, name, orig, port, tol = 2e-3) => {
-        tol *= TOLK;
+      // bit exact: the port rounds every operation like the 24-bit x87 (the last argument of the calls is the tolerance of the earlier double-precision port: no longer used)
+      const cmp = (tick, name, orig, port) => {
         checked++;
-        if (!(Math.abs(orig - port) <= tol * Math.max(1, Math.abs(orig))) && failures.length < capEnd) failures.push(`${label}: tick ${tick} ${name}: original ${orig} port ${port} (state ${pilot.state}, ring flags ${[...run.ring].join('')})`);
+        if (!(orig === port) && failures.length < capEnd) failures.push(`${label}: tick ${tick} ${name}: original ${orig} port ${port} (state ${pilot.state}, ring flags ${[...run.ring].join('')})`);
       };
       const eq = (tick, name, orig, port) => {
         checked++;
@@ -106,7 +105,7 @@ export default {
         plog.length = 0;
         W.input.setVirtual(held);
         W.tick();
-        const hf = hudP.update(run);
+        const hf = hudP.update(run, W.dt);
         const before = states.length ? states[states.length - 1].to : 0;
         if (pilot.state !== before) states.push({ at: t, from: before, to: pilot.state });
         const T = t + 1;

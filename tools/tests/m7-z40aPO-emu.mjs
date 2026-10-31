@@ -29,15 +29,12 @@ export default {
   run(ctx) {
     const failures = [], notes = [];
     let checked = 0;
+    const ok0 = (c, msg) => { checked++; if (!c) bad(msg); };
     const pe = loadExe(ctx.dataRoot);
-    const TOL = +(process.env.APO_TOL ?? 1);
     const cover = { states: new Set(), sounds: new Map(), speech: new Map(), botLaunch: 0, botExplode: 0, rockWake: 0, bounces: 0, ringsPassed: 0, groupsMissed: 0, landed: 0, sky: 0, fx: new Map() };
     const bump = (m, k) => m.set(k, (m.get(k) ?? 0) + 1);
 
-    const ABS = 6e-4;
     const nx = (s) => (Math.imul(s, 1103515245) + 12345) & 0x7fffffff;
-    // ApoHud.update takes dt; the game's call sites (src/zones/z40aPO.ts apply() / introTick) pass none: KNOWN DEVIATION at dt 0.5, counted from the source in the notes. The test passes the world's dt.
-    const hudDt = true;
     const gaugeOver = { n: 0 };
     const dtShim = { n: 0, byDt: new Map() };
     const bad = (m) => { if (failures.length < MAXFAIL) failures.push(m); else if (failures.length === MAXFAIL) failures.push('... more failures'); };
@@ -47,7 +44,7 @@ export default {
       const t0 = Date.now();
       let sp = seed, so = seed;
       setRandomSource(() => { sp = nx(sp); return (sp >> 8 & 0x7fff) / 32768; });
-      const rngO = { range: (x) => { so = nx(so); return Math.fround(Math.fround((so >> 8 & 0x7fff) / 32767) * x); } };   // FUN_004388ae at 24-bit precision: the division and the product round to float32
+      const rngO = { int: () => { so = nx(so); return so >> 8 & 0x7fff; } };   // FUN_004388ae at 24-bit precision: the division and the product round to float32
       // ---- the port
       const L = loadZone(ctx, 'z40aPO');
       const W = L.world; W.dt = dt;
@@ -58,13 +55,12 @@ export default {
       const nodeOf = (kind) => { for (const r of W.records) { const n = r.ctrl?.find(kind); if (n) return { rec: r.index, node: n }; } throw new Error(`no ${kind}`); };
       const bots = nodeOf('ApoBots').node, rocks = nodeOf('ApoRockMonsters').node, ast = nodeOf('ApoAsteroids').node, wing = nodeOf('ApoWing');
       const nodeRecords = { pilot: R.pepp.index, rocks: nodeOf('ApoRockMonsters').rec, bots: nodeOf('ApoBots').rec, wing: wing.rec, asteroids: nodeOf('ApoAsteroids').rec };
-      // KNOWN DEVIATION (dt = 0.5): the port's pilot / rock-monster code calls `anim.advance(rate)` without `w.dt` (the original's FUN_0043b76a steps by rate * DAT_008b1718). The test
-      // passes the world's dt for those calls (and counts them) so that everything else of the dt = 0.5 run is still compared.
+      // every animation advance of the port must carry the world's dt (the original's FUN_0043b76a steps by rate * DAT_008b1718): a call without it is a failure
       for (const r of W.records) {
         const a = r.anim;
         if (!a) continue;
         const adv = a.advance.bind(a);
-        a.advance = (rate, d) => { if (d === undefined) { if (dt !== 1) dtShim.n++; return adv(rate, dt); } return adv(rate, d); };
+        a.advance = (rate, d) => { if (d === undefined) { dtShim.n++; bad(`${label}: anim.advance(${rate}) called without dt`); return adv(rate, dt); } return adv(rate, d); };
       }
       const plog = [];
       const wrap = (name, f) => { const o = run.sound[name].bind(run.sound); run.sound[name] = (...a) => { f(...a); return o(...a); }; };
@@ -122,7 +118,7 @@ export default {
         if (dd > (worst.get(name) ?? 0)) worst.set(name, dd);
         // coordinate-type quantities carry the float32 noise of the altitude they were computed at (ulp(2000) = 1.2e-4 stays in the value when the pilot is lower): an absolute floor of ABS
         // (5 ulp at 2000) next to the relative tolerance; the exact fields (tol <= 1e-6) have no floor
-        if (!(dd <= Math.max(tol * TOL * Math.max(1, Math.abs(orig)), tol <= 1e-6 ? 0 : ABS))) { nfail++; bad(`${label}: tick ${tick} ${name}${idx}: original ${orig} port ${port} (pilot state ${pilot.state})`); }
+        if (dd !== 0 && orig !== port) { nfail++; bad(`${label}: tick ${tick} ${name}${idx}: original ${orig} port ${port} (pilot state ${pilot.state})`); }
       };
       const eq = (name, orig, port, idx = '') => {
         checked++;
@@ -221,21 +217,22 @@ export default {
         if (pilot.state !== 0 && pilot.state !== 1) for (let q = 0; q < 15; q++) cmp('shadow', mem.f32(0x5d5f290 + 4 * q), run.shadow[q], 5e-4, `[${q}]`);       // terrain heights under a float32-accurate position (noise 1e-5 times a slope of up to ~30)
         // ---- the HUD (FUN_007d0f00 after the update pass; the game's apply() calls ApoHud.update(run) with dt = 1: see the notes)
         {
-          const oh = emu.hud(), ph = hud.update(run, hudDt ? W.dt : 1);
+          const oh = emu.hud(), ph = hud.update(run, W.dt);
           eq('hud text', oh.text, ph.text);
           for (let g = 0; g < 3; g++) { eq('hud icon', oh.icons[g], [ph.groups[2], ph.groups[1], ph.groups[0]][g], ` group ${g + 1}`); eq('hud tint', oh.tints[g] >>> 0, [ph.tints[2], ph.tints[1], ph.tints[0]][g] >>> 0, ` group ${g + 1}`); }
           eq('hud chute icon', oh.chuteIcon, ph.chuteIcon);
           // KNOWN DEVIATION: FUN_007d0f00 does not clamp the gauge position below: DAT_05d4e138 = 204 - local_c is > 204 when height > refAlt (a bounce lifts the pilot above the
           // altitude of the last reference); the port's marker fraction is clamped to 0..1 (src/zones/parachute/apo-hud.ts)
           if (oh.gauge > 204.0001) gaugeOver.n++;
-          cmp('hud gauge', Math.min(oh.gauge, 204), 204 * ph.gauge.marker, 1e-5);
+          cmp('hud gauge', oh.gauge, ph.gauge.value, 0);
+          cmp('hud gauge marker', Math.min(1, Math.max(0, Math.fround(oh.gauge / 204))), ph.gauge.marker, 0);
           eq('hud segments', oh.segments.join(), ph.gauge.segments.join());
           for (let g = 0; g < 3; g++) cmp('hud spin counter', oh.spin[g], hud.spin[g], 1e-6, ` ${g}`);
         }
         // ---- sounds and speech in call order
         const a = parse(olog), b = plog;
         checked++;
-        const same = a.length === b.length && a.every((e, i) => e[0] === b[i][0] && e[1] === b[i][1] && e.slice(2).every((v, k) => Math.abs(v - b[i][2 + k]) <= Math.max(1e-4 * Math.max(1, Math.abs(v)), ABS)));
+        const same = a.length === b.length && a.every((e, i) => e[0] === b[i][0] && e[1] === b[i][1] && e.slice(2).every((v, k) => v === b[i][2 + k]));
         if (!same) { nfail++; bad(`${label}: tick ${tick}: calls differ (pilot state ${pilot.state})\n    original ${a.map((e) => e.join(' ')).join(' | ')}\n    port     ${b.map((e) => e.join(' ')).join(' | ')}`); }
         for (const e of a) if (e[0] === 'p2' && /^(hit|smack|land|thruRing|solar)/.test(e[1]) && evs.length < 14) evs.push(`${e[1]}@${tick}`);
         for (const e of a) { if (e[0] === 'say') bump(cover.speech, e[1]); else bump(cover.sounds, `${e[0]} ${e[1]}`); }
@@ -407,12 +404,12 @@ export default {
     }
     setRandomSource(null);
     const m = (x) => [...x].map(([k, v]) => `${k}x${v}`).join(' ');
-    notes.push(`KNOWN DEVIATION (dt 0.5): the port's pilot / rock monsters call anim.advance(rate) without dt: ${dtShim.byDt.get(0.5) ?? 0} calls had the world's dt passed in by the test`);
-    notes.push(`KNOWN DEVIATION: the HUD gauge value exceeds 204 in the original in ${gaugeOver.n} ticks (height above the last reference altitude); the port clamps the marker to the bar`);
+    ok0([...dtShim.byDt.values()].every((n) => n === 0), `every anim.advance of the port carries dt`);
+    notes.push(`the HUD gauge value (DAT_05d4e138, unclamped) exceeds 204 in ${gaugeOver.n} ticks (height above the last reference altitude) and equals the original's exactly; only the bar's marker ratio is clamped (FUN_00460214 does the same)`);
     {
       const src = fs.readFileSync(new URL('../../src/zones/z40aPO.ts', import.meta.url), 'utf8');
       const calls = (src.match(/hud\.update\(run[^)]*\)/g) ?? []);
-      notes.push(`KNOWN DEVIATION (dt 0.5): HUD spin counters step 1 * DAT_008b1718; src/zones/z40aPO.ts calls ${calls.join(' / ')} without world.dt (${calls.filter((c) => !/dt/.test(c)).length} of ${calls.length} call sites)`);
+      ok0(calls.length > 0 && calls.every((c) => /dt/.test(c)), `HUD spin counters step 1 * DAT_008b1718: every hud.update call site of src/zones/z40aPO.ts passes world.dt (${calls.join(' / ')})`);
     }
     notes.push(`coverage: pilot states ${[...cover.states].sort().join(',')}; ring flags set ${cover.ringsPassed} passed / ${cover.groupsMissed} missed; bounces ${cover.bounces}; rock wakes ${cover.rockWake}; landed ${cover.landed}; sky ${cover.sky}`);
     notes.push(`sound calls: ${m(cover.sounds)}`);

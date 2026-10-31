@@ -3,7 +3,6 @@
 // every frame from the camera position and the fog/far distance; this module reproduces that placement.
 import { buildMatrix } from '../formats/matrix.ts';
 import type { Mat4 } from './math.ts';
-import { GAME_TICK } from './camera.ts';
 
 /** Part `mode` (see states.ts modePreset) the zone code assigns to these records with FUN_00444550 */
 export const SKY_MODE = 2;      // preset 1: unlit texture, texture alpha, blended, depth test + write on
@@ -15,16 +14,17 @@ export const SEA_EDGE_MODE = 2;
 /** sky dome horizontal radius = far * 1.2 (FUN_00442dc0: fog end * _DAT_008920e8), height = camera y + 100 (FUN_004267d2) */
 export const SKY_RADIUS_FACTOR = 1.2;
 export const SKY_HEIGHT_ABOVE_CAMERA = 100;
-/** the sky turns by 0.000436332 rad per 1/30 s tick where the zone enables it (`param != 0` in FUN_00426915; the island does) */
+/** the sky turns by 0.000436332 rad per game tick (dt = 1) where the zone enables it (`param != 0` in FUN_00426915; the island does) */
 export const SKY_SPIN = 0.0004363299813121557;
 
 export class SkyState {
   angle = 0;
   spin: boolean;
   constructor(spin = true) { this.spin = spin; }
+  /** one pass of the draw hook (FUN_004267d2's turn): `dt` = that pass's `DAT_008b1718` in the game's unit */
   update(dt: number) {
     if (!this.spin) return;
-    this.angle += SKY_SPIN * dt * GAME_TICK;
+    this.angle += SKY_SPIN * dt;
     if (this.angle > Math.PI) this.angle -= 2 * Math.PI; else if (this.angle < -Math.PI) this.angle += 2 * Math.PI;
   }
   /** world matrix of the unit dome (x, z in -1..1, y in 0..1): centred on the camera in x/z, its own y (the record's y, 0 in the island) */
@@ -46,7 +46,8 @@ export const SEA_ORBIT = 4;
 export class SeaState {
   phaseA = 0; phaseB = 0;
   anchor: [number, number] | null = null;
-  update(dt: number) { const k = dt * GAME_TICK; this.phaseA += SEA_PHASE_A * k; this.phaseB += SEA_PHASE_B * k; }
+  /** one pass of the draw hook (FUN_00426a43's orbit): `dt` = that pass's `DAT_008b1718` in the game's unit */
+  update(dt: number) { this.phaseA += SEA_PHASE_A * dt; this.phaseB += SEA_PHASE_B * dt; }
   /** world matrix of the sea plane for the camera position `cam`, draw range `range` and sea level y */
   matrix(cam: readonly number[], range: number, seaLevel: number): Mat4 {
     const scale = range * SEA_SCALE, step = scale * SEA_SNAP;

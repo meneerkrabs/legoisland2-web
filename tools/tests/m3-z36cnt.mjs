@@ -1,6 +1,7 @@
 import { CentrifugeSim, S, SND, PEP, BOB, K, REC, REC_NAMES, readFrameTable, FRAME_TABLE_VA, MEDAL_MIN, MEDAL_SILVER, MEDAL_GOLD, VAR_HISCORE_CNT, VAR_TROPHY_CNT, TWO_PI, PI } from '../../src/zones/z36cnt/sim.ts';
 import { layoutFrom, poseAt, ghostCount, ghostAlpha, ghostStep, SEAT, armShadows, SHADOW_POINTS, SHADOW_ORDER, SHADOW_TYPE } from '../../src/zones/z36cnt/pose.ts';
 import { AnimInstance } from '../../src/game/anim.ts';
+import { randFrom } from '../../src/zones/common/crtrand.ts';
 import { parseBlk } from '../../src/formats/anim.ts';
 import { readExeSoundTable } from '../../src/formats/sound.ts';
 import { loadExe, sceneOf } from '../lib/engine-load.mjs';
@@ -77,13 +78,13 @@ export default {
         play(id) { h.plays.push(id); }, stop(id) { h.stops.push(id); }, rate(id, hz) { h.rates.push([id, hz]); },
         say(id) { h.said.push(id); },
         getVar: (i) => vars.get(i) ?? 0, setVar: (i, v) => vars.set(i, v), vars,
-        rand: () => r(), visor(a) { h.visorAngles.push(a); },
+        rand: (x) => randFrom(() => Math.floor(r() * 32768), x), visor(a) { h.visorAngles.push(a); },
       };
       return h;
     }
     const mk = (seed, host = makeHost(seed)) => ({ host, sim: new CentrifugeSim(host, table) });
     /** one world tick: Bob's controller (record 0) first, then the machine (record 18), like the record order */
-    const tick = (sim, pressed = 0) => { sim.bobStep(); sim.step(pressed); };
+    const tick = (sim, pressed = 0, dt = 1) => { sim.bobStep(dt); sim.step(pressed, dt); };
     /** the intro / seat-belt / start sequence up to the first RUN tick; returns the ticks used */
     function startRun(sim) {
       let n = 0;
@@ -346,6 +347,31 @@ export default {
       ok(seen8 && back0, 'monitor: range 8 during the visor clip, range 0 afterwards');
       ok(vh.plays.includes(SND.VISOR) && vh.plays.includes(SND.SEATBELT), 'visor and seat belt sounds');
       ok((vh.visorAngles?.length ?? 0) > 0 && near(vh.visorAngles.at(-1), 0.9, 0.02), `visor closes by 9 * 0.1 rad (${vh.visorAngles?.at(-1)})`);
+    }
+
+    // ============================================================ the 60 Hz step (dt = 0.5): every `* DAT_008b1718` of the original halves per tick, the integer counters do not
+    {
+      const { sim } = mk(12);
+      sim.state = S.RUN; sim.clip = PEP.SPIN; sim.launch = false; sim.time = 1800; sim.power = 0.5;
+      const a0 = sim.angle, t0 = sim.time, sc0 = sim.shownScore;
+      sim.score = 1000;
+      tick(sim, 0, 0.5);
+      const omega = Math.fround(Math.fround(Math.fround(K.OMEGA_MAX - K.OMEGA_MIN) * 0.5) + K.OMEGA_MIN);
+      ok(sim.time === 1799.5, `dt 0.5: the time left falls by 0.5 per tick (${sim.time})`);
+      ok(near(sim.angle - a0, omega * 0.5, 1e-7), `dt 0.5: the arm turns half the step (${sim.angle - a0} of ${omega})`);
+      ok(sim.shownScore === sc0 + 17, 'dt 0.5: the displayed score still counts 17 per tick (an integer counter)');
+      const f0 = sim.mon.frame; sim.mon.end = 1e9;
+      tick(sim, 0, 0.5);
+      ok(near(sim.mon.frame - f0, 0.5, 1e-6) || sim.mon.frame === sim.mon.start, `dt 0.5: the monitor frame advances 0.5 per tick`);
+      // the stop: the power falls 0.01 * dt per tick
+      sim.state = S.STOP; const p0 = sim.power;
+      tick(sim, 0, 0.5);
+      ok(near(p0 - sim.power, 0.005, 1e-7), `dt 0.5: the power falls 0.005 per tick in the stop state (${p0 - sim.power})`);
+      // the intro / start sequence at the 60 Hz step lasts twice the ticks
+      const a = mk(13), b = mk(13);
+      const run = (m, dt) => { let n = 0; tick(m.sim, 0, dt); tick(m.sim, BTN, dt); while (m.sim.state !== S.START && n < 1000) { tick(m.sim, 0, dt); n++; } return n; };
+      const n1 = run(a, 1), n05 = run(b, 0.5);
+      ok(Math.abs(n05 - 2 * n1) <= 2, `dt 0.5: the belt + visor clips take twice the ticks (${n1} / ${n05})`);
     }
 
     // ============================================================ Bob (FUN_007b24a2)

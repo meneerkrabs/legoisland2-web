@@ -129,7 +129,9 @@ const wrapPi = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.P
  * The fish do not react to the diver: their places are a function of the tick alone. `recordHazards` runs a copy of the zone with an idle diver and keeps where the
  * creatures that hurt (shark, swordfish, mantas) are at every tick, so the bot can look up where each will be a few seconds ahead.
  */
-export function recordHazards(run, world, ticks) {
+export function recordHazards(run, world, ticks, opts = {}) {
+  // opts.tps: ticks per second of game time the bot works in (30 at dt 1; 60 for the game's own 60 Hz step, `advance` then also runs the world's step rule `advanceDt` after every tick like the loop: dt 1 for the first five frames, then 0.5)
+  const S = (opts.tps ?? 30) / 30;
   const ents = run.env.hurt.entries.filter((e) => e.category !== 4);
   const n = ents.length;
   const data = new Float32Array(ticks * n * 3);
@@ -142,8 +144,9 @@ export function recordHazards(run, world, ticks) {
   const hit = (sh, h, x, y) => { const pts = rotateShape(sh, 4, h + Math.PI / 2); for (const p of pts) { p[0] += x; p[1] += y; } return castQuad(world, pts, 4, R[5], [R[69]]).hits.length > 0; };
   for (let t = 0; t < ticks; t++) {
     run.beforeTick(); world.tick(); run.afterTick();
+    if (opts.advance) world.advanceDt();
     rz[t] = R[69].rz; anchor[t] = R[54].rz;
-    if (t < 450) {
+    if (t < 450 * S) {
       const d = new Uint8Array(tent.count), u = new Uint8Array(tent.count);
       for (let k = 0; k < tent.count; k++) {
         const y = tent.y0 - k * tent.step;
@@ -171,7 +174,9 @@ export class Bot {
     this.stuck = 0; this.lastPos = null; this.backoff = 0;
     this.wantPage = opts.page ?? false;
     this.margin = opts.margin ?? 3.5;
-    this.horizon = opts.horizon ?? 90;
+    /** ticks per 1/30 s of game time (1 at 30 ticks a second, 2 at the game's 60 Hz step): every tick count of the planner is scaled by it */
+    this.S = (opts.tps ?? 30) / 30;
+    this.horizon = opts.horizon ?? 90 * this.S;
     this.log = []; this.exiting = false; this.braking = false;
   }
   target(s) {
@@ -209,12 +214,12 @@ export class Bot {
     }
     // the cannon's next shot (the timer only runs while he is in its range: 40 units, to its right): not close to it around that time
     if (s.cannon !== undefined && p[0] >= -11.5) {
-      const tf = s.cannon * 30;
-      if (k >= tf - 30 && k <= tf + 60 && (p[0] + 11.55) ** 2 + (p[1] + 8.47) ** 2 < 225) return false;
+      const S = this.S, tf = s.cannon * 30 * S;
+      if (k >= tf - 30 * S && k <= tf + 60 * S && (p[0] + 11.55) ** 2 + (p[1] + 8.47) ** 2 < 225) return false;
     }
     // the cannon balls in flight (parabola, gravity 4; the bounces are not looked at: the plan is redone every tick)
     for (const b of s.balls ?? []) {
-      const tt = (k - 0) / 30;
+      const tt = (k - 0) / (30 * this.S);
       const bx = b[0] + b[2] * tt, by = b[1] + b[3] * tt - 2 * tt * tt;
       const dx = p[0] + Math.sin(-h) * 2 - bx, dy = p[1] + Math.cos(h) * 2 - by;
       if (dx * dx + dy * dy < 13) return false;
@@ -235,7 +240,7 @@ export class Bot {
   }
   /** the direction nearest `u0` whose 3 s, flown with the same key law and the diver's own physics, stay clear of the scenery and the creatures; null when none */
   steer(s, u0, dist) {
-    const dt = 1 / 30;
+    const dt = 1 / (30 * this.S);
     const a0 = Math.atan2(u0[1], u0[0]);
     for (const off of [0, 0.1, -0.1, 0.2, -0.2, 0.35, -0.35, 0.5, -0.5, 0.75, -0.75, 1, -1, 1.4, -1.4, 1.9, -1.9, 2.5, -2.5, 3.14]) {
       const a = a0 + off, u = [Math.cos(a), Math.sin(a)];
@@ -268,8 +273,8 @@ export class Bot {
   /** the trip of `n` ticks from `y0` at rest at tick `tick0`, thrusting with the diver's drag (distance 12 t - 6 (1 - e^-2t)), `dir` = -1 down / +1 up, stays clear of the swing (heights beyond `ylim` are not looked at) */
   tripFree(tick0, y0, dir, kind, n, ylim) {
     const d = (u) => 12 * u - 6 * (1 - Math.exp(-2 * u));
-    for (let k = 0; k <= n; k += 3) {
-      const tau = k / 30;
+    for (let k = 0; k <= n; k += 3 * this.S) {
+      const tau = k / (30 * this.S);
       const ya = y0 + dir * d(0.75 * tau), yb = y0 + dir * d(tau);
       for (const y of [ya, (ya + yb) / 2, yb]) { if ((dir < 0 && y < ylim) || (dir > 0 && y > ylim)) continue; if (!this.tentFree(tick0 + k, y, kind)) return false; }
     }
@@ -278,9 +283,9 @@ export class Bot {
   /** per tick: may the dive start (from y -137 facing down) / the way out (from y -166.5 facing up) */
   windows() {
     if (!this.win) {
-      const n = this.hz.ticks - 140;
+      const S = this.S, n = this.hz.ticks - 140 * S;
       const dive = new Uint8Array(this.hz.ticks), exit = new Uint8Array(this.hz.ticks);
-      for (let t = 0; t < n; t++) { dive[t] = this.tripFree(t, -137, -1, 'd', 90, -162) ? 1 : 0; exit[t] = this.tripFree(t, -166.5, 1, 'u', 100, -139) ? 1 : 0; }
+      for (let t = 0; t < n; t++) { dive[t] = this.tripFree(t, -137, -1, 'd', 90 * S, -162) ? 1 : 0; exit[t] = this.tripFree(t, -166.5, 1, 'u', 100 * S, -139) ? 1 : 0; }
       this.win = { dive, exit };
     }
     return this.win;
@@ -288,7 +293,7 @@ export class Bot {
   /** is no creature that hurts within `r` of the column x = -16.3, y in [y0, y1] during ticks t0 .. t1 (the swordfish ring passes the pocket's mouth) */
   columnClear(t0, t1, y0, y1, r, xc = -19.3) {
     const hz = this.hz;
-    for (let t = t0; t < t1; t += 2) {
+    for (let t = t0; t < t1; t += 2 * this.S) {
       if (t >= hz.ticks) return false;
       for (let i = 0; i < hz.n; i++) {
         const b = (t * hz.n + i) * 3;
@@ -328,7 +333,7 @@ export class Bot {
       // below the neck: face up (turning on the spot), a little lower than the brick's spot so that the tall quad's top stays out of the tentacle's reach, and wait for the swing
       if (Math.abs(wrapPi(upH - s.heading)) > 0.07) return faceH(upH, 0.08);                     // turning: no thrust (it would push him sideways)
       if (y > -166.5 && speed < 3) return faceH(upH, 0.08) | KEY.DOWN;
-      if (this.windows().exit[s.ticks] && this.columnClear(s.ticks, s.ticks + 100, -170, -135, 0.5, XE)) { this.exiting = true; return faceH(upH, 0.08) | KEY.UP; }
+      if (this.windows().exit[s.ticks] && this.columnClear(s.ticks, s.ticks + 100 * this.S, -170, -135, 0.5, XE)) { this.exiting = true; return faceH(upH, 0.08) | KEY.UP; }
       return faceH(upH, 0.08) | (speed > 0.8 ? KEY.DOWN : 0);
     }
     if (t.index !== 92) return null;
@@ -339,11 +344,12 @@ export class Bot {
     if (Math.hypot(x - X0, y + 137) > 5) return null;           // the planner brings it to the mouth first
     // the whole trip: through the neck now, the wait below it until the swing is away again (the tentacle repeats), the way out; the swordfish that visits the pocket must stay away all along
     const win = this.windows();
-    let ok = win.dive[s.ticks] && this.columnClear(s.ticks, s.ticks + 80, -170, -136, 1.5);
+    const S = this.S;
+    let ok = win.dive[s.ticks] && this.columnClear(s.ticks, s.ticks + 80 * S, -170, -136, 1.5);
     if (ok) {
       let te = -1;
-      for (let k = 110; k < 520 && te < 0; k++) if (win.exit[s.ticks + k]) te = s.ticks + k;
-      ok = te >= 0 && this.columnClear(s.ticks + 80, te, -170, -158, 0.4, -19.3) && this.columnClear(te, te + 100, -170, -135, 0.5, XE);
+      for (let k = 110 * S; k < 520 * S && te < 0; k++) if (win.exit[s.ticks + k]) te = s.ticks + k;
+      ok = te >= 0 && this.columnClear(s.ticks + 80 * S, te, -170, -158, 0.4, -19.3) && this.columnClear(te, te + 100 * S, -170, -135, 0.5, XE);
     }
     const m = faceH(downH);
     if (!ok) return m | (speed > 0.8 ? KEY.DOWN : 0);           // wait above the neck
@@ -355,7 +361,7 @@ export class Bot {
     if (awake.length !== this.grid.discs.length) { this.grid.discs = awake; if (this.tight) this.tight.discs = awake; this.pathAge = 99; }
     const t = this.target(s);
     const key = `${t.kind}:${t.index ?? ''}`;
-    if (this.pathFor !== key || !this.path || ++this.pathAge > 45) {
+    if (this.pathFor !== key || !this.path || ++this.pathAge > 45 * this.S) {
       const o = { reach: t.kind === 'surface' ? 1 : t.kind === 'goto' ? 1.5 : 5.5 };
       this.path = plan(this.grid, s.pos, t.p, o) ?? (this.tight ? plan(this.tight, s.pos, t.p, o) : null);
       this.pathFor = key; this.pathAge = 0;
@@ -364,8 +370,8 @@ export class Bot {
     if (pk !== null) { this.stuck = 0; this.lastPos = [s.pos[0], s.pos[1]]; return pk; }
     if (!this.braking && this.lastPos && Math.hypot(s.pos[0] - this.lastPos[0], s.pos[1] - this.lastPos[1]) < 0.02) this.stuck++; else this.stuck = 0;
     this.lastPos = [s.pos[0], s.pos[1]];
-    if (this.stuck > 40) { this.backoff = 25; this.stuck = 0; this.pathAge = 99; }
-    if (this.backoff > 0) { this.backoff--; return KEY.DOWN | (this.backoff % 12 < 6 ? KEY.LEFT : KEY.RIGHT); }
+    if (this.stuck > 40 * this.S) { this.backoff = 25 * this.S; this.stuck = 0; this.pathAge = 99; }
+    if (this.backoff > 0) { this.backoff--; return KEY.DOWN | (this.backoff % (12 * this.S) < 6 * this.S ? KEY.LEFT : KEY.RIGHT); }
     const path = this.path;
     let aim = t.p;
     if (path && path.length) {

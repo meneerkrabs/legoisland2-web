@@ -10,7 +10,7 @@ import {
   VAR, REC, SND, RUN, ROOF, BOT, FLOOR, BOSS, PARTS, CLIP, FLOAT_CONSTANTS, readFloat, scoreOf, medalOf, clockText, writeResult, RESULT_LINES,
   readAnimDictionary, readSwitchDictionary, MEDAL_SILVER, MEDAL_GOLD, SOUNDS_2D, SOUNDS_3D,
 } from '../../src/zones/z42BRP/rules.ts';
-import { PLAN1 } from '../../src/zones/z42BRP/bot-plan.ts';
+import { PLAN1_DT05 } from '../../src/zones/z42BRP/bot-plan.ts';
 
 // z42BRP "Brickster's palace" (docs/re/m6/z42BRP.md): constants and tables against the executable (zone loop FUN_0081fd64, the node functions 0x821704 / 0x822ba8 /
 // 0x8243e5 / 0x824c80 / 0x825850 / 0x826b40, the loader's dictionaries), the side run (circle, jump, switches, platforms, lift), the roof (movement, pizza, bots, floor,
@@ -191,6 +191,49 @@ export default {
         ok(w4.vars.get(VAR.PHASE) === 2 && ticks >= 235 && ticks <= 250, `the lift takes ${ticks} ticks (8 s) and then sets the phase to 2`);
         ok(near(bri8.y, RUN.LIFT_TOP, (RUN.LIFT_TOP - yTop) / RUN.LIFT_TICKS + 1e-3), `BRI8 ends at ${bri8.y.toFixed(3)} (limit ${RUN.LIFT_TOP})`);
         ok(REC.BBOT.every((i) => !w4.records[i].enabled), 'the six brick-bot heads are hidden once the lift is touched');
+      }
+
+      // ============================================================ phase 1 at the 60 Hz step (dt = 0.5): the same rules, every dt-scaled quantity halves per tick
+      {
+        const g = fresh({ dt: 0.5 });
+        const w = g.w, S = g.S, pn = S.pepbrp, pep = w.records[REC.PEPP];
+        const a0 = pn.angle;
+        for (let i = 0; i < 2 * RUN.START_HOLD; i++) tick(w, BTN.LEFT);
+        ok(near(pn.angle, a0, 0), `dt 0.5: the hold of ${RUN.START_HOLD} lasts ${2 * RUN.START_HOLD} ticks`);
+        tick(w, BTN.LEFT);
+        ok(pn.hold <= 0 && near(pn.angle, a0 - RUN.TURN_RATE * 0.5, 1e-6), `dt 0.5: the next tick steps half the angle (${(a0 - pn.angle).toFixed(6)})`);
+        for (let i = 0; i < 40; i++) tick(w, BTN.LEFT);
+        ok(near(pn.angle, a0 - 41 * 0.5 * RUN.TURN_RATE, 1e-5), `dt 0.5: 41 ticks of LEFT: ${(a0 - pn.angle).toFixed(5)} rad`);
+        // the jump: t += 0.1 * dt per tick, the arc lasts twice as many ticks
+        const g2 = fresh({ dt: 0.5 });
+        const w2 = g2.w, n2 = g2.S.pepbrp, p2 = w2.records[REC.PEPP];
+        for (let i = 0; i < 33; i++) tick(w2, 0);
+        const yy0 = p2.y;
+        tick(w2, BTN.ALT);
+        let landedAt = -1, maxErr = 0;
+        for (let k = 1; k <= 80; k++) {
+          tick(w2, 0);
+          if (!n2.air && landedAt < 0) landedAt = k;
+          if (n2.air) { const t = 0.05 * (k + 1); maxErr = Math.max(maxErr, Math.abs(p2.y - (yy0 + (RUN.GRAVITY * t + RUN.JUMP_V0) * t + RUN.GRAVITY * t * t * 0.5))); }
+        }
+        ok(n2.air === false && landedAt > 20 && landedAt < 40 && maxErr < 1e-3, `dt 0.5: the jump follows the arc with t = 0.05 per tick and lands after ${landedAt} ticks (max error ${maxErr.toExponential(2)})`);
+        // the lift takes twice as many ticks
+        const g4 = fresh({ dt: 0.5 });
+        const w4 = g4.w, n4 = g4.S.pepbrp, p4 = w4.records[REC.PEPP];
+        for (let i = 0; i < 33; i++) tick(w4, 0);
+        const bri8 = w4.records[REC.BRI8];
+        n4.angle = n4.prevAngle = Math.atan2(bri8.x, bri8.z) + 0.04; n4.air = false; p4.y = bri8.y + 1.2; p4.x = Math.sin(n4.angle) * n4.R; p4.z = Math.cos(n4.angle) * n4.R;
+        let ticks = 0;
+        while (w4.vars.get(VAR.PHASE) === 1 && ticks < 800) { tick(w4, 0); ticks++; }
+        ok(w4.vars.get(VAR.PHASE) === 2 && ticks >= 470 && ticks <= 500, `dt 0.5: the lift takes ${ticks} ticks (8 s at 60 Hz) and then sets the phase to 2`);
+        // switch 2 at the lattice midpoint (angle 2.5226): the original's own probe, no widening
+        const g3 = fresh({ dt: 0.5 });
+        const w3 = g3.w, n3 = g3.S.pepbrp, p3 = w3.records[REC.PEPP];
+        for (let i = 0; i < 33; i++) tick(w3, 0);
+        n3.angle = n3.prevAngle = 2.5226; n3.air = false; p3.y = 84.8; p3.x = Math.sin(n3.angle) * n3.R; p3.z = Math.cos(n3.angle) * n3.R; tick(w3, 0);
+        ok(n3.sw2, 'dt 0.5: the original probe hits switch 2 at angle 2.5226');
+        // the 1/60 s clock of the zone counts one per tick at any dt
+        ok(S.clock() === w.tickCount && stateOf(w2).clock() === w2.tickCount, 'the zone clock (FUN_00435cbb) counts 1 per tick');
       }
 
       // ============================================================ phase 1: the tower's moving parts
@@ -536,34 +579,35 @@ export default {
 
       // ============================================================ the recorded run up the tower
       if (!process.env.Z42BRP_FAST) {
-        ok(PLAN1.length > 50, `the recorded run has ${PLAN1.length} runs`);
-        const g = fresh({ seed: 1 });
+        // at the 60 Hz step (dt = 0.5, the game's step): the original's own switch probe hits switch 2 (no widening; at dt = 1 the real lattice misses it, m7-z42BRP-emu T1a)
+        ok(PLAN1_DT05.length > 50, `the recorded run has ${PLAN1_DT05.length} runs`);
+        const g = fresh({ seed: 1, dt: 0.5 });
         const w = g.w, S = g.S, pn = S.pepbrp;
         let t = 0, flags = [];
-        for (let i = 0; i < 16; i++) { tick(w, 0); t++; }      // the plan starts after the hold at the start
-        for (const [mask, n] of PLAN1) for (let i = 0; i < n; i++) {
+        for (let i = 0; i < 32; i++) { tick(w, 0); t++; }      // the plan starts after the hold at the start (15 / dt ticks, plus one)
+        for (const [mask, n] of PLAN1_DT05) for (let i = 0; i < n; i++) {
           tick(w, mask); t++;
           if (S.reset5ec) { flags.push(`restart at ${t}`); }
           if (w.vars.get(VAR.PHASE) === 2) break;
         }
         ok(flags.length === 0, `no restart on the way ${flags}`);
         ok(pn.sw1 && pn.sw2 && pn.lift, `both switches and the lift were touched (${pn.sw1}, ${pn.sw2}, ${pn.lift}) after ${t} ticks`);
-        for (let i = 0; i < 300 && w.vars.get(VAR.PHASE) === 1; i++) { tick(w, 0); t++; }
-        ok(w.vars.get(VAR.PHASE) === 2, `the lift ends the side run: phase 2 after ${t} ticks (${(t / 30).toFixed(1)} s)`);
-        notes.push(`recorded side run: ${t} ticks (${(t / 30).toFixed(1)} s)`);
+        for (let i = 0; i < 600 && w.vars.get(VAR.PHASE) === 1; i++) { tick(w, 0); t++; }
+        ok(w.vars.get(VAR.PHASE) === 2, `the lift ends the side run: phase 2 after ${t} ticks (${(t / 60).toFixed(1)} s)`);
+        notes.push(`recorded side run: ${t} ticks (${(t / 60).toFixed(1)} s)`);
       }
 
       // ============================================================ scripted games: WIN and LOSS
       if (!process.env.Z42BRP_FAST) {
         // WIN: the recorded run up the tower, the roof bot throws three pizzas, the loop counts the clock, the banner gives the score
-        const g = fresh({ seed: 1 });
+        const g = fresh({ seed: 1, dt: 0.5 });
         const w = g.w, S = g.S;
         const loop = new ZoneLoop();
         let t = 0;
         const step = (mask) => { tick(w, mask); t++; return loop.update(w, S, false); };
-        for (let i = 0; i < 16; i++) step(0);
-        for (const [mask, n] of PLAN1) for (let i = 0; i < n; i++) { step(mask); if (w.vars.get(VAR.PHASE) === 2) break; if (S.reset5ec) break; }
-        for (let i = 0; i < 400 && w.vars.get(VAR.PHASE) === 1; i++) step(0);
+        for (let i = 0; i < 32; i++) step(0);
+        for (const [mask, n] of PLAN1_DT05) for (let i = 0; i < n; i++) { step(mask); if (w.vars.get(VAR.PHASE) === 2) break; if (S.reset5ec) break; }
+        for (let i = 0; i < 800 && w.vars.get(VAR.PHASE) === 1; i++) step(0);
         ok(w.vars.get(VAR.PHASE) === 2, 'WIN: roof reached');
         const help2 = loop.takeHelp2();
         ok(help2 && !loop.takeHelp2(), 'the second help is asked for once');
@@ -577,15 +621,15 @@ export default {
         const v = { a: new Int32Array(400), get(i) { return this.a[i]; }, set(i, x) { this.a[i] = x; } };
         writeResult(v, score);
         ok(v.a[VAR.TROPHY] === 3 && v.a[VAR.HISCORE] === score, 'WIN: the trophy and the hi-score are written');
-        notes.push(`WIN: ${t} ticks (${(t / 30).toFixed(1)} s), clock ${clockText(S.elapsed)}, score ${score}`);
+        notes.push(`WIN: ${t} ticks (${(t / 60).toFixed(1)} s), clock ${clockText(S.elapsed)}, score ${score}`);
       }
       if (!process.env.Z42BRP_FAST) {
         // LOSS: nothing is done on the roof: the floor falls away under Pepper again and again, the hits never count, the game does not end
-        const g = toRoof(fresh({ seed: 9 }));
+        const g = toRoof(fresh({ seed: 9, dt: 0.5 }));
         const w = g.w, S = g.S, top = S.peptop;
         const loop = new ZoneLoop();
         let falls = 0, res = 0, wasFalling = false;
-        for (let i = 0; i < 9000; i++) {
+        for (let i = 0; i < 18000; i++) {
           tick(w, 0);
           res = loop.update(w, S, false) || res;
           if (top.fall > 0 && !wasFalling) falls++;
@@ -601,7 +645,7 @@ export default {
         let restarts = 0;
         for (let i = 0; i < 600; i++) { tick(w2, BTN.LEFT); loop2.update(w2, S2, false); if (S2.reset5ec) restarts++; }
         ok(restarts >= 1 || n2.angle0 !== undefined, `LOSS: running into the first gap restarts the climb (${restarts} restart(s))`);
-        ok(S2.elapsed === 1200, `the clock keeps running through a restart (${S2.elapsed})`);
+        ok(S2.elapsed === 600, `the clock keeps running through a restart (${S2.elapsed})`);
       }
 
       // ============================================================ snapshot / restore (the look-ahead of the bots)

@@ -12,6 +12,7 @@ import { withCdHeap } from '../lib/m8-save-pepper.mjs';
 import { vehicles } from '../../src/island/vehicles/common.ts';
 import { applyCsiSetup } from '../../src/zones/z07CSI/index.ts';
 import { looksOf } from '../../src/island/vehicles/looks.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MY = [0x42f470, 0x88cf13, 0x88d1f6, 0x4bbef8, 0x4333c2, 0x43310c];
 const ZONES = process.env.M8_ZONES ? process.env.M8_ZONES.split(',') : ['isl2', 'isl16', 'isl37', 'isl56', 'isl61', 'z07CSI', 'z13CAI', 'z14OSD', 'z16PYA', 'z23DIP', 'z40OGL'];
@@ -19,7 +20,7 @@ const ROUNDS = +(process.env.M8_FUZZ ?? 60);
 const F32 = new Float32Array(1), U32 = new Uint32Array(F32.buffer);
 const bits = (v) => { F32[0] = v; return U32[0]; };
 
-export default {
+const __test = {
   name: 'm8-save-pepper-zones',
   run(ctx) {
     const failures = [], notes = [];
@@ -92,3 +93,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

@@ -4,7 +4,7 @@ import { loadMessages, ZONE_FILES } from '../../src/ui/strings.ts';
 import '../../src/zones/z05WAB.ts';
 import { takeShared } from '../../src/zones/z05WAB/game.ts';
 import { createWabGame, VAR } from '../../src/zones/z05WAB/game.ts';
-import { WAB, SND, OPEN_SOUND, CLOSE_SOUND, REC, LINE, LID, LID_OF_HOLE, CAMERA_OFFSET, scoreOf, medalOfScore, percentOf, ALL_SOUNDS, NullHost } from '../../src/zones/z05WAB/wab.ts';
+import { WAB, SND, OPEN_SOUND, CLOSE_SOUND, REC, LINE, LID, LID_OF_HOLE, CAMERA_OFFSET, scoreOf, medalOfScore, percentOf, ALL_SOUNDS } from '../../src/zones/z05WAB/wab.ts';
 import { zoneGameFor } from '../../src/shell/zonegame.ts';
 import { GameVars } from '../../src/game/vars.ts';
 
@@ -17,7 +17,9 @@ const KEYS = ['ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown'];     // hole 0 
 
 /** a recording host: random numbers from a queue (then a seeded generator), every event logged */
 function mkHost(queue = [], seed = 7, fn = null) {
-  const base = new NullHost(seed);
+  // a scripted generator of the test (the game's own draw is crt.ts rand() scaled by the real clock: not reproducible)
+  let sd = seed >>> 0;
+  const base = { random: (n) => { sd = (Math.imul(sd, 1664525) + 1013904223) >>> 0; return Math.floor((sd / 4294967296) * n); } };
   const h = {
     ev: [], q: queue.slice(), frames: [],
     play(id) { if (id !== SND.AMBIENT && id !== SND.ALARM1 && id !== SND.ALARM2) h.ev.push(['play', id]); else h.ev.push(['loop', id]); },
@@ -94,7 +96,7 @@ export default {
     ok(scoreOf(0) === 0 && scoreOf(49.99) === 4900 && scoreOf(50) === 5000 && scoreOf(89.9) === 8900 && scoreOf(90) === 9000 && scoreOf(100) === 10000 && scoreOf(150) === 10000, 'scoreOf: truncated percentage x 100, capped at 100');
     ok(scoreOf(NaN) === 0, 'scoreOf(NaN) = 0 (ftol(NaN) = INT_MIN, x 100 wraps)');
     ok([0, 4999, 5000, 7999, 8000, 8999, 9000, 10000].map(medalOfScore).join() === '0,0,1,1,2,2,3,3', 'medal table');
-    ok(percentOf(29, 100 - 29) === 29 && percentOf(1, 1) === 50 && percentOf(7, 1) === 87.5 && percentOf(1, 2) === f32(100 / 3) && Number.isNaN(percentOf(0, 0)), 'percentOf is single precision, NaN for 0 / 0');
+    ok(percentOf(29, 100 - 29) === 29 && percentOf(1, 1) === 50 && percentOf(7, 1) === 87.5 && percentOf(1, 2) === f32(f32(1 / 3) * 100) && Number.isNaN(percentOf(0, 0)), 'percentOf is single precision per operation (quotient, then product: 24-bit x87), NaN for 0 / 0');
 
     // ---- 3. the set-up: nodes, records, camera, no walking
     {

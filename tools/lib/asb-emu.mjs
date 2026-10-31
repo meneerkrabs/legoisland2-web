@@ -9,7 +9,7 @@ const CRT = [0x858d30, 0x873e00];
 const NATIVE = [0x43a340, 0x43a4a1, 0x43a5e4, 0x43a9e5, 0x43ab72, 0x43abe6, 0x43ac78, 0x43ad29, 0x43af16, 0x43ae1e, 0x43cec0, 0x43cc5c, 0x43b022, 0x43a742, 0x422b50];
 
 export class AsbEmu {
-  /** @param recs the zone's records ({ name, m, rx, ry, rz, flags }); o = { rng: { range(x) }, dummy: { range(x) } (the rand() calls of the hit test: tick-scaled in the original, not comparable) } */
+  /** @param recs the zone's records ({ name, m, rx, ry, rz, flags }); o = { rng: { int() } (the scripted rand(), 0 .. 32767; FUN_004388ae runs natively on top of it) } */
   constructor(pe, recs, o) {
     const cpu = (this.cpu = createGameCpu(pe));
     const mem = cpu.mem;
@@ -26,9 +26,8 @@ export class AsbEmu {
     H.set(0x417575, (c) => { c.eax = (L.vars.get(c.arg(0)) ?? 0) >>> 0; });
     H.set(0x417597, (c) => { L.vars.set(c.arg(0), c.arg(1) | 0); c.eax = 0; });
     H.set(0x435c91, (c) => { c.eax = Math.trunc(L.ticks * 1000 / 30); });
-    // FUN_004388ae(range): the hit test's calls (from FUN_007b7f68) draw from a dummy source
-    H.set(0x4388ae, (c) => { const ra = c.retAddr; const src = ra >= 0x7b7f68 && ra < 0x7b82dd ? L.o.dummy : L.o.rng; c.fpush(src.range(c.argf(0))); });
-    H.set(0x7b780c, (c) => { c.eax = 0; });            // the 50 random star positions that nothing reads (its rand calls are not part of the sequence)
+    // rand() (FUN_0085daf0) is the scripted source; FUN_004388ae and the star table FUN_007b780c (100 draws, nothing reads the stars) run natively
+    H.set(0x85daf0, (c) => { c.eax = L.o.rng.int(); });
     for (const a of [0x4435a0, 0x4435b0, 0x4434b0, 0x443600, 0x4433f0, 0x442a20, 0x443230, 0x438518, 0x4359d5, 0x443580, 0x4433b0, 0x435b07, 0x435a11, 0x439bf8]) H.set(a, (c) => { c.eax = 0; });
     H.set(0x4435a0, (c) => { logf(`p2 ${c.arg(0) & 0xfffff}`); c.eax = 0; });
     H.set(0x4435b0, (c) => { logf(`s2 ${c.arg(0) & 0xfffff}`); c.eax = 0; });
@@ -44,7 +43,7 @@ export class AsbEmu {
       for (let i = 0; i < t.length; i++) mem.w8(c.arg(0) + i, t.charCodeAt(i));
       mem.w8(c.arg(0) + t.length, 0); c.eax = t.length;
     });
-    cpu.exec = [[0x7b5bf6, 0x7cf87a], CRT];
+    cpu.exec = [[0x7b5bf6, 0x7cf87a], [0x4388ae, 0x4388e7], CRT];
     for (const a of NATIVE) cpu.native.add(a);
     cpu.fallback = (addr) => (c) => { L.unhooked ??= new Map(); L.unhooked.set(addr, (L.unhooked.get(addr) ?? 0) + 1); c.eax = 0; };
   }

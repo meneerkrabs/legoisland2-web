@@ -308,7 +308,7 @@ export interface ManInfo {
   /** header frame count (the file has this many or one fewer) */
   keys: number;
   stored: number;
-  /** length in seconds when played like a cutscene spline: one step per tick at 30 Hz (CameraSpline.rate = 1 / count; bij benadering for the object paths) */
+  /** length in seconds when played like a cutscene spline: `rate * DAT_008b1718` per sim step = count dt-units of 1/30 s (CameraSpline.rate = 1 / count; bij benadering for the object paths) */
   seconds: number;
   min: [number, number, number];
   max: [number, number, number];

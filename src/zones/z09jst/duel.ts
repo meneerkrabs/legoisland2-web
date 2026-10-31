@@ -13,6 +13,10 @@ import { sampleBlk } from '../../formats/anim.ts';
 import { CLIP_LOOP, POSE_SNAP } from '../../game/anim.ts';
 import type { AnimInstance } from '../../game/anim.ts';
 import { composeBone } from '../../island/emitters.ts';
+import { randF } from '../../game/crt.ts';
+import { msClock } from '../common/tickrand.ts';
+import { ad, sb, ml, dv } from '../common/f32.ts';
+import { toWorld } from '../exact.ts';
 import { MfigMan } from './mfig.ts';
 import { REC, K, START, SAY, VAR, S2D, S3D, hexf, f32 } from './consts.ts';
 
@@ -33,15 +37,8 @@ export interface DuelRng {
   /** FUN_004388ae(range): rand() / 32767 * range */
   range(range: number): number;
 }
-/** a seeded MSVC rand() (FUN_0085daf0) */
-export class MsvcRng implements DuelRng {
-  seed: number;
-  // RNG: the original seeds the CRT with the clock (srand(time)); tests pass a fixed seed
-  constructor(seed = (Date.now() & 0xffffffff) >>> 0) { this.seed = seed >>> 0; }
-  next(): number { this.seed = (Math.imul(this.seed, 214013) + 2531011) >>> 0; return (this.seed >>> 16) & 0x7fff; }
-  /** FUN_004388ae: `fild rand; fdiv 32767.0f; fmul range; fst float`: 24-bit x87 (control word 0x7f), every step a float32 */
-  range(range: number): number { return range <= 0 ? 0 : Math.fround(Math.fround(this.next() / 32767) * Math.fround(range)); }
-}
+/** FUN_004388ae on the shared CRT generator (src/game/crt.ts: FUN_0085daf0's LCG; `fild rand; fdiv 32767.0f; fmul range; fst float`, 24-bit x87: every step a float32). Tests inject scripted rand() sources there or a `DuelRng` of their own. */
+export const crtRng: DuelRng = { range: randF };
 
 export interface DuelHost {
   readonly recs: readonly GameRecord[];
@@ -72,20 +69,34 @@ export interface DuelFx {
 /** the mud emitters' bones of a horse (FUN_0043bc58(anim, bone)): 0x17, 0x1b, 0xb, 0xe = the four hooves; emitters 0..3 follow HORS (record 12), 4..7 DRKH (record 29) */
 export const MUD_BONES = [0x17, 0x1b, 0xb, 0xe] as const;
 
-/** the B-spline of the camera (GSMS path object, vtable 0x892268 slot 8 = 0x446fd0): uniform cubic B-spline over the control points, u = t * count */
+/** the weight matrix of the path object: the uniform cubic B-spline basis / 6, each entry stored as a float32 (the loop at 0x447067 multiplies by DAT_00892288 = 0x3e2aaaab) */
+const SIXTH = hexf(0x3e2aaaab);
+const BASIS = [-1, 3, -3, 1, 3, -6, 3, 0, -3, 0, 3, 0, 1, 4, 1, 0].map((v) => f32(v * SIXTH));
+
+/**
+ * the B-spline of the camera (GSMS path object, vtable 0x892268 slot 8 = 0x446fd0): u = float32(count * t), the four control points i - 1 .. i + 2 (clamped like the asm: only i - 1 is
+ * clamped at 0), f = u - i, f2 = f * f, f3 = f2 * f and the four weights as float32 polynomials in the asm's order (0x4470e0 .. 0x447166), then per component the weighted sum
+ * ((b2 p[i+1] + b1 p[i]) + b0 p[i-1]) + b3 p[i+2] for x, ((b2 p[i+1] + b0 p[i-1]) + b3 p[i+2]) + b1 p[i] for y and z (every product and sum rounded to float32).
+ */
 export function bspline(pts: readonly (readonly number[])[], t: number): number[] {
   const n = pts.length;
-  const u = Math.fround(n * t);
-  let i = Math.trunc(u);
+  const u = ml(n, t);
+  let i = ftol(u);
   let i0 = i - 1; if (i0 < 0) i0 = 0;
   let i1 = i + 1, i2 = i + 2;
   if (i >= n) i = n - 1;
   if (i1 >= n) i1 = n - 1;
   if (i2 >= n) i2 = n - 1;
-  const f = u - i, f2 = f * f, f3 = f2 * f;
-  const s = 1 / 6;
-  const b0 = (-f3 + 3 * f2 - 3 * f + 1) * s, b1 = (3 * f3 - 6 * f2 + 4) * s, b2 = (-3 * f3 + 3 * f2 + 3 * f + 1) * s, b3 = f3 * s;
-  return [0, 1, 2].map((k) => Math.fround(b0 * pts[i0][k] + b1 * pts[i][k] + b2 * pts[i1][k] + b3 * pts[i2][k]));
+  const f = sb(u, i), f2 = ml(f, f), f3 = ml(f2, f);
+  const M = BASIS;
+  const w = (k: number) => ad(ad(ad(ml(f, M[8 + k]), ml(f2, M[4 + k])), ml(f3, M[k])), M[12 + k]);
+  const b0 = w(0), b1 = w(1), b2 = w(2), b3 = w(3);
+  const P0 = pts[i0], P1 = pts[i], P2 = pts[i1], P3 = pts[i2];
+  return [
+    ad(ad(ad(ml(b2, P2[0]), ml(b1, P1[0])), ml(b0, P0[0])), ml(b3, P3[0])),
+    ad(ad(ad(ml(b2, P2[1]), ml(b0, P0[1])), ml(b3, P3[1])), ml(b1, P1[1])),
+    ad(ad(ad(ml(b2, P2[2]), ml(b0, P0[2])), ml(b3, P3[2])), ml(b1, P1[2])),
+  ];
 }
 
 const ftol = Math.trunc;
@@ -120,7 +131,7 @@ export class JoustDuel {
   finalShown = false;
   /** what the HUD texts show (FUN_005d1e1b: sprintf of the score +0x108 / +0x5c / +0x58, run by the constructor and at the end of every round: state 0x1f) */
   shown = { score: 0, hitsE: 0, hitsP: 0 };
-  /** the frame step DAT_008b1718 (1 at the 30 Hz step, 0.5 at 60 Hz; the `JSTGame` node sets it from `world.dt` every tick): scales every per-tick movement and the animation advances like the original */
+  /** the frame step DAT_008b1718 (`world.dt`: 1.0 for the first frames, then 0.5 at the 60 Hz step; `startDuel` and the `JSTGame` node set it every tick): scales every per-tick movement and the animation advances like the original */
   dt = 1;
   /** ticks run */
   ticks = 0;
@@ -173,7 +184,7 @@ export class JoustDuel {
 
   /** FUN_005f2dd9: the follow point behind the player's knight, the dark knight's bone 10, and the camera at the first of them */
   initCamera() {
-    this.set3(this.camA, this.r[REC.JKIT].toWorld(this.host.spline.follow));
+    this.set3(this.camA, toWorld(this.r[REC.JKIT].m, this.host.spline.follow));
     this.camEye = [...this.camA];
     const b = this.enemy.boneWorld(10);
     if (b) this.set3(this.camB, b);
@@ -189,8 +200,8 @@ export class JoustDuel {
     c[3] = t[0]; c[4] = t[1]; c[5] = t[2];
     c[0] = e[0]; c[1] = e[1]; c[2] = e[2];
     for (let k = 0; k < 3; k++) {
-      e[k] = f32((a[k] - e[k]) * 0.25 + e[k]);
-      t[k] = f32((b[k] - t[k]) * 0.25 + t[k]);
+      e[k] = ad(ml(sb(a[k], e[k]), 0.25), e[k]);
+      t[k] = ad(ml(sb(b[k], t[k]), 0.25), t[k]);
     }
   }
 
@@ -211,10 +222,10 @@ export class JoustDuel {
     switch (mode) {
       case 0: {
         this.splineMade = false;                                              // FUN_004455e0 (the spline is freed)
-        this.set3(this.camA, R[REC.JKIT].toWorld(this.host.spline.follow));
+        this.set3(this.camA, toWorld(R[REC.JKIT].m, this.host.spline.follow));
         this.camA[1] = K.TWENTY;
-        this.camA[2] = f32(this.camA[2] - K.THREE_TWO);
-        this.camA[2] = f32(this.gauge / K.FIFTEEN + this.camA[2]);
+        this.camA[2] = sb(this.camA[2], K.THREE_TWO);
+        this.camA[2] = ad(dv(this.gauge, K.FIFTEEN), this.camA[2]);
         const b = this.enemy.boneWorld(10);
         if (b) this.set3(this.camB, b);
         this.smooth();
@@ -224,19 +235,19 @@ export class JoustDuel {
         const Pm = this.player.master, Em = this.enemy.master;
         if (!this.splineMade) {
           this.splineT = 0;
-          const half = f32((this.ePos[0] - this.pPos[0]) * 0.5);
-          this.splineRate = f32(K.ONE / (half / this.rider));
-          const dx = f32((Pm.x - Em.x) * 0.5), dy = f32((Pm.y - Em.y) * 0.5), dz = f32((Pm.z - Em.z) * 0.5);
+          const half = ml(sb(this.ePos[0], this.pPos[0]), 0.5);
+          this.splineRate = dv(K.ONE, dv(half, this.rider));
+          const dx = ml(sb(Pm.x, Em.x), 0.5), dy = ml(sb(Pm.y, Em.y), 0.5), dz = ml(sb(Pm.z, Em.z), 0.5);
           const e = this.host.spline.end;
-          this.host.spline.points[this.host.spline.points.length - 1] = [f32(dx + e[0]), f32(dy + e[1]), f32(dz + e[2])];
+          this.host.spline.points[this.host.spline.points.length - 1] = [ad(dx, e[0]), ad(dy, e[1]), ad(dz, e[2])];
           this.splineMade = true;
         } else {
           const p = bspline(this.host.spline.points, this.splineT);
           c[0] = p[0]; c[1] = p[1]; c[2] = p[2];
           const k = this.host.spline.blend;
-          c[3] = f32(Pm.x - f32((Pm.x - Em.x) * k)); c[4] = f32(Pm.y - f32((Pm.y - Em.y) * k)); c[5] = f32(Pm.z - f32((Pm.z - Em.z) * k));
-          c[4] = f32(c[4] + K.CAM1_UP);
-          if (this.splineT < K.ONE) this.splineT = f32(this.splineRate * d + this.splineT);
+          c[3] = sb(Pm.x, ml(sb(Pm.x, Em.x), k)); c[4] = sb(Pm.y, ml(sb(Pm.y, Em.y), k)); c[5] = sb(Pm.z, ml(sb(Pm.z, Em.z), k));
+          c[4] = ad(c[4], K.CAM1_UP);
+          if (this.splineT < K.ONE) this.splineT = ad(ml(this.splineRate, d), this.splineT);
         }
         break;
       }
@@ -246,41 +257,41 @@ export class JoustDuel {
         const j = R[REC.JKIT];
         c[3] = j.x; c[5] = j.z; c[4] = f32(j.y + K.EIGHT);
         c[1] = hexf(0x41c66666);
-        if (c[0] < K.CAM6_MAX_X) c[0] = f32(this.speed * K.RATE * d + c[0]);
+        if (c[0] < K.CAM6_MAX_X) c[0] = ad(ml(ml(this.speed, K.RATE), d), c[0]);
         break;
       }
       case 7: { const e = R[REC.DRKK]; c[3] = e.x; c[5] = e.z; c[4] = f32(e.y + K.EIGHT); break; }
-      case 8: if (c[0] < K.CAM8_MAX_X) c[0] = f32(K.POINT55 * d + c[0]); break;
+      case 8: if (c[0] < K.CAM8_MAX_X) c[0] = ad(ml(K.POINT55, d), c[0]); break;
       case 9: {
         const j = R[REC.JKIT];
         c[3] = j.x; c[5] = j.z; c[4] = f32(j.y + K.EIGHT);
         c[2] = -68;
-        if (c[0] < K.CAM9_MAX_X) c[0] = f32(this.speed * K.RATE * d + c[0]);
+        if (c[0] < K.CAM9_MAX_X) c[0] = ad(ml(ml(this.speed, K.RATE), d), c[0]);
         break;
       }
       case 10: {
         const t = this.bone0Target(R[REC.DRKK], this.enemy, K.TWO_HUNDRED); c[3] = f32(t[0]); c[4] = f32(t[1]); c[5] = f32(t[2]);
-        if (c[2] < K.CAM10_MIN_Z) { c[2] = f32(K.POINT3 * d + c[2]); c[0] = f32(c[0] - K.POINT3 * d); }
+        if (c[2] < K.CAM10_MIN_Z) { c[2] = ad(ml(K.POINT3, d), c[2]); c[0] = sb(c[0], ml(K.POINT3, d)); }
         break;
       }
       case 0xb: {
         const e = R[REC.DRKK];
         c[3] = e.x; c[5] = e.z; c[4] = f32(e.y + K.FOUR);
         c[1] = hexf(0x41c66666);
-        if (K.FIFTY < c[0]) c[0] = f32(c[0] - this.speed * K.RATE * d * K.HALF);
+        if (K.FIFTY < c[0]) c[0] = sb(c[0], ml(ml(ml(this.speed, K.RATE), d), K.HALF));
         break;
       }
       case 0xc: { const j = R[REC.JKIT]; c[3] = j.x; c[5] = j.z; c[4] = f32(j.y + K.EIGHT); break; }
       case 0xd:
-        if (K.SIXTY < c[0]) { c[0] = f32(c[0] - K.POINT55 * d); c[2] = f32(K.POINT6 * d + c[2]); }
+        if (K.SIXTY < c[0]) { c[0] = sb(c[0], ml(K.POINT55, d)); c[2] = ad(ml(K.POINT6, d), c[2]); }
         break;
       case 0xe: {
         c[0] = 120; c[1] = K.TWENTY; c[2] = -82;
         const l = R[REC.LKNG];
-        c[3] = l.x; c[5] = l.z; c[4] = f32(l.y - K.SIXTEEN);
-        const s = Math.sin(this.ang), co = Math.cos(this.ang);
-        c[3] = f32(s * c[3] + c[3]);
-        c[5] = f32(c[5] - co * c[5]);
+        c[3] = l.x; c[5] = l.z; c[4] = sb(l.y, K.SIXTEEN);
+        const s = Math.sin(this.ang), co = Math.cos(this.ang);        // the CRT's sin / cos stay in the register until the next operation rounds
+        c[3] = ad(ml(s, c[3]), c[3]);
+        c[5] = sb(c[5], ml(co, c[5]));
         break;
       }
       case 0xf: { const q = R[REC.BQUN]; c[3] = q.x; c[4] = q.y; c[5] = q.z; break; }
@@ -357,15 +368,16 @@ export class JoustDuel {
 
   /** FUN_005ce3a0: a spectator turns towards (x, z) */
   private face(rec: GameRecord, x: number, z: number) {
-    const a = Math.atan2(rec.x - x, rec.z - z);
-    rec.setEuler(rec.rx, f32(K.PI + a), rec.rz, rec.x, rec.y, rec.z);
+    // FUN_005ce3a0: the differences are float32 stores, the CRT's atan2 (FUN_0085d640, fpatan) is stored into a float local before PI is added
+    const a = f32(Math.atan2(sb(rec.x, x), sb(rec.z, z)));
+    rec.setEuler(rec.rx, ad(K.PI, a), rec.rz, rec.x, rec.y, rec.z);
   }
 
   /** the reaction states move the two groups apart by charge / 32 per tick */
   private moveTogether() {
-    const d = f32(this.speed * K.RATE * this.dt);
-    this.pPos[0] = f32(this.pPos[0] + d);
-    this.ePos[0] = f32(this.ePos[0] - d);
+    const d = ml(ml(this.speed, K.RATE), this.dt);
+    this.pPos[0] = ad(this.pPos[0], d);
+    this.ePos[0] = sb(this.ePos[0], d);
   }
 
   // ------------------------------------------------------------------------------------------------------------------------------ the update
@@ -415,8 +427,8 @@ export class JoustDuel {
         if ((pressed & 0x80) === 0) {
           if (this.toggle === 0) { if (pressed & 2) { this.toggle = 1; this.speed = f32(this.speed + this.step); } }
           else if (pressed & 1) { this.toggle = 0; this.speed = f32(this.speed + this.step); }
-          this.decay = f32(this.speed * K.DECAY);
-          this.speed = f32(this.speed - this.decay * dt);
+          this.decay = ml(this.speed, K.DECAY);
+          this.speed = sb(this.speed, ml(this.decay, dt));
           if (this.speed < K.ZERO) this.speed = 0;
           if (K.SIXTY < this.speed) this.speed = K.SIXTY;
           this.gauge = this.speed;
@@ -444,7 +456,7 @@ export class JoustDuel {
         break;
       }
       case 5: {
-        const nx = f32(drkk.x - K.ONE * dt);
+        const nx = sb(drkk.x, ml(K.ONE, dt));
         drkk.x = nx;
         this.footsteps();
         if (nx <= f32(hors.x + K.X_OFF)) {
@@ -467,12 +479,12 @@ export class JoustDuel {
         }
         if (K.FIVE < t && t < K.TWENTY) {
           const tz = f32(hz + K.Z_OFF);
-          drkk.z = tz < dz ? f32(dz - K.CAM_DECAY * dt) : tz;
+          drkk.z = tz < dz ? sb(dz, ml(K.CAM_DECAY, dt)) : tz;
         }
         if (ftol(t) === 0x1b) snd.play2D(S2D.GRAB);
         if (ftol(t) === 0x46) snd.play2D(S2D.THROW);
         if (K.SEVENTY < t) {
-          this.camTgt[1] = drkk.y; this.camTgt[0] = f32((t - K.SEVENTY) * K.ONE + drkk.x); this.camTgt[2] = f32(-(t - K.SEVENTY) * K.THREE + drkk.z);
+          this.camTgt[1] = drkk.y; this.camTgt[0] = ad(ml(sb(t, K.SEVENTY), K.ONE), drkk.x); this.camTgt[2] = ad(ml(-sb(t, K.SEVENTY), K.THREE), drkk.z);
         }
         break;
       }
@@ -525,7 +537,7 @@ export class JoustDuel {
           this.player.setClips(2); this.enemy.setClips(0x10);
           this.set(0x10);
         }
-        const d = f32(this.speed * K.RATE * dt);
+        const d = ml(ml(this.speed, K.RATE), dt);
         drkk.x = f32(drkk.x + d);
         this.pPos[0] = f32(this.pPos[0] + d); this.ePos[0] = f32(this.ePos[0] - d);
         break;
@@ -551,7 +563,7 @@ export class JoustDuel {
         const { res } = this.enemy.advance(this.r1, 1);
         if (res === 2) { const a = drkk.anim; if (a) a.seek(a.frameCount - K.ONE); }
         if (K.X224 < this.pPos[0]) this.set(0x1f);
-        const d = f32(this.speed * K.RATE * dt);
+        const d = ml(ml(this.speed, K.RATE), dt);
         drkk.x = f32(drkk.x - d);
         this.moveTogether();
         break;
@@ -573,7 +585,7 @@ export class JoustDuel {
       case 0x14:
         this.enemy.advance(f32(this.r0 + K.ONE), 1);
         if (drkk.x <= K.SEVENTY) this.set(0x1f);
-        else drkk.x = f32(drkk.x - K.HALF * dt);
+        else drkk.x = sb(drkk.x, ml(K.HALF, dt));
         break;
       case 0x15: if (drkk.anim && drkk.anim.advance(1.0, dt) !== 0) this.set(0x1f); break;
       case 0x16: {
@@ -587,7 +599,7 @@ export class JoustDuel {
           snd.play3D(S3D.HORSE2_NEIGH, this.ePos);
           this.set(0x17);
         }
-        const d = f32(this.speed * K.RATE * dt);
+        const d = ml(ml(this.speed, K.RATE), dt);
         jkit.x = f32(jkit.x - d);
         this.moveTogether();
         break;
@@ -613,7 +625,7 @@ export class JoustDuel {
         const { res } = this.player.advance(this.r1, 1);
         if (res === 2) { const a = jkit.anim; if (a) a.seek(a.frameCount - K.ONE); }
         if (K.X224 < this.pPos[0]) this.set(0x1f);
-        const d = f32(this.speed * K.RATE * dt);
+        const d = ml(ml(this.speed, K.RATE), dt);
         jkit.x = f32(jkit.x + d);
         this.moveTogether();
         break;
@@ -635,7 +647,7 @@ export class JoustDuel {
       case 0x1b:
         this.player.advance(f32(this.r0 + K.ONE), 1);
         if (K.ONE_EIGHTY <= jkit.x) this.set(0x1f);
-        else jkit.x = f32(K.HALF * dt + jkit.x);
+        else jkit.x = ad(ml(K.HALF, dt), jkit.x);
         break;
       case 0x1c: if (jkit.anim && jkit.anim.advance(1.0, dt) !== 0) this.set(0x1f); break;
       case 0x1d: {
@@ -665,7 +677,7 @@ export class JoustDuel {
       case 0x22: this.nextRound(); break;
       case 0x23:
         this.finalShown = true;
-        this.ang = f32(K.CAM_E_STEP * dt + this.ang);
+        this.ang = ad(ml(K.CAM_E_STEP, dt), this.ang);
         this.player.advance(K.ONE, 1); this.enemy.advance(K.ONE, 1);
         break;
       default: break;
@@ -698,42 +710,42 @@ export class JoustDuel {
     const snd = this.host.snd, dt = this.dt;
     snd.play2D(S2D.CROWD_CHARGE);
     this.camMode = 1;
-    const l28 = f32(this.speed * K.SIXTEENTH * dt + K.ONE);
-    const s = f32(l28 / K.WOBBLE_DIV);
+    const l28 = ad(ml(ml(this.speed, K.SIXTEENTH), dt), K.ONE);
+    const s = dv(l28, K.WOBBLE_DIV);
     const wob = (axis: 'aimX' | 'aimY') => {
-      let r = f32(s - this.host.rng.range(f32(s + s)));
-      if (K.ZERO < r && K.TWENTY < this[axis]) r = f32(r - this[axis] / K.PULL_DIV);
-      if (r < K.ZERO && this[axis] < K.TWENTY) r = f32(r - this[axis] / K.PULL_DIV);
-      this[axis] = f32(r + this[axis]);
+      let r = sb(s, this.host.rng.range(ad(s, s)));
+      if (K.ZERO < r && K.TWENTY < this[axis]) r = sb(r, dv(this[axis], K.PULL_DIV));
+      if (r < K.ZERO && this[axis] < K.TWENTY) r = sb(r, dv(this[axis], K.PULL_DIV));
+      this[axis] = ad(r, this[axis]);
     };
     wob('aimX'); wob('aimY');
     // keys; the stick is read only while no key is held (dead zone +-20, no dt in the original's stick path)
     if (held === 0) {
-      if (stickX < -20 || stickX > 20) this.aimX = f32(f32(stickX / K.STICK_DIV) * this.aimStep + this.aimX);
-      if (stickY < -20 || stickY > 20) this.aimY = f32(f32(stickY / K.STICK_DIV) * this.aimStep + this.aimY);
+      if (stickX < -20 || stickX > 20) this.aimX = ad(ml(dv(stickX, K.STICK_DIV), this.aimStep), this.aimX);
+      if (stickY < -20 || stickY > 20) this.aimY = ad(ml(dv(stickY, K.STICK_DIV), this.aimStep), this.aimY);
     } else {
-      if (held & 4) { this.steer = 1; this.aimY = f32(this.aimY - this.aimStep * dt); }
-      if (held & 8) { this.steer = 1; this.aimY = f32(this.aimStep * dt + this.aimY); }
-      if (held & 1) { this.steer = 1; this.aimX = f32(this.aimX - this.aimStep * dt); }
-      if (held & 2) { this.steer = 1; this.aimX = f32(this.aimStep * dt + this.aimX); }
+      if (held & 4) { this.steer = 1; this.aimY = sb(this.aimY, ml(this.aimStep, dt)); }
+      if (held & 8) { this.steer = 1; this.aimY = ad(ml(this.aimStep, dt), this.aimY); }
+      if (held & 1) { this.steer = 1; this.aimX = sb(this.aimX, ml(this.aimStep, dt)); }
+      if (held & 2) { this.steer = 1; this.aimX = ad(ml(this.aimStep, dt), this.aimX); }
     }
     if (this.steer === 0) {
-      this.aimX = f32(this.aimStep * dt + this.aimX);
-      this.aimY = f32(this.aimY - this.aimStep * dt);
+      this.aimX = ad(ml(this.aimStep, dt), this.aimX);
+      this.aimY = sb(this.aimY, ml(this.aimStep, dt));
     }
     const { t } = this.player.advance(this.r0, 0);
     this.hooves(ftol(t));
     this.enemy.advance(this.r1, 0);
-    this.pPos[0] = f32(this.rider * dt + this.pPos[0]);
-    this.ePos[0] = f32(this.ePos[0] - this.rider * dt);
+    this.pPos[0] = ad(ml(this.rider, dt), this.pPos[0]);
+    this.ePos[0] = sb(this.ePos[0], ml(this.rider, dt));
     if (K.CLASH_GAP < this.pPos[0] - this.ePos[0]) {
       snd.stop2D(S2D.CROWD_CHARGE);
       this.reticle = false;
-      this.aimSq = f32(f32(this.aimX * this.aimX) + f32(this.aimY * this.aimY));
+      this.aimSq = ad(ml(this.aimX, this.aimX), ml(this.aimY, this.aimY));
       if (K.FORTY <= this.aimSq) this.set(this.aimSq <= K.SIXTY ? 0xe : 0xc);
       else this.set(0xb);
-      // the variant: rand(ms since the start) & 3 (FUN_00435c91 = GetTickCount - base)
-      this.variant = ftol(this.host.rng.range(ftol(this.ticks * 1000 * dt / 30))) & 3;
+      // the variant: `ftol(FUN_004388ae((float) FUN_00435c91())) & 3`, FUN_00435c91 = GetTickCount() - base (the real ms since the zone's FUN_00435c81, `msClock`)
+      this.variant = ftol(this.host.rng.range(Math.fround(msClock()))) & 3;
       this.popup = this.state;
     }
   }
@@ -749,8 +761,8 @@ export class JoustDuel {
     this.hitsP++;
     this.r1 = K.ONE;
     this.enemy.setMode(0);
-    this.bonusSpeed = ftol(this.speed + this.speed);
-    this.precision = ftol(K.FORTY - this.aimSq);
+    this.bonusSpeed = ftol(ad(this.speed, this.speed));
+    this.precision = ftol(sb(K.FORTY, this.aimSq));
     if (this.precision < 0) this.precision = 0;
     if (this.precision === 0) this.precision = 1;
     this.roundPts = this.bonusSpeed * this.precision;

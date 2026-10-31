@@ -14,6 +14,7 @@ import '../../src/zones/z08BKD.ts';
 import { BKD_CTOR } from '../../src/zones/z08BKD.ts';
 import { C, FLOAT_ADDRS, REC, RIG_OF_RECORD, SND, SOUNDS_2D, SOUNDS_3D, VAR, SCORE, CAMERA_TABLE, CAMERA_TABLE_VA, DIVER, HURT_TEMPLATES, HURT_REGISTRATIONS, HURT_CATEGORY, WEED_START_FRAMES, f32bits, CLIP } from '../../src/zones/z08bkd/consts.ts';
 import { wrapAngle, angleDelta, segmentSphere, rotateShape, ZoneClock, Rng, dist2, normalize3 } from '../../src/zones/z08bkd/math.ts';
+import { srand, setRandSource } from '../../src/game/crt.ts';
 import { WaypointGraph, adjacent } from '../../src/zones/z08bkd/graph.ts';
 import { prepareBkd, snapshot, checkRecords, SOUND_DEFS } from '../../src/zones/z08bkd/run.ts';
 import { BkdState, medalOfScore, SPEECH, DOLPHIN_MESSAGE } from '../../src/zones/z08bkd/state.ts';
@@ -21,6 +22,7 @@ import { finish } from '../../src/zones/z08bkd/game.ts';
 import { castQuad, bounce, swingPush, hitSpin } from '../../src/zones/z08bkd/physics.ts';
 import { cameraFor, HIT_CLASS } from '../../src/zones/z08bkd/diver.ts';
 import { buildGrid, Bot, recordHazards } from '../lib/bkd-bot.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const f32 = (pe, va) => { const d = new DataView(new ArrayBuffer(4)); d.setUint32(0, pe.u32(va), true); return d.getFloat32(0, true); };
 const hex = (n) => '0x' + n.toString(16);
@@ -38,7 +40,7 @@ const storesOf = (pe, start, end) => {
   return m;
 };
 
-export default {
+const __test = {
   name: 'm6-z08BKD',
   async run(ctx) {
     const failures = [], notes = [];
@@ -183,8 +185,10 @@ export default {
         ok(picks[4] === 0 && picks.slice(0, 4).reduce((a, b) => a + b) === 3000 && clk.phase > 0 && clk.phase <= 1, `ZoneClock.pick(4) stays in 0..3: ${picks}`);
         const c1 = new ZoneClock(), c2 = new ZoneClock(); for (let i = 0; i < 100; i++) { c1.tick(); c2.tick(); }
         ok(c1.phase === c2.phase && c1.pick(3) === c2.pick(3), 'the zone clock is deterministic');
-        const r = new Rng(5); let mean = 0; for (let i = 0; i < 2000; i++) mean += r.next(); mean /= 2000;
-        ok(mean > 0.4 && mean < 0.6 && r.int(2) >= 0 && r.int(2) <= 2, 'Rng range');
+        srand(5); const r = new Rng(); let mean = 0; for (let i = 0; i < 2000; i++) mean += r.float(1); mean /= 2000;
+        ok(mean > 0.4 && mean < 0.6 && r.int(2) >= 0 && r.int(2) <= 2 && r.float(0) === 0 && r.float(-3) === 0, 'Rng range: FUN_004388ae on the shared generator');
+        setRandSource(() => 32767); ok(r.float(7.5) === 7.5 && r.int(2) === 2, 'rand() = 32767 gives the range itself (FUN_004388ae can equal x)');
+        setRandSource(() => 16384); ok(r.float(3) === Math.fround(Math.fround(16384 / 32767) * 3), 'float32 steps'); setRandSource(null);
         // the bounce (FUN_005bc194): reflect about the normal, damp, spin; a slow body stops
         const b1 = { vx: 0, vy: -10, vz: 0, angVel: 0 };
         const ret = bounce(b1, [0, 0, 10], [0, 1, 0], [0, -1, 10]);
@@ -523,6 +527,8 @@ export default {
     } catch (e) {
       failures.push(`test crashed: ${e.stack || e}`);
     }
+    setRandSource(null);
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

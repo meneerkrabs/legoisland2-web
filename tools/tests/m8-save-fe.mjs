@@ -14,6 +14,7 @@ import { originalWrite, originalRead, RECORDS_BASE } from '../lib/m8-save-world.
 import { RF_ENABLED, RF_FRUSTUM } from '../../src/game/record.ts';
 import { captureWorld, restoreWorld, listedNodes, tagOf } from '../../src/shell/saveworld.ts';
 import { newSaveFromGame, encodeSave, decodeSave, applySaveVars } from '../../src/shell/save.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const SEEDS = (process.env.M8_FE_SEEDS ?? '12345,7,2026').split(',').map(Number);
 const TICKS = Number(process.env.M8_FE_TICKS ?? 1200);
@@ -34,7 +35,7 @@ function playPort(W, ticks, seed) {
 }
 const bytesOf = (a) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
 
-export default {
+const __test = {
   name: 'm8-save-fe',
   run(ctx) {
     const failures = [], notes = [];
@@ -197,3 +198,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

@@ -13,6 +13,7 @@ import {
   VAR, SOUNDS_2D, SOUNDS_3D, scoreOf, medalOf, writeResult, clockText, RESULT_LINES, readAnimDictionary, readSwitchDictionary,
 } from './rules.ts';
 import './nodes.ts';
+import { rand as crtRand, seedFromTime, getTickCount } from '../../game/crt.ts';
 import { NO_HANDLE, ZoneParticles } from '../../fx/particles/zone.ts';
 
 /** the end cutscene: FUN_00820f12 `FUN_0045c310(1)`, `FUN_0045c366("z42brp", "og")`, `FUN_0045c397(0, "BRP01", "ogl02")` (script BRP01 of this archive, texts ogl02.str) */
@@ -22,6 +23,9 @@ type Slot3D = Awaited<ReturnType<NonNullable<ZoneGameCtx['sh']['audio']['ga']>['
 
 registerZoneGame('z42BRP', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   const w = ctx.world;
+  // FUN_008212a3 starts with srand(time(NULL)); the clock base of FUN_00435c91 is the zone's start
+  seedFromTime();
+  const tickBase = getTickCount();
   const S = prepareWorld(w, ctx.archive);
   const ga = ctx.sh.audio.ga;
   // brp.str and brp2.str share the ids CONTROL0 ..: the loop keeps them in two tables (DAT_05d5f58c / DAT_05d5f56c), the shell merged both into `ctx.strings`
@@ -53,8 +57,9 @@ registerZoneGame('z42BRP', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   }
 
   const env: BrpEnv = {
-    rng: Math.random,
-    ms: () => Math.max(1, performance.now()),
+    rng: crtRand,
+    // FUN_00435c91 = GetTickCount() - base: only scales the bots' random picks (`ftol(rand(ms)) % n`), so the real clock since the zone's start is used
+    ms: () => Math.max(1, getTickCount() - tickBase),
     sfx: (id) => ctx.sfx(id),
     sfx3: (id, pos, voice = 0) => play3(id, pos, voice),
     say: (a, b, stop) => { if (stop) ctx.stopSpeech(); ctx.say(a, b ?? null); },

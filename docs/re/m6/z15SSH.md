@@ -53,7 +53,7 @@ fountain's place), 41 `COCO` (the coconut shape; the zone draws 15 flying coconu
 
 State (node offset): speed `+0x34`, top speed `+0x3c` = 0.12 (`0x3df5c28f`), wheel angle `+0x24`, turret yaw `+0x28` / pitch `+0x2c`, heading `+0x18`, eased heading `+0x1c`, its rate `+0x20`, `|yaw|` of the last tick
 `+0x30`, score `+0x40`, gems `+0x48` (20), snake timers `+0x4c`, snake states `+0x58`, coconuts at `+0x64` (15 x 0x54), time `+0x57c`, reload `+0x580`, Pippin flinch `+0x584`, saved snake places `+0x558`, sound stage `+0x598`.
-Per tick (30 Hz, `dt` = 1):
+Per sim step (one step per drawn frame; the factors written `* dt` are the original's `DAT_008b1718`, 1.0 for the first 5 frames, then 0.5):
 1. The wheels: `+0x24 += 0.05236 * speed` **once per wheel inside the loop** (four adds; the wheels show 1x..4x of it), part i = `Euler(wheel, 0, 0)` at its translation.
 2. `FUN_00447800(rec)` (the end flag of the CARBUT path: the second nearest control point in the last three) or `z > 7000`: the ride is over: the wind layer is set to its base rate, the speed falls 0.005 per tick, at 0 the result is
    computed **when all three snakes are idle**, else 0 (a snake that still runs keeps attacking the standing buggy). Otherwise the engine sounds (`FUN_0065888a`) and the speed rises 0.005 per tick to the top speed.
@@ -136,7 +136,7 @@ Shortcuts for runs: `window.__zone.game.debug()` (score, gems, states, cart, sna
 * The original poses every drawn animated record; the port poses within `poseRange` (500 here), snakes beyond are in the bind pose.
 * `FUN_00444530(FUN_0043f160(LAND model, 0, ...))` at the end of the attach function changes a render property of the terrain mesh; its meaning is not known (not ported). The initial `FUN_0045c310(0)` is the cutscene manager's zero-slot set-up.
 * The crosshair is drawn only in play (the original draws it with the buggy in every mode; the panels cover the screen in modes 1 / 4 / 9).
-* Time step: the original multiplies by the frame time (`DAT_008b1718`, 1.0 at 30 fps); the port runs a fixed 30 Hz step (dt = 1).
+* Time step (WP-TIME): the original multiplies by the frame time (`DAT_008b1718`); the port steps once per drawn frame at 60 Hz with dt 1.0 for the first 5 frames and then 0.5 (`world.advanceDt`), every `* dt` above is `w.dt` in float32 (the oracle `m7-z15SSH-emu` runs at dt 1 and 0.5, tolerance 0). Random numbers: the shared CRT generator (`src/game/crt.ts`): the start frame of a snake's slither clip is `ftol(FUN_004388ae(10))` (0 .. 10), the theft / hit speech chances are `ftol(FUN_004388ae((float)FUN_00435c91())) % 13 / % 15` over the REAL milliseconds since the zone's start (`startTickClock()` where `FUN_00656372` calls `FUN_00435c81`); the tests inject `SshBinding.rng`.
 * The path object keeps `lo` / `hi` state between projections like the original, but every projection recomputes them; when the nearest segment is the last one the original reads one table row past the end, the port returns that segment's start.
 
 ## 11. Differential test (WP-VERIFY)

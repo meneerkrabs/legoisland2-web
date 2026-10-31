@@ -1,5 +1,7 @@
 import { loadExe, loadZone } from '../lib/engine-load.mjs';
 import '../../src/zones/z20DSP.ts';
+import { setTickCountSource } from '../../src/game/crt.ts';
+import { startTickClock } from '../../src/zones/common/tickrand.ts';
 import { DspRng, SoundLog, VAR, STATE, REC } from '../../src/zones/z20dsp/shared.ts';
 import { TrackSpline } from '../../src/zones/z20dsp/spline.ts';
 import { euler24 } from '../../src/zones/common/x87.ts';
@@ -7,6 +9,7 @@ import { prepareDsp } from '../../src/zones/z20dsp/prepare.ts';
 import { DspCamera } from '../../src/zones/z20dsp/camera.ts';
 import { startDspEmitters } from '../../src/zones/z20dsp/emitters.ts';
 import { createOracle, NODE_FIELDS, VARS } from '../lib/dsp-oracle.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // z20DSP "Desert Speedster", differential test: the ORIGINAL code of the zone (the set-up FUN_006be930 with its constructors, the update of every node: Speedster FUN_006c2627, the falling
 // cows, the saucers, the whirlwind, WalkRock, Bertha, the pickups, Replay.c ...) runs natively in the x86 emulation in the 24-bit x87 mode Direct3D 7 leaves (cw 0x7f) next to the port, fed the
@@ -14,7 +17,7 @@ import { createOracle, NODE_FIELDS, VARS } from '../lib/dsp-oracle.mjs';
 // compared as float32, bit for bit. The engine functions the zone calls (collision, the ground ray, the animation player, the game variables) are hosted by the port's own implementations.
 
 const f32 = Math.fround;
-export default {
+const __test = {
   name: 'm7-z20DSP-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -53,8 +56,11 @@ export default {
       startDspEmitters(S, w);
       const O = createOracle(pe, w, S);
       O.mem.wf32(0x8b1718, dt);                  // DAT_008b1718: the time step the original multiplies by
-      const gen = new DspRng(seed);
+      // the test's own seeded generator feeds both sides the same draws (the port's side replays them: `Replay`)
+      const gen = { s: seed >>> 0, next() { this.s = (Math.imul(this.s, 1664525) + 1013904223) >>> 0; return (this.s >>> 17) / 32767; } };
       O.rngNext = () => gen.next();
+      // the sound picks scale rand() by GetTickCount - base (FUN_00435c91): pin both clocks to 5000 ms
+      setTickCountSource(() => 100); startTickClock(); setTickCountSource(() => 5100); O.tickMs = 5000;
       O.setVar(VAR.BESTTIME, 3600);
       const cam = new DspCamera();
       return { L, w, car, node, S, snd, said, rp, O, gen, cam, emit, setBtn: (b) => { btn = b; } };
@@ -91,7 +97,7 @@ export default {
         eqf(m.f32(a + 0x4c), f32(r.rx), `rec ${nd.rec} rx`, tick); eqf(m.f32(a + 0x50), f32(r.ry), `rec ${nd.rec} ry`, tick); eqf(m.f32(a + 0x54), f32(r.rz), `rec ${nd.rec} rz`, tick);
         eqi(m.r16(a + 0x60) & 0x8002, r.flags & 0x8002, `rec ${nd.rec} ${r.name} flags`, tick);
         const sa = O.shadow.get(m.u32(a + 8));
-        if (sa && r.anim) eqi(sa.clip, r.anim.clip, `rec ${nd.rec} ${r.name} anim clip`, tick);
+        if (sa && r.anim) { eqi(sa.clip, r.anim.clip, `rec ${nd.rec} ${r.name} anim clip`, tick); eqf(sa.frame, r.anim.frame, `rec ${nd.rec} ${r.name} anim frame`, tick); }
       }
       for (const i of [13, 34, 35, 36, 37]) { const r = w.records[i], a = O.recPtr(i); for (let k = 0; k < 16; k++) if (k % 4 !== 3) eqf(m.f32(a + 0xc + 4 * k), r.m[k], `rec ${i} ${r.name} m[${k}]`, tick); }
       // the camera (FUN_006bd776, run once per loop pass after the update): the eye and the target, the orbit counter and the chase angle
@@ -180,7 +186,9 @@ export default {
         notes.push(`seed ${seed} dt ${dt}: ${firstBad < 0 ? tick : firstBad} ticks compared, track position reached ${maxT.toFixed(3)}, state ${w.vars.get(VAR.STATE)}, ${nums} floats compared`);
       }
     } catch (e) { failures.push(`test crashed: ${e.stack ?? e}`); }
+    setTickCountSource(null);
     for (const [k, v] of Object.entries(inexact)) notes.push(`mismatch ${k}: ${v}`);
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

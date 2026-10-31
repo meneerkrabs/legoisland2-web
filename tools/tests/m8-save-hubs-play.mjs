@@ -8,11 +8,12 @@ import { OsdDuel, B, stream } from '../lib/m5-z14OSD-duel.mjs';
 import { compareBlocks, snapshotBlocks, restoreBlocks } from '../lib/m8-save.mjs';
 import { withCdAlloc, eraDiff, ERA_VARS } from '../lib/m8-save-hubs.mjs';
 import { looksOf } from '../../src/island/vehicles/looks.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const TUM = [104, 105, 106, 107, 108, 109, 111], SCR = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17], GEM = [114, 115, 116, 117, 118, 119, 120, 121, 122, 123], PEP = 4, BOARD = 64;
 const CT = { TUM: 0x629d7e, SCR: 0x62ad35, GRAB: 0x62af8d, GEM: 0x62b220, SW: 0x62ba3b };
 
-export default {
+const __test = {
   name: 'm8-save-hubs-play',
   run(ctx) {
     return withCdAlloc(() => {
@@ -163,3 +164,4 @@ export default {
     });
   },
 };
+export default guarded(__test);

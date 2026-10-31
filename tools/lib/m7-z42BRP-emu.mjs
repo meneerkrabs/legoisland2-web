@@ -33,10 +33,11 @@ export class ScriptedCutscene {
 
 /**
  * Builds the oracle: port world P (prepared by `prepareWorld`) and the emulation over a second world O (only used as the host of animation / collision / variables).
- * opts: { seed, dt, cutsceneTicks, startedFromMenu }
+ * opts: { seed, dt, cutsceneTicks, startedFromMenu }; dt = 'real': the game's own rule (World.advanceDt after every tick: 1 for the first five frames, then 0.5), both sides follow it
  */
 export function createBrpOracle(ctx, opts = {}) {
-  const seed = opts.seed ?? 1, dt = opts.dt ?? 1;
+  const real = opts.dt === 'real';
+  const seed = opts.seed ?? 1, dt = real ? 1 : (opts.dt ?? 1);
   const pe = loadExe(ctx.dataRoot);
 
   // ------------------------------------------------------------ the port side
@@ -79,21 +80,21 @@ export function createBrpOracle(ctx, opts = {}) {
   mem.w32(0x983804, RB); mem.w32(0x983800, NREC);
   const recPtr = (r) => RB + (typeof r === 'number' ? r : r.index) * 0x68;
   const recOf = (ptr) => (ptr === 0 ? null : rs[(ptr - RB) / 0x68]);
-  const E = { vO, vP, dt, cpu, mem, O, P, S, pe, log: [], handles: new Map(), nodes: [], rand: 0, unhooked: new Map(), ticks: 0, rets: {}, fx: 0, listener: 0, stats: {} };
+  const E = { vO, vP, dt, real, cpu, mem, O, P, S, pe, log: [], handles: new Map(), nodes: [], rand: 0, unhooked: new Map(), ticks: 0, rets: {}, fx: 0, listener: 0, stats: {} };
   const push = (e) => E.log.push(e);
   const hook = (addr, fn) => cpu.hooks.set(addr, fn);
   let heap = HB;
   const alloc = (n) => { const p = heap; heap += (n + 15) & ~15; return p; };
 
-  // ---- the clocks: GetTickCount-based, scripted from the tick counter (the game clock FUN_00435cbb counts 1/60 s; one tick of step dt is 2 * dt of them)
-  const clock = () => Math.trunc(E.ticks * 2 * dt);
+  // ---- the clocks: GetTickCount-based, scripted from the tick counter (the game clock FUN_00435cbb counts 1/60 s; the sim steps at 60 Hz: one tick = one of them at any dt)
+  const clock = () => E.ticks;
   hook(0x435cbb, () => { cpu.eax = clock(); });
   hook(0x435c91, () => { cpu.eax = Math.floor(100000 + clock() * (1000 / 60)); });
   // ---- game variables
   hook(0x417575, (c) => { c.eax = O.vars.get(c.arg(0)); });
   hook(0x417597, (c) => { O.vars.set(c.arg(0), c.arg(1) | 0); });
-  // ---- random numbers: FUN_004388ae(x) = rand / 32767 * x, from the scripted sequence
-  hook(0x4388ae, (c) => { E.rand++; c.fpush(rngO() * c.argf(0)); });
+  // ---- random numbers: FUN_004388ae(x) = (float) rand / 32767.0f * x runs natively; its rand() (FUN_0085daf0) draws from the scripted sequence
+  hook(0x85daf0, () => { E.rand++; cpu.eax = rngO(); });
   // ---- allocation of the nodes (the constructors call FUN_00433d38(size, ...))
   hook(0x433d38, (c) => { E.lastAlloc = alloc(c.arg(0)); c.eax = E.lastAlloc; });
   hook(0x433d60, () => {});
@@ -175,12 +176,18 @@ export function createBrpOracle(ctx, opts = {}) {
     }
   };
   E.attaches = [];
-  cpu.exec = [[0x81fce0, 0x827800], [0x858d30, 0x873e00], [0x43a340, 0x43b100], [0x422b50, 0x422d00], [0x4239d9, 0x4239e0], [0x43cec0, 0x43cf30], [0x4237b6, 0x4237c8], [0x423532, 0x423660], [0x42382c, 0x4238b7]];
+  cpu.exec = [[0x81fce0, 0x827800], [0x858d30, 0x873e00], [0x43a340, 0x43b100], [0x422b50, 0x422d00], [0x4239d9, 0x4239e0], [0x43cec0, 0x43cf30], [0x4237b6, 0x4237c8], [0x423532, 0x423660], [0x42382c, 0x4238b7], [0x4388ae, 0x4388e7]];
   cpu.fallback = (a) => { E.unhooked.set(a, (E.unhooked.get(a) ?? 0) + 1); throw new Error(`z42BRP emu: unhooked call to 0x${a.toString(16)} from 0x${cpu.callAt.toString(16)} frames ${cpu.frames.slice(-5).map((f) => f.toString(16))}`); };
   cpu.invalidate();
 
   // ---- DAT_008b1718 / 1/dt: the frame step the zone code reads
   mem.wf32(0x8b1718, dt); mem.wf32(0x8b171c, 1 / dt);
+  /** after a tick of the port (the loop's FUN_00443e40): the step of the next one, in both worlds and in the emulated memory */
+  E.advanceDt = () => {
+    if (!E.real) return;
+    P.advanceDt(); O.dt = P.dt; E.dt = P.dt;
+    mem.wf32(0x8b1718, P.dt); mem.wf32(0x8b171c, P.invDt);
+  };
 
   // ---- the record mirror: the scene's state; BRP's collision block (+0x58) holds the radius at +0x24 (the side run's tower circle), the others a dummy
   const colBlock = MB + 0x1000;
@@ -265,6 +272,7 @@ export function createBrpOracle(ctx, opts = {}) {
     heap = sv.heap; E.ticks = sv.ticks; O.vars.a.set(sv.vars); rngO.state = sv.rngO; rngP.state = sv.rngP; cutO.left = sv.cutO; cutP.left = sv.cutP;
     rs.forEach((r, i) => { const a = sv.anims[i]; if (a && r.anim) Object.assign(r.anim, a); });
     restore(P, sv.port); P.tickCount = sv.tickCount; P.camera.c.set(sv.camera);
+    if (E.real) { O.dt = P.dt; E.dt = P.dt; }
     cpu.regs[4] = 0x7ff00000 - 0x100; cpu.top = 0; cpu.frames.length = 0; cpu.invalidate();
   };
   return E;
@@ -279,6 +287,7 @@ export function portTick(E, ZoneLoop, loop, heldMask) {
   cutP.tick();
   P.tick();
   const banner = loop ? loop.update(P, S, cutP.active()) : 0;
+  E.advanceDt();
   return { log: logP.slice(), banner };
 }
 
@@ -392,7 +401,7 @@ export function compareState(E, label, o = {}) {
 }
 
 /** compare two ordered event logs (sounds, speech, letterbox, cutscene); 3D positions with a tolerance */
-export function compareLogs(label, a, b, tol = 1e-3) {
+export function compareLogs(label, a, b, tol = 0) {
   const bad = [];
   let checks = 1;
   const same = a.length === b.length && a.every((e, i) => e[0] === b[i][0] && e.slice(1).every((x, q) => (typeof x === 'number' && typeof b[i][q + 1] === 'number' ? Math.abs(x - b[i][q + 1]) <= tol * Math.max(1, Math.abs(x)) : x === b[i][q + 1])));
@@ -425,10 +434,10 @@ export function runZoneLoop(E, loopPort, script) {
   hook(0x423f7b, () => { cpu.eax = 0; });
   hook(0x404be7, () => { cpu.eax = 0; });
   hook(0x41bd3d, () => { cpu.eax = 0; }); hook(0x41c092, () => { cpu.eax = 0; });
-  // the clocks: nodes see the tick clock (like the port's S.clock()), the loop's samples a clock of one 2 * dt step per loop iteration
+  // the clocks: nodes see the tick clock (like the port's S.clock()), the loop's samples a clock of one tick (1/60 s) per loop iteration
   hook(0x435cbb, () => {
     const from = cpu.callAt;
-    cpu.eax = from >= 0x81fd64 && from < 0x820b70 ? Math.trunc(info.frame * 2 * E.dt) : Math.trunc(E.ticks * 2 * E.dt);
+    cpu.eax = from >= 0x81fd64 && from < 0x820b70 ? info.frame : E.ticks;
   });
   // text: FUN_00439c6f(table, font, text, align, ?, x, y, maxChars); sprintf for the clock and the score
   hook(0x439c6f, (c) => { info.texts.push([mem.cstr(c.arg(2)), c.arg(5), c.arg(6)]); });
@@ -474,6 +483,7 @@ export function runZoneLoop(E, loopPort, script) {
     E.logP.length = 0; P.__rand = 0;
     P.tick();
     info.banner = loopPort.update(P, S, E.cutP.active()) || info.banner;
+    E.advanceDt();
     info.tick++;
     info.orig = orig; info.port = E.logP.slice();
     script.onTick?.(info);

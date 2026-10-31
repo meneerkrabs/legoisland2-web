@@ -8,6 +8,7 @@ import type { Hit } from '../../game/collision.ts';
 import { RF_ENABLED } from '../../game/record.ts';
 import { K, f32 } from './consts.ts';
 import type { Ball, RgbState } from './shared.ts';
+import { ad, ml, sb } from '../common/f32.ts';
 
 /** `FUN_005f825a`: where a free ball waits (0xc5fa0000) */
 export const PARKED_Y = -8000;
@@ -61,7 +62,7 @@ export function placeBall(b: Ball, pos: ArrayLike<number>, dir: ArrayLike<number
 }
 
 /** FUN_005f8a7b: one step of the flight: horizontal speed cos * dir, vertical speed dir.y * sin - t * g (t counts ticks since the launch) */
-export function stepBall(st: RgbState, b: Ball, dt = 1): void {
+export function stepBall(st: RgbState, b: Ball, dt: number): void {
   b.t = Math.fround(dt + b.t);                            // the time in the ball's struct is a single float (+0x40)
   // the x87 runs in 24-bit precision: every operation is rounded to a float (the speed is stored, then scaled by the step and stored again)
   const F = Math.fround;
@@ -119,13 +120,15 @@ export function collideBall(st: RgbState, b: Ball): void {
     b.hit = st.land;
     st.sound.at(`land${landSlot(b)}`, point);
     st.fx.ballOn(b);               // FUN_00442a20(handle, 2, 1, 1) + FUN_00442a00(handle, the ball's matrix) when it has a handle
-    const dx = st.pepperPos[0] - point[0], dy = st.pepperPos[1] - point[1], dz = st.pepperPos[2] - point[2];
+    // the offsets use Pepper's place stored by the cannons' update of the last tick (DAT_05d5b310 .. 18), float32 steps, the sum as z z + y y + x x
+    const dx = sb(st.pepperPos[0], point[0]), dy = sb(st.pepperPos[1], point[1]), dz = sb(st.pepperPos[2], point[2]);
     if (dx > -K.NEAR_BOX && dx < K.NEAR_BOX && dz > -K.NEAR_BOX && dz < K.NEAR_BOX) {
-      const d2 = dx * dx + dy * dy + dz * dz;
+      const d2 = ad(ad(ml(dz, dz), ml(dy, dy)), ml(dx, dx));
       if (d2 >= K.HIT_R2) {
         if (d2 < K.MISS_R2) {
           const r = Math.trunc(st.rand(90));
-          st.sound.at(r < 60 ? (r < 30 ? 'nearmiss1' : 'nearmiss2') : 'nearmiss3', st.pepperPos);
+          // the sound is played at Pepper's live place (DAT_00983804 + 0x3b8c .. 94), not at the stored one
+          st.sound.at(r < 60 ? (r < 30 ? 'nearmiss1' : 'nearmiss2') : 'nearmiss3', [st.pepper.x, st.pepper.y, st.pepper.z]);
           st.say('CASGRB07');
         }
       } else b.hit = st.pepper;      // direct hit: the knock-back direction DAT_05d5bb08 .. 10 is stored by the original and never read

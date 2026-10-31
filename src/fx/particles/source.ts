@@ -23,7 +23,7 @@ export interface EngineHost {
   /** DAT_05d37030: the identity matrix used when a source has no parent matrix */
   identity: Float32Array;
   clock: FrameClock;
-  /** DAT_008b1718: ticks of the last frame (1.0 at 30 Hz) */
+  /** DAT_008b1718: ticks of the last frame (1.0 for the first 5 frames, then 0.5 at the fixed 60 Hz step) */
   dt: number;
   /** FUN_00417575: a game variable */
   getVar(i: number): number;

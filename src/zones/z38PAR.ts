@@ -76,9 +76,11 @@ export function startParRun(world: World, archive: Archive | null): ParRun {
   world.vars.set(V.PEPPERSSHADOW, -1);
   world.camera.init(rec);      // FUN_00422b50 runs after the pilot's constructor moved the record (FUN_00466c36)
   const c = world.camera.c;
-  const eye = eulerLocalToWorld(rec.ry, rec.rz, [rec.x, rec.y, rec.z], [0, 13.6, -4]);
-  c[3] = rec.x; c[4] = rec.y + 1.2; c[5] = rec.z;
-  for (let i = 0; i < 3; i++) c[i] = (eye[i] - c[i]) * 0.85 + c[i];
+  // the pilot's chase camera formulas (par-pilot.ts `camera`, every operation a float32) for the camera of the first frame
+  const r = Math.fround;
+  const eye = eulerLocalToWorld(rec.ry, rec.rz, [rec.x, rec.y, rec.z], [0, r(13.6), r(-4)]);
+  c[3] = r(rec.x); c[4] = r(r(PILOT.CAM_LIFT * 8) + r(rec.y)); c[5] = r(rec.z);
+  for (let i = 0; i < 3; i++) c[i] = r(r(r(eye[i] - c[i]) * PILOT.CAM_LERP) + c[i]);
   c[6] = 0; c[7] = 1; c[8] = 0;
   world.camera.updateView(); world.camera.savePrev();
   return run;

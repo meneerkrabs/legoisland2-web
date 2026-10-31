@@ -9,21 +9,23 @@ import type { ZoneParticles } from '../../fx/particles/zone.ts';
 import { armControllerProbe } from '../../game/probehost.ts';
 import { REC, VAR, BIT, CLIP, SND, MUSIC, f32 } from './consts.ts';
 import { MmpShared, normalise, shown } from './shared.ts';
+import { ad, sb, ml, sq } from '../common/f32.ts';
+import { eulerRotation } from '../exact.ts';
 
 const fl = (u: number) => new Float32Array(new Uint32Array([u]).buffer)[0];
 
 /** constants of these nodes (the `.rdata` floats / immediates of the functions named in the comments) */
 export const PK = {
   // camera FUN_006ac844
-  CAM_UP: f32(4.8), CAM_Y: f32(8), CAM_BACK: f32(12), CAM_CHASE_UP: f32(4), CAM_CHASE_Y: f32(6.4), CAM_CHASE_BACK: f32(22.4), CAM_LIFT: f32(6), PIT_Z: f32(-28), PIT_LOOK: fl(0x414f8937), PIT_EYE: f32(2.4), SIDE: 4.4 /* a double constant */,
+  CAM_UP: f32(4.8), CAM_Y: f32(8), CAM_BACK: f32(12), CAM_CHASE_UP: f32(4), CAM_CHASE_Y: f32(6.4), CAM_CHASE_BACK: f32(22.4), CAM_LIFT: f32(6), PIT_Z: f32(-28), PIT_LOOK: fl(0x414f8937), PIT_EYE: f32(2.4), SIDE: f32(4.4) /* 0x892804: `fcomp / fsub / fadd dword` */,
   // mummies
-  MUMMY_Y: fl(0x4091eb85), MUMMY_SPEED: f32(0.072), MUMMY_TURN: f32(0.174532), MUMMY_NEAR: 8, MUMMY_ARRIVE: f32(2.88), WANDER: 8, MUMMY_AWAY_Y: 800, MUMMY_AWAY_Z: -8000,
+  MUMMY_Y: fl(0x4091eb85), MUMMY_SPEED: f32(0.072), MUMMY_TURN: f32(0.174532), MUMMY_NEAR: 8, MUMMY_ARRIVE: f32(2.88), MUMMY_FACING: f32(0.9), WANDER: 8, MUMMY_AWAY_Y: 800, MUMMY_AWAY_Z: -8000,
   // key
   KEY_DROP: f32(5.76), KEY_FALL: f32(0.24), KEY_SPIN: f32(0.087266), KEY_REACH: f32(1.6), DOOR_RISE: f32(0.08), DOOR_TOP: 14,
   // page
   PAGE_REACH: f32(2.4), TRAP_RISE: f32(0.32), TRAP_TOP: 42,
   // rock
-  ROCK_SPEED: f32(0.85), ROCK_END_Z: f32(-22), ROCK_SPIN: f32(0.349064), ROCK_BOUNCE: fl(0x3e75c28f), ROCK_SKIN: f32(4.8), ROCK_RADIUS: f32(0.8),
+  ROCK_SPEED: f32(0.85), ROCK_END_Z: f32(-22), ROCK_SPIN: f32(0.349064), ROCK_BOUNCE: fl(0x3e75c28f), ROCK_GRAVITY: f32(0.08), ROCK_SKIN: f32(4.8), ROCK_RADIUS: f32(0.8),
   // pillars
   PILLAR_AHEAD: 16, PILLAR_STEP: fl(0x3d567704), PILLAR_ANGLE: fl(0x3f80749f),      // (.rdata 0x892534 / 0x8927e4: the angle is 1.0035589933, one float32 step below f32(1.00356))
   // stones
@@ -65,14 +67,14 @@ export class CameraNode extends Node {
     const px = pep.x, py = pep.y, pz = pep.z;
     // (the camera's eye / target are float32 in the original: every store rounds, the port's camera array holds doubles)
     if ((vars.get(VAR.READY) & BIT.CHASE) === 0) {
-      if ((vars.get(VAR.OPEN) & BIT.CHASE) === 0) { c[4] = f32(py + PK.CAM_UP); c[1] = f32(py + PK.CAM_Y); c[2] = f32(pz - PK.CAM_BACK); }
+      if ((vars.get(VAR.OPEN) & BIT.CHASE) === 0) { c[4] = ad(py, PK.CAM_UP); c[1] = ad(py, PK.CAM_Y); c[2] = sb(pz, PK.CAM_BACK); }
       else {
-        c[4] = f32(py + PK.CAM_CHASE_UP); c[1] = f32(py + PK.CAM_CHASE_Y); c[2] = f32(pz - PK.CAM_CHASE_BACK);
-        if (c[2] < 50 && 27 < c[2]) c[1] = f32(c[1] + PK.CAM_LIFT);
-        if (pz < PK.PIT_Z) { c[4] = PK.PIT_LOOK; c[1] = f32(c[4] + PK.PIT_EYE); }
+        c[4] = ad(py, PK.CAM_CHASE_UP); c[1] = ad(py, PK.CAM_CHASE_Y); c[2] = sb(pz, PK.CAM_CHASE_BACK);
+        if (c[2] < 50 && 27 < c[2]) c[1] = ad(c[1], PK.CAM_LIFT);
+        if (pz < PK.PIT_Z) { c[4] = PK.PIT_LOOK; c[1] = ad(c[4], PK.PIT_EYE); }
       }
       const ax = Math.abs(px);
-      c[3] = ax >= PK.SIDE ? (px <= 0 ? f32(px + PK.SIDE) : f32(px - PK.SIDE)) : 0;
+      c[3] = ax >= PK.SIDE ? (px <= 0 ? ad(px, PK.SIDE) : sb(px, PK.SIDE)) : 0;
       c[5] = pz;
       c[0] = 0;
     } else { c[0] = 0; c[3] = 0; }
@@ -100,28 +102,30 @@ export class MummyNode extends Node {
     const rs = this.sh.records, pep = rs[REC.PEPPER], rng = this.sh.rng, dt = w.dt;
     let mx = rec.x, my = rec.y, mz = rec.z;
     if ((w.vars.get(VAR.OPEN) & BIT.CHASE) === 0) {
-      const hx = pep.x - this.home[0], hz = pep.z - this.home[2];
-      let vx: number, vz: number;
-      if (PK.MUMMY_NEAR <= Math.hypot(hx, hz)) {
-        const tx = this.target[0] - mx, tz = this.target[2] - mz;
-        const v = normalise([tx, 0, tz]); vx = v[0] * PK.MUMMY_SPEED; vz = v[2] * PK.MUMMY_SPEED;
-        if (Math.hypot(tx, tz) < PK.MUMMY_ARRIVE) {
-          this.target[0] = f32(f32(rng.float(PK.WANDER) + this.home[0]) - 4);
-          this.target[2] = f32(f32(rng.float(PK.WANDER) + this.home[2]) - 4);
+      // FUN_006aa600: every operation a float32 result (x87 at 24 bits), the sums of three terms added x, y, z (asm 0x6aa6a8 ..); the y of every direction is 0
+      const hx = sb(pep.x, this.home[0]), hz = sb(pep.z, this.home[2]);
+      let v: number[];
+      if (PK.MUMMY_NEAR <= sq(ad(ml(hx, hx), ml(hz, hz)))) {
+        const tx = sb(this.target[0], mx), tz = sb(this.target[2], mz);
+        v = normalise([tx, 0, tz]); v[0] = ml(v[0], PK.MUMMY_SPEED); v[2] = ml(v[2], PK.MUMMY_SPEED);
+        if (sq(ad(ml(tx, tx), ml(tz, tz))) < PK.MUMMY_ARRIVE) {
+          this.target[0] = sb(ad(rng.float(PK.WANDER), this.home[0]), 4);
+          this.target[2] = sb(ad(rng.float(PK.WANDER), this.home[2]), 4);
         }
       } else {
-        const v = normalise([pep.x - mx, 0, pep.z - mz]); vx = v[0] * PK.MUMMY_SPEED; vz = v[2] * PK.MUMMY_SPEED;
+        v = normalise([sb(pep.x, mx), 0, sb(pep.z, mz)]); v[0] = ml(v[0], PK.MUMMY_SPEED); v[2] = ml(v[2], PK.MUMMY_SPEED);
       }
       const fwd = normalise([rec.m[8], 0, rec.m[10]]);
       const right = normalise([rec.m[0], 0, rec.m[2]]);
-      if (vx !== 0 || vz !== 0) {
-        const d = normalise([vx, 0, vz]);
-        if (fwd[2] * d[2] + fwd[0] * d[0] <= 0.9) {
-          if (right[2] * d[2] + right[0] * d[0] <= 0) rec.ry = f32(rec.ry - PK.MUMMY_TURN * dt); else rec.ry = f32(rec.ry + PK.MUMMY_TURN * dt);
+      if (v[0] !== 0 || v[2] !== 0) {
+        const d = normalise([v[0], v[1], v[2]]);
+        if (ad(ad(ml(fwd[0], d[0]), ml(fwd[1], d[1])), ml(fwd[2], d[2])) <= PK.MUMMY_FACING) {
+          if (ad(ad(ml(right[0], d[0]), ml(right[1], d[1])), ml(right[2], d[2])) <= 0) rec.ry = sb(rec.ry, ml(PK.MUMMY_TURN, dt)); else rec.ry = ad(ml(PK.MUMMY_TURN, dt), rec.ry);
         }
       }
-      mx += vx * dt; mz += vz * dt;
-      rec.anim?.advance(Math.hypot(vx, vz) * 0.125 * 50, dt);
+      mx = ad(ml(v[0], dt), mx); mz = ad(ml(v[2], dt), mz);
+      const len = sq(ad(ad(ml(v[0], v[0]), ml(v[1], v[1])), ml(v[2], v[2])));
+      rec.anim?.advance(ml(ml(len, 0.125), 50), dt);
     } else { my = PK.MUMMY_AWAY_Y; mz = PK.MUMMY_AWAY_Z; }
     rec.setEuler(0, rec.ry, 0, mx, my, mz);
     if (my === PK.MUMMY_AWAY_Y) rec.savePrev();     // (port) sent away: no render interpolation across the jump
@@ -142,7 +146,7 @@ export class KeyNode extends Node {
   startFx(fx: ZoneParticles, rec: GameRecord) { this.fxTwin = fx.start('symtwin.par', rec.m, [0, 0, 0], [0, 0, 0], GATE_OFF); }
   init(rec: GameRecord) {
     this.home = [rec.x, rec.y, rec.z];
-    rec.y = this.home[1] + PK.KEY_DROP;
+    rec.y = ad(this.home[1], PK.KEY_DROP);
     this.doorOpen = false;
   }
   update(w: World, rec: GameRecord): number {
@@ -154,7 +158,7 @@ export class KeyNode extends Node {
         if ((vars.get(VAR.MATCHED) & BIT.ALL) === BIT.ALL && (vars.get(VAR.OPEN) & BIT.ALL) === 0) { vars.or(VAR.OPEN, BIT.KEY); snd.play2D(SND.KEY_APPEAR); }
       } else {
         snd.play3D('keySpin', SND.KEY_SPIN, at());
-        if (y <= this.home[1]) vars.or(VAR.READY, BIT.KEY); else y -= PK.KEY_FALL * dt;
+        if (y <= this.home[1]) vars.or(VAR.READY, BIT.KEY); else y = sb(y, ml(PK.KEY_FALL, dt));
       }
     } else if ((vars.get(VAR.MATCHED) & BIT.KEY) === 0) {
       snd.play3D('keySpin', SND.KEY_SPIN, at());
@@ -167,7 +171,7 @@ export class KeyNode extends Node {
       }
     } else if (!this.doorOpen) {
       const door = rs[REC.DOOR];
-      door.y += PK.DOOR_RISE * dt;
+      door.y = ad(ml(PK.DOOR_RISE, dt), door.y);
       snd.play3D('gateLoop', SND.GATE_LOOP, { x: door.x, y: door.y, z: door.z });
       if (PK.DOOR_TOP <= door.y) {
         // (the record keeps the value it was written with, a little above 14: the clamp is of the local copy only)
@@ -176,7 +180,7 @@ export class KeyNode extends Node {
         snd.play3D('gateOpened', SND.GATE_OPENED, { x: door.x, y: PK.DOOR_TOP, z: door.z });
       }
     }
-    rec.ry = f32(rec.ry + PK.KEY_SPIN * dt);
+    rec.ry = ad(ml(PK.KEY_SPIN, dt), rec.ry);
     // the twinkle: on while the key is falling / waiting (OPEN or READY bit 0x1000) and its record is shown (record flag 2), else off; then the matrix follows the record
     if (((vars.get(VAR.READY) & BIT.KEY) === 0 && (vars.get(VAR.OPEN) & BIT.KEY) === 0) || !shown(rs[REC.KEY])) sh.fx?.off(this.fxTwin);
     else { sh.fx?.on(this.fxTwin); sh.fx?.setMatrix(this.fxTwin, rec.m); }
@@ -206,12 +210,12 @@ export class PageNode extends Node {
       const trap = rs[REC.TRAP];
       if (PK.TRAP_TOP <= trap.y) {
         if (!this.started) { this.started = true; vars.or(VAR.OPEN, BIT.CHASE); }
-      } else trap.y += PK.TRAP_RISE * dt;
+      } else trap.y = ad(ml(PK.TRAP_RISE, dt), trap.y);
     }
     if (!shown(rec)) snd.stop3D('pageSpin');
     else {
       snd.play3D('pageSpin', SND.PAGE_SPIN, { x: rec.x, y: rec.y, z: rec.z });
-      rec.ry = f32(rec.ry + PK.KEY_SPIN * dt); rec.rx = f32(rec.rx - PK.KEY_SPIN * dt);
+      rec.ry = ad(ml(PK.KEY_SPIN, dt), rec.ry); rec.rx = sb(rec.rx, ml(PK.KEY_SPIN, dt));
       sh.fx?.setMatrix(this.fxTwinkle, rec.m);
       rec.setEuler(rec.rx, rec.ry, rec.rz, rec.x, rec.y, rec.z);
     }
@@ -232,8 +236,8 @@ export class RockNode extends Node {
     const sh = this.sh, snd = sh.sounds, dt = w.dt;
     let x = rec.x, y = rec.y, z = rec.z;
     if (PK.ROCK_END_Z < z) {
-      z -= PK.ROCK_SPEED * dt;
-      rec.rx = f32(rec.rx - PK.ROCK_SPIN * dt);
+      z = sb(z, ml(PK.ROCK_SPEED, dt));
+      rec.rx = sb(rec.rx, ml(PK.ROCK_SPIN, dt));
       snd.play3D('boulder', SND.BOULDER, { x: rec.x, y: rec.y, z: rec.z });
       if (!this.musicStarted) { snd.music(MUSIC.CHASE); this.musicStarted = true; }
     }
@@ -241,11 +245,11 @@ export class RockNode extends Node {
     if (y < -12.5) { y = 187.5; x = 0; }       // (the sweep below starts from the position before the reset)
     let settled = false, reset = false;
     if (this.vy <= 0) {
-      const h = w.col.sweep(rec, from, [0, this.vy * dt, 0], 3, PK.ROCK_RADIUS, PK.ROCK_SKIN);
-      if (h) { y = h.point[1]; this.vy = sh.rng.float(PK.ROCK_BOUNCE); settled = true; }
+      const h = w.col.sweep(rec, from, [0, ml(this.vy, dt), 0], 3, PK.ROCK_RADIUS, PK.ROCK_SKIN);
+      if (h) { y = f32(h.point[1]); this.vy = sh.rng.float(PK.ROCK_BOUNCE); settled = true; }
     }
-    if (!settled) this.vy -= 0.08;
-    y += this.vy;
+    if (!settled) this.vy = sb(this.vy, PK.ROCK_GRAVITY);
+    y = ad(y, this.vy);
     if ((w.vars.get(VAR.MATCHED) & BIT.CHASE) !== 0) {
       x = this.home[0]; y = this.home[1]; z = this.home[2];
       this.vy = 0;
@@ -269,7 +273,7 @@ export class PillarNode extends Node {
     if ((w.vars.get(VAR.MATCHED) & BIT.CHASE) !== 0) { this.state = 0; rec.rz = 0; }
     if ((w.vars.get(VAR.OPEN) & BIT.CHASE) !== 0) {
       if (this.state === 0) {
-        if (pep.z - rec.z < PK.PILLAR_AHEAD) {
+        if (sb(pep.z, rec.z) < PK.PILLAR_AHEAD) {
           this.state = rec.x <= 0 ? 2 : 1;
           const s = sh.sounds;
           // FUN_006a9540: the column-fall sound on a free one of its four handles
@@ -278,10 +282,10 @@ export class PillarNode extends Node {
           s.play3D(free, SND.COLUMN_FALL, { x: rec.x, y: rec.y, z: rec.z });
         }
       } else if (this.state === 1) {
-        rec.rz = f32(rec.rz + PK.PILLAR_STEP * dt);
+        rec.rz = ad(ml(PK.PILLAR_STEP, dt), rec.rz);
         if (PK.PILLAR_ANGLE <= rec.rz) { rec.rz = PK.PILLAR_ANGLE; this.state = 3; }
       } else if (this.state === 2) {
-        rec.rz = f32(rec.rz - PK.PILLAR_STEP * dt);
+        rec.rz = sb(rec.rz, ml(PK.PILLAR_STEP, dt));
         if (rec.rz <= -PK.PILLAR_ANGLE) { rec.rz = -PK.PILLAR_ANGLE; this.state = 3; }
       }
     }
@@ -298,12 +302,12 @@ export class DebrisNode extends Node {
     let x = rec.x, y = rec.y, z = rec.z, respawned = false;
     if ((w.vars.get(VAR.OPEN) & BIT.CHASE) !== 0) {
       rec.flags |= 2;
-      y -= PK.STONE_FALL;
-      if (y < pep.y - PK.STONE_BELOW) {
+      y = sb(y, PK.STONE_FALL);
+      if (y < sb(pep.y, PK.STONE_BELOW)) {
         // (the three bases are float32 locals: pep.y + 40, pep.x - 32, pep.z - 32; the random draws come in the order y, x, z)
-        y = f32(rng.float(PK.STONE_RANGE_Y) + f32(pep.y + PK.STONE_ABOVE));
-        x = f32(rng.float(PK.STONE_RANGE_XZ) + f32(pep.x - PK.STONE_HALF));
-        z = f32(rng.float(PK.STONE_RANGE_XZ) + f32(pep.z - PK.STONE_HALF));
+        y = ad(rng.float(PK.STONE_RANGE_Y), ad(pep.y, PK.STONE_ABOVE));
+        x = ad(rng.float(PK.STONE_RANGE_XZ), sb(pep.x, PK.STONE_HALF));
+        z = ad(rng.float(PK.STONE_RANGE_XZ), sb(pep.z, PK.STONE_HALF));
         rec.rz = f32(rng.float(PK.STONE_SPIN));
         respawned = true;
       }
@@ -340,7 +344,7 @@ export class SpiderNode extends Node {
     if (!this.sh.records?.[REC.PEPPER]) return NODE_STOP;      // not prepared (generic stub test)
     const pep = this.sh.records[REC.PEPPER], dt = w.dt;
     if (this.state === 0) {
-      if (rec.z - PK.SPIDER_AHEAD < pep.z) { this.state = 1; this.sh.sounds.play3D('spiderDrop', SND.SPIDER_DROP, { x: rec.x, y: rec.y, z: rec.z }); }
+      if (sb(rec.z, PK.SPIDER_AHEAD) < pep.z) { this.state = 1; this.sh.sounds.play3D('spiderDrop', SND.SPIDER_DROP, { x: rec.x, y: rec.y, z: rec.z }); }
     } else if (this.state === 1) {
       if (rec.anim?.advance(1.0, dt) !== 0) { this.state = 2; rec.anim?.start(1, 0); }
     } else rec.anim?.advance(1.0, dt);
@@ -371,26 +375,26 @@ export class RatNode extends Node {
     }
     if (this.mode === 0 || this.mode === 2) {
       let x = rec.x, y = rec.y, z = rec.z;
-      // (float32 locals: the offset to the home, its squared length, the angle and the difference of the angles, each stored)
-      const dx = f32(this.home[0] - x), dy = f32(this.home[1] - y), dz = f32(this.home[2] - z);
-      if (f32(dz * dz + dy * dy + dx * dx) <= PK.RAT_NEAR_SQ) {
-        if (this.timer <= this.turnFor) { if (this.timer < 20) rec.ry = f32(rec.ry + this.turn); }
+      // FUN_006a8350 (every operation a float32 result; the squared length is added x, y, z, asm 0x6a8530; the angles are float32 locals)
+      const dx = sb(this.home[0], x), dy = sb(this.home[1], y), dz = sb(this.home[2], z);
+      if (ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz)) <= PK.RAT_NEAR_SQ) {
+        if (this.timer <= this.turnFor) { if (this.timer < 20) rec.ry = ad(rec.ry, this.turn); }
         else {
-          this.turn = f32(rng.float(PK.RAT_TURN) - PK.RAT_TURN * 0.5);
-          this.turnFor = f32(rng.float(50) + 20);
-          this.timer = f32(rng.float(20));
+          this.turn = sb(rng.float(PK.RAT_TURN), ml(PK.RAT_TURN, 0.5));
+          this.turnFor = ad(rng.float(50), 20);
+          this.timer = rng.float(20);
         }
-        this.timer = f32(this.timer + dt);
+        this.timer = ad(ml(1, dt), this.timer);
       } else {
         this.turnFor = -1; this.timer = 0;
         const ang = f32(Math.atan2(dx, dz));
-        let diff = f32(rec.ry - ang);
-        if (PK.PI_NEG <= diff) { if (PK.PI < diff) diff = f32(diff - PK.TWO_PI); } else diff = f32(diff + PK.TWO_PI);      // (the float32 constants of .rdata: -pi 0x892098, pi 0x89207c, 2 pi 0x892094)
-        if (diff <= PK.RAT_TURN) { if (PK.RAT_TURN <= diff) rec.ry = ang; else rec.ry = f32(rec.ry + PK.RAT_TURN * dt); } else rec.ry = f32(rec.ry - PK.RAT_TURN * dt);
+        let diff = sb(rec.ry, ang);
+        if (PK.PI_NEG <= diff) { if (PK.PI < diff) diff = sb(diff, PK.TWO_PI); } else diff = ad(diff, PK.TWO_PI);      // (the float32 constants of .rdata: -pi 0x892098, pi 0x89207c, 2 pi 0x892094)
+        if (diff <= PK.RAT_TURN) { if (PK.RAT_TURN <= diff) rec.ry = ang; else rec.ry = ad(ml(PK.RAT_TURN, dt), rec.ry); } else rec.ry = sb(rec.ry, ml(PK.RAT_TURN, dt));
       }
-      rec.setEuler(rec.rx, rec.ry, rec.rz, x, y, z);
-      const sp = (this.mode === 0 ? PK.RAT_WALK : PK.RAT_RUN) * dt;
-      x = f32(x + f32(sp * rec.m[8])); y = f32(y + f32(sp * rec.m[9])); z = f32(z + f32(sp * rec.m[10]));
+      eulerRotation(rec.m, f32(rec.rx), f32(rec.ry), f32(rec.rz));          // FUN_0043a4a1: the rotation only, the matrix keeps its translation
+      const sp = ml(this.mode === 0 ? PK.RAT_WALK : PK.RAT_RUN, dt);
+      x = ad(x, ml(sp, rec.m[8])); y = ad(y, ml(sp, rec.m[9])); z = ad(z, ml(sp, rec.m[10]));
       rec.m[12] = x; rec.m[13] = y; rec.m[14] = z;
     }
     // the controller probe (FUN_00427014(ctrl, (0, 8, 0), (0, -16, 0), mask 3, flags 0x50), armed at the end of the update in modes 0 / 2): the probe pass of this frame (probehost.ts, between

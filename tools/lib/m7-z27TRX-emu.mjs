@@ -44,6 +44,8 @@ export const SPEC = {
 export const KIND_OF_PORT = Object.fromEntries(Object.entries(SPEC).filter(([, s]) => s.port).map(([k, s]) => [s.port, k]));
 const KIND_OF_CTOR = Object.fromEntries(Object.entries(SPEC).map(([k, s]) => [s.ctor, k]));
 
+/** the scripted FUN_00435c91 (milliseconds since the zone's start) of both sides */
+export const TRX_MS = 123457;
 export function readField(mem, p, [off, , t]) {
   const a = p + off;
   if (t === 'f') return mem.f32(a);
@@ -110,14 +112,10 @@ export function createTrxHarness(ctx, G) {
   hook(0x417597, (c) => { w.vars.set(c.arg(0), c.arg(1) | 0); });
   hook(0x41761b, (c) => { w.vars.or(c.arg(0), c.arg(1) | 0); });
   hook(0x41766c, (c) => { w.vars.andNot(c.arg(0), c.arg(1) | 0); });
-  // random numbers: FUN_004388ae(x) = rand / 32767 * x; the integer rand comes from the test's keyed source (record, tick, draw index)
-  hook(0x4388ae, (c) => {
-    const r = G.rk.draw();
-    H.draws.push(r);
-    const x = c.argf(0);
-    c.fpush(x === 32767 ? r : f32(f32(r / 32767) * x));
-  });
-  hook(0x435c91, () => { cpu.eax = 32767; });
+  // random numbers: FUN_004388ae runs natively (float32 at the 24-bit control word); its rand() (FUN_0085daf0) draws the test's keyed integer source (record, tick, draw index);
+  // FUN_00435c91 (ms since the zone's start, scaled into the pick) is a fixed scripted value shared with the port (`TRX_MS`)
+  hook(0x85daf0, () => { const r = G.rk.draw(); H.draws.push(r); cpu.eax = r; });
+  hook(0x435c91, () => { cpu.eax = TRX_MS; });
   // animation instances: AB + record index * 0x40 -> the port's AnimInstance of that record (explicitly not the subject: FUN_0043b6a3 / b76a / b72b / b73f / b64d / b92a)
   const animOf = (ptr) => rs[(ptr - AB) / 0x40].anim;
   hook(0x43b6a3, (c) => { const a = animOf(c.arg(0)); c.eax = a.start(c.arg(1) | 0, c.argf(2)) ? 1 : 0; });
@@ -176,7 +174,7 @@ export function createTrxHarness(ctx, G) {
   // FUN_0076b070 (the particle emitters of the restart pass): FUN_0044ec30 / FUN_00442960 return handles nobody reads here
   hook(0x44ec30, () => {}); hook(0x442960, () => { cpu.eax = 0; });
   // atan2 of the CRT is not needed (FUN_0076a7da is skipped)
-  cpu.exec = [[0x765000, 0x76c000], [0x858d30, 0x873e00], [0x43a4a1, 0x43a8e0], [0x43ce45, 0x43ce7d], [0x4425f0, 0x442680], [0x441a90, 0x441ac0]];
+  cpu.exec = [[0x765000, 0x76c000], [0x858d30, 0x873e00], [0x43a4a1, 0x43a8e0], [0x43ce45, 0x43ce7d], [0x4425f0, 0x442680], [0x441a90, 0x441ac0], [0x4388ae, 0x4388e7]];
   cpu.fallback = (a) => { H.unhooked.add(a); throw new Error(`z27TRX emu: unhooked call to 0x${a.toString(16)} from 0x${cpu.callAt?.toString(16)} (frames ${cpu.frames.slice(-4).map((f) => f.toString(16))})`); };
   cpu.invalidate();
   H.ctrlCreated = [];

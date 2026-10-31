@@ -8,8 +8,11 @@ import type { GameRecord } from '../../game/record.ts';
 import type { BehaviourNode } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import { B } from '../../game/input.ts';
-import { buildMatrix } from '../../formats/matrix.ts';
+import { eulerMatrix, rotateVector, transformPoint, matThen } from '../common/matrix.ts';
+import { eulerRotation } from '../exact.ts';
+import { ad, sb, ml } from '../common/f32.ts';
 import { bipRun, f32, msClock, NAME, MODE, VAR_MODE } from './run.ts';
+import { randF } from '../../game/crt.ts';
 import type { BipRun } from './run.ts';
 
 const F = Math.fround;
@@ -52,7 +55,7 @@ export const PLANE = {
   ROLL_STEP: f32(0x3eb2b884),  // 0x892150: 20 degrees per tick of the spin-out
   ROLL_END: f32(0x40c90f94),   // 0x8928d0
   TWO_PI: f32(0x40c90fdb),     // 0x892094
-  HEADING_BAND: f32(0x3f666666),   // the doubles 0x892890 / 0x892898 (+-0.9) are cast to float in the code: (float)0.9 = 0.8999999762: how far the heading may leave the course
+  HEADING_BAND: 0.9,           // the doubles 0x892890 / 0x892898 (+-0.9: `fcomp qword` / `fadd qword` / `fsub qword` operands at 0x70b06f .. 0x70b0b3, NOT cast to float): how far the heading may leave the course
   /** 0x8928a0: the double 3.1415927410125732 (= float32 pi): the wrap threshold of the course heading */
   WRAP_LIMIT: f32(0x40490fdb),
   CAM_OFFSET: [0, 6, -20] as const, // 0x40c00000 / 0xc1a00000
@@ -94,41 +97,27 @@ export interface Banana {
 }
 function newBanana(): Banana { return { x: 0, y: 0, z: 0, heading: 0, vx: 0, vy: 0, vz: 0, born: 0, active: false, sx: 0, sy: 0, sz: 0, ax: 0, ay: 0, az: 0, dax: 0, day: 0, daz: 0 }; }
 
+/** the scale matrix of FUN_0070b58c (`local_90`): 4 on the diagonal (0x40800000), 1 in the corner */
+const BANANA_SCALE_M = new Float32Array([4, 0, 0, 0, 0, 4, 0, 0, 0, 0, 4, 0, 0, 0, 0, 1]);
 /**
- * FUN_0070b58c (draw): the matrix a banana is drawn with: (Euler(spin) * diag(4)) * (Euler(0, heading, 0) + position) (FUN_0043a5e4, FUN_0043a9e5 twice with the
- * scale matrix of 4 on the diagonal). `out` receives it (row-vector 4x4).
+ * FUN_0070b58c (draw): the matrix a banana is drawn with: FUN_0043a5e4(spin angles) then FUN_0043a9e5(scale 4, spin) then FUN_0043a9e5(banana record, that) = ((Euler(spin) x diag(4)) x
+ * (Euler(0, heading, 0) + position)), every product the original's float32 evaluation (src/zones/common/matrix.ts). `out` receives it (row-vector 4x4).
  */
 export function bananaMatrix(b: Banana, out: Float32Array = new Float32Array(16)): Float32Array {
-  const rot = buildMatrix(b.dax, b.day, b.daz, 0, 0, 0);
-  for (const k of [0, 1, 2, 4, 5, 6, 8, 9, 10]) rot[k] *= PLANE.BANANA_SCALE;
-  const hm = buildMatrix(0, b.heading, 0, 0, 0, 0);
-  out.fill(0);
-  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) out[r * 4 + c] = rot[r * 4] * hm[c] + rot[r * 4 + 1] * hm[4 + c] + rot[r * 4 + 2] * hm[8 + c];
-  out[12] = b.x; out[13] = b.y; out[14] = b.z; out[15] = 1;
+  const spin = matThen(eulerMatrix(b.dax, b.day, b.daz), BANANA_SCALE_M);
+  out.set(matThen(spin, eulerMatrix(0, b.heading, 0, b.x, b.y, b.z)));
   return out;
 }
 
-/** FUN_0043abe6: a direction through the rotation part of a row-vector matrix */
-export function rotateDir(m: ArrayLike<number>, v: ArrayLike<number>): [number, number, number] {
-  return [v[0] * m[0] + v[1] * m[4] + v[2] * m[8], v[0] * m[1] + v[1] * m[5] + v[2] * m[9], v[0] * m[2] + v[1] * m[6] + v[2] * m[10]];
-}
-/** FUN_0043ab72: a point through the whole matrix */
-export function transformPoint(m: ArrayLike<number>, v: ArrayLike<number>): [number, number, number] {
-  return [v[0] * m[0] + v[1] * m[4] + v[2] * m[8] + m[12], v[0] * m[1] + v[1] * m[5] + v[2] * m[9] + m[13], v[0] * m[2] + v[1] * m[6] + v[2] * m[10] + m[14]];
-}
+/** FUN_0043abe6: a direction through the rotation part of a row-vector matrix (the original's float32 operations) */
+export const rotateDir = (m: ArrayLike<number>, v: ArrayLike<number>): number[] => rotateVector(m, v);
+export { transformPoint };
 /** FUN_0043a4a1: rebuild the rotation of a record's matrix from Euler angles and keep its translation */
 export function setRotation(rec: GameRecord, rx: number, ry: number, rz: number) {
-  const m = buildMatrix(rx, ry, rz, 0, 0, 0);
-  for (const i of [0, 1, 2, 4, 5, 6, 8, 9, 10]) rec.m[i] = m[i];
-  rec.m[3] = rec.m[7] = rec.m[11] = 0; rec.m[15] = 1;
+  eulerRotation(rec.m, F(rx), F(ry), F(rz));
 }
 /** FUN_0043a9e5(out, p2, p3): out = p3 * p2 (row vectors: p3 applies first) */
-export function mul4(p3: ArrayLike<number>, p2: ArrayLike<number>, out: Float32Array = new Float32Array(16)): Float32Array {
-  const t = new Float32Array(16);
-  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) t[r * 4 + c] = p3[r * 4] * p2[c] + p3[r * 4 + 1] * p2[4 + c] + p3[r * 4 + 2] * p2[8 + c] + p3[r * 4 + 3] * p2[12 + c];
-  out.set(t);
-  return out;
-}
+export const mul4 = matThen;
 
 /**
  * The camera behind the plane (the end of FUN_00709fac, shared by FUN_0070fdc0 Recover and the pre-roll of the take-off): the look-at point is the plane 4 above, the
@@ -137,14 +126,14 @@ export function mul4(p3: ArrayLike<number>, p2: ArrayLike<number>, out: Float32A
  */
 export function followCamera(w: World, rec: GameRecord, alt: number, flying: boolean) {
   const c = w.camera.c;
-  c[3] = rec.x; c[4] = F(rec.y + PLANE.CAM_TARGET_UP); c[5] = rec.z;
-  const p = transformPoint(rec.m, PLANE.CAM_OFFSET);
+  c[3] = rec.x; c[4] = ad(rec.y, PLANE.CAM_TARGET_UP); c[5] = rec.z;
+  const p = transformPoint(rec.m, PLANE.CAM_OFFSET);          // FUN_0043ab72
   const k = PLANE.CAM_LERP;
-  c[0] = F((p[0] - c[0]) * k + c[0]);
-  c[2] = F((p[2] - c[2]) * k + c[2]);
-  c[1] = F((p[1] - c[1]) * PLANE.CAM_Y_LERP_K * k + c[1]);
+  c[0] = ad(ml(sb(p[0], c[0]), k), c[0]);
+  c[2] = ad(ml(sb(p[2], c[2]), k), c[2]);
+  c[1] = ad(ml(ml(sb(p[1], c[1]), PLANE.CAM_Y_LERP_K), k), c[1]);
   if (flying) {
-    const y = F(alt + PLANE.CAM_ALT_LIFT);
+    const y = ad(alt, PLANE.CAM_ALT_LIFT);
     c[1] = 0 <= y ? y : 0;
     if (112 < c[1]) c[1] = 112;
   }
@@ -329,23 +318,23 @@ export class PlaneNode implements BehaviourNode {
     if (!this.rolling) {
       // the heading follows the course: the course's heading is tracked through the wrap-around and the plane may stay within 0.9 rad of it
       const a = Math.atan2(fwdX, fwdZ);             // FUN_0085d640 leaves the double on the x87 stack: the sum below rounds once
-      let la = F(a + this.headCorr);
-      if (PLANE.WRAP_LIMIT < Math.abs(F(la - this.headRef))) {
-        if (this.headRef <= la) { this.headCorr = F(this.headCorr - PLANE.TWO_PI); la = F(la - PLANE.TWO_PI); }
-        else { this.headCorr = F(this.headCorr + PLANE.TWO_PI); la = F(la + PLANE.TWO_PI); }
+      let la = ad(a, this.headCorr);
+      if (PLANE.WRAP_LIMIT < Math.abs(sb(la, this.headRef))) {
+        if (this.headRef <= la) { this.headCorr = sb(this.headCorr, PLANE.TWO_PI); la = sb(la, PLANE.TWO_PI); }
+        else { this.headCorr = ad(this.headCorr, PLANE.TWO_PI); la = ad(la, PLANE.TWO_PI); }
       }
       this.headRef = la;
-      if (la - this.heading < -PLANE.HEADING_BAND) this.heading = F(la + PLANE.HEADING_BAND);
-      if (PLANE.HEADING_BAND < la - this.heading) this.heading = F(la - PLANE.HEADING_BAND);
+      if (sb(la, this.heading) < -PLANE.HEADING_BAND) this.heading = ad(la, PLANE.HEADING_BAND);
+      if (PLANE.HEADING_BAND < sb(la, this.heading)) this.heading = sb(la, PLANE.HEADING_BAND);
     }
     if (this.score < 0) this.score = 0;
 
     // ---- the plane's matrix: pitch (from the pitch input) and the heading (+ the spin-out) first, then the bank about the forward axis
     const bank = F(-F(this.steer * PLANE.BANK_K) * 12);
     const pitchAngle = F(F(this.pitch * PLANE.BANK_K) / 4);
-    const A = buildMatrix(pitchAngle, F(rec.ry + this.rollAngle), 0, rec.x, rec.y, rec.z);
-    const Bm = buildMatrix(0, 0, bank, 0, 0, 0);
-    rec.m.set(mul4(Bm, A));
+    const A = eulerMatrix(pitchAngle, ad(rec.ry, this.rollAngle), 0, rec.x, rec.y, rec.z);
+    const Bm = eulerMatrix(0, 0, bank);
+    rec.m.set(matThen(Bm, A));
     rec.rx = pitchAngle;
 
     // ---- the camera
@@ -373,7 +362,7 @@ export class PlaneNode implements BehaviourNode {
     const C = BOX_CORNERS.map((c) => transformPoint(rec.m, [c[0], c[1], c[2] + 4]));
     for (const [a, b] of BOX_EDGES) {
       const pa = C[a], pb = C[b];
-      const h = w.col.sweep(rec, pa, [pa[0] - pb[0], pa[1] - pb[1], pa[2] - pb[2]], 3, 1, 1);
+      const h = w.col.sweep(rec, pa, [sb(pa[0], pb[0]), sb(pa[1], pb[1]), sb(pa[2], pb[2])], 3, 1, 1);
       if (h) return { name: h.rec.name, rec: h.rec };
     }
     return null;
@@ -397,7 +386,7 @@ export class PlaneNode implements BehaviourNode {
       this.muzzle = (this.muzzle + 1) & 3;
       const v = rotateDir(rec.m, [0, 0, PLANE.BANANA_SPEED]);
       bn.vx = F(v[0]); bn.vy = F(v[1]); bn.vz = F(v[2]);
-      bn.sx = F(run.crt.float(PLANE.BANANA_SPIN)); bn.sy = F(run.crt.float(PLANE.BANANA_SPIN)); bn.sz = F(run.crt.float(PLANE.BANANA_SPIN));
+      bn.sx = F(randF(PLANE.BANANA_SPIN)); bn.sy = F(randF(PLANE.BANANA_SPIN)); bn.sz = F(randF(PLANE.BANANA_SPIN));
       bn.ax = bn.ay = bn.az = 0;
       this.ammo -= 1;
       run.stats.bananasFired++;
@@ -432,7 +421,7 @@ export class PlaneNode implements BehaviourNode {
         if (d2 >>> 0 < HIT_R2.MONKEY) {
           this.score += SCORE.MONKEY;
           mk.state = 2;
-          const pick = Math.trunc(run.crt.float(msClock(w))) % 3;       // ftol(FUN_004388ae(GetTickCount - start)) % 3: any of the three
+          const pick = Math.trunc(randF(msClock())) % 3;       // ftol(FUN_004388ae(GetTickCount - start)) % 3: any of the three
           run.sound.at(pick === 0 ? 'hitChimp3' : pick === 1 ? 'hitChimp2' : 'hitChimp1', [rec.x, rec.y, rec.z]);
           run.say('ADSGBI12');
           run.stats.monkeyHits++;

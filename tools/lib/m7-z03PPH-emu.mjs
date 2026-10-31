@@ -162,6 +162,7 @@ export function createHarness(ctx, w) {
     put(G.line1, st.lines.line1); put(G.line2, st.lines.line2); put(G.line3, st.lines.line3);
     for (let i = 0; i < 9; i++) mem.wf32(G.camera + 4 * i, w.camera.c[i]);
     mem.w32(G.focus, recPtr(pepper)); mem.w32(G.frozen, 0); mem.w32(G.frame, w.frame);
+    mem.wf32(G.dt, w.dt);     // DAT_008b1718: the frame time factor (1.0 at 30 Hz, 0.5 at the 60 Hz step)
   };
   const readGlobals = () => ({
     doorOpen: mem.r32(G.doorOpen), leave: mem.r32(G.leave), icon: mem.r32(G.icon),

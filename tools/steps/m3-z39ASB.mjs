@@ -76,7 +76,7 @@ export default async ({ page, shot, wait, log, key }) => {
   let s = await st();
   expect('z39ASB starts at story node 62, the Shuttle attach is handled (no skipped attaches)', s.node === 62 && s.skipped === 0, JSON.stringify(s));
   // FUN_007b63f6 runs ONE update of the shuttle node (FUN_0042226e(records + 0x68, 1)) before the loop: z = -768 + speed 2.4 = -765.6; the eye is at z + camera offset (-400)
-  expect('intro state: score 10000, hull 1000, shuttle at z -765.6 (one update before the loop), camera 396 behind', s.score === 10000 && s.hull === 1000 && Math.abs(s.z + 765.6) < 1e-3 && Math.abs(s.eyeZ + 1165.6) < 1e-3, JSON.stringify(s));
+  expect('intro state: score 10000, hull 1000, shuttle at z -768 + 2.4 * dt (one update before the loop, dt 0.5 or 1), camera 396 behind', s.score === 10000 && s.hull === 1000 && [1, 0.5].some((d) => Math.abs(s.z + 768 - 2.4 * d) < 1e-3 && Math.abs(s.eyeZ + 1168 - 2.4 * d) < 1e-3), JSON.stringify(s));
   await wait(700);
   await shot('asb-1-intro');
   await press('Enter'); await wait(500);

@@ -16,8 +16,9 @@ import { ParticleDraw } from './draw.ts';
 import { NO_HANDLE, ParticleEngine, PARAM } from './engine.ts';
 import { archiveParticleFiles } from './files.ts';
 import type { MatrixSource } from './source.ts';
+import { addParticleTicker, tickParticles } from './ticker.ts';
 
-export { NO_HANDLE, PARAM };
+export { NO_HANDLE, PARAM, tickParticles };
 
 /** what `create` needs of the zone game context (ZoneGameCtx) */
 export interface ParticleHost { sh: Shell; gr: GameRenderer; world: World; archive: Archive }
@@ -36,6 +37,7 @@ export class ZoneParticles {
   private world: World;
   private lastTick: number;
   private finished = false;
+  private unregister: () => void;
   /** number of logic ticks run (the frame counter DAT_009da5cc the scripts are measured on is `world.frame`) */
   ticks = 0;
   /**
@@ -43,12 +45,14 @@ export class ZoneParticles {
    * runs); the draw hook then does not catch up with `world.tickCount`.
    */
   manual = false;
+  /** the host calls `afterTick()` once per sim step (`tickParticles(world)` of ./ticker.ts): the render hook does not advance the engine */
+  driven = false;
 
   private constructor(h: ParticleHost, files: ReturnType<typeof archiveParticleFiles>, texArchive: Archive) {
     const world = h.world;
     this.world = world;
     this.engine = new ParticleEngine(files, {
-      // RNG: the C runtime rand() of the original; the shared game RNG replaces it when WP-TIME lands (ParticleEngine `rand`)
+      // (rand: the ParticleEngine default is the shared CRT generator of src/game/crt.ts, FUN_0085daf0)
       getVar: (i) => world.vars.get(i),
       collide: (rec, pos, vel, radius, outN, outP) => {
         const r = (rec as GameRecord);
@@ -61,9 +65,10 @@ export class ZoneParticles {
       isPcol: (rec) => (rec as ColNode).name?.startsWith('PCOL') ?? false,
     });
     this.engine.zoom = Math.fround(h.gr.fov);
-    this.engine.invZoom = 1 / this.engine.zoom;
+    this.engine.invZoom = Math.fround(1 / this.engine.zoom);
     this.draw = new ParticleDraw(h.sh.gl, this.engine, texArchive);
     this.lastTick = world.tickCount;
+    this.unregister = addParticleTicker(world, () => { if (!this.manual) this.afterTick(); });
     h.gr.particles = (r, viewProj) => this.render(r, viewProj, h.gr);
   }
 
@@ -109,33 +114,44 @@ export class ZoneParticles {
 
   // ---- per frame ---------------------------------------------------------------------------------------------------
   /**
-   * The simulation: once per logic tick FUN_0044f2c0(dt) at the frame counter (the original runs it in the draw pass FUN_00442930, once per frame of the 30 Hz loop). The
-   * draw hook below catches up with the ticks that ran since the last render.
+   * The simulation of ONE game step: FUN_0044f2c0(dt) at the frame counter, with the step's own `world.dt` and `world.frame`. In the original it runs in FUN_00442930 -> FUN_0044e8e0,
+   * once per pass of the main loop, i.e. once per drawn frame; the port's sim step IS that frame (60 Hz, no interpolation), so the host calls `afterTick()` exactly once per
+   * `World.tick()` (right after it, before `advanceDt()`: `tickParticles(world)` of ./ticker.ts), and the draw callback (`render`) only draws. The advance never depends on how often the
+   * browser calls the render hook.
    */
-  update(): void {
-    if (this.manual) return;
+  afterTick(): void {
+    this.driven = true;
+    this.step();
+  }
+
+  /** FUN_0044e8e0 once: the engine update at the world's current frame counter and dt (also the manual hosts' call: the front end's loop passes) */
+  step(): void {
+    const w = this.world;
+    this.engine.paused = w.vars.get(10) !== 0;       // FUN_00417575(10): the pause flag the loop sets
+    this.engine.update(w.dt, w.frame);
+    this.ticks++;
+  }
+
+  /**
+   * Fallback for hosts that do not call `afterTick()` (tests with their own loop): catch up on the sim steps that ran since the last render, one engine update each. A host that
+   * calls `afterTick()` / `step()` itself (`driven` / `manual`) never reaches this.
+   */
+  private catchUp(): void {
+    if (this.manual || this.driven) return;
     const w = this.world;
     const n = Math.min(w.tickCount - this.lastTick, SKIP_PAINT_WAIT * 4);
     this.lastTick = w.tickCount;
     for (let i = 0; i < n; i++) {
-      this.engine.paused = w.vars.get(10) !== 0;       // FUN_00417575(10): the pause flag the loop sets
+      this.engine.paused = w.vars.get(10) !== 0;
       this.engine.update(w.dt, w.frame - (n - 1 - i));
       this.ticks++;
     }
   }
 
-  /** FUN_0044e8e0 once (manual hosts): the engine update at the world's current frame counter and dt */
-  step(): void {
-    const w = this.world;
-    this.engine.paused = w.vars.get(10) !== 0;
-    this.engine.update(w.dt, w.frame);
-    this.ticks++;
-  }
-
   private render(r: Parameters<NonNullable<GameRenderer['particles']>>[0], viewProj: Float32Array | number[], gr: GameRenderer): void {
-    this.update();
+    this.catchUp();
     const e = this.engine;
-    e.zoom = Math.fround(gr.fov); e.invZoom = 1 / e.zoom;
+    e.zoom = Math.fround(gr.fov); e.invZoom = Math.fround(1 / e.zoom);
     const v = r.viewRect;
     this.draw.draw(viewProj as Float32Array, { w: v.w, h: v.h }, this.ticks);
   }
@@ -143,5 +159,5 @@ export class ZoneParticles {
   /** number of live particles (tests) */
   liveParticles(h: number): number { return this.engine.liveParticles(h); }
   get stats() { return this.draw.stats; }
-  destroy(h?: GameRenderer): void { if (h) h.particles = null; }
+  destroy(h?: GameRenderer): void { if (h) h.particles = null; this.unregister(); }
 }

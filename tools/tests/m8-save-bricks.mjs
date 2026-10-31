@@ -19,6 +19,7 @@ import { BrickEmu, stubLibrary, portWorld, captureBricks, applyBricks, classOfFn
 import { makeRng } from '../lib/m7-shell-save-emu.mjs';
 import { IslEmu, RECORDS_BASE as IRB, REC as IREC } from '../lib/m7-isl-veh-emu.mjs';
 import { buildIslandOracle } from '../lib/m8-save.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const hex = (b, a, n = 12) => Array.from(b.subarray(Math.max(0, a - 4), a + n), (x) => x.toString(16).padStart(2, '0')).join('');
 const firstDiff = (a, b) => { const n = Math.min(a.length, b.length); for (let i = 0; i < n; i++) if (a[i] !== b[i]) return i; return a.length === b.length ? -1 : n; };
@@ -28,7 +29,7 @@ const F32 = (x) => new Uint32Array(new Float32Array([x]).buffer)[0];
 const FIELD = (o) => (o === 0 ? 'flag' : o < 5 ? 'tag' : o < 0x15 ? `fn${o - 5}` : o < 0x19 ? 'state' : o === 0x19 ? 'running' : o < 0x1e ? 'var' : o === 0x1e ? 'oneShot' : o < 0x23 ? 'time' : o < 0x63 ? `vis${(o - 0x23) >> 2}` : o === 0x63 ? 'started'
   : o < 0x664 ? `params[${((o - 0x64) / 0x60) | 0}][${(((o - 0x64) % 0x60) / 4) | 0}]` : o === 0x664 ? 'stage' : o < 0x669 ? 'wait' : o === 0x669 ? 'count' : `desc[${((o - 0x66a) / 0x104) | 0}]+${(o - 0x66a) % 0x104}`);
 
-export default {
+const __test = {
   name: 'm8-save-bricks',
   run(ctx) {
     const failures = [], notes = [];
@@ -62,8 +63,8 @@ export default {
     };
     /** the same (vars, sounds) bookkeeping on both machines */
     const setVar = (B, P, i, v) => { B.setVar(i, v); P.vars[i] = v; };
-    /** both machines' per-frame update with dt 1 (DAT_008b1718 = 1) */
-    const update = (B, P) => { B.mem.wf32(0x8b1718, 1); B.update(); P.fx.update(1); st.ticks++; };
+    /** both machines' per-frame update; DAT_008b1718 = 1 and 0.5 in turn (the game's two steps: the first five frames, then the fixed 60 Hz) */
+    const update = (B, P) => { const dt = st.ticks % 3 === 0 ? 1 : 0.5; B.mem.wf32(0x8b1718, dt); B.update(); P.fx.update(dt); st.ticks++; };
     /** arm every brick of both machines: a brick with an action that reports "done" (native: +0x54 != 0 and FUN_0044c180 hosted = 2; port: a DELAY of 0) */
     const arm = (B, P) => {
       B.armAll();
@@ -407,3 +408,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

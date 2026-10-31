@@ -1,7 +1,7 @@
 // WP-VERIFY M7 (island gameplay nodes): the SUPE oracle session. The original's SupaStat constructor FUN_0053c337 / update FUN_0053adc3 (steering FUN_00539eb1, turns FUN_0053a7d8, flight FUN_0053aa8e, camera
 // FUN_0053ab93, carry FUN_0053ac79) run NATIVE in the x86 emulation next to the port's SupeNode (src/island/pizza/supe.ts), on the island state the original's own set-up left (the waypoint maps loaded by
 // FUN_004630c0 are in the copied pages; the route / node queries FUN_00462bd0 / FUN_00463b49 / FUN_00462c18 / FUN_00462be9 run natively). Hosted (NOT the subject): collision / terrain queries (the port's world),
-// the animation instances (the port's AnimInstance), rand FUN_004388ae (one scripted sequence shared by both: `Math.random` of the port is replaced by it), the cutscene test, sounds (logged), game vars.
+// the animation instances (the port's AnimInstance), rand FUN_004388ae (one scripted sequence shared by both: the port's island source is replaced by it), the cutscene test, sounds (logged), game vars.
 // Scripted inputs: Pepper's place, the surface under her feet (DAT_009da9ac / w.pep.surfaceAtFeet), the renderer's in-view flag of the SUPE record (flag bit 0 / ictx.inFrustum), the camera eye, the locomotive's record,
 // cutscenes. Pepper's walk node is the 576-writer stub of the Duel (src/../m7-isl-veh-emu.mjs).
 import { Duel, B, RECORDS_BASE, REC, lcg, fr } from './m7-isl-veh-emu.mjs';
@@ -9,6 +9,7 @@ import { vehicles } from '../../src/island/vehicles/common.ts';
 import { waypoints } from '../../src/game/walker.ts';
 import { AnimInstance } from '../../src/game/anim.ts';
 import { npcRig } from '../../src/island/npc/sgmfig.ts';
+import { cRand } from './c-rand.mjs';
 
 export { Duel, B, RECORDS_BASE, REC, lcg };
 /** pure map / route functions of the walker module that the node code calls: executed natively from the executable */
@@ -19,14 +20,13 @@ export const MAP_NATIVE = [0x4388e7, 0x462bd0, 0x463b49, 0x462c18, 0x462be9];
  */
 export function supeSession(ctx, o) {
   const rnd = lcg(o.seed ?? 4242), rndP = lcg(o.seed ?? 4242);   // the i-th draw of the original = the i-th draw of the port
-  const realRandom = Math.random;
-  // one scripted random source for both: the original's FUN_004388ae(x) = rnd * x (the `rng.range` host), the port's Math.random
+  // one scripted random source for both: the original's FUN_004388ae(x) = cRand(rnd, x) (the `rng.range` host: rand() = floor(v * 32768), float32 steps), the port's island source (src/island/rng.ts)
   const d = new Duel(ctx, { node: o.node ?? 2, keepKinds: ['supe'], keepRecords: (n) => n === 'SUPE', dt: o.dt, maxFail: o.maxFail ?? 30, failures: o.failures, tolFree: 1e-4, grazeMax: o.grazeMax ?? 4, pepSwitc: false, seat: false,
-    rng: { range: (x) => { const v = rnd(); d.lastRnd.push(v); return v * x; } } });
+    rng: { range: (x) => { if (!(x > 0)) return 0; const v = rnd(); d.lastRnd.push(v); return cRand(v, x); } } });
   d.lastRnd = [];
   d.drew = false;
-  Math.random = () => { const v = rndP(); d.lastRnd.push(v); d.drew = true; return v; };
-  d.restore = () => { Math.random = realRandom; };
+  setAmbientRandom(() => { const v = rndP(); d.lastRnd.push(v); d.drew = true; return v; });
+  d.restore = () => setAmbientRandom(null);
   d.label = o.label; d.syncMode = !!o.syncMode;
   const cpu = d.emu.cpu, mem = cpu.mem, W = d.P.world;
   for (const a of MAP_NATIVE) cpu.native.add(a);
@@ -86,7 +86,7 @@ export function pteraSession(ctx, o) {
   const rnd = gen(o.seed ?? 99), rndP = gen(o.seed ?? 99);
   const d = new Duel(ctx, { node: o.node ?? 52, keepKinds: ['Ptera'], keepRecords: (n) => n === 'PTER' || n === 'GLDR', dt: o.dt, maxFail: o.maxFail ?? 30, failures: o.failures, tolFree: 1e-4, grazeMax: o.grazeMax ?? 3, seat: false,
     // FUN_004388ae(x) = rand() / 32767 * x with rand() = a 15 bit integer: the port's `rand` (ambient/common.ts) floors source() * 32768: the same scripted source for both
-    rng: { range: (x) => (Math.floor(rnd() * 32768) / 32767) * x } });
+    rng: { range: (x) => (x > 0 ? cRand(rnd(), x) : 0) } });
   d.label = o.label; d.syncMode = !!o.syncMode;
   setAmbientRandom(rndP);
   d.restore = () => setAmbientRandom(null);

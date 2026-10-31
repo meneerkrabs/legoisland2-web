@@ -10,7 +10,7 @@ import {
 } from '../../src/zones/z28hat/rules.ts';
 import { prepareHat, hatSounds, hatSnapshot, hatUpdate, hatGlobals, RIGS } from '../../src/zones/z28hat/game.ts';
 import { DINO_ARGS, BABY_ARGS, DINO, DINO_START_CLIP, BABY_START_FRAME, fx, mouthOf } from '../../src/zones/z28hat/nodes.ts';
-import { setRandomSource } from '../../src/zones/parachute/util.ts';
+import { setHatRandSource } from '../../src/zones/z28hat/nodes.ts';
 import { GameVars } from '../../src/game/vars.ts';
 import { B } from '../../src/game/input.ts';
 import { makePlan, hatBotStep, steer, KEY } from '../lib/hat-bot.mjs';
@@ -62,7 +62,7 @@ export default {
     const pe = loadExe(ctx.dataRoot);
     const arch = ctx.archives.find((a) => a.name === 'z28HAT');
     let seed = 1;
-    const seeded = (s) => { seed = s; setRandomSource(() => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x80000000; }); };
+    const seeded = (s) => { seed = s; setHatRandSource(() => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return Math.floor(seed / 0x80000000 * 32768); }); };   // a scripted rand() (0 .. 32767)
     /** a fresh game: the zone's scene with the set-up's attaches, the constructor effects (prepareHat) */
     const fresh = (s = 1, opts) => {
       seeded(s); hatGlobals.winchLast = 0;
@@ -402,6 +402,19 @@ export default {
         ok(n4.state === DINO.HOOKED && G4.S.spoken.includes('ADSGMC12'), 'triceratops hooked: ADSGMC12'); G4.S.fireballHit = true; step(G4);
         ok(n4.state === DINO.FALLING && !G4.S.fireballHit, 'the fireball hit makes it fall');
       }
+      // ============================================================ the 60 Hz step (dt = 0.5): the dt-scaled walks and falls halve per tick
+      {
+        const G = fresh(7); G.w.dt = 0.5;
+        const babies = G.R.babies;
+        run(G, 3);
+        let steps = 0, dd = 0;
+        for (let i = 0; i < 100; i++) { const b = babies[0], xa = b.x, za = b.z; step(G); const d = Math.hypot(b.x - xa, b.z - za); if (d > 0) { steps++; if (Math.abs(d - 0.2) < 0.01) dd++; } }
+        ok(steps > 50 && dd >= steps * 0.9, `dt 0.5: a baby walks 0.4 * 0.5 per tick (${dd} of ${steps} steps are 0.2)`);
+        const H = fresh(7); H.w.dt = 0.5;
+        const t0 = H.R.dinos[0], n0 = H.N.dinos[0];
+        n0.state = DINO.FALLING; const y0 = t0.y; step(H);
+        near(y0 - t0.y, 2.4 * 0.5, 1e-4, 'dt 0.5: a falling dinosaur drops 2.4 * 0.5 per tick');
+      }
       // ============================================================ the baby dinosaurs
       {
         const G = fresh(7);
@@ -425,7 +438,7 @@ export default {
         ok(G.sound.count('at', 'brexCall') > 0, 'the babies call (3D loop)');
         ok(G.R.winch.colObj === null, 'the last baby in the record order leaves the hook\'s collision off');
         // carried to the drop zone and let go: +300 each
-        run(G, 60); park(G, G.R.drop.x, G.R.drop.z); run(G, 4); step(G, B.SHIFT);
+        run(G, 60);         park(G, G.R.drop.x, G.R.drop.z); run(G, 4); step(G, B.SHIFT);
         ok(N.every((x) => x.state === DINO.FALLING), 'released together');
         run(G, 80);
         ok(G.S.delivered === 5 && G.S.score === 1500, `five babies in the drop zone: delivered ${G.S.delivered}, score ${G.S.score}`);

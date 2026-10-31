@@ -6,7 +6,7 @@
 //   FUN_00423f7b (LE2.c:16934, called by all 30 zone loops once per pass, after the frame): iVar1 = var 0x59 (the zone the story is in); with the autoplay on the counter DAT_009da638
 //                is incremented; at 0x97 (151) it is reset to 0 and FUN_00404bb2 (story advance) runs until FUN_00404be7() (the zone of the story node) differs from iVar1; returns 1.
 //                The zone loops then leave with state 6, next = FUN_00404be7() (the port: `storyAdvanced`).
-// The port counts one loop pass per tick (30 Hz) like the original's one pass per frame.
+// The port counts one loop pass per sim step (60 Hz, one per drawn frame of the original), like the original's one pass per frame.
 import { B } from '../game/input.ts';
 
 /** what FUN_00423f7b needs of the story: var 0x59 (FUN_00417575(0x59)), FUN_00404bb2 and FUN_00404be7 */

@@ -272,11 +272,14 @@ export class LtcPepSwitch implements BehaviourNode {
   homeSet = false;
   /** how often the fall guard put Pepper back (diagnostics) */
   respawns = 0;
+  /** the draw pass of this tick already ran the hook (the zone game runs it once per sim step from `world.afterTick`; the renderer may call it again at the display rate) */
+  private drawn = false;
   constructor(g: LtcGlobals) { this.g = g; }
 
   /** FUN_0083a9e0: while talking (PEPPER_CONTROL == 0x20) Pepper's animation advances here and falls back to the hold pose when a clip ends; the walk node does not run then */
   update(w: World, rec: GameRecord, _ctrl: Controller): number {
     if (!this.homeSet) { this.home = [rec.x, rec.y, rec.z]; this.homeSet = true; }
+    this.drawn = false;
     const pc = w.vars.get(V.PEPPER_CONTROL);
     if (pc !== PC_TALK) {
       // the walk node (SGwalk, 0x42d514) starts its update with DAT_008ae330 = 576.0
@@ -293,10 +296,14 @@ export class LtcPepSwitch implements BehaviourNode {
   }
 
   /**
-   * the draw hook FUN_0083aa8d: the draw pass calls it (GameRenderer.render -> controller.ts runDrawHooks) for the frames the node ran. The original draws the record itself from here (FUN_00444480) and
-   * returns whatever eax holds (unobservable: at most a second identical default draw); the port returns 0 and lets the renderer draw it once.
+   * the draw hook FUN_0083aa8d: the draw pass calls it for the frames the node ran, once per drawn frame = once per sim step. The zone game runs it from `world.afterTick`
+   * (z50LTC.ts: the render hook of GameRenderer.render runs at the display rate, not once per sim step); a second call within the same tick (the renderer's) does nothing.
+   * The original draws the record itself from here (FUN_00444480) and returns whatever eax holds (unobservable: at most a second identical default draw); the port returns 0 and lets
+   * the renderer draw it once.
    */
   draw(_w: World, rec: GameRecord, _ctrl: Controller): number {
+    if (this.drawn) return 0;
+    this.drawn = true;
     if (rec.y < FALL_LIMIT) { rec.x = this.home[0]; rec.y = this.home[1]; rec.z = this.home[2]; this.respawns++; }
     this.g.candDist = CANDIDATE_IDLE;
     this.g.candidate = null;

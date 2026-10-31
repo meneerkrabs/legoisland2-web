@@ -289,17 +289,21 @@ D3D lighting is **off**. The engine lights vertices itself on the CPU (Lights.cp
 
 ### 6.2 Animated textures (.wib)
 
-Loader `FUN_004112ac`: `WIBF` (sequence), `WIBT` (header + frames); frames are kept in system memory in the target format. **Playback** (`FUN_00410ff8`, called for every animated texture once per frame by `FUN_004111a3` from `FUN_004126fd`):
+Loader `FUN_004112ac`: `WIBF` (sequence), `WIBT` (header + frames); frames are kept in system memory in the target format. **Playback** (`FUN_00410ff8`, called for every animated texture once per drawn frame by `FUN_004111a3` from `FUN_004126fd`; WP-TIME: exact, `Renderer.stepTextures`):
 
 ```
-timer += 1.0 * DAT_008b1718            (one sequence entry per 1/30 s)
-index  = trunc(timer); the frame seq[index] is copied into the texture surface when `index` changed
-if timer >= sequenceLength:  mode 0 (default) -> timer = 0 (loop);   mode 1 -> hold the last entry, mode 2 = stopped
+idx = ftol(timer)                                       (timer = texture struct +0x20, a float32; +0x24 = the entry shown last, +0x28 = the mode)
+if mode == 2 and idx == last: nothing                   (stopped)
+else: copy the image seq[idx] into the texture surface (the port: `want`, uploaded once per drawn frame), last = idx
+      if mode != 2: timer = 1.0 * DAT_008b1718 + timer  (one float32 add)
+                    if sequenceLength <= timer:  mode 0 -> timer = 0 (restart, the overshoot is dropped);  else timer = sequenceLength - 1.0, mode = 2
 ```
 
-`FUN_00411202` (`FUN_0041270c`, called by cut-scene / face code) sets the mode (0 loop, 1 play once, 2 frozen) and the start frame of a texture: this is how the 16-frame **expression sheets** of the characters are driven
+The step is per PASS of the main loop (one sim step of the port's 60 Hz loop = one drawn frame of the original), `1.0 * dt` entries per pass: at dt 0.5 every entry is shown for two passes, at dt 1 for one. The loader `FUN_004112ac` ends with one such pass (mode 0, timer 0, so the timer of a fresh texture is the dt at load: `Renderer.loadDt` = 0.5, the last pass of the loop that precedes a zone load at a steady 60 Hz). The browser draws at the display rate: `World.advanceDt` logs every pass (`passes`, `passDt`, `passEye`) and `GameRenderer.render` steps the textures once per pass it has not drawn yet (no pass between two rAF calls = the last frame again).
+
+`FUN_00411202` (`FUN_0041270c`, called by cut-scene / face code) sets the mode (0 loop, 1 play once, 2 stopped) and the start frame of a texture: this is how the 16-frame **expression sheets** of the characters are driven
 (they are frozen on one frame and changed on demand). Water, fire, portals, screens and the like simply loop. Sequence entries repeat frames to hold them longer (e.g. `[0,0,1,1,1,2,2,...]`).
-**[viewer]** plays all `.wib` with a sequence at 30 entries per second, except the 16-frame identity-sequence sheets, which stay on frame 0.
+**[viewer]** plays all `.wib` with a sequence at 30 entries per second (`updateTextures(dt * 30)` per rAF frame), except the 16-frame identity-sequence sheets, which stay on frame 0.
 
 ### 6.3 Addressing and filtering
 
@@ -420,7 +424,7 @@ Record `flags` (ushort at +0x60): bit 0 visible (set by the sphere test), bit 1 
   without texture (`tex == NULL` or index -1) block 0x1d (ARGB only). Tinting is by the vertex colour; `0xffffffff` shows the texture unchanged. Deferred sprites (`FUN_0043c645` queue, flushed by `FUN_0043c70f` at the end of the frame) are used for menu icons with a drop shadow (`FUN_0041c3f6`: a `0x7f000000` copy at +4, +4; because block 3 takes alpha from the texture the shadow is an opaque black silhouette).
   All UI textures are loaded with CLAMP (flag byte 0xffffff80) at full size.
 * **Fade / loading overlay** `FUN_0040d1be` (drawn at the end of every frame): `FUN_0043ec80(a)` sets the scene visibility `a` (1 = visible, 0 = black); the overlay is a full-screen quad `(0, 0) .. (W-1, H-1)` of the black 16x16 `LoadingScreen.tga` with vertex alpha `255 - a * 255`, **block 0x10**
-  (texture colour, alpha = tex * vertex, no depth). Fades take **16 ticks** (`a += 0.0625 * DAT_008b1718`, `FUN_00465d39` states 7 / 8). While `a == 0` the frame is cleared to black instead of the fog colour (`FUN_0040ce80`).
+  (texture colour, alpha = tex * vertex, no depth). Fades take **16 steps = 17 passes** at dt 1 (`a += 0.0625 * DAT_008b1718` after the level was handed to `FUN_0043ec80` and tested against 1.0 / 0.0, `FUN_00465d39` states 7 / 8; the handed-over level is the one BEFORE the step). While `a == 0` the frame is cleared to black instead of the fog colour (`FUN_0040ce80`).
   During loading the overlay also draws the spinning "pizza / CD" card (a 128-pixel-radius diamond, rotated by two angles advancing `dtMs / 30 * 0.05` and `* 0.01`) and the text `LOADING` / `INSERTCD` (font 1, yellow).
 * **Letterbox** (cinematic bars, `FUN_0045f750(mode)`, `FUN_0045f771`): mode 1 = top and bottom bar, mode 2 = bottom bar only; the bar height grows by `H / 30` per tick up to `0.21875 * H` (131 px at 600), drawn with `FUN_0043c267` in black. No other screen flashes or vignettes were found.
 

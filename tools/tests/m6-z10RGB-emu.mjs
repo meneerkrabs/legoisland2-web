@@ -9,21 +9,24 @@ import fs from 'node:fs';
 import { createGameCpu } from '../../src/formats/x86emu.ts';
 import { loadExe, loadZone } from '../lib/engine-load.mjs';
 import * as Z from '../../src/zones/z10RGB.ts';
+import '../../src/island/ambient/misc.ts';   // registers SeaAmin: the port's SEAE record becomes non-solid like the original's (the oracle sets the same flag)
 import { initRgb, bindRigs } from '../../src/zones/z10rgb/game.ts';
 import { updateBalls } from '../../src/zones/z10rgb/balls.ts';
-import { Lcg } from '../../src/zones/z10rgb/shared.ts';
+import { MsvcRng } from '../lib/msvc-rng.mjs';
+import { setRandSource, randF } from '../../src/game/crt.ts';
 import { shotScale } from '../../src/zones/z10rgb/pepper.ts';
 import { REC, VAR, PHASE, MODE, K, RIGS } from '../../src/zones/z10rgb/consts.ts';
 import { SOUND_DEFS } from '../../src/zones/z10rgb/sound.ts';
 import { ROUTE, steerKeys, planShot, nextTarget, aimKeys } from '../../src/zones/z10rgb/bot.ts';
 import { parseBlk } from '../../src/formats/anim.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const RB = 0x30000000, HEAP = 0x31000000, AB = 0x33000000, MB = 0x34000000;
 const NREC = 147;
 const F32 = new Float32Array(1), U32 = new Uint32Array(F32.buffer);
 const fr = (v) => { F32[0] = v; return F32[0]; };
 
-export default {
+const __test = {
   name: 'm6-z10RGB-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -40,9 +43,9 @@ export default {
     const build = (seed) => {
       shotScale.value = K.SHOT_SCALE_FIRST;
       // the port: the zone as the game builds it, the walk node off
-      const lcgP = new Lcg(seed * 7919 + 13);
+      const lcgP = new MsvcRng(seed * 7919 + 13);
       const replay = { q: [], calls: 0 };
-      Z.options.rng = () => lcgP.next();      // the nine cannon delays are drawn at construction (same sequence as the original's)
+      setRandSource(() => lcgP.next());      // the nine cannon delays are drawn at construction (same sequence as the original's): the port's rand() is the shared crt.ts one, scripted
       const P = loadZone(ctx, 'z10RGB');
       const w = P.world; w.externalInput = true;
       const st = Z.state;
@@ -56,8 +59,17 @@ export default {
         at: (n, p) => snd.push(['3d', nameToId[n], fr(p[0]), fr(p[1]), fr(p[2])]),
       };
       initRgb(st, w, { pe, archive: arch });
-      st.rng = { next: () => { const e = replay.q.shift(); replay.calls++; if (!e) throw new Error('the port draws a random number the original did not'); st.__lastFrac = e; return e; } };
-      st.rand = (x) => { const e = replay.q.shift(); replay.calls++; if (!e) { bad('the port draws a random number the original did not'); return 0; } if (e.x !== x) bad(`random number: port asks rand(${x}), original rand(${e.x})`); return e.f * x; };
+      // the port's draws of the tick replay the original's integers: `st.rand` checks the range asked, then FUN_004388ae's float32 formula (crt.ts randF) runs on the replayed rand()
+      setRandSource(() => replay.r);
+      st.rand = (x) => {
+        const e = replay.q.shift(); replay.calls++;
+        if (!e) { bad('the port draws a random number the original did not'); return 0; }
+        if (e.x !== x) bad(`random number: port asks rand(${x}), original rand(${e.x})`);
+        replay.r = e.r;
+        const v = randF(x);
+        if (v !== e.f) bad(`random number: port rand(${x}) = ${v}, original ${e.f}`);
+        return v;
+      };
       // the original's world: the same zone data, anims bound; its records are the mirror of the emulated memory
       const O = loadZone(ctx, 'z10RGB');
       const ow = O.world;
@@ -74,7 +86,7 @@ export default {
       mem.addRegion({ lo: RB, hi: RB + NREC * 0x68 + 0x100, name: 'rec' });
       mem.addRegion({ lo: HEAP, hi: HEAP + 0x100000, name: 'heap' });
       mem.addRegion({ lo: MB, hi: MB + 0x10000, name: 'misc' });
-      const H = { cpu, mem, log: [], calls: [], brk: HEAP, handles: new Map(), tokens: new Map(), rands: [], lcg: new Lcg(S.seed * 7919 + 13), allocs: [], unhooked: new Set(), nodes: {} };
+      const H = { cpu, mem, log: [], calls: [], brk: HEAP, handles: new Map(), tokens: new Map(), rands: [], lcg: new MsvcRng(S.seed * 7919 + 13), allocs: [], unhooked: new Set(), nodes: {} };
       const rs = ow.records;
       const recPtr = (r) => RB + r.index * 0x68;
       const recOf = (p) => (p === 0 ? null : rs[(p - RB) / 0x68]);
@@ -116,11 +128,13 @@ export default {
       hook(0x41766c, (c) => { ow.vars.andNot(c.arg(0), c.arg(1) | 0); });
       hook(0x4388ae, (c) => {
         const x = c.argf(0);
-        const f = x <= 0 ? 0 : H.lcg.next();
-        H.rands.push({ x, f });
-        c.fpush(f * x);
+        // FUN_004388ae: x <= 0 gives 0.0 without a draw, else `(float) rand() / 32767.0f * x` in float32 steps (24-bit x87) on the hosted CRT rand
+        let f = 0, r = -1;
+        if (x > 0) { r = H.lcg.next(); f = fr(fr(r / 32767) * fr(x)); }
+        H.rands.push({ x, r, f });
+        c.fpush(f);
       });
-      hook(0x4388e7, (c) => { c.fpush(Math.sqrt(c.argf(0))); });
+      hook(0x4388e7, (c) => { c.fpush(fr(Math.sqrt(c.argf(0)))); });      // fsqrt at 24-bit precision
       hook(0x85d640, (c) => { const sp = c.esp; c.fpush(Math.atan2(mem.f64(sp + 4), mem.f64(sp + 12))); });
       hook(0x85d1c4, (c) => { c.fpush(Math.sin(mem.f64(c.esp + 4))); });
       hook(0x85d374, (c) => { c.fpush(Math.cos(mem.f64(c.esp + 4))); });
@@ -129,7 +143,7 @@ export default {
       hook(0x43b6a3, (c) => { anim(c.arg(0)).start(c.arg(1) | 0, c.argf(2)); });
       hook(0x43b76a, (c) => { c.eax = anim(c.arg(0)).advance(c.argf(1), ow.dt); });
       hook(0x43b753, (c) => { c.fpush(anim(c.arg(0)).frameCount); });
-      hook(0x43b92a, (c) => { const a = anim(c.arg(0)); c.eax = a.frameCount < c.argf(1) * ow.dt + 1.0 + a.frame ? 2 : 0; });
+      hook(0x43b92a, (c) => { const a = anim(c.arg(0)); c.eax = a.frameCount < fr(fr(1.0 + a.frame) + fr(c.argf(1) * ow.dt)) ? 2 : 0; });      // FUN_0043b92a: (1.0 + frame) + n * DAT_008b1718 in float32 steps, as the asm 0x43b949 .. 0x43b95d
       hook(0x43bc22, (c) => { c.eax = MB; });
       // collision over the port's own world (records synced from the memory first)
       hook(0x441a90, (c) => {
@@ -201,7 +215,7 @@ export default {
       H.nodes.cannon = [];
       for (let k = 0; k < 9; k++) {
         const blk = H.brk; H.brk += 32;
-        mem.w32(blk, Math.trunc(H.lcg.next() * 90)); mem.w32(blk + 4, 0); mem.w32(blk + 8, 0); mem.wf32(blk + 12, 2.0); mem.w32(blk + 16, 0);
+        mem.w32(blk, Math.trunc(fr(fr(H.lcg.next() / 32767) * 90))); mem.w32(blk + 4, 0); mem.w32(blk + 8, 0); mem.wf32(blk + 12, 2.0); mem.w32(blk + 16, 0);
         H.nodes.cannon.push(ctor(0x61a57f, [rec(REC.CC[k]), blk, 0, 0xfa, 1, 1], 0x78));
       }
       cpu.call(0x5f8050, [], { maxSteps: 3_000_000 });
@@ -231,7 +245,7 @@ export default {
       const pb = n.pep;
       const pep = {
         cannons: [0, 1, 2, 3].map((i) => { const b = pb + 0x70 + 0x3c * i; return { rec: ptrIdx(H, g(b)), pos: [0, 1, 2].map((k) => gf(b + 0x1c + 4 * k)), euler: [0, 1, 2].map((k) => gf(b + 0x28 + 4 * k)), timer: gf(b + 0x34), fresh: g(b + 0x38) }; }),
-        curBall: g(pb + 0x160) === 0 ? -1 : (g(pb + 0x160) - POOL) / 0xa8, bell: mem.r8(pb + 0x184), savedFov: gf(pb + 0x6c), cam: Array.from({ length: 18 }, (_, i) => gf(pb + 0x24 + 4 * i)),
+        curBall: g(pb + 0x160) === 0 ? -1 : (g(pb + 0x160) - POOL) / 0xa8, bell: mem.r8(pb + 0x184), savedFov: gf(pb + 0x6c), cam: Array.from({ length: 6 }, (_, i) => gf(pb + 0x24 + 4 * i)),   // eye and target (the derived rows 6..17 are the engine's camera, not under test)
       };
       const hit = { state: mem.r16(n.hit + 0x18), ts: g(n.hit + 0x1c), v: [0, 1, 2].map((k) => gf(n.hit + 0x20 + 4 * k)) };
       const cb = n.ced;
@@ -243,7 +257,7 @@ export default {
       const cannons = n.cannon.map((p) => ({ ticks: g(p + 0x18), delay: g(p + 0x1c), state: mem.r8(p + 0x20), recoil: [0, 1, 2].map((k) => gf(p + 0x34 + 4 * k)), restY: gf(p + 0x4c), ball: g(p + 0x54) === 0 ? -1 : (g(p + 0x54) - POOL) / 0xa8, muzzle: [0, 1, 2].map((k) => gf(p + 0x58 + 4 * k)), aim: [0, 1, 2].map((k) => gf(p + 0x64 + 4 * k)) }));
       const game = { written: mem.r8(n.game + 0x15) };
       const recs = ow.records.map((r) => { const p = H.recPtr(r); return { m: Array.from({ length: 16 }, (_, i) => mem.f32(p + 0xc + 4 * i)), e: [mem.f32(p + 0x4c), mem.f32(p + 0x50), mem.f32(p + 0x54)], flags: mem.r16(p + 0x60) }; });
-      return { globals, balls, pep, hit, ced, cannons, game, recs, vars: Array.from(ow.vars.a), cam: Array.from({ length: 9 }, (_, i) => gf(0x9da5e8 + 4 * i)) };
+      return { globals, balls, pep, hit, ced, cannons, game, recs, vars: Array.from(ow.vars.a), cam: Array.from({ length: 6 }, (_, i) => gf(0x9da5e8 + 4 * i)) };
     };
     const readPortState = (S) => {
       const { st, w } = S;
@@ -257,7 +271,7 @@ export default {
       const balls = st.balls.map((b) => ({ rec: b.rec.index, state: b.state, dir: [...b.dir], vel: [...b.vel], cos: b.cos, sin: b.sin, t: b.t, hit: idx(b.hit), count: b.count }));
       const sw = w.records[REC.PEPP].ctrl.find('PepSwitc');
       const pep = {
-        cannons: st.cannons.map((c) => ({ rec: c.rec.index, pos: [...c.pos], euler: [...c.euler], timer: c.timer, fresh: c.fresh })), curBall: st.curBall, bell: st.bell ? 1 : 0, savedFov: st.savedFov, cam: Array.from(st.camBackup),
+        cannons: st.cannons.map((c) => ({ rec: c.rec.index, pos: [...c.pos], euler: [...c.euler], timer: c.timer, fresh: c.fresh })), curBall: st.curBall, bell: st.bell ? 1 : 0, savedFov: st.savedFov, cam: Array.from(st.camBackup).slice(0, 6),
       };
       const hn = w.records[REC.PEPP].ctrl.find('PeppHit');
       const hit = { state: hn.state, ts: hn.ts, v: [hn.vx, hn.vy, hn.vz] };
@@ -267,11 +281,11 @@ export default {
       const game = { written: w.records[REC.LAND].ctrl.find('rgbgame') ? (st.resultWritten ? 1 : 0) : 0 };
       const recs = w.records.map((r) => ({ m: Array.from(r.m), e: [r.rx, r.ry, r.rz], flags: r.flags & 0xffff }));
       void sw;
-      return { globals, balls, pep, hit, ced, cannons, game, recs, vars: Array.from(w.vars.a), cam: Array.from(w.camera.c).slice(0, 9) };
+      return { globals, balls, pep, hit, ced, cannons, game, recs, vars: Array.from(w.vars.a), cam: Array.from(w.camera.c).slice(0, 6) };
     };
     /** compare two states (port a, original b); `label` names the tick */
     const compare = (a, b, label, S) => {
-      const tol = 3e-4;
+      const tol = 0;
       const cmpv = (x, y, path) => {
         if (Array.isArray(x)) { for (let i = 0; i < x.length; i++) cmpv(x[i], y[i], `${path}[${i}]`); return; }
         if (x !== null && typeof x === 'object') { for (const k of Object.keys(x)) cmpv(x[k], y[k], `${path}.${k}`); return; }
@@ -310,6 +324,7 @@ export default {
       const held = w.input.held, pressed = w.input.pressed;
       mem.w32(0x98383c, held); mem.w32(0x983840, pressed); mem.w32(0x983848, 0); mem.w32(0x98384c, 0); mem.w32(0x983850, 0);
       // ---- the original: pool, then the nodes in record order
+      for (let i = 6; i < 18; i++) mem.wf32(0x9da5e8 + 4 * i, w.camera.c[i]);       // the derived rows of the camera (up vector, view basis) are the engine's, not under test: both sides see the same
       H.log.length = 0; H.rands.length = 0;
       { const sp = H.recPtr(ow.records[2]); ow.records[2].flags |= 0x10; mem.w16(sp + 0x60, mem.r16(sp + 0x60) | 0x10); }   // SeaAmin (src/island/ambient/misc.ts, not run here) makes the shore foam non-solid
       const at = (r) => H.recPtr(w.records[r]);
@@ -324,7 +339,7 @@ export default {
       if (gate(0xfb, 2, 2)) run(0x6186f2, [at(REC.PEPP), H.nodes.hit]);
       H.syncOut();
       // ---- the port: the same tick; its random numbers replay the original's
-      S.replay.q = H.rands.map((r) => ({ x: r.x, f: r.f }));
+      S.replay.q = H.rands.map((r) => ({ x: r.x, r: r.r, f: r.f }));
       S.replay.calls = 0;
       S.snd.length = 0; S.said.length = 0;
       updateBalls(st);
@@ -341,9 +356,11 @@ export default {
         const pa = w.records[i].anim, oa = r.anim;
         if (!pa || !oa) return;
         checked++;
-        if (pa.clip !== oa.clip || Math.abs(pa.frame - oa.frame) > 1e-3) bad(`${label}: animation of record ${i} ${r.name}: port clip ${pa.clip} frame ${pa.frame}, original clip ${oa.clip} frame ${oa.frame}`);
+        if (pa.clip !== oa.clip || pa.frame !== oa.frame) bad(`${label}: animation of record ${i} ${r.name}: port clip ${pa.clip} frame ${pa.frame}, original clip ${oa.clip} frame ${oa.frame}`);
       });
       const a = readPortState(S), b = readEmuState(S);
+      // KNOWN DEVIATION (docs/re/m6/z10RGB.md section 7): at the phases 4 / 5 the original writes COMPLETE_SUB_GAME (0x53) = 1, the port does not (its runner checks the story machine while playing)
+      if (b.vars[0x53] !== a.vars[0x53]) { (S.known ??= { complete53: 0 }).complete53++; S.known.complete53At ??= `${label}: port ${a.vars[0x53]}, original ${b.vars[0x53]}`; a.vars[0x53] = b.vars[0x53]; }
       compare(a, b, label, S);
       return { a, b };
     };
@@ -428,6 +445,8 @@ export default {
       notes.push(`seed ${seed}: ${r.n} ticks, phases ${[...r.stats.phases]}, mode changes ${[...r.stats.modes]}, shots ${r.stats.shots}, hits ${r.stats.hits}, result ${r.S.st.resultMode}, score ${r.S.st.score} (${Date.now() - t0} ms)`);
       ok(r.stats.phases.has(3), `seed ${seed}: the game reached the cannon phase`);
     }
+    setRandSource(null);
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

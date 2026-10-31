@@ -9,12 +9,13 @@ import { loadCsi, tick } from '../lib/m5-z07CSI-load.mjs';
 import { makeCsiDuel } from '../lib/m5-z07CSI-emu.mjs';
 import { vehicles } from '../../src/island/vehicles/common.ts';
 import { readHiddenList } from '../../src/zones/z07CSI/looks.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const STAGES = [15, 16, 17, 19, 20, 21, 22, 24, 25, 27, 28, 29];
 /** the constructors the castle's set-up attaches that this worker does NOT own (the horse worker's src/zones/z07CSI/horse/**) */
 const OTHER_OWNERS = new Set(['Horse']);
 
-export default {
+const __test = {
   name: 'm5-z07CSI-setup',
   run(ctx) {
     const failures = [], notes = [];
@@ -93,11 +94,11 @@ export default {
       for (let t = 0; t < 600 * (dt === 1 ? 1 : 2); t++) {
         d.tick(0);
         for (const [r, i] of mp) {
-          d.rec(i, 0xffff, 1e-6);
+          d.rec(i, 0xffff);
           const a = d.emu.nodeOf.get(i)?.find((n) => n.ctor === 0x530d69)?.ptr;
           if (a) d.eq(`${r.name} loops`, mem.r32(a + 0x24) | 0, r.ctrl.nodes.find((n) => n.kind === 'MeetPepp').loops);
           const an = d.O.world.records[i].anim, pa = r.anim;
-          if (an && pa) { d.eq(`${r.name} clip`, an.clip, pa.clip); d.cmp(`${r.name} frame`, an.frame, pa.frame, 1e-7, '', 0); }
+          if (an && pa) { d.eq(`${r.name} clip`, an.clip, pa.clip); d.cmp(`${r.name} frame`, an.frame, pa.frame); }
         }
       }
       checked += d.checked;
@@ -105,3 +106,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

@@ -55,10 +55,10 @@ export default {
       inst.start(36, 0); inst.seek(7); const a = Array.from(inst.pose()); inst.seek(7.05); const b = Array.from(inst.pose()); inst.seek(7.5); const c = Array.from(inst.pose());
       ok(a.every((v, i) => near(v, b[i], 1e-9)), 'fraction 0.05 snaps to the exact frame');
       ok(a.some((v, i) => !near(v, c[i], 1e-4)), 'fraction 0.5 interpolates');
-      // render interpolation: alpha between the previous tick and now
-      inst.start(13, 0); inst.beginTick(); inst.advance(1, 1);
-      const half = Array.from(inst.pose(0.5)), exact = Array.from(sampleBlk(blk.skeleton, blk.clips[13], 0.5, true, undefined, POSE_SNAP));
-      ok(half.every((v, i) => near(v, exact[i])), 'pose(alpha 0.5) is the pose at frame 0.5');
+      // no render interpolation (the original draws the pose of the current frame): pose() / pose(1) is the pose at the instance's frame whatever the loop's alpha; a half step of dt 0.5 moves it by 0.5 frames
+      inst.start(13, 0); inst.beginTick(); inst.advance(1, 0.5);
+      const cur = Array.from(sampleBlk(blk.skeleton, blk.clips[13], 0.5, true, undefined, POSE_SNAP));
+      ok(inst.frame === 0.5 && Array.from(inst.pose()).every((v, i) => v === cur[i]) && Array.from(inst.pose(1)).every((v, i) => v === cur[i]), 'pose() is the pose at frame 0.5 after advance(1, dt 0.5)');
       // bone count of the walk clips equals the skeleton's
       for (const i of [8, 13, 36, 58, 1, 87]) ok(blk.clips[i] && blk.clips[i].boneCount === blk.skeleton.boneCount, `clip ${i} bone count`);
     }

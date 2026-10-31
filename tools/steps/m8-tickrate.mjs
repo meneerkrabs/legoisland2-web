@@ -1,4 +1,4 @@
-// measures the logic tick rate of a zone in the headless browser (ticks per wall-clock second in play mode): the bots' fixed waits assume 30
+// measures the logic tick rate of a zone in the headless browser (ticks per wall-clock second in play mode): the simulation runs 60 steps a second (a game tick of 1/30 s = 2 steps; the bots' libs count game ticks: `world.tickCount / 2`), a loaded page runs fewer
 //   sh tools/m5-botslot.sh node tools/browse.mjs "http://localhost:5514/?zone=z17WAS&mute=1" tools/steps/m8-tickrate.mjs --size 1280x800 --out /tmp/d-tick
 export default async ({ page, wait, log }) => {
   await page.waitForFunction(() => window.__zone && window.__zone.machine.mode >= 1, null, { timeout: 600000 });

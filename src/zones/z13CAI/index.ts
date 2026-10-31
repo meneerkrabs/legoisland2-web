@@ -6,6 +6,7 @@
 //   * the circling gulls (ctor 0x4b4000, bunny.ts; shared with the Oasis: the framework's `ctorInit` runs their constructor half), the flowing LAVA / FALL water node (ctor 0x426f55, flow.ts; the renderer draws it);
 //   * Pepper's chain is only the vehicle seat (SGVehic 0x4333c2 / the Ptera ride 0x4bb582): the set-up's helipad table (ONE pad: PATH node 0, exit node 0) is read from the emulation;
 //   * the HUD (hud.ts): centre hi-score, the interaction icon on the overlay set of the Oasis; the var 0xc5 (Pepper's shadow type) the loop sets before it starts.
+import { startTickClock } from '../common/tickrand.ts';
 import { registerHub } from '../../hub/index.ts';
 import type { HubGame, HubContext } from '../../hub/index.ts';
 import { vehicles } from '../../island/vehicles/common.ts';
@@ -66,6 +67,7 @@ registerHub({
   bricks: true,
   afterSetup({ ictx, world, loaded }) { applyCaiSetup(ictx, world, loaded); },
   onCreate(h) {
+    startTickClock();   // FUN_00435c81 in the wrapper FUN_0061aebb (nothing in this zone reads FUN_00435c91, the base only matters for a later reader)
     const hud = new CaiHud();
     hudOf.set(h, hud);
     hud.init(h.ctx.hud);

@@ -7,12 +7,15 @@ import { jstKeys, KEY } from '../lib/jst-bot.mjs';
 import '../../src/zones/z09JST.ts';
 import { startDuel, giveAnimations, INTRO_CAMERA } from '../../src/zones/z09jst/rig.ts';
 import { reticleLines, reticleMode } from '../../src/zones/z09jst/marker.ts';
-import { MsvcRng } from '../../src/zones/z09jst/duel.ts';
+import { MsvcRng } from '../lib/msvc-rng.mjs';
+import { setTickCountSource } from '../../src/game/crt.ts';
+import { startTickClock } from '../../src/zones/common/tickrand.ts';
 import { RIG_OF } from '../../src/zones/z09jst/consts.ts';
 import { popupLines, finalLines } from '../../src/zones/z09jst/screens.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
-const T = 2e-3;
-export default {
+const T = 0;
+const __test = {
   name: 'm6-z09JST-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -27,7 +30,7 @@ export default {
       const plog = [];
       const snd = {
         play2D: (i) => plog.push(`p2 ${i}`), stop2D: (i) => plog.push(`s2 ${i}`), rate: (i, h) => plog.push(`r ${i} ${h}`),
-        play3D: (i, p) => plog.push(`p3 ${i} ${[0, 1, 2].map((k) => p[k].toFixed(2)).join(',')}`),
+        play3D: (i, p) => plog.push(`p3 ${i} ${[0, 1, 2].map((k) => p[k].toString()).join(',')}`),
       };
       const effects = [];
       const rngP = mkRng(seed), rngO = mkRng(seed);
@@ -37,9 +40,11 @@ export default {
       S.duel.onEffect = (n) => effects.push(n);
       // the particle calls (the eight orsemud1 emitters: handles 1..8 of the oracle, 0 = botexpl01 whose start is the stub FUN_004429e0): gates and matrices, compared tick by tick
       const pfx = [];
-      S.duel.host.fx = { gate: (i, on) => pfx.push(`fx ${i + 1} ${on ? 2 : 1}`), matrix: (i, m) => pfx.push(`fxm ${i + 1} ${Array.from(m).map((v) => v.toFixed(3)).join(',')}`) };
+      S.duel.host.fx = { gate: (i, on) => pfx.push(`fx ${i + 1} ${on ? 2 : 1}`), matrix: (i, m) => pfx.push(`fxm ${i + 1} ${Array.from(m).map((v) => v.toString()).join(',')}`) };
       plog.length = 0;                      // the constructor's calls are not compared tick by tick (checked after it)
       const d = S.duel, W = L.world;
+      // the variant's clock (FUN_00435c91): the port reads the shared GetTickCount, pinned to the oracle's stand-in (one tick = 1000 / 30 ms at dt 1, base 0)
+      setTickCountSource(() => Math.trunc(d.ticks * 1000 / 30)); startTickClock();
       // ---- the oracle: its own world (records, animations) built the same way, then the original's constructor
       const L2 = loadZone(ctx, 'z09JST');
       giveAnimations(L2.world, L2.archive);
@@ -73,7 +78,7 @@ export default {
         // records
         for (let i = 0; i < 30; i++) {
           const pr = W.records[i], a = RECORDS_BASE_PTR(i);
-          for (let k = 0; k < 16; k++) cmp(tick, `rec${i}.m[${k}]`, mem.f32(a + 0xc + 4 * k), pr.m[k], 2e-3);
+          for (let k = 0; k < 16; k++) cmp(tick, `rec${i}.m[${k}]`, mem.f32(a + 0xc + 4 * k), pr.m[k], 0);
           cmp(tick, `rec${i}.flag2`, mem.r16(a + 0x60) & 2, pr.flags & 2, 0);
           const an = anims.get(i);
           if (an && pr.anim) { cmp(tick, `rec${i}.clip`, an.clip, pr.anim.clip, 0); cmp(tick, `rec${i}.frame`, an.frame, pr.anim.frame, 1e-3); }
@@ -130,7 +135,7 @@ export default {
           for (let q = 0; same && q < o.length; q++) {
             if (o[q].startsWith('fxm')) {
               const [ho, mo] = [o[q].split(' ')[1], o[q].split(' ')[2].split(',').map(Number)], [hp, mp] = [pfx[q].split(' ')[1], pfx[q].split(' ')[2]?.split(',').map(Number)];
-              if (!pfx[q].startsWith('fxm') || ho !== hp || !mp || mo.some((v, k) => !(Math.abs(v - mp[k]) <= 2e-3 * Math.max(1, Math.abs(v))))) same = false;
+              if (!pfx[q].startsWith('fxm') || ho !== hp || !mp || mo.some((v, k) => v !== mp[k])) same = false;
             } else if (o[q] !== pfx[q]) same = false;
           }
           if (!same && failures.length < 12) failures.push(`${label}: tick ${n} particle calls: original [${o.join(' ; ')}] port [${pfx.join(' ; ')}]`);
@@ -146,9 +151,10 @@ export default {
         if (stop(d) && post++ >= 6) { n++; break; }          // a few ticks more: the loop updates in the end banner (state 0x23) as well
       }
       const unh = [...emu.unhooked.entries()].map(([a, c]) => `0x${a.toString(16)}x${c}`).join(' ');
-      const w = Object.entries(worst).filter(([, v]) => v > 1e-5).sort((x, y) => y[1] - x[1]).slice(0, 4).map(([kk, v]) => `${kk} ${v.toExponential(1)}`).join(', ');
+      const w = Object.entries(worst).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1]).slice(0, 4).map(([kk, v]) => `${kk} ${v.toExponential(1)}`).join(', ');
       if (orderEx) notes.push(`${label}: order of calls within a tick differs once: ${orderEx}`);
-      notes.push(`${label}: ${n} ticks, states ${[...states].map((s) => s.toString(16)).sort().join(' ')}, panels ${panels}, worst ${w || 'none above 1e-5'}${unh ? `, unhooked ${unh}` : ''}`);
+      notes.push(`${label}: ${n} ticks, states ${[...states].map((s) => s.toString(16)).sort().join(' ')}, panels ${panels}, worst ${w || 'bit for bit'}${unh ? `, unhooked ${unh}` : ''}`);
+      setTickCountSource(null);
       return { n, states, d };
     };
 
@@ -208,3 +214,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

@@ -14,7 +14,7 @@
 // Colours are D3DCOLOR (ARGB).
 //
 // Port differences (extensions, all labelled in the UI): (a) every entry carries a `tag` (the category the corner's check boxes switch); (b) the original's queue is emptied by the drain at the end of
-// every frame, one tick per frame; the port draws at the display rate (60 Hz or more against the 30 Hz tick), so the batch of the LAST tick stays in the queue and is drawn again until the next
+// every frame, one tick per frame; the port draws at the display rate (60 Hz or more against the 60 Hz sim step), so the batch of the LAST tick stays in the queue and is drawn again until the next
 // tick starts a new one (`beginTick`); (c) markers can be drawn as spheres (3 circles) instead of the original's flat X / + / square (`sphereMarkers`); (d) screen-space (mode != 0) lines are kept and counted but not drawn.
 import type { Renderer } from '../render/index.ts';
 

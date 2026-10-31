@@ -4,9 +4,13 @@
 import { euler24 } from '../../src/zones/common/x87.ts';
 import { loadExe, loadZone } from '../lib/engine-load.mjs';
 import { IfcEmu, G } from '../lib/ifc-emu.mjs';
+import { ifcNodesForTest } from '../../src/zones/z04IFC.ts';
 import { IfcRoom, ST, SND, CLIP, PEPPER_PLACE, DOOR } from '../../src/zones/z04IFC/ifc.ts';
 import { readIfcPages, labelId } from '../../src/zones/z04IFC/pages.ts';
 import { B } from '../../src/game/input.ts';
+import { setRandSource, setTickCountSource, randF } from '../../src/game/crt.ts';
+import { msClock, startTickClock } from '../../src/zones/common/tickrand.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const TOL = 0;   // bit for bit (the oracle runs the x87 at 24 bit, like Direct3D leaves it)
 /** the id strings the set-up copies into the pin nodes: `push <string>; push <dst>; call strcpy(0x85b570)` in FUN_0054ce86 (0x54ce86 .. 0x54e6e4), in code order */
@@ -23,7 +27,7 @@ function pinIds(pe) {
   return out;
 }
 
-export default {
+const __test = {
   name: 'm5-audit-z04IFC-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -46,11 +50,11 @@ export default {
     const START_PIN = 47;
 
     /** one scripted run: `seed` drives the keys and the random numbers; `n` ticks */
-    const run = (label, seed, n, pick) => {
+    const run = (label, seed, n, pick, dt = 1) => {
       let s = seed >>> 0;
       const rnd = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
       const uQueue = [];
-      const nextU = () => (uQueue.length ? uQueue.shift() : rnd());
+      const nextU = () => (uQueue.length ? uQueue.shift() : Math.floor(rnd() * 32768));     // the C runtime's rand(): 0..32767
       // port
       const L = loadZone(ctx, 'z04IFC');
       const recs = L.world.records;
@@ -59,14 +63,20 @@ export default {
       let tick = 0;
       const host = {
         play: (id) => plog.push(`p ${id}`), restart: (id) => { plog.push(`s ${id}`, `p ${id}`); }, pepperClip: (c) => plog.push(`clip ${c}`),
-        ms: () => Math.trunc(tick * 1000 / 30), rand: () => nextU(), text: (id) => id, setVar: (i, v) => plog.push(`setVar ${i} ${v}`),
+        // the port's own draw (ifc.ts IfcHost.pick = z04IFC.ts: ftol(FUN_004388ae((float) FUN_00435c91())) % n on crt.ts rand() and the zone clock), on a scripted rand() and tick clock
+        pick: (n) => Math.trunc(randF(Math.fround(msClock()))) % n, text: (id) => id, setVar: (i, v) => plog.push(`setVar ${i} ${v}`),
       };
+      setTickCountSource(() => 5000 + Math.floor(tick * 1000 / 60)); setRandSource(() => nextU() & 0x7fff); startTickClock();
       const room = new IfcRoom(pages, host);
+      const ctrlNode = ifcNodesForTest.controller(room);
+      const pw = { dt, camera: { c: new Float32Array(18), updateView() { /* the matrices are not compared */ } } };
+      const prec = { anim: { advance: (rate, d) => plog.push(`adv ${rate} ${d}`) } };
       pinAttaches.forEach((a, k) => room.addPin(a.record, a.argWords[0], ids[k]));
       room.setSelected(START_PIN);
       // oracle
       const uQueue2 = [];
-      const emu = new IfcEmu(pe, init, () => (uQueue2.length ? uQueue2.shift() : 0));
+      const emu = new IfcEmu(pe, init, () => (uQueue2.length ? uQueue2.shift() : 0), () => msClock());
+      emu.cpu.mem.wf32(0x8b1718, dt);   // DAT_008b1718
       emu.loadSounds();
       emu.makeController(); emu.makeDoor();
       pinAttaches.forEach((a, k) => emu.makePin(a.record, a.argWords[0], ids[k]));
@@ -84,7 +94,7 @@ export default {
       for (let t = 0; t < n; t++) {
         const pressed = pick(t, rnd, room);
         // the same random number for both (rand() is called at most once per tick in the controller)
-        const u = rnd(); uQueue.push(u); uQueue2.push(u);
+        const u = Math.floor(rnd() * 32768); uQueue.push(u); uQueue2.push(u);
         tick++;
         // ---- port: the nodes' update order is the record order: Pepper's controller (7), the door (30), the pins; then the controller's pre-render
         plog.length = 0;
@@ -93,7 +103,7 @@ export default {
         const a = room.doorUpdate();
         recs[30].m.set(euler24(0, Math.fround(a * DOOR.DEG), 0, DOOR.X, DOOR.Y, DOOR.Z));
         for (const pr of pinRecs) { const y = room.pinUpdate(pr, recs[pr].y); if (y !== recs[pr].y) recs[pr].y = y; }
-        room.camera(); plog.push('adv 1');
+        ctrlNode.prerender(pw, prec);   // FUN_0054c00d: the camera and Pepper's `FUN_0043b76a(anim, 1.0)` (the port's node code itself, the advance logged with the dt it passes)
         // ---- oracle
         const olog = emu.tick(pressed, pinRecs);
         uQueue.length = 0; uQueue2.length = 0;
@@ -144,6 +154,9 @@ export default {
       checked++; if (st.sounds < 20 || !(st.sporadic > 0)) failures.push(`random${seed}: too few sounds (${st.sounds}), sporadic ${st.sporadic}`);
       notes.push(`random${seed}: sporadic ambient sounds ${st.sporadic}`);
     }
+    // the same at dt = 0.5 (the 60 Hz step: the counters of the room are per frame, only Pepper's / the figures' animation steps by rate * DAT_008b1718)
+    run('script dt0.5', 12, flat.length, (t) => flat[t], 0.5);
+    run('random dt0.5', 78, 6000, (_t, rnd) => (rnd() < 0.3 ? KEYS[Math.floor(rnd() * KEYS.length) % KEYS.length] : 0), 0.5);
     // the sound ids of the room's slots (FUN_0054cd70: DAT_05d587d8 .. 05d5880c hold the ids the controller plays)
     const e0 = new IfcEmu(pe, [{ name: 'PEPP', m: new Array(16).fill(0) }], () => 0);
     e0.loadSounds();
@@ -153,6 +166,8 @@ export default {
       [0x5d587f8, SND.INFO[0], 'INFO1'], [0x5d587fc, SND.INFO[1], 'INFO2'], [0x5d58800, SND.INFO[2], 'INFO3']]) {
       checked++; if (slot(a) !== id) failures.push(`sound slot ${nm}: original ${slot(a)}, port ${id}`);
     }
+    setRandSource(null); setTickCountSource(null);
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

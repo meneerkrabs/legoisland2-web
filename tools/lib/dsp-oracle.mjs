@@ -108,7 +108,7 @@ export function createOracle(pe, w, S) {
   const SA = (h) => { let a = shadow.get(h); if (!a) { a = { clip: 0, frame: 0, frameCount: 30, start(c) { this.clip = c; this.frame = 0; return true; }, advance() { return 0; }, seek(f) { this.frame = f; return true; } }; shadow.set(h, a); } return a; };
   H.set(0x43b6a3, (c) => { c.eax = SA(c.arg(0)).start(c.arg(1) | 0, c.argf(2) || 0) ? 1 : 0; });
   H.set(0x43b72b, (c) => { c.eax = SA(c.arg(0)).clip; });
-  H.set(0x43b76a, (c) => { c.eax = SA(c.arg(0)).advance(c.argf(1)); });
+  H.set(0x43b76a, (c) => { c.eax = SA(c.arg(0)).advance(c.argf(1), mem.f32(0x8b1718)); });      // FUN_0043b76a: rate * DAT_008b1718
   H.set(0x43b64d, (c) => { c.eax = SA(c.arg(0)).seek(c.argf(1)) ? 1 : 0; });
   H.set(0x43b753, (c) => { c.fpush(SA(c.arg(0)).frameCount); });
   H.set(0x43b73f, (c) => { c.fpush(SA(c.arg(0)).frame); });
@@ -117,7 +117,7 @@ export function createOracle(pe, w, S) {
   for (const [a, nm] of [[0x4435a0, 'play'], [0x4435b0, 'stop'], [0x443600, 'rate'], [0x4433f0, '3d'], [0x4434b0, 'stop3d']]) H.set(a, sound(nm));
   H.set(0x439bf8, (c) => { log.push(`say ${mem.cstr(c.arg(1))}`); c.eax = 0; mem.w32(c.arg(2), 0); });
   H.set(0x435a11, () => {});
-  for (const a of [0x438518, 0x6bd2e0, 0x445ba0, 0x85eb80, 0x444550, 0x435c91, 0x442900]) H.set(a, () => {});
+  for (const a of [0x438518, 0x6bd2e0, 0x445ba0, 0x85eb80, 0x444550, 0x442900]) H.set(a, () => {});
   // the particle calls are logged (FUN_00442960 start: handles 100 + n; FUN_00442a00 setMatrix; FUN_00442a40 stop): `emitLog`
   const emitLog = [];
   const matLabel = (p) => (p >= RB && p < RB + n * STRIDE && (p - RB - 0xc) % STRIDE === 0 ? `rec ${(p - RB - 0xc) / STRIDE}` : `0x${(p >>> 0).toString(16)}`);
@@ -125,9 +125,12 @@ export function createOracle(pe, w, S) {
   H.set(0x442960, (c) => { const h = nextH++; const fl = (i) => c.argf(i); emitLog.push(`start ${mem.cstr(c.arg(0))} ${matLabel(c.arg(1))} ${[2, 3, 4].map((i) => f32(fl(i))).join(',')} ${[5, 6, 7].map((i) => f32(fl(i))).join(',')} ${[8, 9, 10].map((i) => c.arg(i) & 0xffff).join(',')} -> ${h}`); c.eax = h; });
   H.set(0x442a00, (c) => { emitLog.push(`setM ${c.arg(0)} ${matLabel(c.arg(1))}`); });
   H.set(0x442a40, (c) => { emitLog.push(`stop ${c.arg(0)}`); });
+  // FUN_00435c91 = GetTickCount - base: `O.tickMs` (the test pins the port's clock to the same value: the sound picks scale rand() by it)
+  H.set(0x435c91, (c) => { c.eax = O.tickMs; });
   // FUN_004388ae(max): fild rand(); fdiv 32767.0f; fmul max (24-bit: both operations round); 0 for max <= 0. The draws come from the test's generator and are recorded for the port.
   const O = { emitLog: [] };
   O.rngNext = () => 0.5;
+  O.tickMs = 5000;
   O.draws = [];
   H.set(0x4388ae, (c) => { const max = c.argf(0); if (!(max > 0)) { c.fpush(0); return; } const v = O.rngNext(); O.draws.push(v); c.fpush(f32(f32(v) * max)); });
   // FUN_006c0af1 (a rock was hit: its Brickbot reacts) dereferences the record's controller, which is null for the bot record itself (BBBB): a crash in the original, nothing here

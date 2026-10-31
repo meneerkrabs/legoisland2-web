@@ -3,6 +3,7 @@ import { extractZoneSetup, zoneCodeIndex, readZoneTable } from '../../src/format
 import { profileFor, setupZone } from '../../src/game/setup.ts';
 import { islandRigs } from '../../src/island/ambient/common.ts';
 import { emulatedArrival } from '../../src/hub/arrival.ts';
+import { waypoints } from '../../src/game/walker.ts';
 import { CollisionWorld } from '../../src/game/collision.ts';
 import { buildRecords } from '../../src/game/zone.ts';
 import { loadExe, sceneOf } from '../lib/engine-load.mjs';
@@ -168,6 +169,7 @@ export default {
       const vars = varsOf({ 0x58: node, 2: 1 });
       const p = profileFor(zone, pe, scene, undefined, { emuVars: vars, archive });
       ok(!!p.emu && !p.island && p.hub === true && p.subgame === h.index && p.setup.attaches.length === p.emu.attaches.length, `${zone}: profileFor emuVars (subgame ${p.subgame}, hub ${p.hub})`);
+      waypoints.unload(); waypoints.load(archive);   // the zone game loads the set-up's waypoint maps (FUN_004630c0) before the first tick: the walker nodes read them
       const L = setupZone(scene, archive, p, { vars: { 0x58: node }, pe, subgame: h.index });
       ok(L.hasPlayer && L.pepper.name === 'PEPP' && [L.pepper.x, L.pepper.y, L.pepper.z].every(Number.isFinite), `${zone}: setupZone player`);
       const e = p.emu.records[L.pepper.index];

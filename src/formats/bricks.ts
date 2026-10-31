@@ -81,7 +81,7 @@ export function brickPaletteUv(pe: Pe, c: number): [number, number] {
 
 /** grid -> world units: x, z * 0.8 (DAT_00892084), y * 0.96 (DAT_008922a8) */
 export const GRID_XZ = Math.fround(0.8), GRID_Y = Math.fround(0.96);
-const DEG = Math.fround(0.0174533);   // DAT_008922d0
+const DEG = new Float32Array(new Uint32Array([0x3c8efa35]).buffer)[0];   // DAT_008922d0 = 0x3c8efa35 (pi / 180 as a float32: 0.01745329238; the decompile's decimal 0.0174533 is another float)
 const PI = Math.fround(Math.PI), TWO_PI = Math.fround(2 * Math.PI);
 
 export interface BrickLod {
@@ -131,7 +131,7 @@ const TABLE_BASE = 0x05d124e8, TABLE_STRIDE = 0x48;
 export function parseBrickSetLine(line: string): { name: string; sym: [number, number, number]; offset: [number, number, number] } | null {
   const t = line.trim().split(/\s+/);
   if (t.length < 7) return null;
-  const i = t.slice(1, 4).map((x) => parseInt(x, 10)), f = t.slice(4, 7).map(Number.parseFloat);
+  const i = t.slice(1, 4).map((x) => parseInt(x, 10)), f = t.slice(4, 7).map((x) => Math.fround(Number.parseFloat(x)));   // (`%f` stores a float: the x 0.8 / y 0.96 scaling then multiplies float32 values, FUN_0044a5e0)
   if (i.some((x) => !Number.isFinite(x)) || f.some((x) => !Number.isFinite(x))) return null;
   return { name: t[0], sym: [i[0], i[1], i[2]], offset: [f[0], f[1], f[2]] };
 }
@@ -322,21 +322,22 @@ export function loadBrickModel(text: string, lib: { dicts: BrickDicts; types: re
     }
   }
   if (centreMode === 0) {
-    centre[0] = Math.fround(mx[0] - (mx[0] - mn[0]) * 0.5);
-    centre[1] = Math.fround(mx[1] - (mx[1] - mn[1]) * 0.5);
-    centre[2] = Math.fround(mx[2] - (mx[2] - mn[2]) * 0.5);
+    // centre = max - (max - min) * 0.5 per axis, every operation a float32 (the x87 runs at 24 bit); y keeps the first brick's value (max = min)
+    for (let k = 0; k < 3; k++) centre[k] = Math.fround(mx[k] - Math.fround(Math.fround(mx[k] - mn[k]) * 0.5));
   }
   for (const b of bricks) for (let k = 0; k < 3; k++) b.pos[k] = Math.fround(b.pos[k] + centre[k]);
   // FUN_0044dba0: bounds (max starts at 0, min at FLT_MAX) and the normalised positions
   const lo = [3.4028235e38, 3.4028235e38, 3.4028235e38], hi = [0, 0, 0];
   for (const b of bricks) for (let k = 0; k < 3; k++) { if (b.pos[k] <= lo[k]) lo[k] = b.pos[k]; if (hi[k] <= b.pos[k]) hi[k] = b.pos[k]; }
-  const ext = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
+  // (the x87 runs at 24-bit precision: the extent, its reciprocal, the offset from the minimum and the product are each a float32; docs/re/gaps.md "x87 control word")
+  const fr = Math.fround;
+  const ext = [fr(hi[0] - lo[0]), fr(hi[1] - lo[1]), fr(hi[2] - lo[2])];
   const inv: [number, number, number] = [0, 0, 0];
   for (let k = 0; k < 3; k++) {
     if (ext[k] > 0) {
-      inv[k] = Math.fround(1 / ext[k]);
-      for (const b of bricks) b.norm[k] = Math.fround(inv[k] * (b.pos[k] - lo[k]));
+      inv[k] = fr(1 / ext[k]);
+      for (const b of bricks) b.norm[k] = fr(inv[k] * fr(b.pos[k] - lo[k]));
     }
   }
-  return { name, centreMode, centre, bricks, layers: layer, invExtent: inv, invExtentSq: Math.fround(inv[2] * inv[2] + inv[1] * inv[1] + inv[0] * inv[0]) };
+  return { name, centreMode, centre, bricks, layers: layer, invExtent: inv, invExtentSq: fr(fr(fr(inv[0] * inv[0]) + fr(inv[1] * inv[1])) + fr(inv[2] * inv[2])) };   // (x, y, z: the instruction order of FUN_0044dba0's last store; the decompile lists z, y, x)
 }

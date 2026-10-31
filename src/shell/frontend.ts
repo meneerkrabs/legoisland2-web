@@ -45,6 +45,7 @@ const FE_FOG: FogSetup = { near: 4, farMin: 1500, farMax: 1500, fogFrac: 600, co
 /** the camera: eye (0, 11, 56.8) looking at (0, 11, 0) (DAT_009da5e8 stores in FUN_00471070: 0x41300000 / 0x42633333) */
 const FE_EYE: [number, number, number] = [0, 11, 56.8], FE_TARGET: [number, number, number] = [0, 11, 0];
 
+const fr = Math.fround;
 /** var 0xc6: Pepper's shadow marker (render.ts VAR_PEPP_MARKER) */
 const VAR_PEPP_MARKER = 0xc6;
 /** the record flag / bone numbers of the original's ctor arguments (FUN_00471070's butterfly range argument: local_60[0] = 0x41000000) */
@@ -67,7 +68,7 @@ export function feStageRecords(world: World, archive: Archive): void {
   const f = (u: number) => { const dv = new DataView(new ArrayBuffer(4)); dv.setUint32(0, u); return dv.getFloat32(0); };
   const placeScaled = (r: typeof recs[number] | undefined, pos: [number, number, number], k: number) => {
     if (!r) return;
-    r.m.set(buildMatrix(0, 0, 0, pos[0], pos[1], pos[2], k, k, k)); r.scale = [k, k, k]; r.savePrev();
+    r.m.set(buildMatrix(0, 0, 0, pos[0], pos[1], pos[2], k, k, k)); r.scale = [k, k, k];
   };
   placeScaled(recs[42], [f(0xc0ef4bc7), f(0x415ce560), f(0xc0315810)], f(0x3f99999a));
   placeScaled(recs[43], [f(0xc0d9c28f), f(0x415ce560), f(0x413651ec)], f(0x3f79999a));
@@ -95,7 +96,6 @@ export function feStageNodes(world: World, nodeEnv: FeEnv): void {
   const cam = world.camera;
   cam.init(recs[FE_REC.PEPPER]);
   cam.c[0] = FE_EYE[0]; cam.c[1] = FE_EYE[1]; cam.c[2] = FE_EYE[2]; cam.c[3] = FE_TARGET[0]; cam.c[4] = FE_TARGET[1]; cam.c[5] = FE_TARGET[2];
-  cam.savePrev();
   attach(FE_REC.FIGURE, 'FEFigure');
   attach(FE_REC.BRICKSTER, 'FEBrickster');
   attach(FE_REC.TRAIN, 'FETrain');
@@ -134,6 +134,7 @@ export async function runFrontEnd(sh: Shell, _info: ZoneInfo): Promise<number> {
   const scene = await sh.data.zoneScene('z60FRE');
   const data = buildRecords('z60FRE', scene, archive);
   const world = new World();
+  world.dt = sh.dt; world.invDt = Math.fround(1 / sh.dt);   // DAT_008b1718 is a global: the previous loop's last value (src/game/world.ts `advanceDt`)
   world.vars = sh.vars;
   world.externalInput = true;
   world.input = sh.input;
@@ -213,14 +214,14 @@ export async function runFrontEnd(sh: Shell, _info: ZoneInfo): Promise<number> {
       frustumFlags();
       world.tick();
       m.fade = leaveFade;
-      leaveFade -= 0.0625 * world.dt;      // FUN_00470ac3: `local_6c - _DAT_008923cc * DAT_008b1718` (per dt)
+      leaveFade = fr(leaveFade - fr(0.0625 * world.dt));      // FUN_00470ac3: `local_6c - _DAT_008923cc * DAT_008b1718` (per dt, float32)
       live.leave = leaveFade;
       return leaveFade < 0;
     }
     // FUN_00470ac3 mode 7 / 0 / 2 / 8
     switch (m.mode) {
       case MODE.FADE_IN:
-        if (m.fade >= 1) { m.fade = 1; m.mode = MODE.INIT; } else m.fade += 0.0625 * world.dt;
+        if (m.fade >= 1) { m.fade = 1; m.mode = MODE.INIT; } else m.fade = fr(fr(0.0625 * world.dt) + m.fade);
         break;
       case MODE.INIT:
         m.mode = MODE.PLAY;
@@ -234,7 +235,7 @@ export async function runFrontEnd(sh: Shell, _info: ZoneInfo): Promise<number> {
             sh.menu.close();
             if (r === MR.QUIT) { sh.quit = true; exitNext = -2; m.mode = MODE.FADE_OUT; }                    // -1: local_24 = -2, mode 8
             else if (r === MR.ABANDON) { exitNext = -1; leaveFade = 1; }                                       // -3 / the checkpoint list: var 5 differs from var 0x59, the loop leaves at once
-            else if (r === MR.CREDITS) { creditsOn = true; showCredits = true; credits.pos = -480; credits.done = false; }
+            else if (r === MR.CREDITS) { creditsOn = true; showCredits = true; credits.reset(); }
             else sh.menu.open(0, 0, false);
           }
         } else if (credits.tick(pressed, recs, world.dt)) {
@@ -244,15 +245,16 @@ export async function runFrontEnd(sh: Shell, _info: ZoneInfo): Promise<number> {
         break;
       }
       case MODE.FADE_OUT:
-        if (m.fade <= 0) { m.fade = 0; leaveFade = 1; } else m.fade -= 0.0625 * world.dt;
+        if (m.fade <= 0) { m.fade = 0; leaveFade = 1; } else m.fade = fr(m.fade - fr(0.0625 * world.dt));
         break;
     }
     fx?.step();   // FUN_00442930 -> FUN_0044e8e0: the particle engine's update (+ the draw in the render hook) once per pass of the main loop, in every mode of it
     live.mode = m.mode; live.page = sh.menu.engine.page;
+    gr.stepView();   // the draw pass's frustum (FUN_00444370) per sim step: `frustumFlags` of the next pass reads it
     return false;
   };
-  const render = (alpha: number, dt: number) => {
-    gr.render(dev ? dev.alpha(m.mode === MODE.PLAY || m.mode === MODE.FADE_OUT ? alpha : 1) : m.mode === MODE.PLAY || m.mode === MODE.FADE_OUT ? alpha : 1, dt);
+  const render = (_alpha: number, dt: number) => {
+    gr.render(1, dt);   // no interpolation: the original draws the state of the last step (the loop passes alpha = 1)
     sh.ui.begin(sh.canvas.width, sh.canvas.height);
     if (showCredits) credits.draw(sh.ui);
     else if (m.mode === MODE.PLAY) sh.menu.draw(sh.ui, sh.menuSet);
@@ -261,7 +263,8 @@ export async function runFrontEnd(sh: Shell, _info: ZoneInfo): Promise<number> {
   };
   stopLoading();
   sh.gl.fixed43 = true;   // widescreen: the stage's backdrop is a flat 4:3 painting (docs/re/widescreen.md); the loading card's frames drew with it off
-  await sh.runLoop(tick, render);
+  await sh.runLoop(tick, render, world);
+  sh.dt = world.dt;
   sh.gl.fixed43 = false;
   dev?.destroy();
   if (walker) waypoints.free(walker);   // FUN_0042207d(0): FUN_00461a3b(Pepper's walker)

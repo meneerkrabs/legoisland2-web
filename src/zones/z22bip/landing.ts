@@ -7,6 +7,7 @@ import type { BehaviourNode } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import { bipRun, f32, MODE, VAR_MODE } from './run.ts';
 import { setRotation } from './plane.ts';
+import { sb, ml } from '../common/f32.ts';
 import type { SrcPoints } from './takeoff.ts';
 
 const F = Math.fround;
@@ -45,10 +46,10 @@ export class LandingNode implements BehaviourNode {
   /** FUN_0070e2c5: the velocities and headings of the two parts */
   private setup(rec: GameRecord) {
     const k = LANDING.RATE;
-    this.v1 = [F((this.p0[0] - rec.x) * k), F((this.p0[1] - rec.y) * k), F((this.p0[2] - rec.z) * k)];
+    this.v1 = [ml(sb(this.p0[0], rec.x), k), ml(sb(this.p0[1], rec.y), k), ml(sb(this.p0[2], rec.z), k)];
     this.headingApproach = F(Math.atan2(this.v1[0], this.v1[2]));
     this.approach = LANDING.APPROACH; this.slide = LANDING.SLIDE;
-    this.v2 = [F((this.p1[0] - this.p0[0]) * k), F((this.p1[1] - this.p0[1]) * k), F((this.p1[2] - this.p0[2]) * k)];
+    this.v2 = [ml(sb(this.p1[0], this.p0[0]), k), ml(sb(this.p1[1], this.p0[1]), k), ml(sb(this.p1[2], this.p0[2]), k)];
     this.headingSlide = F(Math.atan2(this.v2[0], this.v2[2]));
   }
 

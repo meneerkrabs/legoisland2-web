@@ -14,7 +14,7 @@ import { GameRecord, RF_NO_COLLIDE, RF_SOLID_HIDDEN, RF_NPC } from './record.ts'
 import { buildRecords } from './zone.ts';
 import { CollisionWorld, NO_GROUND } from './collision.ts';
 import type { ZoneData } from './zone.ts';
-import { World } from './world.ts';
+import { World, TICK_HZ } from './world.ts';
 import { AnimInstance } from './anim.ts';
 import { Controller, createNode, NODE_CONTINUE } from './controller.ts';
 import type { BehaviourNode } from './controller.ts';
@@ -266,7 +266,7 @@ export function applySetup(setup: ZoneSetup, records: GameRecord[], world: World
 /**
  * Safety net of the stub zones (the player walks around a scene whose own gameplay is not ported): the original keeps the player inside by invisible
  * walls, mode switches and the zone's own code. Without them a walk off the edge of a platform, or into a sea the zone has no swim switch for, falls for
- * ever. This node puts the player back to where it stood about a second ago when it sinks well below everything solid in the zone.
+ * ever. This node puts the player back to where it stood about a second ago when it sinks well below everything solid in the zone (a port extension: the position is sampled once per second of the fixed 60 Hz step).
  */
 class StubGuard implements BehaviourNode {
   readonly kind = 'StubGuard';
@@ -291,7 +291,7 @@ class StubGuard implements BehaviourNode {
       }
       return NODE_CONTINUE;
     }
-    if (this.tick++ % 30 === 0 && this.walk.t === 0 && (w.vars.get(V.PEPPER_CONTROL) & 0xfff) === 1) this.safe = [rec.x, rec.y, rec.z];
+    if (this.tick++ % TICK_HZ === 0 && this.walk.t === 0 && (w.vars.get(V.PEPPER_CONTROL) & 0xfff) === 1) this.safe = [rec.x, rec.y, rec.z];
     return NODE_CONTINUE;
   }
 }

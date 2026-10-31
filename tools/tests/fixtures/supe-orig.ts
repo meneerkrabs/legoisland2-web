@@ -10,7 +10,7 @@
 //   FUN_0053c337  constructor (node 0x54, handler table 0x8eb0f0): the zones, the first goal, the place                 -> SupeNode.init
 //   FUN_0053adc3  update: the rescue trigger, the 17 states                                                            -> SupeNode.update
 //   FUN_0053c25a  pre-render: MOVE_SUPE |= 0x20000 (no talking) while carrying                                         -> SupeNode.prerender
-//   FUN_0053c526  destroy (the flight loop off)   FUN_0053c29d draw = the default   FUN_0053c2fe / FUN_0053c2d9 load / save (not ported)
+//   FUN_0053c526  destroy (the flight loop off)   FUN_0053c29d draw = the default   FUN_0053c2fe / FUN_0053c2d9 load / save -> SupeNode.loadBlock / saveBlock
 //   FUN_00539eb1  steering along the OTH route (with the original's turn quirks)                                       -> SupeNode.steer
 //   FUN_0053a35d  the landing station for Pepper's z (and the speed doubling)                                          -> SupeNode.landing
 //   FUN_0053a3dd  a random OTH node 0..4      FUN_0053a41b nearest track node (DAT_008eb114)      FUN_0053a4f7 nearest helipad exit node
@@ -35,6 +35,7 @@ import { randTrunc } from '../../../src/island/rng.ts';
 import { cutsceneActive, sfx, PI_F, TWO_PI_F } from '../../../src/island/pizza/common.ts';
 import { ad, sb, ml, dv, sq, fr } from '../../../src/zones/common/f32.ts';
 import { normalise3, toWorld } from '../../../src/zones/exact.ts';
+import { BlockIn, BlockOut } from '../../../src/island/blockio.ts';
 
 export const CTOR_SUPE = 0x53c337;
 
@@ -163,8 +164,10 @@ export class SupeNode implements BehaviourNode {
   state: number = ST.FLY; landNow = 0; steerBits = CD_BYTE; mode = 0;
   /** +0x3c / +0x40 the pitch / yaw turn rates of the steering, +0x44 the ticks of a turn */
   pitchRate = CD_FLOAT; yawRate = CD_FLOAT; steerTicks = CD_FLOAT;
-  /** +0x48 the track node (ROAD) he rises over, +0x4a the helipad exit node (PATH), +0x4c fly the east line first */
-  road = 0; pad = 0; east = 0;
+  /** +0x48 the track node (ROAD) he rises over, +0x4a the helipad exit node (PATH) (u16 each), +0x4c fly the east line first (a byte, 3 pad bytes after it): the constructor writes none of them (0xCD of the debug heap until a rescue starts) */
+  road = 0xcdcd; pad = 0xcdcd; eastWord = 0xcdcdcdcd;
+  get east(): number { return this.eastWord & 0xff; }
+  set east(v: number) { this.eastWord = ((this.eastWord & ~0xff) | (v & 0xff)) >>> 0; }
   /** +0x50 the ticks Pepper has been on the rail */
   timer = CD_FLOAT;
   /** DAT_05d586e8: ticks of the pick-up (counted, not read) */
@@ -178,11 +181,7 @@ export class SupeNode implements BehaviourNode {
   init(w: World, rec: GameRecord) {
     if (this.inited) return;
     this.inited = true;
-    const a = waypoints.nodePos(MAP_OTH, 0), b = waypoints.nodePos(MAP_OTH, SUPE.STAT2_OUT);
-    const q = ml(sb(a[2], b[2]), SUPE.ZONE);
-    this.zoneA = sb(a[2], q); this.zoneB = ad(b[2], q);
-    const t = ml(sb(a[2], b[2]), SUPE.ZONE10);
-    this.zoneA10 = sb(a[2], t); this.zoneB10 = ad(b[2], t);
+    this.constants();
     const l = this.landing(w);
     this.speed = SUPE.SPEED;
     if (l < 0) { this.mode = 0; this.dest = randomNode(); this.goal = SUPE.HUB; this.next = this.goal; this.state = ST.FLY; }
@@ -190,8 +189,38 @@ export class SupeNode implements BehaviourNode {
     this.landNow = 0;
     const p = waypoints.nodePos(MAP_OTH, this.goal);
     rec.x = p[0]; rec.y = p[1]; rec.z = p[2];
+  }
+
+  /** the constructor's fields that are not part of the save block: the landing zones (+0x14..+0x20) and the east line's x (+0x24), functions of the waypoint maps */
+  private constants() {
+    const a = waypoints.nodePos(MAP_OTH, 0), b = waypoints.nodePos(MAP_OTH, SUPE.STAT2_OUT);
+    const q = ml(sb(a[2], b[2]), SUPE.ZONE);
+    this.zoneA = sb(a[2], q); this.zoneB = ad(b[2], q);
+    const t = ml(sb(a[2], b[2]), SUPE.ZONE10);
+    this.zoneA10 = sb(a[2], t); this.zoneB10 = ad(b[2], t);
     this.eastX = waypoints.nodePos(MAP_ROAD, SUPE.EAST_A)[0];
-    rec.savePrev();
+  }
+
+  /**
+   * Save block = node +0x28 .. +0x54 (saver FUN_0053c2d9 returns 0x2c and points at node + 0x28, loader FUN_0053c2fe is the memcpy back):
+   * 0x00 i32 dest (+0x28)   0x04 i32 goal   0x08 i32 next   0x0c f32 speed (+0x34)   0x10 u8 state (+0x38)   0x11 u8 landNow   0x12 u8 steerBits   0x13 u8 mode   0x14 f32 pitchRate (+0x3c)
+   * 0x18 f32 yawRate   0x1c f32 steerTicks   0x20 u16 road (+0x48)   0x22 u16 pad (+0x4a)   0x24 u8 east (+0x4c) + 3 pad bytes   0x28 f32 timer (+0x50).
+   * The fields the constructor never writes keep the debug heap's 0xCD (see the field defaults). A node that has not run yet gets its constructor's work first.
+   */
+  saveBlock(w: World, rec: GameRecord, _c: Controller): Uint8Array {
+    if (!this.inited) this.init(w, rec);
+    const b = new BlockOut(0x2c);
+    b.i32(0x00, this.dest).i32(0x04, this.goal).i32(0x08, this.next).f32(0x0c, this.speed).u8(0x10, this.state).u8(0x11, this.landNow).u8(0x12, this.steerBits).u8(0x13, this.mode);
+    b.f32(0x14, this.pitchRate).f32(0x18, this.yawRate).f32(0x1c, this.steerTicks).u16(0x20, this.road).u16(0x22, this.pad).u32(0x24, this.eastWord).f32(0x28, this.timer);
+    return b.bytes;
+  }
+  loadBlock(_w: World, _rec: GameRecord, _c: Controller, data: Uint8Array): void {
+    // (the constructor ran at the set-up; its position / state writes are what the load and the block overwrite: only the constants of the waypoint maps are needed)
+    if (!this.inited) { this.inited = true; this.constants(); }
+    const b = new BlockIn(data);
+    this.dest = b.i32(0x00); this.goal = b.i32(0x04); this.next = b.i32(0x08); this.speed = b.f32(0x0c);
+    this.state = b.u8(0x10); this.landNow = b.u8(0x11); this.steerBits = (b.u8(0x12) << 24) >> 24; this.mode = b.u8(0x13);
+    this.pitchRate = b.f32(0x14); this.yawRate = b.f32(0x18); this.steerTicks = b.f32(0x1c); this.road = b.u16(0x20); this.pad = b.u16(0x22); this.eastWord = b.u32(0x24); this.timer = b.f32(0x28);
   }
 
   /** FUN_0053a35d: 0x2f (Pepper's z > zoneA), 6 (z < zoneB) or -1; the speed doubles when the steering bits are 0 */
@@ -306,6 +335,7 @@ export class SupeNode implements BehaviourNode {
     for (let i = 0; i < 3; i++) c[i] = ad(ml(ml(sb(e[i], c[i]), ease), dt), c[i]);
   }
 
+
   private stopSkate(w: World) { const c = tryCtx(w); if (c) for (const id of SKATE_SOUNDS) c.stopSfx(id); }
   private trackPoint(up: number): number[] { const p = waypoints.nodePos(MAP_ROAD, this.road); p[1] = ad(p[1], up); return p; }
   private padPoint(up: number): number[] { const p = waypoints.nodePos(MAP_PATH, this.pad); p[1] = ad(p[1], up); return p; }
@@ -314,7 +344,7 @@ export class SupeNode implements BehaviourNode {
     if (y < rec.y) rec.y = y;
   }
   /** Pepper keeps / takes the fly clip (states 0xd / 0xe) */
-  private pepFly(P: GameRecord, dt = 1) { if (P.anim?.clip === SUPE.CLIP_FLY) P.anim.advance(1.0, dt); else P.anim?.start(SUPE.CLIP_FLY, 0); }
+  private pepFly(P: GameRecord, dt: number) { if (P.anim?.clip === SUPE.CLIP_FLY) P.anim.advance(1.0, dt); else P.anim?.start(SUPE.CLIP_FLY, 0); }
   /** a cutscene took over: back to free flight towards the hub, non-solid */
   private toHub(rec: GameRecord) {
     rec.anim?.start(SUPE.CLIP_FLY, 0);

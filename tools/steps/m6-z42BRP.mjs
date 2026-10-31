@@ -3,7 +3,7 @@
 // with the clock score, the result menu, the outro movie (skipped with a key) and the story step (straight to the island: no credits, gaps.md U2) (node 68 in the island); the pause menu in between.
 //   node tools/browse.mjs "http://localhost:5612/?zone=z42BRP&mute=1" tools/steps/m6-z42BRP.mjs --size 1280x800 --out /tmp/m6-z42BRP
 // Reads `window.__zone.game.debug()`.
-import { PLAN1 } from '../../src/zones/z42BRP/bot-plan.ts';
+import { PLAN1, PLAN1_START } from '../../src/zones/z42BRP/bot-plan.ts';
 
 export default async ({ page, shot, wait, log, key }) => {
   const fail = [];
@@ -23,7 +23,7 @@ export default async ({ page, shot, wait, log, key }) => {
   expect('help screen (mode 9)', (await dbg()).mode === 9);
   await shot('2-help');
   // ---- the bot (installed before play starts: under load a late hook would miss the first ticks of the recorded run): the recorded run for the side run, the look-ahead bot on the roof; its buttons go through the input mapper's key path once per tick
-  await page.evaluate(async (plan) => {
+  await page.evaluate(async ([plan, start]) => {
     const z = window.__zone, w = z.world, inp = z.sh.input;
     const bot = await import('/src/zones/z42BRP/bot.ts');
     const nodes = await import('/src/zones/z42BRP/nodes.ts');
@@ -37,7 +37,7 @@ export default async ({ page, shot, wait, log, key }) => {
       let mask = 0;
       if (!B.off && z.machine.mode === 2) {
         const t = w.tickCount;
-        if (w.vars.get(0xfa) === 1) mask = t >= 16 ? (flat[t - 16] ?? 0) : 0;      // tick 0 = the first tick of play (the world does not tick in the intro / help modes)
+        if (w.vars.get(0xfa) === 1) mask = t >= start ? (flat[t - start] ?? 0) : 0;      // tick 0 = the first tick of play (the world does not tick in the intro / help modes)
         else if (S.endState === 0) {
           B.p2 ??= new bot.Phase2Bot(w, new nodes.ZoneLoop());
           const t0 = performance.now();
@@ -53,7 +53,7 @@ export default async ({ page, shot, wait, log, key }) => {
       B.mask = mask;
       orig();
     };
-  }, PLAN1);
+  }, [PLAN1, PLAN1_START]);
   await key('Enter');
   await page.waitForFunction(() => window.__zone.machine.mode === 2 && window.__zone.world.tickCount > 3, null, { timeout: 60000 });
   s = await dbg();

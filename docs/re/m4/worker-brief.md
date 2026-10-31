@@ -51,7 +51,7 @@ own one work package (WP) and the files of it. Read `docs/re/m4/progress.md` for
   world for a story node with the mock context; `tick`, `press`, `hold`); extend the mock for your needs with small additive edits.
 * Game variables: names in `docs/re/architecture.md` 6.1 and `gamevars.tsv`; `V` / `PC` in `src/game/vars.ts`; `world.vars.get/set/or/andNot/add`. The island's `SWITCH_LGI_*` names map to vars 250.. (`ctx.switchVar(name)`).
   Zone-local vars (0xfa..0x13e = `SUBGAME:n`) are used by scripts and trigger nodes as flags (`S277` = var 277 = 0x115 is the node-2 progress var, `SUBGAME:n` numbering = var index).
-* Timing: the simulation runs at fixed 30 Hz, `w.dt` = 1 per tick; the original multiplies by `DAT_008b1718` (= dt) exactly where you see it in the decompile. Positions are world units; the walker works in units / 8 (see walker.ts).
+* Timing: the simulation runs at a fixed 60 Hz (one sim step = one drawn frame of the original), `w.dt` = 1.0 for the first 5 frames, then 0.5 (WP-TIME, `World.advanceDt`); the original multiplies by `DAT_008b1718` (= dt) exactly where you see it in the decompile. Positions are world units; the walker works in units / 8 (see walker.ts).
 * Pepper = record `PEPP` (index 16) with the node chain extracted from FUN_004b4220: `Music` (0), `PepSwitc` (1), `SGwalk` gate `PEPPER_CONTROL & 1`, `sgswim` & 2, skateboard & 4, `SGVehic` & 8, `Ptera` & 0x40.
 * Rendering and the shell are not your business, except where your node has to ask for something (HUD icon, subtitle, sound): go through `IslandCtx`.
 

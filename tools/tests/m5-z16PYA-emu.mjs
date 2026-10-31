@@ -2,9 +2,12 @@ import { loadPya } from '../lib/m5-z16PYA-load.mjs';
 import { emuPya, G, RECORDS_BASE } from '../lib/m5-z16PYA-emu.mjs';
 import { PyaPepSwitch, setRosterHooks, SND, msClock } from '../../src/zones/z16PYA/peppsw.ts';
 import { PyaHud, fmt04d } from '../../src/zones/z16PYA/hud.ts';
+import { setRandSource, setTickCountSource } from '../../src/game/crt.ts';
 import { setIslandRandom } from '../../src/island/rng.ts';
+import { startTickClock } from '../../src/zones/common/tickrand.ts';
 import { Hud } from '../../src/shell/hud.ts';
 import { B } from '../../src/game/input.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // M5 z16PYA, the ORACLE tests: the original's code of the Pyramid's own nodes runs in the x86 interpreter (the emulated machine after the Pyramid's set-up, `IslandSetup.run`,
 // tools/lib/m5-z16PYA-emu.mjs) next to the port:
@@ -17,7 +20,7 @@ import { B } from '../../src/game/input.ts';
 const KEYS = { CTRL: B.CTRL, ENTER: B.ENTER };
 const NODE = 36;
 
-export default {
+const __test = {
   name: 'm5-z16PYA-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -167,8 +170,11 @@ export default {
     const upd = (name, st) => {
       const node = s.run(0x677350, [O.rec(PEPP), 0, 0, 0x5e, 0, 0]).eax;
       ms = st.ms; rng = valOf(st.k, st.ms);
-      W.tickCount = Math.round((st.ms * 30) / 1000);   // the port's clock: ticks of 1000 / 30 ms
-      setIslandRandom(() => (st.k + 0.5) / 32768);
+      // the port's clock = FUN_00435c91 on the shared real clock: pinned (the zone start FUN_00435c81 at tick 5000, now 5000 + ms)
+      setTickCountSource(() => 5000); startTickClock(); setTickCountSource(() => 5000 + st.ms);
+      setIslandRandom(null);   // (an earlier test of the same process may have left the island's own source behind: draw from the shared crt.ts rand())
+      setRandSource(() => st.k);
+      eq(msClock(), st.ms, `${name}: msClock = real ms since the zone start`);
       ic.sounds.length = 0;
       const r = s.run(0x676cd0, [O.rec(PEPP), node]);
       const pn = portNode();
@@ -183,7 +189,7 @@ export default {
       eq(orig, port, `${name}: sounds`);
       return orig;
     };
-    const MS = 9000;   // (the port's clock is a multiple of 33.3 ms: 9000 ms = tick 270)
+    const MS = 9000;
     const temple = upd('no hit', { ms: MS, k: kFor(MS, 5) });
     ok(temple.length === 1 && temple[0][0] === 'p3' && temple[0][1] === 775, `the temple sound every tick (${JSON.stringify(temple)})`);
     for (const [v, id] of [[0x557, 0x30b], [0x15c, 0x30a], [0x2a7, 0x309]]) {
@@ -196,7 +202,7 @@ export default {
     }
     for (const want of [0, 1, 1999]) upd(`value ${want}`, { ms: 30000, k: kFor(30000, want) });
     for (const k of [0, 1, 32767, 16384]) upd(`k ${k}`, { ms: 12345, k });
-    setIslandRandom(null);
+    setRandSource(null); setTickCountSource(null);
 
     // ------------------------------------------------------------------------------------------------ (c) the HUD FUN_006760d0
     {
@@ -209,19 +215,22 @@ export default {
       const icons = [0, 0x20, 1, 0x1e, 0xc0, 0xc0, 0xc0, 0xc0, 0xc0, 0, 0x21, 3, 0x40, 0x80, 0x40];
       for (let i = 0; i < 60; i++) script.push({ ic: icons[i % icons.length], ctrl: i % 7 === 3 ? 4 : 1, score: [0, 7, 1234, 99999, 0x7fffffff][i % 5], gems: [0, 1, 0x3ff, 0x400, 0x7, 0xffff][i % 6] });
       const f32 = (a) => mem.f32(a);
-      mem.w32(0x5d5bd9c, 0);
+      for (const dt of [1, 0.5]) {   // the blink timer counts `1.0 * DAT_008b1718` (float32)
+      mem.wf32(0x8b1718, dt); mem.wf32(0x8b171c, 1 / dt);
+      mem.w32(0x5d5bd9c, 0); ph.blink = 0;
       for (const [i, sc] of script.entries()) {
         s.setVar(0xc, sc.ic); s.setVar(0x5e, sc.ctrl); s.setVar(0x17, sc.score); s.setVar(0xde, sc.gems);
         W.vars.set(0xc, sc.ic); W.vars.set(0x5e, sc.ctrl); W.vars.set(0x17, sc.score); W.vars.set(0xde, sc.gems);
         s.run(0x6760d0, []);
-        ph.update(hud, W.vars, 1);
+        ph.update(hud, W.vars, dt);
         const iconO = mem.u32(0x5d4e144) | 0;
-        eq(text(0x5d4dd60), hud.centreText, `HUD #${i}: centre text`);
-        eq(text(0x5d4dd20), hud.leftText, `HUD #${i}: left text`);
-        if (i === 0 || sc.ic === 0 || ((sc.ic & 0x20) === 0 && (sc.ic & 1) === 0 && (sc.ic & 0x1e) === 0)) eq(iconO, hud.column[0].tex, `HUD #${i}: icon`);
-        else eq(iconO, hud.column[0].tex, `HUD #${i}: icon (sticky)`);
-        eq(f32(0x5d5bd9c), ph.blink, `HUD #${i}: blink timer`);
-        eq(s.mem.u32(0x8a2d2c + 4 * 0xc) | 0, W.vars.get(0xc) | 0, `HUD #${i}: var 0xc reset`);
+        eq(text(0x5d4dd60), hud.centreText, `HUD dt ${dt} #${i}: centre text`);
+        eq(text(0x5d4dd20), hud.leftText, `HUD dt ${dt} #${i}: left text`);
+        if (i === 0 || sc.ic === 0 || ((sc.ic & 0x20) === 0 && (sc.ic & 1) === 0 && (sc.ic & 0x1e) === 0)) eq(iconO, hud.column[0].tex, `HUD dt ${dt} #${i}: icon`);
+        else eq(iconO, hud.column[0].tex, `HUD dt ${dt} #${i}: icon (sticky)`);
+        eq(f32(0x5d5bd9c), ph.blink, `HUD dt ${dt} #${i}: blink timer`);
+        eq(s.mem.u32(0x8a2d2c + 4 * 0xc) | 0, W.vars.get(0xc) | 0, `HUD dt ${dt} #${i}: var 0xc reset`);
+      }
       }
       // fmt04d against the C runtime for the values above and negatives
       for (const v of [0, 7, -5, 12345, -12345, 1234]) { s.setVar(0x17, v); s.run(0x6760d0, []); eq(text(0x5d4dd60), fmt04d(v), `%04d of ${v}`); }
@@ -229,5 +238,6 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);
 const SND_ON = 0x150, SND_OFF = 0x106;
 void SND;

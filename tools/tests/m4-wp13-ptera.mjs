@@ -4,6 +4,7 @@ import { vehicles } from '../../src/island/vehicles/index.ts';
 import { baseParts, partOverrides } from '../../src/island/trigger/parts.ts';
 import { arrival, PTERA_RECORD } from '../../src/zones/z02LGI/arrival.ts';
 import { setAmbientRandom } from '../../src/island/ambient/common.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const G2c = (w) => vehicles(w).current;
 
@@ -15,7 +16,7 @@ const G2c = (w) => vehicles(w).current;
 const finite = (r) => [r.x, r.y, r.z, r.rx, r.ry, r.rz, ...r.m].every(Number.isFinite);
 const f = (v) => v.toFixed(1);
 
-export default {
+const __test = {
   name: 'm4-wp13-ptera',
   async run(ctx) {
     const failures = [], notes = [];
@@ -40,7 +41,7 @@ export default {
       const R = I.rec('PTER'), N = R.ctrl.find('Ptera');
       tick(I, 2);
       ok(N.state === 3 && R.anim && R.anim.clip === 3 && N.pad === -1, `parked: state ${N.state}, clip ${R.anim?.clip}, no pad near its home (pad ${N.pad})`);
-      P.x = R.x + 5; P.y = R.y; P.z = R.z; P.savePrev();
+      P.x = R.x + 5; P.y = R.y; P.z = R.z;
       tick(I, 2);
       let icon = 0;
       tick(I, 1, () => { icon |= W.vars.get(0x0c); });
@@ -171,7 +172,7 @@ export default {
         const a = arrival(10, 52, (i) => [W2.records[i].x, W2.records[i].y, W2.records[i].z], (n) => waypoints.nodePos(1, n), PTERA_RECORD);
         ok(a && a.vehicle === PTERA_RECORD && a.control === 0x40, `arrival from zone 10 with var 0xbb = 2: record ${a?.vehicle}, PEPPER_CONTROL 0x${a?.control.toString(16)}`);
         // what the zone game's afterSetup does (src/zones/z02LGI/index.ts)
-        R2.x = a.pos[0]; R2.y = a.pos[1]; R2.z = a.pos[2]; R2.ry = a.yaw; R2.rebuildYaw(); R2.savePrev();
+        R2.x = a.pos[0]; R2.y = a.pos[1]; R2.z = a.pos[2]; R2.ry = a.yaw; R2.rebuildYaw();
         W2.vars.set(0x5e, 0x40); vehicles(W2).current = R2;
         tick(J, 1);
         ok(N2.state <= 0 && R2.anim.clip === 1 && G2c(W2) === R2, `first tick: the Ptera takes off with Pepper (state ${N2.state}, clip ${R2.anim.clip})`);
@@ -201,3 +202,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

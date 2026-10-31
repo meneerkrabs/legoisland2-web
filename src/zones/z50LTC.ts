@@ -5,7 +5,7 @@ import { registerCtor } from '../game/setup.ts';
 import type { Loaded } from '../game/setup.ts';
 import type { World } from '../game/world.ts';
 import type { Pe } from '../formats/exe.ts';
-import { Controller, CF_ENABLED } from '../game/controller.ts';
+import { Controller, CF_ENABLED, runDrawHooks } from '../game/controller.ts';
 import { RF_NPC } from '../game/record.ts';
 import { B } from '../game/input.ts';
 import type { GameRecord } from '../game/record.ts';
@@ -119,6 +119,9 @@ export async function createLtcGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   // FUN_00429e00 of the talk start (0x83a44a) is the walk node's slope alignment
   const walker = pc?.nodes.find((n) => typeof (n as unknown as { alignToGround?: unknown }).alignToGround === 'function') as unknown as { alignToGround(w: World, rec: GameRecord): void } | undefined;
   if (walker) g.alignPepper = (w, rec) => walker.alignToGround(w, rec);
+  // FUN_0042271b (the draw pass) runs after the update and pre-render passes of every loop pass; its hooks (the pepswitc fall guard / candidate reset) therefore run once per sim step here,
+  // not once per rAF call of the renderer (LtcPepSwitch.draw ignores the renderer's repeat within the same tick)
+  if (pep) world.afterTick = (w) => { runDrawHooks(w, pepper, (n) => (n === pep ? pep.draw(w, pepper, pepper.ctrl!) : undefined)); };
   restoreHooks.cue?.('ltc-arrive', { sfx: (id: number) => ctx.sfx(id) });   // restored content (option off: unset)
 
   return {
@@ -136,7 +139,7 @@ export async function createLtcGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
     },
     update() {
       world.frozen = false;
-      // (the draw hook of the pepswitc node, FUN_0083aa8d, runs in the draw pass: GameRenderer.render -> controller.ts runDrawHooks, once per drawn frame, only when the node ran)
+      // (the draw hook of the pepswitc node, FUN_0083aa8d, runs from `world.afterTick` above, once per sim step, only when the node ran)
       ctx.hud.letterbox = g.letterbox;
       return 0;
     },

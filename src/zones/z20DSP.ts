@@ -15,6 +15,7 @@ import { FallingNode, TurboNode, BerthaNode, SpinNode, SaucerNode, ScrConeNode, 
 import { medalFromVar, resultLines } from './z20dsp/rules.ts';
 import { startDspEmitters } from './z20dsp/emitters.ts';
 import { ZoneParticles } from '../fx/particles/zone.ts';
+import { startTickClock } from './common/tickrand.ts';
 
 /** the state of one run (the original's globals): a new one is made by the Speedster's constructor, i.e. every time the zone starts */
 let shared = new DspShared();
@@ -30,6 +31,7 @@ registerCtor(CTOR.WHIRLWIND, () => prop(new WhirlwindNode()));
 
 registerZoneGame('z20DSP', async (ctx) => {
   const { world, loaded, archive, vars, sh, hud, scene, gr } = ctx;
+  startTickClock();                                   // FUN_006bde34 (the zone's run) calls FUN_00435c81: the sound picks scale rand() by the ms since here
   const pep = loaded.pepper;
   const { speed, camera } = prepareDsp(shared, world, loaded, archive, scene, sh.pe);
   gr.poseRange = 1e9;                                 // the skinned props are visible from far away: always use their own rig

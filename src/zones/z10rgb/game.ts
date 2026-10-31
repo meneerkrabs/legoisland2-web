@@ -15,6 +15,8 @@ import { CedricNode } from './enemy.ts';
 import type { CannonNode } from './enemy.ts';
 import { RgbState } from './shared.ts';
 
+import { ad, sb } from '../common/f32.ts';
+
 const F = Math.fround;
 
 export class RgbGameNode implements BehaviourNode {
@@ -24,7 +26,7 @@ export class RgbGameNode implements BehaviourNode {
   private st: RgbState;
   constructor(st: RgbState) { this.st = st; }
 
-  /** the blinking of the player after a hit (phases 1 and 3): hidden on the ticks with bit 2 set while DAT_0090bc4c is 0, for 3 / (1/30) = 90 ticks */
+  /** the blinking of the player after a hit (phases 1 and 3): hidden on the ticks with bit 2 set while DAT_0090bc4c is 0, until the float DAT_0090bdf8 (3.0, minus 1/30 * dt * dt per update) is below 0: 90 updates at dt 1, 360 at dt 0.5 */
   private blink(w: World): void {
     const st = this.st, p = st.pepper;
     if (!st.vulnerable) {
@@ -48,7 +50,7 @@ export class RgbGameNode implements BehaviourNode {
       case PHASE.BRIDGE: {
         st.saidBanner = false; st.saidPhase2 = false;
         this.blink(w);
-        const n = Math.trunc(st.tickF - st.baseTick);
+        const n = Math.trunc(sb(st.tickF, st.baseTick));
         st.score = 1000 - n < 0 ? 0 : 1000 - n;
         break;
       }
@@ -73,7 +75,7 @@ export class RgbGameNode implements BehaviourNode {
         break;
     }
     // FUN_005f7d8a: the sixteen flags wave at a random rate 0.75 .. 1.25
-    for (const i of REC.FLAGS) w.records[i].anim?.advance(st.rand(0.5) + K.FLAG_RATE, w.dt);
+    for (const i of REC.FLAGS) w.records[i].anim?.advance(ad(st.rand(0.5), K.FLAG_RATE), w.dt);
     return NODE_CONTINUE;
   }
 }

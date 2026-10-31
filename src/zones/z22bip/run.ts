@@ -6,6 +6,7 @@ import type { BipSpline } from './spline.ts';
 import type { PlaneNode } from './plane.ts';
 import type { TakeoffNode } from './takeoff.ts';
 import type { JohnnyNode } from './johnny.ts';
+import { srand, randF } from '../../game/crt.ts';
 
 /** record names the zone code finds by index (byte offset / 0x68 of FUN_0070814f / FUN_00707800 / FUN_00708457) */
 export const REC = { PLANE: 74, JOHNNY: 75, PROP: 76, BANANA: 117, MELON: 118 } as const;
@@ -43,19 +44,9 @@ export interface BipSound {
 }
 const nullSound: BipSound = { play() { /* silent */ }, at() { /* silent */ }, stop() { /* silent */ }, rate() { /* silent */ } };
 
-/** the C runtime's rand() of the executable (FUN_0085daf0: MSVC's linear congruential generator, DAT_00964aa4 = seed) */
-export class Crt {
-  seed = 1;
-  srand(s: number) { this.seed = s >>> 0; }
-  rand(): number { this.seed = (Math.imul(this.seed, 0x343fd) + 0x269ec3) >>> 0; return (this.seed >>> 16) & 0x7fff; }
-  /** FUN_004388ae(x): a random number in 0..x (0 for x <= 0), rand() / 32767 * x: the x87 runs in 24-bit precision (control word 0x7f), so the quotient and the product are float32 results (WP-VERIFY) */
-  float(x: number): number { x = Math.fround(x); return x <= 0 ? 0 : Math.fround(Math.fround(this.rand() / 32767) * x); }
-}
-
 export class BipRun {
   world: World | null = null;
   spline!: BipSpline;
-  crt = new Crt();
   sound: BipSound = nullSound;
   /** FUN_00439bf8 + FUN_00435a11: speak the zone-table line; false when speech is busy */
   say: (id: string) => boolean = (id) => { this.said.push(id); return true; };
@@ -88,10 +79,10 @@ export class BipRun {
   onLeaf: (() => void) | null = null;
   /** diagnostics */
   stats = { bananasFired: 0, monkeyHits: 0, targetHits: 0, bantHits: 0, fuelCans: 0, bananaPickups: 0, crashes: 0, melonHits: 0, stoneHits: 0 };
-  /** the 40 random numbers: srand(1), then FUN_004388ae(0x40204189) - 1.248 (FUN_0070b7b2) */
+  /** the 40 random numbers: srand(1) of the shared C runtime generator (src/game/crt.ts), then FUN_004388ae(0x40204189) - 1.248 (FUN_0070b7b2); the one zone with a fixed seed */
   initRandom() {
-    this.crt.srand(1);
-    for (let i = 0; i < 40; i++) this.randTable[i] = Math.fround(this.crt.float(f32(0x40204189)) - f32(0x3f9fbe77));
+    srand(1);
+    for (let i = 0; i < 40; i++) this.randTable[i] = Math.fround(randF(f32(0x40204189)) - f32(0x3f9fbe77));
     this.randIdx = 0;
   }
   /** the next value of the table (the index wraps after 0x27) */
@@ -105,8 +96,8 @@ export function f32(bits: number): number {
   return b.getFloat32(0);
 }
 
-/** FUN_00435c91: GetTickCount - start in milliseconds, from the tick count (a tick lasts dt / 30 s: 33 ms at dt = 1, 16.7 ms at the 60 Hz step of dt = 0.5) */
-export const msClock = (w: { tickCount: number; dt: number }) => Math.trunc((w.tickCount * w.dt * 1000) / 30);
+/** FUN_00435c91: the REAL milliseconds since the zone's start (the shared clock of src/zones/common/tickrand.ts, started by FUN_00435c81 in z22BIP.ts); the argument of the old tick-derived stand-in is unused */
+export { msClock } from '../common/tickrand.ts';
 
 const runs = new WeakMap<World, BipRun>();
 /** the run state of a world (created on first use) */

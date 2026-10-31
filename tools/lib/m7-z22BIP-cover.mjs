@@ -3,8 +3,9 @@
 //   - dt is written into DAT_008b1718 / DAT_008b171c of the emulator and into `world.dt` of the port; the hosted animation advance (FUN_0043b76a) takes the same dt.
 //   - every engine call the original makes (sounds with the real handles, speech, collision sweeps with all their arguments, particles, draw calls with the matrices)
 //     is logged and compared with what the port does.
-//   - tolerance: float32 noise, 1e-5 relative to max(1, |value|); the worst relative difference per field is printed in the notes.
+//   - tolerance 0: every compared float is bit-identical (WP-TIME float32 sweep); the Cmp class still takes a tolerance for experiments.
 // Nothing of the executable is stored here, only addresses.
+import { pinBipClock } from './bip-clock.mjs';
 import fs from 'node:fs';
 import { BipEmu, RECORDS_BASE } from './bip-emu.mjs';
 import { bipFixture } from './bip-oracle.mjs';
@@ -28,15 +29,10 @@ export function lcg(seed) { let s = seed >>> 0; const next = () => { s = (Math.i
 export const f32 = Math.fround;
 const hex = (n) => '0x' + n.toString(16);
 
-/**
- * the delta of a probe sweep is the difference of two float32-rounded points (the original stores the box corners as float32, then subtracts): the error is 1 ulp of the
- * corner coordinates, so the tolerance of the delta is 4 ulp of the largest coordinate of its start point
- */
-function sweepDeltaTol(row) { const m = Math.max(Math.abs(row[2]), Math.abs(row[3]), Math.abs(row[4]), 1e-9); return 4 * Math.pow(2, Math.floor(Math.log2(m)) - 23) + 1e-6; }
 export const COORD = 300;
 /** a comparer with explicit tolerances: numbers (relative to max(1, |original|)), exact ints / strings, and counted KNOWN deviations */
 export class Cmp {
-  constructor(label, tol = 1e-5, floor = 4e-5) { this.label = label; this.tol = tol; this.floor = floor; this.checked = 0; this.fails = []; this.worst = new Map(); this.devs = new Map(); this.failCount = new Map(); }
+  constructor(label, tol = 0, floor = 0) { this.label = label; this.tol = tol; this.floor = floor; this.checked = 0; this.fails = []; this.worst = new Map(); this.devs = new Map(); this.failCount = new Map(); }
   bad(t, name, text) {
     const c = (this.failCount.get(name) ?? 0) + 1; this.failCount.set(name, c);
     if (c <= 2 && this.fails.length < 24) this.fails.push(`${this.label}: tick ${t} ${name}: ${text}`);
@@ -54,7 +50,7 @@ export class Cmp {
   eq(t, name, orig, port) { this.checked++; const a = JSON.stringify(orig), b = JSON.stringify(port); if (a !== b) this.bad(t, name, `original ${a} port ${b}`); }
   /** an event list (arrays of [kind, ...numbers]): same kinds, same order, numbers within the tolerance */
   events(t, name, orig, port) {
-    const tolOf = (row, k, v) => (row[0] === 'sweep' && k >= 5 && k <= 7 ? sweepDeltaTol(row) : this.tol * Math.max(1, Math.abs(v)));
+    const tolOf = (row, k, v) => this.tol * Math.max(1, Math.abs(v));
     this.checked++;
     let where = orig.length === port.length ? '' : `length ${orig.length} vs ${port.length}`;
     for (let i = 0; !where && i < orig.length; i++) {
@@ -69,8 +65,8 @@ export class Cmp {
   /** a known deviation of the port (counted, with the first tick / values) */
   known(id, t, text) { const d = this.devs.get(id) ?? { n: 0, first: `tick ${t}: ${text}` }; d.n++; this.devs.set(id, d); }
   result() {
-    const w = [...this.worst].filter(([, v]) => v > 1e-7).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k} ${v.toExponential(1)}`).join(', ');
-    const notes = [`${this.label}: ${this.checked} checks, worst relative differences ${w || 'none above 1e-7'} (tolerance: relative ${this.tol} of max(1, |value|) (coordinates: of max(${COORD}, |value|)), or absolute ${this.floor} = 1 ulp of float32 at 500)`];
+    const w = [...this.worst].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k} ${v.toExponential(1)}`).join(', ');
+    const notes = [`${this.label}: ${this.checked} checks, worst relative differences ${w || 'none (bit-exact)'} (tolerance: relative ${this.tol} of max(1, |value|) (coordinates: of max(${COORD}, |value|)), or absolute ${this.floor} = 1 ulp of float32 at 500)`];
     for (const [id, d] of this.devs) notes.push(`${this.label}: KNOWN DEVIATION ${id} x${d.n}, first at ${d.first}`);
     return { checked: this.checked, failures: this.fails, notes, devs: this.devs };
   }
@@ -241,6 +237,7 @@ export class Rig extends BipEmu {
 export function makeWorld(specs, dt) {
   const w = new World();
   w.dt = dt;
+  pinBipClock(w);
   w.records = specs.map((s, i) => {
     const r = new GameRecord(s.name); r.index = i;
     if (s.m) r.m.set(s.m); else { r.x = s.x ?? 0; r.y = s.y ?? 0; r.z = s.z ?? 0; r.m[0] = r.m[5] = r.m[10] = 1; }
@@ -369,10 +366,10 @@ export function flightScenario(ctx, o) {
   const mkNames = ['monkey0', 'monkey1'];
   const st = { ticks: 0, stall: 0, noFuel: 0, lowFuel: 0, alarm: 0, rolling: 0, atEnd: 0, crash: 0, injected: 0, landedResult: 0, modes: new Map(), fire: 0, emptyFire: 0, ahead: 0, hits: 0, wrap: 0 };
 
-  // tolerance 4e-5: the heading comes from the course frame at progress + 0.01; progress is a float32 (1 ulp = 1.5e-8 .. 3e-8) and the course turns by up to 83 rad per unit of progress (see
-  // the spline notes), so an ulp of difference in progress (x87 extended vs the port's doubles) moves the heading by up to 2.5e-6 rad, and the banana directions / matrices built on it
-  const cmp = new Cmp(label, o.tol ?? 4e-5);
-  for (let i = 0; i < 40; i++) cmp.num(0, 'random table', emu.rf(0x5d5ce14 + 4 * i), run.randTable[i], 1e-7);
+  // (formerly tolerance 4e-5: the heading comes from the course frame at progress + 0.01; progress is a float32 (1 ulp = 1.5e-8 .. 3e-8) and the course turns by up to 83 rad per unit of progress (see
+  // the spline notes), so an ulp of difference in progress (x87 extended vs the port's doubles) moves the heading by up to 2.5e-6 rad, and the banana directions / matrices built on it; the port is bit-exact now, WP-TIME)
+  const cmp = new Cmp(label, o.tol ?? 0);
+  for (let i = 0; i < 40; i++) cmp.num(0, 'random table', emu.rf(0x5d5ce14 + 4 * i), run.randTable[i]);
   const buttons = o.buttons ?? buttonScript(seed, o.weights);
   let wait = 0;
   for (let t = 0; t < (o.until ?? ticks); t++) {
@@ -456,7 +453,7 @@ export function flightScenario(ctx, o) {
       cmp.int(t, 'banana.active', mem.r8(a + 0x50), bn.active ? 1 : 0);
       if (bn.active || mem.r8(a + 0x50)) for (const [k, off] of [['x', 0x30], ['y', 0x34], ['z', 0x38], ['vx', 0x40], ['vy', 0x44], ['vz', 0x48], ['sx', 0x54], ['sy', 0x58], ['sz', 0x5c], ['ax', 0x60], ['ay', 0x64], ['az', 0x68]]) (k.length === 1 && k >= 'x' ? cmp.pos : cmp.num).call(cmp, t, 'banana.' + k, emu.rf(a + off), bn[k]);
       if (bn.active && o.debug && Math.abs(emu.rf(a + 0x30) - bn.x) > 2e-5) o.debug(t, i, [emu.rf(a + 0x30), emu.rf(a + 0x40), emu.r32(a + 0x4c)], [bn.x, bn.vx, bn.born]);
-      if (bn.active) { cmp.int(t, 'banana.born', emu.r32(a + 0x4c), bn.born); const hm = Math.cos(bn.heading); cmp.num(t, 'banana.heading', emu.rf(a), hm); }
+      if (bn.active) { cmp.int(t, 'banana.born', emu.r32(a + 0x4c), bn.born); const hm = f32(Math.cos(bn.heading)); cmp.num(t, 'banana.heading', emu.rf(a), hm); }
     }
     mks.forEach((m, k) => cmp.int(t, mkNames[k] + '.state', mem.r8(mn[k] + 0x39c), m.state));
     ropes.forEach((r, k) => cmp.int(t, `rope${k}.hit`, emu.r32(dh[k] + 0x4c), r.hit));
@@ -564,8 +561,8 @@ export function sequenceScenario(ctx, o) {
     cmp.int(t, 'takeoff.state', i32(Tk + 0x18), tk.state); cmp.num(t, 'takeoff.wait', f(Tk + 0x1c), tk.wait); cmp.num(t, 'takeoff.count', f(Tk + 0x20), tk.count);
     cmp.num(t, 'takeoff.progress', f(Tk + 0x2c), tk.progress); cmp.num(t, 'takeoff.climb', f(Tk + 0xc8), tk.climb); cmp.num(t, 'takeoff.climbSpeed', f(Tk + 0xcc), tk.climbSpeed);
     cmp.int(t, 'takeoff.propPhase', i32(Tk + 0xb4), tk.propPhase);
-    cmp.num(t, 'johnny.wait', f(Jn + 0x18), jn.wait); cmp.num(t, 'johnny.waiting', f(Jn + 0x1c), jn.waiting); cmp.num(t, 'johnny.bend', f(Jn + 0x20), jn.bend, 1e-4);
-    cmp.num(t, 'johnny.roll', f(Jn + 0x24), jn.roll, 1e-4); cmp.num(t, 'johnny.progress', f(Jn + 0x28), jn.progress); cmp.int(t, 'johnny.ahead', i32(Jn + 0x38), jn.ahead ? 1 : 0);
+    cmp.num(t, 'johnny.wait', f(Jn + 0x18), jn.wait); cmp.num(t, 'johnny.waiting', f(Jn + 0x1c), jn.waiting); cmp.num(t, 'johnny.bend', f(Jn + 0x20), jn.bend);
+    cmp.num(t, 'johnny.roll', f(Jn + 0x24), jn.roll); cmp.num(t, 'johnny.progress', f(Jn + 0x28), jn.progress); cmp.int(t, 'johnny.ahead', i32(Jn + 0x38), jn.ahead ? 1 : 0);
     cmp.int(t, 'landing.phase', i32(Ld + 0x18), ld.phase);
     if (ld.phase) {
       cmp.int(t, 'landing.approach', i32(Ld + 0x1c), ld.approach); cmp.int(t, 'landing.slide', i32(Ld + 0x20), ld.slide);
@@ -886,7 +883,7 @@ export function propsScenario(ctx, o) {
       cmp.int(t, `rope${k}.moving`, emu.r32(R + 0x48), r.moving); cmp.int(t, `rope${k}.hit`, emu.r32(R + 0x4c), r.hit); cmp.int(t, `rope${k}.step`, emu.r32(R + 0x58), r.step);
       cmp.int(t, `rope${k}.wait`, emu.r32(R + 0x5c), r.waitLeft); cmp.num(t, `rope${k}.turn`, emu.rf(R + 0x64), r.turn);
       for (let q = 0; q < 3; q++) cmp.pos(t, `rope${k}.position`, emu.rf(R + 0x30 + 4 * q), r.cur[q]);
-      for (const i of k ? [B2, C2] : [B1, C1]) for (let q = 0; q < 16; q++) cmp.num(t, 'rope partner matrix', recM(i, q), w.records[i].m[q], 1e-5);
+      for (const i of k ? [B2, C2] : [B1, C1]) for (let q = 0; q < 16; q++) cmp.num(t, 'rope partner matrix', recM(i, q), w.records[i].m[q]);
       if (r.moving === 1 && r.hit === 0) st.ropeMoving++; else if (r.moving === 0) st.ropeWaiting++; else st.ropeTurning++;
     });
     for (let q = 0; q < 16; q++) cmp.num(t, 'fuel can matrix', recM(JC, q), w.records[JC].m[q]);

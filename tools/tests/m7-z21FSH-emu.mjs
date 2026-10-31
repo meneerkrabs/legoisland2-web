@@ -1,6 +1,8 @@
+import { setTickCountSource } from '../../src/game/crt.ts';
 import { loadFsh, createHarness, attachMirrors, runConstructors, emuPass, snapshotWorld, restoreWorld, f32, FN } from '../lib/m7-z21FSH-emu.mjs';
 import { readTables } from '../../src/zones/z21fsh/nodes.ts';
 import { REC, ST, CAST, K, BTN } from '../../src/zones/z21fsh/rules.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // z21FSH, differential test (docs/re/m6/z21FSH.md section "Differential test (WP-VERIFY)"): the ORIGINAL code of the fishing zone (the fishing state machine FUN_006f6e2b with the bobber FUN_006f665b
 // and the camera FUN_006f6d71, the switch FUN_006f4bfa with the message slots FUN_006f48c9 / 49b3, the shoal FUN_006f5dac with the fish FUN_007061ee / follower FUN_006f5b50 / bite picker FUN_00705e00,
@@ -8,7 +10,7 @@ import { REC, ST, CAST, K, BTN } from '../../src/zones/z21fsh/rules.ts';
 // same tick from that state. Compared: which nodes ran, the records, every node field (Fishing node, 15 + 1 fish structs, followers, rod), the message slots and their text draws, the globals
 // (result, camera, splash flag, rod tip, picker), the game variables, the animation state, the sound / speech / music / cutscene calls, the matrices handed to the model parts, the fishing line.
 
-export default {
+const __test = {
   name: 'm7-z21FSH-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -347,6 +349,8 @@ export default {
     notes.push(`visited: ${Object.entries(visited).sort().map(([k, v]) => `${k} ${v}`).join(', ')}`);
     notes.push(`float comparisons float32 mismatches (count): ${Object.entries(inexact).sort((x, y) => y[1] - x[1]).slice(0, 14).map(([k, v]) => `${k} ${v} (${inexactMax[k].toFixed(3)})`).join(', ')}`);
     notes.push(`${nums} float comparisons, ${((Date.now() - t0all) / 1000).toFixed(1)} s`);
+    setTickCountSource(null);
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

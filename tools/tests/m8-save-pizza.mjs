@@ -12,6 +12,7 @@ import { Duel, B, REC, RECORDS_BASE } from '../lib/m7-isl-veh-emu.mjs';
 import '../../src/island/pizza/index.ts';
 import { withCdHeap, compareMasked, blockTick } from '../lib/m8-save-pizza.mjs';
 import { setIslandRandom } from '../../src/island/rng.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MINE = new Set([0x42887c, 0x42900b, 0x429d1b, 0x538126, 0x5385d3, 0x53955e, 0x5399d8, 0x539d44, 0x53c337, 0x53d66c]);
 const ONLY = process.env.M8_ONLY ? new Set(process.env.M8_ONLY.split(',').map(Number)) : MINE;
@@ -20,7 +21,7 @@ const FAMILIES = {
   pizza: 'm7-isl-veh-pizza', carry: 'm7-isl-veh-carry', footy: 'm7-isl-veh-footy', speeder: 'm7-isl-veh-speeder', supe: 'm7-isl-veh-supe', train: 'm7-isl-veh-train',
 };
 
-export default {
+const __test = {
   name: 'm8-save-pizza',
   async run(ctx) {
     const failures = [], notes = [];
@@ -90,3 +91,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

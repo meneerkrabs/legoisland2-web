@@ -3,7 +3,7 @@
 // {0.01 = 0x3c23d70a, 0}): the set-up attaches it at position 0 with the gate (var 2, mask 1, value 1), so it is always on and stops the record's chain.
 // The behaviour is in the DRAW hook FUN_00426e9a: every drawn frame `FUN_0043ebe0(model, 0, &node[6], &node[5])` adds (du, dv) = (node +0x18, node +0x14) to the texture
 // coordinates of part 0's mesh, then FUN_0043f1a0 draws that mesh at the record's matrix (no visibility flags, no LOD test). The renderer owns that hook
-// (`GameRenderer.flow`, src/game/render.ts, WP-RENDER: it reads the argument words of every attach of this constructor, docs/re/rendering.md section 10); this node is the
+// (`GameRenderer.flow`, src/game/render.ts, WP-RENDER: it must add (du, dv) ONCE PER SIM STEP = once per drawn frame of the original at 60 Hz (`n = world.tickCount - lastSeen` times per rAF call), NOT scaled by dt or by the elapsed time: FUN_0043ebe0 gets the node's two words by pointer and adds them as they are; it reads the argument words of every attach of this constructor, docs/re/rendering.md section 10); this node is the
 // controller half (update = 1 = "ran, stop") so that the attach is not skipped and the controller chain is the original's.
 import type { BehaviourNode } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';

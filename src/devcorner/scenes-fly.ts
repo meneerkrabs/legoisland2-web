@@ -28,7 +28,7 @@ export interface FlyPath {
   /** polylines for drawing (sampled spline) */
   polyEye: number[][];
   polyLook: number[][] | null;
-  /** keys (the spline's point count): one step per tick = count ticks */
+  /** keys (the spline's point count): one step per dt-unit (1/30 s) = count dt-units = count / 30 s */
   count: number;
 }
 
@@ -45,7 +45,7 @@ export interface FlyState {
   show: boolean;
   /** progress 0..1 */
   p: number;
-  /** multiplier of the game's own speed (1 = count ticks) */
+  /** multiplier of the game's own speed (1 = count / 30 s) */
   speed: number;
   loop: boolean;
   /** extension: the game does not see the pad while flying (Pepper stands still) */
@@ -111,7 +111,6 @@ export class FlyHook implements RunHook {
     if (this.saved) {
       const cam = this.run.world.camera;
       for (let i = 0; i < 18; i++) cam.c[i] = this.saved[i];
-      cam.savePrev();
       this.saved = null;
     }
   }
@@ -124,7 +123,6 @@ export class FlyHook implements RunHook {
     c[0] = v.eye[0]; c[1] = v.eye[1]; c[2] = v.eye[2]; c[3] = v.target[0]; c[4] = v.target[1]; c[5] = v.target[2];
     c[6] = 0; c[7] = 1; c[8] = 0;
     cam.updateView();
-    cam.savePrev();
   }
 
   tick() {
@@ -137,8 +135,8 @@ export class FlyHook implements RunHook {
   afterSim() {
     const S = this.S;
     if (!S.flying || !S.path || this.cutsceneRuns()) return;
-    // the game's pace: 1 / count of the path per tick (CameraSpline.rate)
-    S.p += (1 / S.path.count) * S.speed;
+    // the game's pace: `rate * DAT_008b1718` of the path per sim step (CameraSpline.rate = 1 / count; dt = 1 for the first frames, then 0.5 at the 60 Hz step)
+    S.p += (1 / S.path.count) * S.speed * this.run.world.dt;
     if (S.p >= 1) { if (S.loop) S.p -= 1; else { S.p = 1; this.stop(); return; } }   // the end: the chase camera comes back
     this.apply();
   }

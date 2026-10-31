@@ -20,6 +20,7 @@ import type { World } from '../../game/world.ts';
 import { B } from '../../game/input.ts';
 import { tryCtx } from '../../island/ctx.ts';
 import { rand } from '../../island/rng.ts';
+import { msClock } from '../common/tickrand.ts';
 import { vehicles, sfx, stopSfx } from '../../island/vehicles/common.ts';
 import { SKATE_ROLL_SOUNDS } from '../../island/vehicles/skate.ts';
 import { newPeppSwTail, packPeppSw, rosterReload, setPeppSwPoll } from '../hubsave.ts';
@@ -46,8 +47,8 @@ const RANDOM_MOD = 2000, HIT_557 = 0x557, HIT_15C = 0x15c, HIT_2A7 = 0x2a7;
 const NO_BOARD_STATES: readonly number[] = [1, 2, 0x57, 0x1f, 0x38];
 /** the clips (Pepper's animation id) that raise the groove level to 2: 0x24, 0x3f, 0x40 */
 const GROOVE2_CLIPS: readonly number[] = [0x24, 0x3f, 0x40];
-/** FUN_00435c91: milliseconds since the loop started (the port counts ticks of 1000 / 30 ms) */
-export const msClock = (w: { tickCount: number }) => Math.trunc((w.tickCount * 1000) / 30);
+/** FUN_00435c91: `GetTickCount() - DAT_009dab64` (the real ms since the zone's FUN_00435c81 in the wrapper FUN_00675f02): the shared zone clock (common/tickrand.ts); tests pin it with `setTickCountSource` (src/game/crt.ts) */
+export { msClock };
 
 /** what the Enter key and the every-tick part of the roster do (FUN_00698da4 / FUN_00698e39): set by the hub module (the island's vehicle looks with this zone's roster) */
 export interface RosterHooks {
@@ -92,7 +93,8 @@ export class PyaPepSwitch implements BehaviourNode {
       const t = w.records[TEMPLE_RECORD];
       if (t) c.sfxAt(this.id(c, SND.TEMPLE), [t.x, t.y, t.z]);
       // ftol(FUN_004388ae((float)(GetTickCount - start))) % 2000: FUN_004388ae(x) = rand() / 32767 * x
-      const r = Math.trunc(rand(fr(msClock(w)))) % RANDOM_MOD;   // RNG: shared MSVC rand port later (src/island/rng.ts)
+      // (the float32 argument and the float32 store of FUN_004388ae (fst [ebp-4]) are what `rand` of src/island/rng.ts does; the shared crt.ts generator)
+      const r = Math.trunc(rand(fr(msClock()))) % RANDOM_MOD;
       if (r === HIT_557) c.sfx(this.id(c, SND.R_557));
       else if (r === HIT_15C) c.sfx(this.id(c, SND.R_15C));
       else if (r === HIT_2A7) c.sfx(this.id(c, SND.R_2A7));

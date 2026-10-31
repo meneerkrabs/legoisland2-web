@@ -3,10 +3,11 @@
 import { OglDuel, CTORS, Lcg, B, RECORDS_BASE, REC } from '../lib/m5-ogl-emu.mjs';
 import { vehicles } from '../../src/island/vehicles/common.ts';
 import { oglGlobals } from '../../src/zones/z40OGL/peppswit/globals.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const N = Number(process.env.M5_PS_TICKS ?? 1500);
 
-export default {
+const __test = {
   name: 'm5-z40OGL-peppswit-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -14,9 +15,9 @@ export default {
     const fin = (D, what) => { checked += D.checked; if (D.nfail) failures.push(...D.failures.slice(0, 5).map((s) => `${what}: ${s}`)); };
 
     // ---- 1. PEPPSWIT + the void node: random modes / mailbox / clips / heights / vehicle / buttons, both story nodes
-    for (const node of [64, 66]) {
-      const R = new Lcg(777 + node);
-      const D = new OglDuel(ctx, { node, kinds: ['PeppSwit', 'PeppVoid'], ctors: [CTORS.PEPPSWIT, CTORS.VOID], records: (n) => n === 'PEPP', label: `pepper${node}` });
+    for (const [node, dt] of [[64, 1], [66, 1], [64, 0.5], [66, 0.5]]) {
+      const R = new Lcg(777 + node + (dt === 1 ? 0 : 1000));
+      const D = new OglDuel(ctx, { node, dt, kinds: ['PeppSwit', 'PeppVoid'], ctors: [CTORS.PEPPSWIT, CTORS.VOID], records: (n) => n === 'PEPP', label: `pepper${node} dt${dt}` });
       const pi = D.P.pepper.index, mem = D.emu.cpu.mem, W = D.P.world;
       const clips = [0, 1, 2, 0x16, 99, 0x62, 0x1b, 0x1c, 5];
       const modes = {};
@@ -35,15 +36,15 @@ export default {
         D.cmp('lamp timer', mem.f32(0x5d5f3c4), oglGlobals(W).lampTimer, 0);
       }
       D.eq('rng draws', D.rngO.n, D.rngP.n);
-      for (const k of [1, 4, 8, 32]) if (!modes[k]) failures.push(`pepper${node}: mode ${k} never reached`);
-      notes.push(`pepper node ${node}: ${D.checked} checks, modes ${JSON.stringify(modes)}`);
-      fin(D, `pepper${node}`);
+      for (const k of [1, 4, 8, 32]) if (!modes[k]) failures.push(`pepper${node} dt${dt}: mode ${k} never reached`);
+      notes.push(`pepper node ${node} dt ${dt}: ${D.checked} checks, modes ${JSON.stringify(modes)}`);
+      fin(D, `pepper${node} dt${dt}`);
     }
 
     // ---- 2. the slugs: Pepper moved next to them at random, cutscenes on / off
-    for (const node of [64, 66]) {
-      const R = new Lcg(4242 + node);
-      const D = new OglDuel(ctx, { node, kinds: ['PeppSlug'], ctors: [CTORS.SLUG], records: (n) => /^SLG/.test(n) || n === 'PEPP', label: `slug${node}` });
+    for (const [node, dt] of [[64, 1], [66, 1], [64, 0.5], [66, 0.5]]) {
+      const R = new Lcg(4242 + node + (dt === 1 ? 0 : 1000));
+      const D = new OglDuel(ctx, { node, dt, kinds: ['PeppSlug'], ctors: [CTORS.SLUG], records: (n) => /^SLG/.test(n) || n === 'PEPP', label: `slug${node} dt${dt}` });
       const pi = D.P.pepper.index, mem = D.emu.cpu.mem;
       const slugs = D.P.world.records.filter((r) => /^SLG/.test(r.name)).map((r) => r.index);
       const st = {};
@@ -60,15 +61,15 @@ export default {
         }
         D.vars(); D.globals(); D.calls();
       }
-      for (const k of [0, 1, 2]) if (!st[k]) failures.push(`slug${node}: state ${k} never reached`);
-      notes.push(`slugs node ${node}: ${D.checked} checks, states ${JSON.stringify(st)}`);
-      fin(D, `slug${node}`);
+      for (const k of [0, 1, 2]) if (!st[k]) failures.push(`slug${node} dt${dt}: state ${k} never reached`);
+      notes.push(`slugs node ${node} dt ${dt}: ${D.checked} checks, states ${JSON.stringify(st)}`);
+      fin(D, `slug${node} dt${dt}`);
     }
 
     // ---- 3. the robots
-    for (const node of [64, 66]) {
-      const R = new Lcg(99 + node);
-      const D = new OglDuel(ctx, { node, kinds: ['PeppRobot'], ctors: [CTORS.ROBOT], records: (n) => /^RBT/.test(n) || n === 'PEPP', label: `robot${node}` });
+    for (const [node, dt] of [[64, 1], [66, 1], [64, 0.5], [66, 0.5]]) {
+      const R = new Lcg(99 + node + (dt === 1 ? 0 : 1000));
+      const D = new OglDuel(ctx, { node, dt, kinds: ['PeppRobot'], ctors: [CTORS.ROBOT], records: (n) => /^RBT/.test(n) || n === 'PEPP', label: `robot${node} dt${dt}` });
       const pi = D.P.pepper.index;
       const rb = D.P.world.records.filter((r) => /^RBT/.test(r.name)).map((r) => r.index);
       const clips = {};
@@ -78,14 +79,14 @@ export default {
         for (const s of rb) { D.rec(s, 0xffff, 0); D.ran(s); D.anim(s); const r = D.P.world.records[s]; clips[r.anim.clip] = (clips[r.anim.clip] ?? 0) + 1; D.cmp('distSq', D.emu.ctrlDist(s), r.ctrl.distSq, 1e-5); }
         D.vars(); D.calls();
       }
-      if (!clips[1] || !clips[3]) failures.push(`robot${node}: clips ${JSON.stringify(clips)}`);
-      notes.push(`robots node ${node}: ${D.checked} checks, clips ${JSON.stringify(clips)}`);
-      fin(D, `robot${node}`);
+      if (!clips[1] || !clips[3]) failures.push(`robot${node} dt${dt}: clips ${JSON.stringify(clips)}`);
+      notes.push(`robots node ${node} dt ${dt}: ${D.checked} checks, clips ${JSON.stringify(clips)}`);
+      fin(D, `robot${node} dt${dt}`);
     }
 
     // ---- 4. the citizens (node 64): the original's SGMFIG runs natively beneath them (it owns the walker)
-    {
-      const D = new OglDuel(ctx, { node: 64, kinds: ['SGMFIG', 'PeppCitizen'], ctors: [0x426151, CTORS.CITIZEN], records: (n) => /^CIT[1-5]/.test(n) || n === 'PEPP', label: 'citizen' });
+    for (const dt of [1, 0.5]) {
+      const D = new OglDuel(ctx, { node: 64, dt, kinds: ['SGMFIG', 'PeppCitizen'], ctors: [0x426151, CTORS.CITIZEN], records: (n) => /^CIT[1-5]/.test(n) || n === 'PEPP', label: `citizen dt${dt}` });
       const mem = D.emu.cpu.mem;
       const cs = D.P.world.records.filter((r) => /^CIT/.test(r.name)).map((r) => r.index);
       const st = {};
@@ -100,14 +101,14 @@ export default {
         }
         D.vars(); D.calls();
       }
-      if (!st[0] || !st[2]) failures.push(`citizens: states ${JSON.stringify(st)} (walking and falling expected)`);
-      notes.push(`citizens: ${D.checked} checks, states ${JSON.stringify(st)}`);
-      fin(D, 'citizen');
+      if (!st[0] || !st[2]) failures.push(`citizens dt${dt}: states ${JSON.stringify(st)} (walking and falling expected)`);
+      notes.push(`citizens dt ${dt}: ${D.checked} checks, states ${JSON.stringify(st)}`);
+      fin(D, `citizen dt${dt}`);
     }
 
     // ---- 5. HOLO's watcher and STAR (update / pre-render ran masks; the draw hook against FUN_0042271b)
-    {
-      const D = new OglDuel(ctx, { node: 64, kinds: ['PeppHolo', 'PeppStar'], ctors: [CTORS.HOLO, CTORS.STAR], records: (n) => n === 'HOLO' || n === 'STAR' || n === 'PEPP', label: 'holo/star' });
+    for (const dt of [1, 0.5]) {
+      const D = new OglDuel(ctx, { node: 64, dt, kinds: ['PeppHolo', 'PeppStar'], ctors: [CTORS.HOLO, CTORS.STAR], records: (n) => n === 'HOLO' || n === 'STAR' || n === 'PEPP', label: `holo/star dt${dt}` });
       const mem = D.emu.cpu.mem, cpu = D.emu.cpu;
       for (let i = 0; i < 20; i++) { D.tick(0); D.ran(5); D.ran(0); D.rec(5, 0xffff, 0); D.rec(0, 0xffff, 0); D.vars(); D.calls(); }
       const eye = D.emu.alloc(16);
@@ -121,13 +122,13 @@ export default {
         r.ctrl.nodes[0].place(r, e, far, !!fogOn);
         D.rec(0, 0xffff, 0);
       }
-      notes.push(`holo / star: ${D.checked} checks`);
-      fin(D, 'holo/star');
+      notes.push(`holo / star dt ${dt}: ${D.checked} checks`);
+      fin(D, `holo/star dt${dt}`);
     }
 
     // ---- 6. the constructor's decor / roster set-up and Enter next to an outfit record
-    {
-      const D = new OglDuel(ctx, { node: 64, kinds: ['PeppSwit'], ctors: [CTORS.PEPPSWIT], records: (n) => n === 'PEPP', label: 'decor' });
+    for (const dt of [1, 0.5]) {
+      const D = new OglDuel(ctx, { node: 64, dt, kinds: ['PeppSwit'], ctors: [CTORS.PEPPSWIT], records: (n) => n === 'PEPP', label: `decor dt${dt}` });
       const mem = D.emu.cpu.mem, pi = D.P.pepper.index;
       const attachModes = D.emu.log.filter((l) => /^mode (10[4-9]|11[0-9]|12[01]) 255 1$/.test(l));
       D.tick(0);
@@ -146,9 +147,10 @@ export default {
         D.calls();
         if (i > 2 && W.records[3].variant !== 0x20b01) changed++;
       }
-      notes.push(`decor: ${D.checked} checks; MAMA's variant word changed on ${changed} ticks after Enter`);
-      fin(D, 'decor');
+      notes.push(`decor dt ${dt}: ${D.checked} checks; MAMA's variant word changed on ${changed} ticks after Enter`);
+      fin(D, `decor dt${dt}`);
     }
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

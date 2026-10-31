@@ -4,6 +4,7 @@
 import { makeCaiDuel, onodeOf, NATIVE_CTORS, B, lcg, randomKeys, RECORDS_BASE, REC, VAR_ARRAY } from '../lib/m5-z13CAI-emu.mjs';
 import { berthPos, vehicles } from '../../src/island/vehicles/common.ts';
 import { NODE_STOP } from '../../src/game/controller.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MAXFAIL = 30;
 const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
@@ -20,12 +21,12 @@ function sounds(d) {
     const split = (l) => { const q = /^(p3 #\d+) (\S+)$/.exec(l); return q ? [q[1], q[2].split(',').map(Number)] : [l, null]; };
     const [a, pa] = split(o[i]), [b, pb] = split(p[i]);
     if (a !== b) { d.fail(`${d.label} t${d.t} sound call ${i}: original ${o[i]} port ${p[i]}`); continue; }
-    if (pa) for (let k = 0; k < 3; k++) d.cmp(`${a} pos[${k}]`, pa[k], pb[k], 1e-5);
+    if (pa) for (let k = 0; k < 3; k++) d.cmp(`${a} pos[${k}]`, pa[k], pb[k]);
   }
 }
 const GULLS = Array.from({ length: 16 }, (_, k) => 24 + k);       // PTER (24), GL00..GL14 (25..39)
 
-export default {
+const __test = {
   name: 'm5-z13CAI-emu',
   async run(ctx) {
     const failures = [], notes = [];
@@ -40,22 +41,22 @@ export default {
       const heli = vehIdx >= 0 ? W.records[vehIdx] : null;
       const compare = () => {
         for (const i of GULLS) {
-          d.rec(i, 0xffff, 1e-5);
+          d.rec(i, 0xffff);
           const pn = W.records[i].ctrl?.nodes.find((n) => n.kind === 'Gull'), a = onodeOf(d, i, NATIVE_CTORS.GULL);
           if (pn && a) {
             d.eq(`gull${i} state`, mem.r32(a + 0x20), pn.state);
             d.cmp(`gull${i} turn`, mem.f32(a + 0x24), pn.turn);
-            for (let k = 0; k < 3; k++) d.cmp(`gull${i} home`, mem.f32(a + 0x14 + 4 * k), pn.home[k], 1e-5, `[${k}]`);
+            for (let k = 0; k < 3; k++) d.cmp(`gull${i} home`, mem.f32(a + 0x14 + 4 * k), pn.home[k], 0, `[${k}]`);
             cover.gullStates.add(pn.state);
           }
           const an = d.O.world.records[i].anim, pa = W.records[i].anim;
-          if (an && pa) { d.eq(`gull${i} clip`, an.clip, pa.clip); d.cmp(`gull${i} frame`, an.frame, pa.frame, 1e-4); }
+          if (an && pa) { d.eq(`gull${i} clip`, an.clip, pa.clip); d.cmp(`gull${i} frame`, an.frame, pa.frame); }
         }
-        // the vehicle chain accumulates float32 sums the port does in doubles (SGHeli / Ptera: verified exactly in sync mode on the island, tools/tests/m7-isl-veh-heli.mjs): 1e-4 relative
-        d.rec(d.P.pepper.index, 0xffff, 1e-4);
-        if (vehIdx >= 0) d.rec(vehIdx, 0xffff, 1e-4);
+        // the vehicle chain (SGHeli / Ptera) is float32 per operation: tolerance 0 like the island oracles
+        d.rec(d.P.pepper.index, 0xffff);
+        if (vehIdx >= 0) d.rec(vehIdx, 0xffff);
         d.globals(); d.vars();
-        for (let k = 0; k < 6; k++) d.cmp(`camera[${k}]`, mem.f32(0x9da5e8 + 4 * k), W.camera.c[k], 1e-4);
+        for (let k = 0; k < 6; k++) d.cmp(`camera[${k}]`, mem.f32(0x9da5e8 + 4 * k), W.camera.c[k]);
         if (d.olog) sounds(d);
         for (const k of [0, 1]) d.eq('pad taken', mem.r32(0x9daa50 + 4 * k) !== 0, G.pads[k]?.taken ?? false, ` ${k}`);
       };
@@ -139,3 +140,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

@@ -55,7 +55,7 @@ export class SpinNode extends Node {
 
 // ================================================================================================ SeaAmin
 
-/** the shore foam's texture wobble (FUN_004b109e, a draw hook: the original advances it once per drawn frame; the port once per tick) */
+/** the shore foam's texture wobble (FUN_004b109e, a draw hook: the original advances it once per drawn frame, no dt; the port once per sim step = once per drawn frame of the 60 Hz loop, in the pre-render) */
 export class SeaAminNode extends Node {
   readonly kind = 'SeaAmin';
   phase = 0;     // +0x18

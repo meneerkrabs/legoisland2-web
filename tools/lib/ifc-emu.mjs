@@ -12,8 +12,8 @@ const NATIVE = [0x43a340, 0x43a4a1, 0x43a5e4, 0x43a9e5, 0x43ab72, 0x43abe6, 0x43
 export const G = { MENU_OPEN: 0x5d587c8, PINS_OFF: 0x5d587d0, EXIT_ASK: 0x5d587cc, DOOR_WANTED: 0x5d587d4, CAPTION: 0x5d4dd7c, CAM: 0x9da5e8, KEYS: 0x983840 };
 
 export class IfcEmu {
-  /** @param recs [{ name, m: 16 floats }] the record array; `rng()` returns [0, 1) (the original's rand() / 32767) */
-  constructor(pe, recs, rng) {
+  /** @param recs [{ name, m: 16 floats }] the record array; `rng()` returns the C runtime's rand() (0..32767), `clock()` FUN_00435c91 (ms since the zone clock base) */
+  constructor(pe, recs, rng, clock = () => 0) {
     const cpu = (this.cpu = createCpu(pe));
     cpu.cw = 0x7f;   // Direct3D 7 leaves the x87 in 24-bit precision (docs/re/engine-m1.md 8.1)
     const mem = cpu.mem;
@@ -25,6 +25,7 @@ export class IfcEmu {
     this.vars = new Map();
     this.ticks = 0;
     this.rng = rng;
+    this.clock = clock;
     const L = this;
     mem.w32(0x983800, recs.length);
     mem.w32(0x983804, RECORDS_BASE);
@@ -43,15 +44,16 @@ export class IfcEmu {
     H.set(0x433d60, (c) => { c.eax = 0; });
     H.set(0x417575, (c) => { c.eax = (L.vars.get(c.arg(0)) ?? 0) >>> 0; });
     H.set(0x417597, (c) => { L.vars.set(c.arg(0), c.arg(1) >>> 0); logf(`setVar ${c.arg(0)} ${((c.arg(1) - RECORDS_BASE) / REC) | 0}`); c.eax = 0; });
-    H.set(0x435c91, (c) => { c.eax = Math.trunc(L.ticks * 1000 / 30); });
-    H.set(0x4388ae, (c) => { c.fpush(L.rng() * c.argf(0)); });
+    H.set(0x435c91, (c) => { c.eax = L.clock(); });
+    // FUN_004388ae(x) = x <= 0 ? 0 : (float)((float)rand() / 32767 * x) (24-bit x87: float32 per operation; no draw for x <= 0)
+    H.set(0x4388ae, (c) => { const x = c.argf(0); c.fpush(x <= 0 ? 0 : Math.fround(Math.fround(L.rng() / 32767) * x)); });
     H.set(0x4359d5, (c) => { c.eax = 0; });
     H.set(0x41f17c, (c) => { c.eax = 0; });
     H.set(0x443580, (c) => { c.eax = c.arg(0); });                    // the sound loaders return the id
     H.set(0x4435a0, (c) => { logf(`p ${c.arg(0)}`); c.eax = 0; });
     H.set(0x4435b0, (c) => { logf(`s ${c.arg(0)}`); c.eax = 0; });
     H.set(0x43b6a3, (c) => { logf(`clip ${c.arg(1)}`); c.eax = 1; });
-    H.set(0x43b76a, (c) => { logf(`adv ${c.argf(1)}`); c.eax = 0; });
+    H.set(0x43b76a, (c) => { logf(`adv ${c.argf(1)} ${mem.f32(0x8b1718)}`); c.eax = 0; });   // FUN_0043b76a steps by rate * DAT_008b1718
     H.set(0x43cc5c, (c) => { c.eax = 0; });                            // view basis
     H.set(0x4201aa, (c) => { c.eax = 0; });
     // FUN_00439788(table, id) returns the text (here: the id itself); FUN_0085ac00(dest, text) copies it (the caption)

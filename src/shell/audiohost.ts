@@ -70,8 +70,8 @@ export class AudioHost implements SfxSink {
       h.ga = await GameAudio.create(audio.ctx, audio.master, files as never);
       h.apply();
       void h.loadMenu();
-      // loops that do not call `frame` (the front end's menu) still need FUN_00435a5e's tick for the options' speech preview: a 30 Hz timer fills in while no loop ticks
-      h.speechTimer = setInterval(() => { if (performance.now() - h.lastFrameMs > 150) { try { h.ga?.speech.tick(1); } catch { /* silent */ } } }, 1000 / 30);
+      // loops that do not call `frame` (the front end's menu) still need FUN_00435a5e's tick for the options' speech preview: a 60 Hz wall-clock timer (the sim's rate) fills in while no loop ticks
+      h.speechTimer = setInterval(() => { if (performance.now() - h.lastFrameMs > 150) { try { h.ga?.speech.tick(); } catch { /* silent */ } } }, 1000 / 60);
     } catch (e) { console.warn('audio disabled', e); h.ga = null; }
     return h;
   }
@@ -230,11 +230,19 @@ export class AudioHost implements SfxSink {
     try { ga.setMusicVolume(this.wantedVol.music); ga.setSfxVolume(this.wantedVol.sfx); ga.setSpeechVolume(this.wantedVol.speech); } catch { /* silent */ }
   }
 
-  /** once per loop frame: the listener from the camera, then the speech state machine (FUN_00435a5e; `dt` in the original's frames) */
-  frame(camera: ArrayLike<number>, dt: number) {
+  /**
+   * Port only (the original reads a speech file from disk inside the request, instantly): read speech lines into memory in the background before they are needed, in the order
+   * they will be said (speech table indices; `decode: false` = only read the file). Never blocks; silent without audio. See `SpeechEngine.prefetch`.
+   */
+  prefetchSpeech(indices: Iterable<number>, opts: { decode?: boolean } = {}) { try { this.ga?.speech.prefetch(indices, opts); } catch { /* silent */ } }
+  /** Port only: the speech line that starts next has no audio data yet, so the talk animation / subtitle / speech timing wait with it (`SpeechEngine.waiting`) */
+  get speechWaiting(): boolean { return this.ga?.speech.waiting ?? false; }
+
+  /** once per loop frame: the listener from the camera, then the speech state machine (FUN_00435a5e: counts passes, no dt) */
+  frame(camera: ArrayLike<number>, _dt?: number) {
     this.lastFrameMs = performance.now();
     this.listen(camera);
-    try { this.ga?.speech.tick(dt); } catch { /* silent */ }
+    try { this.ga?.speech.tick(); } catch { /* silent */ }
   }
 
   /**

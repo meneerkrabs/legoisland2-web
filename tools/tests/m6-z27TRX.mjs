@@ -76,7 +76,7 @@ export default {
 
     // ============================================================ fixtures
     const fresh = (seed = 1) => {
-      let s = seed; const rng = makeRandom(() => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x80000000; }, () => 32767);
+      let s = seed; const rng = makeRandom(() => { s = (Math.imul(s, 0x343fd) + 0x269ec3) >>> 0; return (s >>> 16) & 0x7fff; }, () => 32767);
       const L = loadZone(ctx, 'z27TRX');
       const snd = new NullSound();
       const g = prepareTrx(L.world, L.pepper, { rigs: { TREX: rig('TREX'), MFIG: rig('MFIG'), TRIC: rig('TRIC'), STEG: rig('STEG'), BREX: rig('BREX'), BRON: rig('BRON') }, models: L.scene.models, pe, sound: snd, rng, say: () => true });
@@ -237,6 +237,15 @@ export default {
       ok(seen2 && br.state >= 1, 'brontosaurus roars (clip 2) when the rex is within 48');
     }
     ok(fresh().g.spectators.length === fresh().by('TRIC').length + fresh().by('STEG').length + fresh().by('BREX').length, 'spectators = TRIC + STEG + BREX');
+
+    // ============================================================ the 60 Hz step (dt = 0.5): the dt-scaled quantities halve per tick
+    {
+      const F = fresh(); F.w.dt = 0.5; F.tick(); F.put(1500); ghost(F);
+      F.ticks(100); near(F.n.clock, 5400 - 50, 1e-9, 'dt 0.5: the clock counts 0.5 per tick'); ok(F.run.clock === F.n.clock, 'dt 0.5: HUD clock source');
+      const G = fresh(); G.w.dt = 0.5; G.tick(); G.put(1500); ghost(G);
+      let z0 = G.n.z; for (let i = 0; i < 40; i++) { G.n.speed = 1.0; G.tick(); }
+      near(G.n.z - z0, 40 * 0.5 * 1.0, 1e-3, 'dt 0.5: the rex advances speed * 0.5 per tick');
+    }
 
     // ============================================================ the clock, arrival, score
     {

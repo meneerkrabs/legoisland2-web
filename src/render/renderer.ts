@@ -2,7 +2,7 @@
 //   * state presets (blend / alpha test / depth / colour+alpha combine) selected per mesh draw `mode`, see states.ts
 //   * the game's CPU vertex lighting (Lights.cpp: written into per-mesh vertex colours once or at every draw, optional specular), see lighting.ts and meshlight.ts
 //   * linear fog by view depth, bilinear filtering of single-level textures (no mipmaps by default), per-texture wrap/clamp
-//   * animated textures (.wib) stepping at the game's 30 Hz
+//   * animated textures (.wib) stepping once per pass of the original's loop, `1.0 * DAT_008b1718` entries (stepTextures)
 // Game convention: left-handed, +Y up, row-vector matrices (see math.ts).
 import { parseMsh, groupMatrices } from '../formats/msh.ts';
 import type { Msh } from '../formats/msh.ts';
@@ -15,7 +15,6 @@ import type { Preset } from './states.ts';
 import { defaultLights } from './lighting.ts';
 import type { LightSet } from './lighting.ts';
 import { prepareLights, lightStatic, lightSkinned, lightShiny } from './meshlight.ts';
-import { GAME_TICK } from './camera.ts';
 
 const VS = `#version 300 es
 layout(location=0) in vec3 aPos;
@@ -102,12 +101,22 @@ export interface MeshGpu {
 export interface TexAnim {
   /** RGBA frames */
   frames: Uint8Array[];
-  /** playback order (indices into frames), one entry per 1/30 s */
+  /** playback order (indices into frames), one entry per game tick (`DAT_008b1718` = 1) */
   sequence: Uint32Array;
+  /** texture struct +0x20: the playback position in sequence entries (a float32: `+= 1.0 * DAT_008b1718` per pass, FUN_00410ff8) */
   timer: number;
+  /** the image uploaded to the GPU texture (an index into `frames`) */
   current: number;
-  /** FUN_00411202 mode 2 (and the expression sheets): not stepped by `updateTextures`, `setTextureFrame` picks the entry */
-  frozen?: boolean;
+  /** texture struct +0x28: 0 loops (the timer restarts at 0), 1 plays once and then holds the last entry (mode 2), 2 stopped (FUN_00411202 sets it, FUN_00410ff8 turns 1 into 2); the expression sheets start at 2 */
+  mode: number;
+  /** texture struct +0x24: the sequence entry the last pass showed (-1 before the first pass) */
+  last: number;
+  /** the sequence entry the GPU texture should show at the next draw (`stepTextures` moves it, `flushTextures` uploads it) */
+  want: number;
+}
+function newAnim(frames: Uint8Array[], sequence: Uint32Array, mode: number, loadDt: number): TexAnim {
+  // FUN_004112ac: mode 0, timer 0, then one FUN_00410ff8 pass (shows entry 0, timer += 1.0 * dt)
+  return { frames, sequence, timer: mode === 2 ? 0 : Math.fround(loadDt), current: sequence[0], mode, last: mode === 2 ? -1 : 0, want: sequence[0] };
 }
 export interface TexGpu { tex: WebGLTexture; soft: boolean; cutout: boolean; w: number; h: number; frames: number; anim?: TexAnim; mips: boolean; /** the texture's address modes (text.txl): true = wraps, false = clamps */ wrapU?: boolean; wrapV?: boolean; /** a mod's picture larger than the original: always mip-mapped */ hd?: boolean }
 
@@ -407,8 +416,8 @@ export class Renderer {
           rgba = wi.frames[wi.sequence[0] ?? 0]; w = wi.width; h = wi.height; frames = wi.frameCount;
           // the 16-frame sheets with the identity sequence are expression sheets (faces): the game freezes them on one frame (FUN_00411202); only real animations play
           const sheet = wi.frameCount === 16 && wi.sequence.length === 16 && wi.sequence.every((v, i) => v === i);
-          if (!sheet && wi.sequence.length > 1) anim = { frames: wi.frames, sequence: wi.sequence, timer: 0, current: wi.sequence[0] };
-          else if (sheet) anim = { frames: wi.frames, sequence: wi.sequence, timer: 0, current: wi.sequence[0], frozen: true };   // expression sheet: frozen until `setTextureFrame`
+          if (!sheet && wi.sequence.length > 1) anim = newAnim(wi.frames, wi.sequence, 0, this.loadDt);
+          else if (sheet) anim = newAnim(wi.frames, wi.sequence, 2, 0);   // expression sheet: stopped (mode 2) until `setTextureFrame`
         }
       }
       if (rgba) {
@@ -459,7 +468,7 @@ export class Renderer {
   }
 
   /**
-   * FUN_00411202 (via FUN_00443120 / FUN_0041270c): sets the mode (0 loop, 2 frozen; other modes loop) and the sequence entry of an animated `.wib` texture. `frame` is an index into the
+   * FUN_00411202 (via FUN_00443120 / FUN_0041270c): sets the mode (0 loop, 1 play once, 2 stopped; other values are ignored) and the sequence entry of an animated `.wib` texture. `frame` is an index into the
    * texture's playback sequence and is ignored when out of range (the mode is still applied, the texture stays on its current entry). False when the texture is not animated.
    */
   setTextureFrame(archive: Archive, id: number, mode: number, frame: number, dir = 'textures'): boolean {
@@ -470,44 +479,57 @@ export class Renderer {
       return false;
     }
     const a = t.anim;
-    if (mode >= 0 && mode < 3) {
-      const frozen = mode === 2;
-      if (a.frozen && !frozen) a.timer = 0;
-      a.frozen = frozen;
-    }
+    if (mode >= 0 && mode < 3) a.mode = mode;
     if (frame >= 0 && frame < a.sequence.length) {
       a.timer = frame;
-      const idx = a.sequence[frame];
-      if (idx !== a.current && a.frames[idx]) {
-        a.current = idx;
-        const gl = this.gl;
-        gl.bindTexture(gl.TEXTURE_2D, t.tex);
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, t.w, t.h, gl.RGBA, gl.UNSIGNED_BYTE, a.frames[idx]);
-        if (t.mips) gl.generateMipmap(gl.TEXTURE_2D);
-      }
+      a.want = a.sequence[frame];
+      this.flushTexture(t);   // the original shows it at the next pass; nothing draws in between
     }
     return true;
   }
 
-  /** Steps all animated (.wib) textures: one sequence entry per 1/30 s, looping (FUN_00410ff8 / FUN_004111a3 once per frame). `dt` in seconds */
-  updateTextures(dt: number) {
+  /** the texture's GPU copy shows the entry `want` */
+  private flushTexture(t: TexGpu) {
+    const a = t.anim!, idx = a.want;
+    if (idx === a.current || !a.frames[idx]) return;
+    a.current = idx;
     const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, t.tex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, t.w, t.h, gl.RGBA, gl.UNSIGNED_BYTE, a.frames[idx]);
+    if (t.mips) gl.generateMipmap(gl.TEXTURE_2D);
+  }
+
+  /**
+   * FUN_004111a3 -> FUN_00410ff8 for every animated texture: ONE pass of the original's draw (`dt` = that pass's `DAT_008b1718`, the game's unit, float32). The entry shown is `ftol(timer)`; a texture
+   * in mode 2 with the same entry as last time does nothing, every other texture shows its entry and (mode 0 / 1) adds `1.0 * dt` (one float32 add) to the timer; when the timer reaches the sequence
+   * length mode 0 restarts at 0 and mode 1 holds at `length - 1.0` in mode 2. The browser draws passes it has not seen in one go: the caller steps once per pass, `flushTextures` uploads once.
+   */
+  stepTextures(dt: number) {
     for (const t of this.animated) {
       const a = t.anim!;
-      if (a.frozen) continue;
-      a.timer += dt * GAME_TICK;
-      if (a.timer >= a.sequence.length) a.timer %= a.sequence.length;
-      const idx = a.sequence[Math.min(a.sequence.length - 1, Math.floor(a.timer))];
-      if (idx !== a.current && a.frames[idx]) {
-        a.current = idx;
-        gl.bindTexture(gl.TEXTURE_2D, t.tex);
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, t.w, t.h, gl.RGBA, gl.UNSIGNED_BYTE, a.frames[idx]);
-        if (t.mips) gl.generateMipmap(gl.TEXTURE_2D);
+      const idx = Math.trunc(a.timer);
+      if (a.mode === 2 && idx === a.last) continue;
+      a.want = a.sequence[Math.min(a.sequence.length - 1, idx)];
+      a.last = idx;
+      if (a.mode !== 2) {
+        a.timer = Math.fround(Math.fround(dt) + a.timer);
+        if (a.sequence.length <= a.timer) {
+          if (a.mode === 0) a.timer = 0;
+          else { a.timer = Math.fround(a.sequence.length - 1); a.mode = 2; }
+        }
       }
     }
   }
+  /** uploads the entries `stepTextures` / `setTextureFrame` chose (once per drawn frame, however many passes were stepped) */
+  flushTextures() { for (const t of this.animated) this.flushTexture(t); }
+  /** one pass of the original's texture step and its upload (the viewer's loop) */
+  updateTextures(dt: number) { this.stepTextures(dt); this.flushTextures(); }
+  /**
+   * `DAT_008b1718` at the time a texture is loaded: FUN_004112ac ends with one FUN_00410ff8 pass, which adds the frame time to the fresh timer. The zone's textures are loaded at its set-up, whose
+   * last loop pass (the previous zone / the front end at a steady 60 Hz) left dt = 0.5.
+   */
+  loadDt = 0.5;
 
   /**
    * Starts a frame: clears to `clear` (the zone's fog colour in the game), enables the depth buffer and sets the camera.

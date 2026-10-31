@@ -7,7 +7,7 @@
 //             Pepper moved since the previous draw (the globals DAT_05defbb8 / bc / c0 hold his position at the previous call; DAT_05defbb4 is never written: 0, DAT_00982b84 = 1.0),
 //             i.e. the ring trails the swimmer by his squared speed; then FUN_00444480 draws the record.
 //   every call (swimming or not) stores Pepper's position into the globals.
-// The port has no node draw API in its renderer: the node does the same work in its pre-render (once per tick, which is once per drawn frame of the original's loop,
+// The port has no node draw API in its renderer: the node does the same work in its pre-render (once per sim step, which is once per drawn frame of the original's loop,
 // FUN_004afaf7: update, pre-render, draw) and shows "not drawn" with the record flag 0x8000 (RF_NO_DRAW, the same bit the original's hooks use to suppress a draw).
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';

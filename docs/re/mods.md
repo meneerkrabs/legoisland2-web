@@ -57,7 +57,7 @@ sea level, the zone loader/builder code that the x86 interpreter runs, the table
 | mod | result |
 |---|---|
 | Nicer Skies (11 x colour `FFDD7F`) | effect: all 11 are `SetupFog` colour operands; verified in the browser: the island sky changes |
-| Bi-Plane Fuel Fix (`00531EF8`) | ignored: the original's fuel drain depends on the frame rate (the patch enlarges the tank); the port simulates at a fixed 30 Hz and hard-codes the unit (6825) in `z22bip/plane.ts` |
+| Bi-Plane Fuel Fix (`00531EF8`) | ignored: the original's fuel drain is per frame (`fuel -= speed` in `FUN_00709fac`, not scaled by dt), so it depends on the display rate (the patch enlarges the tank); the port steps once per drawn frame at a fixed 60 Hz, i.e. it burns fuel exactly like the original on a 60 Hz display (twice as fast per second as at 30 fps), and hard-codes the unit (6825) in `z22bip/plane.ts` |
 | Skateboard Speed (`90DC2`, 0.75 -> 1.15) | ignored: `MAX_SPEED` is a constant of `island/vehicles/skate.ts` |
 | Debug Mode (`572704`, the manager's sample) | belongs to another game version: in the Dutch EXE it lands inside a sound file name. Use the start-screen option "Debugmenu" (below) |
 

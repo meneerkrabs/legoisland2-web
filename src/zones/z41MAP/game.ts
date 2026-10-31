@@ -7,12 +7,13 @@ import type { ZoneGame, ZoneGameCtx } from '../../shell/zonegame.ts';
 import type { Ui2D, UiTextureSet } from '../../ui/renderer2d.ts';
 import type { World } from '../../game/world.ts';
 import { GameRecord } from '../../game/record.ts';
-import { prepareWorld, stateOf, snapshot } from './nodes.ts';
+import { prepareWorld, stateOf, snapshot, drawPlanet } from './nodes.ts';
 import type { MapState } from './nodes.ts';
 import { SND, ROUNDS } from './rules.ts';
 import './nodes.ts';
 import { restoreHooks } from '../../restore/flag.ts';
-import { gameRandom } from '../common/tickrand.ts';
+import { rand as crtRand, getTickCount } from '../../game/crt.ts';
+import { MODE } from '../../shell/loopmachine.ts';
 
 /** HUD of the original (FUN_0081167c + DrawHUD 0x46055f): colours of the pulsing first wanted topping */
 const GREY = 0x7f7f7f7f, WHITE = 0xffffffff;
@@ -76,6 +77,7 @@ export function syncClones(w: World, S: MapState, c: Clones) {
 registerZoneGame('z41MAP', (ctx: ZoneGameCtx): ZoneGame => {
   const w = ctx.world;
   const S = prepareWorld(w, ctx.archive);
+  const tickBase = getTickCount();
   const clones = createClones(w);
   const ga = ctx.sh.audio.ga;
   // the zone's sound set is loaded at its start (FUN_00813500); the 3D flight loop has its own slot below
@@ -85,7 +87,9 @@ registerZoneGame('z41MAP', (ctx: ZoneGameCtx): ZoneGame => {
   let loading = false;
   if (ga) { loading = true; ga.sfx.load3D(SND.FOOD_MOVE).then((s) => { slot3d = s; }).catch(() => { /* silent */ }).finally(() => { loading = false; }); }
   S.env = {
-    rng: gameRandom,     // RNG: the C runtime generator (src/zones/common/tickrand.ts)
+    rng: crtRand,        // the shared C runtime generator (src/game/crt.ts)
+    // FUN_00435c91 = GetTickCount() - base: it only scales the picks of the swing / round end / throw / hit sounds (`ftol(rand(ms)) & 1` ...): the real clock since the zone's start
+    ms: () => Math.max(1, getTickCount() - tickBase),
     sfx: (id) => ctx.sfx(id),
     say: (id) => { ctx.say(id); },
     flight: (pos) => {
@@ -138,6 +142,8 @@ registerZoneGame('z41MAP', (ctx: ZoneGameCtx): ZoneGame => {
       return S.result || undefined;
     },
     bannerTick() { sync(); },
+    // the planet's draw hook (FUN_00814964) runs in every pass of the original's loop; the update modes (2, 4) run it in the PLAN node
+    everyTick(mode: number) { if (mode !== MODE.PLAY && mode !== MODE.BANNER) drawPlanet(w); },
     beforeRender() { ctx.gr.near = S.near; },
     onBanner() {
       // FUN_00811790: the speech of the medal (or the two sentences of the failure)

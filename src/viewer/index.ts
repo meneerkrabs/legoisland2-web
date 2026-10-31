@@ -373,7 +373,7 @@ export async function startViewer(root: HTMLElement, files?: FileSource) {
     const camSetup: CameraSetup = game ?? { fov: (60 * Math.PI) / 180, near: 0.5, far: 12000, fog: { enabled: false, color: [0.45, 0.62, 0.85], start: 0, end: 1e6 }, clear: [0.45, 0.62, 0.85] };
     fovNow = camSetup.fov;
     renderer.setMipmaps(mips.checked);
-    renderer.updateTextures(dt); sky.update(dt); sea.update(dt);
+    { const gdt = dt * 30; renderer.updateTextures(gdt); sky.update(gdt); sea.update(gdt); }   // the viewer plays in real time: the game's unit is 1/30 s
     renderer.cull = cullSel.value === 'none' ? 0 : 1;
     renderer.cwFront = cullSel.value !== 'ccw';
     renderer.fog = camSetup.fog;

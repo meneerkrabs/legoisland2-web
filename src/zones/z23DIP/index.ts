@@ -6,6 +6,7 @@
 //     Human1, StartCSM, hOLO, SGwalk, sgswim, the skateboard) are the island's, the gems (0x62b220) belong to z14OSD's worker;
 //   * there is no story handler in this zone's loop: the hologram texts / the objective arrow are chosen by the set-up (FUN_007283e0 / FUN_0072a2b0: FUN_00423fe0 / FUN_0088d280 /
 //     FUN_00424270, replayed by the framework), the story FSM's own conditions (var 0x101 = 2 for node 47, 1 for node 50) end the visit (src/shell/story.ts).
+import { startTickClock } from '../common/tickrand.ts';
 import { registerHub } from '../../hub/index.ts';
 import type { HubGame, HubSpec } from '../../hub/game.ts';
 import { CTOR, HUD } from './consts.ts';
@@ -38,7 +39,8 @@ registerHub({
   ],
   overlay: HUD.OVERLAY,
   afterSetup: dipAfterSetup,
-  onCreate(h) { initDipHud(h.ctx.hud); },
+  onCreate(h) { startTickClock();   // FUN_00435c81 in the wrapper FUN_0072645c (nothing in this zone reads FUN_00435c91, the base only matters for a later reader)
+    initDipHud(h.ctx.hud); },
   frame(h) { updateDipHud(h.ctx.hud, h.ctx.vars, hudState(h), h.ctx.world.dt); },
   debug(h) { return { hud: { blink: hudState(h).blink } }; },
 });

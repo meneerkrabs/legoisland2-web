@@ -30,7 +30,7 @@ skateboard 0x43310c (&4). Differences to the island's `PepSwitc` (all verified b
 * no vehicles; no PORTAL_VEHICLE clear, no story-node-30 timer; sea -80;
 * update (returns 2): the sound scape: 2D 0x30c every tick, 3D 0x30d at HALL (record 43); node 50 (node byte +0x20 = story node == 0x32): 3D 0x31d at PTER, 0x315 at REX4, the Rex step sounds 0x316..0x31c at **REX1's position** while the animation
   frame (ftol) of REX1/2/3/4/5/6/7 (records 11, 20, 21, 22, 23, 29, 30) is < 4, then three `rand()` draws per tick: `ftol(rand*300)` 298 -> 0x322, >= 299 -> 0x321 at BRON; `ftol(rand*60)` picks TRI2 / TRI1 / STE2 / STE1 / TRX2 / TRX1 (10 / 10 / 10 / 10 / 10 / 10)
-  and `ftol(rand*300)` 297 -> 0x320, 298 -> 0x31f, >= 299 -> 0x31e at that creature. (`rand` = `src/island/rng.ts`, `// RNG:` until WP-TIME.)
+  and `ftol(rand*300)` 297 -> 0x320, 298 -> 0x31f, >= 299 -> 0x31e at that creature. (`rand` = `src/island/rng.ts` on the shared `src/game/crt.ts` generator; `FUN_004388ae(x)` is float32, `ftol` of it exact.)
 * pre-render: walking: Ctrl (unless mailbox 1 / 2 / 0x57 / 0x1f / 0x38 or clip 99 / 0x62) -> skateboard (mode 4, state 0x16, board clip 1, board shown, sound 0x150); otherwise level 1 (2 in clips 0x24 / 0x3f / 0x40); above the sea the place is remembered
   (node +0x24..0x2c), at or below it Pepper is put on the ground `FUN_0043cd62(pos, 4)` or back on the remembered place if there is none (the sea is never entered); "swimming" (control 2): same ground rule, then walk (mode 1) with state 0x25;
   skateboard: Ctrl or bit 0x1000 gets off (state 0x1c, board clip 2, 7 roll sounds stopped, sound 0x106) unless mailbox 0x20 / 0x32 (level 3); water 4 units ahead (ground <= sea, not in the air 0x20 / 0x21) also gets off. Then mailbox / clip start, var 0x5e write,
@@ -81,5 +81,5 @@ The zone's own code starts none. `FUN_007272ee` loads the set `GENERICBITS` (`FU
 * **Enter near a decor figure** (`FUN_00765281` -> `FUN_00420bb7` / `FUN_00420dc4`, the outfit swap of JOHN / PIPP / DOCK / CGOG / TRI1..3 ...): not ported (same open half as the island's S2); `DecorHooks` (`pepsw.ts`, `setDecorHooks`) is where it plugs in. The roster of vehicles is empty in this zone (table 0x93d578 starts with -1).
 * PeppSw save / load handlers (`0x727e21` / `0x727e46`: node +0x18, 0x18 bytes) are not wired (V1 save content is open for all node families).
 * The three Rex poses are frozen like in the original; the original's cutscene host advances them only during a cutscene.
-* `rand` is Math.random-based until WP-TIME (comment `// RNG:`).
+* `rand` draws from the shared C runtime generator (WP-TIME); the oracle scripts it with `setRandSource`. All comparisons are tolerance 0 at dt 1 and 0.5.
 * Shared-file edits: `src/hub/game.ts` (+ `HubSpec.overlay`, + `UiTextureSet` import), re-read before the edit; nothing else outside `src/zones/z23DIP/`, tests, bots, docs.

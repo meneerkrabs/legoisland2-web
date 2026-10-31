@@ -36,7 +36,7 @@ export default {
         ok(at.map((a) => `${R[a.record].name}=${a.time}`).join() === 'REX2=7,REX3=2,REX4=5,REX5=10,REX6=12,REX7=9', `node 50: animTime calls ${at.map((a) => R[a.record].name + '=' + a.time)}`);
         for (const a of at) ok(R[a.record].anim.frame === a.time, `node 50: ${R[a.record].name} posed at frame ${a.time}`);
         const loon = R[REC.LOON];
-        ok(Math.abs(loon.y - Math.fround(17.600000381469727)) < 1e-4 && (loon.flags & 2) !== 0 && loon.ctrl.nodes[0].kind === 'PeppSw.loon', 'node 50: the balloon lifted by 17.6, visible, node attached');
+        ok(loon.y === Math.fround(17.600000381469727) && (loon.flags & 2) !== 0 && loon.ctrl.nodes[0].kind === 'PeppSw.loon', 'node 50: the balloon lifted by 17.6, visible, node attached');
         ok(LOON.TOP === 56, 'balloon constants');
       } else ok(at.length === 0 && R[REC.LOON].ctrl === null, 'node 47: no animTime calls, no balloon node');
       // 120 ticks run

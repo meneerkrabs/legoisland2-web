@@ -1,11 +1,12 @@
 import { createBB, runBB, newStats, placePepper, pepperAt, setVar, newCov, covTick, mergeCov, showCov, setPepState, advancePepper, spaceBoth } from '../lib/m7-isl-bb-emu.mjs';
 import { scopeOf } from '../lib/m7-isl-npc-emu.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // WP-VERIFY M7b: the NPC side of the pizza (SGMFIG's reaction FUN_0042477f with FUN_00429183 "is a pizza coming at me", the bots' hit node with FUN_00429556) against the original's code, with the pizza nodes (Pizza.c FUN_0042887c
 // thrown PIZ0-2, FUN_0042900b hand-over PIZ3 / PIZ4) running natively in the oracle as well (their own comparison is tools/tests/m7-isl-veh-pizza.mjs): Pepper throws (Space in the walk states idle / run, FUN_00427c15 / 004277d0)
 // at the bots and at ordinary NPCs, hands a pizza over (FUN_00428a0a), on story node 7; compared tick by tick (records incl. the pizza records, bot / NPC nodes, all variables, sounds incl. Piza_Hit at the bot, collect).
 const ST = { IDLE: 0x1b, WALK: 0xd, RUN: 0x24 };
-export default {
+const __test = {
   name: 'm7-isl-bb-pizza',
   run(ctx) {
     const notes = [], st = newStats(), cov = newCov();
@@ -60,3 +61,4 @@ export default {
     return { checked: st.checked, failures: [...st.fail, ...diffs], notes };
   },
 };
+export default guarded(__test);

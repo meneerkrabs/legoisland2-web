@@ -14,6 +14,7 @@ import {
 } from './z15ssh/rules.ts';
 import type { SshSounds } from './z15ssh/rules.ts';
 import { prepareSsh } from './z15ssh/setup.ts';
+import { startTickClock } from './common/tickrand.ts';
 
 registerCtor(CTOR_CART, () => new CartNode());
 registerCtor(CTOR_SNAKE, () => new SnakeNode());
@@ -46,6 +47,7 @@ export class SshAudio implements SshSounds {
 
 registerZoneGame('z15SSH', async (ctx) => {
   const { world, loaded, archive, scene, vars, sh, hud, gr } = ctx;
+  startTickClock();                      // FUN_00656372 calls FUN_00435c81 before its loop: the speech chances scale rand() by the ms since here
   const audio = new SshAudio(sh.audio.ga ?? null);
   const { node, parts, cart } = prepareSsh(world, loaded, archive, scene, { sounds: audio, say: (id) => ctx.say(id) });
   // FUN_0065760c: FUN_00442900("Z15SSH"); the buggy's constructor FUN_00659d94 starts the two trexfeet emitters

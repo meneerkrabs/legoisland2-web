@@ -85,7 +85,7 @@ off 3 ticks later 0x62b1a0): wired by the OSD worker / particle package. `FUN_00
 
 ## 9. What is not exact
 
-Random numbers use `rand` of src/island/rng.ts (`// RNG:`), the clock is `tickCount * 1000 / 30` instead of `GetTickCount - start`; the port's save does not keep PeppSw's node state; decor / outfit swap (section 3); Tumblewd sounds (section 6).
+Random numbers use `rand` of src/island/rng.ts on the shared `src/game/crt.ts` generator, the clock is the shared REAL zone clock (`msClock` = `GetTickCount() - base`, `src/zones/common/tickrand.ts`; `startTickClock()` = FUN_00435c81 runs in the hub's `onCreate` like the wrapper FUN_00675f02; the exported name `msClock` of `peppsw.ts` stays; `m5-z16PYA-emu` pins it with `setTickCountSource`; HUD blink counter also checked at dt 0.5); the port's save does not keep PeppSw's node state; decor / outfit swap (section 3); Tumblewd sounds (section 6).
 
 ## 10. Bot (`tools/steps/m5-z16PYA.mjs`, `lib-pya.mjs`; snapshot server port 5514)
 

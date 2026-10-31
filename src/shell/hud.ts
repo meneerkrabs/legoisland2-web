@@ -74,7 +74,7 @@ export class Hud {
     else if (ic & 1) { if (walking) slot.tex = 0xd; }
     else if (ic & 0x1e) { if (walking) slot.tex = 0xc; }
     else if (ic & 0xc0) {
-      this.blink += 1 * dt;
+      this.blink = Math.fround(Math.fround(1 * dt) + this.blink);   // `1.0 * DAT_008b1718 + blink`
       if (this.blink < 15) slot.tex = 0xf;
       else { slot.tex = 0x10; if (30 < this.blink) this.blink = 0; }
     } else { slot.tex = -1; this.blink = 0; }
@@ -93,9 +93,12 @@ export class Hud {
     }
   }
 
-  /** draw in the 640x480 virtual space (the 800x600 reference grid scaled by 0.8) */
-  draw(ui: Ui2D, dt = 1) {
-    if (this.letterbox !== undefined) ui.letterbox(this.letterbox, dt);
+  /** FUN_0045f771's letterbox pass, once per sim step (= per drawn frame of the original) with `dt` = DAT_008b1718: the bars' height is state, not a function of the render rate */
+  step(ui: Ui2D, dt: number) { ui.letterboxStep(this.letterbox, dt); }
+
+  /** draw in the 640x480 virtual space (the 800x600 reference grid scaled by 0.8); the letterbox bars are those of the last `step` (the legacy second argument is ignored) */
+  draw(ui: Ui2D, _dt?: number) {
+    ui.letterboxDraw();
     if (!this.visible || this.letterbox === 1 || this.letterbox === 2) return;
     const k = 0.8;
     const icon = (i: HudIcon, x: number, y: number) => { if (i.tex >= 0) ui.sprite(this.set, i.tex, [x * k, y * k, (x + 60) * k, (y + 60) * k], i.tint); };
@@ -116,18 +119,19 @@ export class Hud {
   /** FUN_00460214 (800x600 reference grid scaled by 0.8) */
   private drawGauge(ui: Ui2D) {
     const g = this.gauge!, k = 0.8;
-    const span = g.max - g.min;
-    // fraction of the range, clamped (the original's float compare chain; a flat range gives 0 / 1)
+    const f32 = Math.fround;
+    const span = f32(g.max - g.min);
+    // fraction of the range, clamped (the original's float compare chain; a flat range gives 0 / 1); `(value - min) / (max - min)` with float32 operations (x87 at 24 bit)
     let fr: number;
-    if (g.max > g.min) fr = g.value >= g.max ? 1 : g.value <= g.min ? 0 : (g.value - g.min) / span;
-    else fr = g.value <= g.max ? 1 : g.value >= g.min ? 0 : (g.value - g.min) / span;
+    if (g.max > g.min) fr = g.value >= g.max ? 1 : g.value <= g.min ? 0 : f32(f32(g.value - g.min) / span);
+    else fr = g.value <= g.max ? 1 : g.value >= g.min ? 0 : f32(f32(g.value - g.min) / span);
     let n: number;
     if (g.marker >= 0) {
       n = 12;
       // FUN_00460214: the centre is truncated to an integer first (ftol(508 - 192 f)), then the 32 high marker is placed around it, drawn with the gauge's tint like every other part
-      const yc = Math.trunc(508 - 192 * fr);
+      const yc = Math.trunc(f32(508 - f32(192 * fr)));
       ui.sprite(this.set, g.marker, [696 * k, (yc - 16) * k, (696 + 32) * k, (yc + 16) * k], g.tint);
-    } else n = Math.max(0, Math.min(12, Math.trunc(12 * fr + 0.5)));
+    } else n = Math.max(0, Math.min(12, Math.trunc(f32(f32(12 * fr) + 0.5))));
     for (let i = 0; i < n; i++) {
       const t = g.segments[i] ?? -1;
       if (t < 0) continue;

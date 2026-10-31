@@ -69,7 +69,7 @@ export class JstEmu {
     H.set(0x4433b0, (c) => { c.eax = c.arg(0) | 0x200000; });
     H.set(0x4435a0, (c) => { logf(`p2 ${c.arg(0) & 0xfffff}`); c.eax = 0; });
     H.set(0x4435b0, (c) => { logf(`s2 ${c.arg(0) & 0xfffff}`); c.eax = 0; });
-    H.set(0x4433f0, (c) => { const p = c.arg(1); logf(`p3 ${c.arg(0) & 0xfffff} ${[0, 1, 2].map((k) => mem.f32(p + 4 * k).toFixed(2)).join(',')}`); c.eax = 0; });
+    H.set(0x4433f0, (c) => { const p = c.arg(1); logf(`p3 ${c.arg(0) & 0xfffff} ${[0, 1, 2].map((k) => mem.f32(p + 4 * k).toString()).join(',')}`); c.eax = 0; });
     H.set(0x443600, (c) => { logf(`r ${c.arg(0) & 0xfffff} ${c.arg(1) | 0}`); c.eax = 0; });
     // speech: FUN_00439bf8(table, "ID", &token), FUN_00435a11(a, b), FUN_00435b07 (stop)
     H.set(0x439bf8, (c) => { const id = pe.cstr(c.arg(1)); let t = L.speechIds.indexOf(id); if (t < 0) { t = L.speechIds.length; L.speechIds.push(id); } mem.w32(c.arg(2), t + 1); c.eax = 0; });
@@ -84,7 +84,7 @@ export class JstEmu {
     H.set(0x4429e0, (c) => { c.eax = 0x100 + em++; });
     H.set(0x442960, (c) => { c.eax = 0x100 + em++; });
     H.set(0x44ea60, (c) => { logf(`fx ${c.arg(0) - 0x100} ${c.arg(1)}`); c.eax = 0; });
-    H.set(0x442a00, (c) => { const p = c.arg(1); logf(`fxm ${c.arg(0) - 0x100} ${Array.from({ length: 16 }, (_, k) => mem.f32(p + 4 * k).toFixed(3)).join(',')}`); c.eax = 0; });
+    H.set(0x442a00, (c) => { const p = c.arg(1); logf(`fxm ${c.arg(0) - 0x100} ${Array.from({ length: 16 }, (_, k) => mem.f32(p + 4 * k).toString()).join(',')}`); c.eax = 0; });
     // sprintf(dest, "%d" / "%5d", value): the popup numbers
     H.set(0x85ac00, (c) => {
       const f = mem.cstr(c.arg(1)), m = /^%(\d*)d$/.exec(f);

@@ -10,6 +10,9 @@ import { scoreOf, clockText, resultLines, applyResult, MmpRun } from '../../src/
 import { coffinOfMask } from '../../src/zones/z18mmp/pepper.ts';
 import { CS } from '../../src/zones/z18mmp/coffin.ts';
 import { MmpShared } from '../../src/zones/z18mmp/shared.ts';
+import { setRandSource, setTickCountSource } from '../../src/game/crt.ts';
+import { startTickClock } from '../../src/zones/common/tickrand.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // z18MMP "Matching Mummies" (docs/re/m6/z18MMP.md): the constants and tables of the port against the executable (the attaches of the set-up, the vtables of the nodes, the sound /
 // music / message tables, the immediates and floats of the code), the coffin tables / the score / the game-over check against the ORIGINAL functions run in the x86 emulation, the
@@ -20,7 +23,7 @@ import { MmpShared } from '../../src/zones/z18mmp/shared.ts';
 const hex = (n) => '0x' + (n >>> 0).toString(16);
 const f32 = Math.fround;
 
-export default {
+const __test = {
   name: 'm6-z18MMP',
   run(ctx) {
     const failures = [], notes = [];
@@ -252,13 +255,32 @@ export default {
         // the clock: a second takes 31 ticks the first time (the fraction must pass 30), then 30
         const sh = new MmpShared(), run = new MmpRun(sh);
         const at = [];
-        for (let t = 1; t <= 125; t++) { const s0 = sh.seconds; run.beforeTick(); if (sh.seconds !== s0) at.push(t); }
-        eq(at.join(), '31,61,91,121', 'the clock ticks at 31, 61, 91, 121 ticks');
-        sh.stopClock = true; const s1 = sh.seconds; for (let t = 0; t < 100; t++) run.beforeTick(); eq(sh.seconds, s1, 'the clock stands still when stopped');
+        for (let t = 1; t <= 125; t++) { const s0 = sh.seconds; run.beforeTick(1); if (sh.seconds !== s0) at.push(t); }
+        eq(at.join(), '31,61,91,121', 'the clock ticks at 31, 61, 91, 121 ticks (dt 1)');
+        {
+          // dt 0.5 (the 60 Hz step): `frac = 1.0 * dt + frac` accumulates dt units like the original: the first second after 61 steps, then every 60 steps
+          const sh5 = new MmpShared(), run5 = new MmpRun(sh5), at5 = [];
+          for (let t = 1; t <= 250; t++) { const s0 = sh5.seconds; run5.beforeTick(0.5); if (sh5.seconds !== s0) at5.push(t); }
+          eq(at5.join(), '61,121,181,241', 'the clock ticks at 61, 121, 181, 241 steps (dt 0.5)');
+        }
+        {
+          // the default random source = the shared C runtime generator: float(x) = FUN_004388ae(x); int(n) = ftol(FUN_004388ae((float)(GetTickCount() - base))) % n (the real clock)
+          const fixed = [16384, 32767, 5, 20000];
+          let k = 0; setRandSource(() => fixed[k++ % fixed.length]);
+          let now = 1000; setTickCountSource(() => now); startTickClock(); now = 1000 + 1234;
+          const d = new MmpShared().rng;
+          eq(d.float(10), f32(f32(16384 / 32767) * 10), 'default float = FUN_004388ae(10)');
+          eq(d.float(3), 3, 'a rand() of 32767 gives exactly the maximum');
+          eq(d.int(12), Math.trunc(f32(f32(5 / 32767) * 1234)) % 12, 'default int(12) scales by the real milliseconds since the clock base');
+          now = 1000 + 100000;
+          eq(d.int(3), Math.trunc(f32(f32(20000 / 32767) * 100000)) % 3, 'default int(3) (the mummy hit squeal) after 100 s');
+          setRandSource(null); setTickCountSource(null);
+        }
+        sh.stopClock = true; const s1 = sh.seconds; for (let t = 0; t < 100; t++) run.beforeTick(1); eq(sh.seconds, s1, 'the clock stands still when stopped');
         // the danger meter decays 0.2 per tick while >= 0 and can end at -0.2
-        sh.danger = 24; for (let t = 0; t < 120; t++) run.beforeTick(); ok(Math.abs(sh.danger) < 1e-3 || near(sh.danger, 0.2, 0.01), `danger 24 decays to 0 in 120 ticks: ${sh.danger}`);
-        for (let t = 0; t < 3; t++) run.beforeTick(); const dd = sh.danger; ok(dd < 0 && dd > -0.25, `ends just below 0 (the test is >= 0 before subtracting): ${dd}`);
-        run.beforeTick(); eq(sh.danger, dd, 'and no further');
+        sh.danger = 24; for (let t = 0; t < 120; t++) run.beforeTick(1); ok(Math.abs(sh.danger) < 1e-3 || near(sh.danger, 0.2, 0.01), `danger 24 decays to 0 in 120 ticks: ${sh.danger}`);
+        for (let t = 0; t < 3; t++) run.beforeTick(1); const dd = sh.danger; ok(dd < 0 && dd > -0.25, `ends just below 0 (the test is >= 0 before subtracting): ${dd}`);
+        run.beforeTick(1); eq(sh.danger, dd, 'and no further');
         sh.danger = 130; sh.hit(); eq(sh.danger, 145, 'a hit is capped at 145');
       }
 
@@ -753,3 +775,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

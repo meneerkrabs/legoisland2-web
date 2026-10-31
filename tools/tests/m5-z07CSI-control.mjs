@@ -4,13 +4,14 @@
 // sits in (the speedboat / the horse), the story node 0x11 hook, the cutscene switch 0x112. Compared per tick: Pepper's record, JKIT / the board / the horse (flags, clips), all game
 // variables, the walk mailbox, the vehicle globals, every sound call.
 import { makeCsiDuel, NATIVE_CTORS, B, lcg } from '../lib/m5-z07CSI-emu.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MAXFAIL = 30;
 const MAILBOX = [0x1b, 0x1b, 0x0d, 0x24, 0x3f, 0x40, 1, 2, 0x57, 0x1f, 0x38, 0x20, 0x21, 0x16, 0x1c, 0x25];
 const CLIPS = [0x1b, 0x1b, 0x0d, 0x24, 99, 0x62, 0x15, 0x16, 3, 1];
 const MODES = [1, 1, 1, 1, 2, 4, 4, 8, 0x10, 0x10, 0x401, 0x1001, 0x1004, 0x1002];
 
-export default {
+const __test = {
   name: 'm5-z07CSI-control',
   async run(ctx) {
     const failures = [], notes = [];
@@ -30,7 +31,7 @@ export default {
       };
       const setClip = (c) => { for (const w of [W, O]) w.records[pi].anim?.start(c, 0); };
       const compare = () => {
-        d.rec(pi, 0xffff, 1e-6);
+        d.rec(pi, 0xffff);
         for (const i of [jk, hs, bd]) d.eq(`record ${i} flags`, mem.r16(0x10000000 + i * 0x68 + 0x60), W.records[i].flags & 0xffff);
         const ao = O.records[pi].anim, ap = W.records[pi].anim;
         if (ao && ap) d.eq('Pepper clip', ao.clip, ap.clip);
@@ -90,3 +91,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

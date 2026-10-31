@@ -24,7 +24,7 @@ export const VAR = { PEPPER_CONTROL: 0x5e, TROPHY: 0x8d, HISCORE: 0xc0 } as cons
 export const GAME_TICKS = 3600.0;
 /** the trophy thresholds of FUN_00493ecd (0x1389 / 0x9c4): gold from 5001, silver from 2501, bronze from 1 */
 export const MEDAL = { GOLD: 5001, SILVER: 2501, BRONZE: 1 } as const;
-/** score counting up: +10 per tick of the pending trick score (0x892060), the clock text divides by 30 ticks / second (0x892038) and 60 seconds / minute (0x892388) */
+/** score counting up: +10 per tick of the pending trick score (0x892060), the clock text divides by 30 game ticks / second (0x892038: one game tick = 1 / 30 s = dt 1.0; the clock counts down `1.0 * DAT_008b1718` per step, so at the 60 Hz step of dt 0.5 it still shows real seconds) and 60 seconds / minute (0x892388) */
 export const SCORE_STEP = 10.0, TICKS_PER_SECOND = 30.0, SECONDS_PER_MINUTE = 60.0;
 /** the walk-in target of Pepper (FUN_00494190: 0x4207999a, 0x41826666, 0xc1e80000) and its tests (0x892084 = 0.8 arrival, 0x892530 = 6.8 / 0x89228c = 6.0 facing, 0x89252c = 45 degrees a tick, 0x8920f0 = 0.2 a tick) */
 export const WALK_TARGET = [Math.fround(33.9), Math.fround(16.3), -29.0] as const;
@@ -165,7 +165,7 @@ export class BpkWalk implements BehaviourNode {
     const g = w.pep;
     const [tx, ty, tz] = WALK_TARGET;
     const dx = f32(tx - rec.x), dy = f32(ty - rec.y), dz = f32(tz - rec.z);
-    const dist = f32(Math.sqrt(dz * dz + dy * dy + dx * dx));
+    const dist = f32(Math.sqrt(f32(f32(f32(dx * dx) + f32(dy * dy)) + f32(dz * dz))));   // FUN_0085d104 of the float32 sum (x, y, z in the asm)
     const fx = rec.m[8], fy = rec.m[9], fz = rec.m[10];
     if (dist <= WALK.ARRIVE) {
       rec.anim?.start(0x16, 0);
@@ -176,11 +176,11 @@ export class BpkWalk implements BehaviourNode {
       const b = w.records[this.run.board];
       if (b) b.show();
     } else {
-      const dot = fz * dz + fy * dy + fx * dx;
+      const dot = f32(f32(f32(fx * dx) + f32(fy * dy)) + f32(fz * dz));
       if (WALK.FACING_GO <= dot || this.turned !== 0) {
         rec.ry = f32(Math.atan2(dx, dz));
-        rec.x = f32(fx * WALK.STEP + rec.x);
-        rec.z = f32(fz * WALK.STEP + rec.z);
+        rec.x = f32(f32(fx * WALK.STEP) + rec.x);
+        rec.z = f32(f32(fz * WALK.STEP) + rec.z);
       } else {
         rec.ry = f32(rec.ry + WALK.TURN);
         if (WALK.FACING_TURNED < dot) this.turned = 1;

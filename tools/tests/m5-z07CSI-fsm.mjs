@@ -4,11 +4,12 @@
 // activity level), the frustum flag of the records. Compared per tick: the node's level / matrix, the flags of HORS / BAR1, all game variables, every sound / emitter / groove call.
 import { makeCsiDuel, onodeOf, NATIVE_CTORS, lcg } from '../lib/m5-z07CSI-emu.mjs';
 import { readSoundTable, STEP_CUES, globalsOf } from '../../src/zones/z07CSI/csifsm.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MAXFAIL = 30;
 const CLIPS = [1, 3, 3, 3, 0x24, 0x3f, 0x40, 0x79, 0x91, 0x92, 0x91, 0x92, 5];
 
-export default {
+const __test = {
   name: 'm5-z07CSI-fsm',
   async run(ctx) {
     const failures = [], notes = [];
@@ -33,7 +34,7 @@ export default {
       const compare = () => {
         d.eq('level', mem.r32(a + 0x18) | 0, pn.level);
         d.eq('levelSet', mem.r32(a + 0x1c) | 0, pn.levelSet);
-        for (let k = 0; k < 16; k++) d.cmp('cedric matrix', mem.f32(a + 0x24 + 4 * k), pn.m[k], 1e-6, `[${k}]`, 1e-6);
+        for (let k = 0; k < 16; k++) d.cmp('cedric matrix', mem.f32(a + 0x24 + 4 * k), pn.m[k], 0, `[${k}]`, 0);
         for (const i of [48, 29]) d.eq(`record ${i} flags`, mem.r16(0x10000000 + i * 0x68 + 0x60) & 0x10, W.records[i].flags & 0x10);
         d.eq('DAT_008f81dc (last horse frame)', mem.r32(0x8f81dc) | 0, globalsOf(W).lastFrame);
         d.eq('DAT_05d5895c (last horse clip)', mem.r32(0x5d5895c) | 0, globalsOf(W).lastClip);
@@ -72,3 +73,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

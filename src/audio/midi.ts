@@ -79,7 +79,7 @@ function findInstrument(col: DlsCollection, msb: number, lsb: number, prog: numb
 
 /**
  * Plays one MIDI file through a DLS collection and restarts it when it ends: the game polls the Miles sequence status once per frame (FUN_00443230 ->
- * FUN_00875b16) and calls AIL_start_sequence when it reports DONE, i.e. within a frame of the end of the sequence (`gap` = half a frame on average). The end is the
+ * FUN_00875b16) and calls AIL_start_sequence when it reports DONE, i.e. within a frame (1/60 s, the sim step) of the end of the sequence (`gap` = half a frame on average). The end is the
  * SMF's end-of-track time; notes still sounding are released at the restart, not cut. Sample-accurate; `render` adds to L/R.
  */
 export class MidiRenderer {
@@ -93,8 +93,8 @@ export class MidiRenderer {
   private collection: DlsCollection | null = null;
   private bank = new Map<number, { msb: number; lsb: number }>();
   loop = true;
-  /** pause between two passes (seconds): the restart happens on the first frame tick after the sequence reported DONE (0..1/30 s, 1/60 on average) */
-  gap = 1 / 60;
+  /** pause between two passes (seconds): the restart happens on the first frame tick after the sequence reported DONE (0..1/60 s, 1/120 on average; wall-clock stand-in for the loop pass that polls the status) */
+  gap = 1 / 120;
   playing = false;
   gain = 1;
   passes = 0;
@@ -104,7 +104,7 @@ export class MidiRenderer {
     this.synth = new DlsSynth(sampleRate, maxVoices);
   }
 
-  /** `delaySec`: FUN_00443230 counts 6 frames before it first starts the sequence */
+  /** `delaySec`: FUN_00443230 counts 6 loop passes (6 sim steps = 6/60 s) before it first starts the sequence */
   start(smf: Smf, collection: DlsCollection, delaySec = 0) {
     const tl = smfTimeline(smf);
     this.events = tl.events;

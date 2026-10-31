@@ -87,7 +87,7 @@ export class CreditsStage {
       if (this.timer[s] <= 0) continue;
       const r = this.rec[s];
       r?.anim?.advance(1, dt);          // FUN_0043b76a: the clip runs per dt; the slot timers and the scroll test are per call (per pass of the loop)
-      if (r) r.m[13] = Math.fround((this.timer[s] < 0x29 ? this.timer[s] / 15 : (0x50 - this.timer[s]) / 15) + 3.5);
+      if (r) r.m[13] = Math.fround(Math.fround((this.timer[s] < 0x29 ? this.timer[s] : 0x50 - this.timer[s]) / 15) + 3.5);   // `(float)n / 15.0 + 3.5`: the division and the sum rounded in turn (x87 at 24 bit)
       this.timer[s]--;
       if (this.timer[s] === 0) this.show(r, false);
       if (this.state[s] === 0) { this.show(r, true); this.state[s] = 1; }
@@ -110,21 +110,26 @@ export class Credits {
   readonly lines: CreditLine[];
   /** the scroll position in pixels (the original's local_68) */
   pos = -480;
+  /** the int the last pass was called with (`ftol(local_68)`, before the step): FUN_00471c4c draws the text of the same call from it */
+  private shown = -480;
   done = false;
+  /** the start of the credits (the loop's `local_68 = -480.0`) */
+  reset() { this.pos = -480; this.shown = -480; this.done = false; }
   constructor(lines: CreditLine[]) { this.lines = lines; }
 
   readonly stage = new CreditsStage();
   /** one pass of the loop: returns true when finished (FUN_00471c4c's return value); `recs` = the stage records whose characters peek in; the scroll grows by `1.0 * DAT_008b1718` (float32) per pass */
   tick(pressed: number, recs: readonly GameRecord[] = [], dt = 1): boolean {
     if (this.done) return true;
-    if (this.stage.step(Math.trunc(this.pos), this.lines, recs, pressed, dt) !== 0) this.done = true;
+    this.shown = Math.trunc(this.pos);
+    if (this.stage.step(this.shown, this.lines, recs, pressed, dt) !== 0) this.done = true;
     this.pos = Math.fround(1 * dt + this.pos);
     return this.done;
   }
 
   /** FUN_00471c4c's drawing: 18 lines of the list, 30 px pitch, centred at x = 320 */
   draw(ui: Ui2D) {
-    const at = Math.trunc(this.pos), rem = at % 30, base = Math.trunc(at / 30);   // FUN_00471c4c draws from the int it was called with
+    const at = this.shown, rem = at % 30, base = Math.trunc(at / 30);   // FUN_00471c4c draws from the int it was called with
     for (let k = 0; k < 18; k++) {
       const idx = k + base;
       if (idx < 0 || idx >= this.lines.length) continue;

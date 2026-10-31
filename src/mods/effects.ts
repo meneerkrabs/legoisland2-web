@@ -23,7 +23,7 @@ interface Region { from: number; to: number; effect: Effect; note: string }
  * addresses (`va`); these are checked first. All for the Dutch retail build (6,459,444 bytes), like every address in the port.
  */
 const KNOWN: { off?: number; va?: number; len: number; effect: Effect; note: string }[] = [
-  { va: 0x931ef8, len: 4, effect: 'ignored', note: 'Bi-plane: grootte van de tank (6825 per procent). De fout die dit herstelt (brandstof loopt te snel leeg, afhankelijk van de beeldsnelheid) bestaat in deze port niet: hij rekent met vaste 30 Hz. De waarde staat ook vast in de code (src/zones/z22bip/plane.ts), dus de patch doet niets.' },
+  { va: 0x931ef8, len: 4, effect: 'ignored', note: 'Bi-plane: grootte van de tank (6825 per procent). Het verbruik hangt in het origineel af van de beeldsnelheid (per beeld, niet per tijdstap); de port rekent met vaste 60 Hz, één stap per beeld, dus precies zoals het origineel op een 60 Hz-scherm. De waarde staat vast in de code (src/zones/z22bip/plane.ts), dus de patch doet niets.' },
   { va: 0x490dc2, len: 4, effect: 'ignored', note: 'Skateboard: topsnelheid op het eiland (0,75). Staat vast in de code van de port (src/island/vehicles/skate.ts), dus de patch doet niets.' },
   { off: 0x29b2, len: 1, effect: 'ignored', note: 'Venstermodus (Mod Manager): in een browser is er altijd een venster, er is geen beeldschermmodus om te kiezen.' },
   { off: 0x29b9, len: 1, effect: 'ignored', note: '/force-opdrachtregel (Mod Manager): de port heeft geen opdrachtregel en geen opstartvenster van de oorspronkelijke launcher.' },

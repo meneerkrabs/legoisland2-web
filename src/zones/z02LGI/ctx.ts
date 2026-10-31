@@ -11,6 +11,7 @@ import { cheatState } from '../../shell/cheats.ts';
 import { RF_ENABLED } from '../../game/record.ts';
 import { partOverrides } from '../../island/trigger/parts.ts';
 import type { IslandCtx } from '../../island/ctx.ts';
+import { voicedTags } from '../../island/ctx.ts';
 import { loadMessages } from '../../ui/strings.ts';
 import { restoreHooks } from '../../restore/flag.ts';
 import type { MessageTable } from '../../ui/strings.ts';
@@ -131,6 +132,10 @@ export class IslandContext implements IslandCtx {
   setText(which: 'npc' | 'hol', raw: string | null) {
     this.textPaths[which] = raw === null ? null : messagePath(raw);
     this.text[which] = raw === null ? null : this.table(raw);
+    // port: the story's tables are selected at set-up / when the node advances: read every voice of the new table into memory in the background (bytes only, ~50 lines, a few range requests;
+    // the NPCs decode theirs when Pepper comes near): the first line a conversation says is then in hand (src/audio/speech.ts)
+    const t = this.text[which];
+    if (t && this.world.vars.get(9) !== 0) setTimeout(() => { if (this.text[which] === t) this.zg?.prefetchSpeech(voicedTags(t), t, { decode: false }); }, 1500);
   }
 
   // ---- cutscene manager
@@ -140,6 +145,7 @@ export class IslandContext implements IslandCtx {
   }
   cutsceneActive(): boolean { const a = this.zg?.cutscene.active() ?? false; return restoreHooks.cutsceneActive ? restoreHooks.cutsceneActive(a) : a; }
   holdCutscene(on: boolean) { this.zg?.cutscene.hold(on); }
+  prefetchCutscene(slot: number) { this.zg?.cutscene.prefetch(slot); }
 
   // ---- speech
   say(table: MessageTable, id: string, id2?: string, voice = true, subtitle: SubtitleMode = 'timed'): boolean {
@@ -150,6 +156,8 @@ export class IslandContext implements IslandCtx {
   /** FUN_0043f2f0: the face frame of a minifig (the renderer draws `GameRecord.face`) */
   expression(rec: GameRecord, n: number) { rec.face = n; }
   speechIdle(): boolean { return this.zg?.speechIdle() ?? true; }
+  speechWaiting(): boolean { return this.zg?.speechWaiting() ?? false; }
+  prefetchSpeech(table: MessageTable, ids: Iterable<string>) { this.zg?.prefetchSpeech(ids, table); }
   stopSpeech() { this.zg?.stopSpeech(); }
 
   // ---- sound: the zone's sound list (FUN_004b037e + the constructor classes' loads) is loaded by `AudioHost.enterZone` before the loop starts, so every call finds its slot

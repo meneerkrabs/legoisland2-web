@@ -11,10 +11,11 @@ import { B } from '../../src/game/input.ts';
 import { lcg } from '../lib/m7-isl-veh-emu.mjs';
 import { ST } from '../../src/game/walk.ts';
 import { vehicles } from '../../src/island/vehicles/common.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const RB = 0x30000000, REC = 0x68;
 
-export default {
+const __test = {
   name: 'm8-save-walk',
   async run(ctx) {
     const R = await createRunner(ctx, { coverage: false });
@@ -228,3 +229,4 @@ export default {
     return { checked: R.checked, failures: R.failures, notes };
   },
 };
+export default guarded(__test);

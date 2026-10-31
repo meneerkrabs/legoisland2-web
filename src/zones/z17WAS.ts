@@ -1,6 +1,8 @@
 // z17WAS "Whack-A-Snake" (Adventure Island): ported in M3 (docs/re/m3/z17WAS.md). Registers the constructors of the zone's two behaviour nodes (`pepwas`,
 // `zonewas`: src/zones/z17was/rules.ts) and the zone game (the 2D layer, the intro / banner texts, the medal variables, the sounds, the fixed camera).
 import { registerCtor } from '../game/setup.ts';
+import { seedFromTime } from '../game/crt.ts';
+import { startTickClock } from './common/tickrand.ts';
 import { registerZoneGame } from '../shell/zonegame.ts';
 import { GATE_ON, ZoneParticles } from '../fx/particles/zone.ts';
 import type { ZoneGame } from '../shell/zonegame.ts';
@@ -22,6 +24,8 @@ registerCtor(CTOR_ZONEWAS, () => new ZoneWasNode(shared));
 registerZoneGame('z17WAS', async (ctx) => {
   const { world, loaded, archive, vars, sh, hud } = ctx;
   const records = world.records;
+  // FUN_00699dc7 srand(time()) then (loop prologue) FUN_00435c81 = the zone clock base; a restart (exit state 3) loops in place and does neither again (the port reloads the zone: skip them)
+  if (ctx.attempt === 0) { seedFromTime(); startTickClock(); }
   const bad = checkRecords(records);
   if (bad.length) throw new Error(`z17WAS: ${bad.join('; ')}`);
   const pep = loaded.pepper;
@@ -81,7 +85,7 @@ registerZoneGame('z17WAS', async (ctx) => {
       if (!bannerDone) { applyResult(vars, shared.finalScore); bannerDone = true; }
     },
     /** mode 4 keeps Pepper's cheer / sad clip running (FUN_0043b76a(Pepper, 1.0) in the loop) */
-    bannerTick() { pep.anim?.advance(1.0); },
+    bannerTick() { pep.anim?.advance(1.0, world.dt); },   // steps by 1.0 * DAT_008b1718 (dt-scaled inside FUN_0043b76a)
     draw2d(ui: Ui2D, _dt: number, mode: number) {
       if (mode === 1) ctx.text(ui, 'ADSGWS06', 320, 200, { maxChars: 28 });
       else if (mode === 2) ui.text(1, node.scoreText, 320, 400, { colour: 0, maxChars: 28 });   // FUN_00439c6f(0, font, "%d", 1, 0, 320, 400, 28)

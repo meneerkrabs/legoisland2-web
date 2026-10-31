@@ -36,11 +36,11 @@ export const PICKUP_SOUND = 753;
 // ---- RECONSTRUCTION: invented numbers (tune after a play-through)
 /** RECONSTRUCTION: cells one battery gives (of 12) */
 export const CELLS = 4;
-/** RECONSTRUCTION: ticks of dance music one cell lasts (300 ticks = 10 s at 30 Hz: a battery is 40 s; ten batteries exist) */
+/** RECONSTRUCTION: dance music one cell lasts, in the game's time unit (1/30 s: 300 = 10 s; `w.dt` of it passes per sim step, 0.5 at the 60 Hz step): a battery is 40 s; ten batteries exist) */
 export const DRAIN_TICKS = 300;
 /** RECONSTRUCTION: pickup: squared XZ distance to Pepper (Controller.distSq) below this, and the height difference below PICKUP_DY */
 export const PICKUP_DIST_SQ = 16, PICKUP_DY = 4;
-/** RECONSTRUCTION: spin (rad per tick) and bob (amplitude, rad per tick of the phase) */
+/** RECONSTRUCTION: spin (rad per dt-unit of 1/30 s: `* w.dt` per sim step) and bob (amplitude, rad per dt-unit of the phase) */
 export const SPIN = 0.05, BOB = 0.25, BOB_RATE = 0.08;
 /** RECONSTRUCTION: the batteries are drawn this much larger than their 0.8 x 0.86 x 0.5 mesh so that they can be seen across the island */
 export const SCALE = 2.5;

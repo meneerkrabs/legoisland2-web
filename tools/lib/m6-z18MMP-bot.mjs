@@ -238,7 +238,7 @@ import { MmpRun } from '../../src/zones/z18mmp/run.ts';
 export function seededRng(seed) {
   let s = seed >>> 0;
   const r = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
-  return { float: (x) => r() * x, int: (n) => Math.floor(r() * n) };
+  return { float: (x) => (x <= 0 ? 0 : Math.fround(Math.fround(r()) * Math.fround(x))), int: (n) => Math.floor(r() * n) };
 }
 
 /** a world of the zone, prepared like the zone game does (shuffled symbols, nodes initialised); `G.zone` has the shape `snapshotFromZone` reads */
@@ -258,7 +258,7 @@ export function bootWorld(ctx, seed = 1) {
 /** one tick of the loop with the given held keys (mode 2 of FUN_006a26a8: clock and danger, the update pass, the game-over check); true when the game is over */
 export function tickWorld(G, keys = []) {
   for (const k of Object.values(KEY)) G.w.input.setKey(k, keys.includes(k));
-  G.run.beforeTick();
+  G.run.beforeTick(G.w.dt);
   G.w.tick();
   G.ticks++;
   return G.run.afterTick(G.w.vars);

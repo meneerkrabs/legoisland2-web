@@ -54,6 +54,8 @@ export class CutsceneHost {
   readonly runner: CutsceneRunner;
   readonly wp: WaypointSystem;
   private tables = new Map<number, MessageTable>();
+  /** the SAYTEXT message ids of every declared script, in script order (port: for the speech prefetch) */
+  private speechIds = new Map<number, string[]>();
   private mans = new Map<string, Man | null>();
   private anims = dictLookup(undefined);
   private switches = switchResolver(undefined, { indexOf: () => -1 });
@@ -86,6 +88,7 @@ export class CutsceneHost {
         return sp ? sp.say(v, -1) : false;
       },
       speechIdle: () => sh.audio.ga?.speech.idle ?? true,
+      speechWaiting: () => sh.audio.speechWaiting,
       stopSpeech: () => sh.audio.ga?.speech.stop(),
       setFov: (f) => { gr.fov = f; },
       getFov: () => gr.fov,
@@ -97,7 +100,6 @@ export class CutsceneHost {
       animClip: (_a, name) => this.anims(name) ?? -1,
       varIndex: (name) => this.switches(name),
       loadMan: (path) => this.mans.get(path.toUpperCase()) ?? null,
-      random: Math.random,
     };
     this.runner = new CutsceneRunner(env);
   }
@@ -122,8 +124,10 @@ export class CutsceneHost {
       let table: MessageTable;
       try { const sp = `${s.area.toUpperCase()}/Data/${s.strings}.str`; table = loadMessages(messages, [sp]); if (restoreHooks.messages) table = restoreHooks.messages(sp, table); } catch { table = new EmptyTable([]); console.warn(`cutscene ${s.script}: no ${s.area}/Data/${s.strings}.str, no texts`); }
       this.tables.set(s.slot, table);
+      this.speechIds.set(s.slot, cut.commands.filter((c) => c.cmd === 2 && c.textId).map((c) => c.textId as string));
       await this.loadSplines(cut);
     }
+    setTimeout(() => { for (const s of specs) this.prefetchScript(s.slot, false); }, 3000);
   }
 
   /** the `.man` files of a script's spline targets (`Z02LGI\MATANIM\X.MAN`: the first component is the zone archive) */
@@ -153,8 +157,24 @@ export class CutsceneHost {
     return null;
   }
 
+  /**
+   * Port only: read the voices of a script into memory in the background, in script order (the original reads each file from disk the instant a SAYTEXT asks for it): at `declare` the
+   * first line of every script (read only, a few seconds after the zone started so the zone's own loading goes first), at `start` all the lines of the script that starts. A SAYTEXT
+   * whose line is still not there waits with its mouth / subtitle / timer for the audio (SpeechEngine.waiting).
+   */
+  private prefetchScript(slot: number, all: boolean) {
+    const t = this.tables.get(slot), ids = this.speechIds.get(slot);
+    if (!t || !ids || !this.sh.options.speechOn) return;
+    const idx = ids.map((id) => t.voice(id)).filter((v) => v >= 0);
+    if (all) this.sh.audio.prefetchSpeech(idx);
+    else if (idx.length) this.sh.audio.prefetchSpeech(idx.slice(0, 1), { decode: false });
+  }
+
+  /** port only: read all voices of the script of `slot` ahead (an NPC / trigger that will start it is near) */
+  prefetch(slot: number) { this.prefetchScript(slot, true); }
+
   /** FUN_0045c40c */
-  start(slot: number): boolean { return this.runner.start(slot); }
+  start(slot: number): boolean { this.prefetchScript(slot, true); return this.runner.start(slot); }
   /** FUN_0045c402: the script's frame (call once per tick of the modes that run it) */
   tick() { this.runner.tick(); }
   /** FUN_0045c432 */
@@ -167,6 +187,6 @@ export class CutsceneHost {
   /** the subtitle of the running SAYTEXT, drawn like the HUD's four lines (helpscreen.ts `drawSubtitle`, FUN_0045d47f wrapping) */
   draw(ui: Ui2D) {
     const s = this.runner.subtitle;
-    if (s) drawSubtitle(ui, s.text);
+    if (s && !this.sh.audio.speechWaiting) drawSubtitle(ui, s.text);   // (port: the text appears with the audio, see SpeechEngine.waiting)
   }
 }

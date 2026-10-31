@@ -11,9 +11,13 @@ export default {
     F('free z03PPH', 'z03PPH', 1, 700, 71);
     F('free z03PPH', 'z03PPH', 0.5, 700, 72);
     F('free z03PPH subgame 0', 'z03PPH', 1, 500, 73, { subgame: 0 });
+    F('free z03PPH subgame 0', 'z03PPH', 0.5, 700, 78, { subgame: 0 });
     F('free z50LTC', 'z50LTC', 1, 300, 74);
+    F('free z50LTC', 'z50LTC', 0.5, 400, 79);
     F('free z18MMP', 'z18MMP', 0.5, 300, 75);
+    F('free z18MMP', 'z18MMP', 1, 200, 81);
     F('free z02LGI', 'z02LGI', 1, 350, 76);
+    F('free z02LGI', 'z02LGI', 0.5, 450, 80);
     F('free z02LGI beach', 'z02LGI', 0.5, 250, 77, { pos: [505, 3.5, -88], yaw: 1.2 });
     return { checked: R.checked, failures: R.failures, notes: R.summary() };
   },

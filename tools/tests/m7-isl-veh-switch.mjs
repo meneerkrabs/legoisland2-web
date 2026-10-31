@@ -7,10 +7,11 @@ import { switchSession, B, RECORDS_BASE, REC, lcg } from '../lib/m7-isl-veh-supe
 import { vehicles } from '../../src/island/vehicles/common.ts';
 import { looksOf, nearestLookRecord } from '../../src/island/vehicles/looks.ts';
 import { compareChainBlocks, cdPatchChain, snapChainBlocks, pepSwitchLoadRounds } from '../lib/m8-save-pepper.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MAXFAIL = 30;
 
-export default {
+const __test = {
   name: 'm7-isl-veh-switch',
   async run(ctx) {
     const failures = [], notes = [];
@@ -162,3 +163,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

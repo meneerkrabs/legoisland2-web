@@ -5,6 +5,7 @@
 // animation clip / frame readers (FUN_0043b72b / 0043b73f read the instance token's memory), the cutscene flag (FUN_0045c432).
 import { emulateZoneSetup, emuSpecOf, RECORDS_BASE } from '../../src/formats/emusetup.ts';
 import { loadExe, sceneOf } from './engine-load.mjs';
+import { rand as crtRand } from '../../src/game/crt.ts';
 
 // the original runs x87 at 24-bit precision (Direct3D 7 sets control word 0x7f); the Cpu reads M7_CW when it is created (tools/tests/m5-z23DIP-emu.mjs sets it for its run)
 export const STRIDE = 0x68;
@@ -31,7 +32,7 @@ export function dipOracle(ctx, opts = {}) {
   hooks.set(0x443310, (c) => { ev.groove.push(c.arg(0) << 24 >> 24); });
   hooks.set(0x43b72b, (c) => { c.eax = c.mem.u32(c.arg(0) + 0xc); });
   hooks.set(0x43b73f, (c) => { c.fpush(c.mem.f32(c.arg(0) + 0x10)); });
-  hooks.set(0x4388ae, (c) => { c.fpush(Math.fround(Math.fround((opts.rand ?? Math.random)()) * c.argf(0))); });
+  hooks.set(0x4388ae, (c) => { c.fpush(Math.fround(Math.fround((opts.rand ?? (() => crtRand() / 32767))()) * c.argf(0))); });
   hooks.set(0x45c432, (c) => { c.eax = opts.cutscene?.() ? 1 : 0; });
   const emu = emulateZoneSetup(pe, scene, { vars, archive, hooks, terrainHeight: (g, x, y, z, dy) => (opts.terrain ? opts.terrain(x, y, z, dy) : null) }, emuSpecOf('z23DIP'));
   const mem = emu.mem;

@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Archive } from '../src/formats/archive.ts';
+import { resetInjected } from './lib/inject-guard.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -40,7 +41,9 @@ for (const f of files) {
   if (only?.length && !only.includes(mod.name)) continue;
   const t0 = Date.now();
   let res;
+  resetInjected();   // a test's injected random / clock sources must not leak into the next one (single process)
   try { res = await mod.run(ctx); } catch (e) { res = { checked: 0, failures: [`test crashed: ${e.stack || e}`] }; }
+  resetInjected();
   totalFail += res.failures.length;
   console.log(`${res.failures.length ? 'FAIL' : 'ok  '} ${mod.name.padEnd(14)} checked ${String(res.checked).padStart(6)}  failures ${res.failures.length}  (${Date.now() - t0} ms)`);
   for (const n of res.notes ?? []) console.log(`       ${n}`);

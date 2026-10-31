@@ -328,7 +328,7 @@ Details, ported addresses and approximations: docs/re/engine-m2.md (+ shell-m2.m
 
 | file | what |
 |---|---|
-| `shell.ts` | `Shell`: canvas (4:3, WebGL2: `Renderer` + `Ui2D`), game vars, `StoryFsm`, `ZoneLoopState` (FUN_00404dc9), options, save slots, audio, input, `run()` zone loop, `runLoop()` fixed 30 Hz; `registerZoneRunner(id, fn)` replaces the stub of a zone (M3+) |
+| `shell.ts` | `Shell`: canvas (4:3, WebGL2: `Renderer` + `Ui2D`), game vars, `StoryFsm`, `ZoneLoopState` (FUN_00404dc9), options, save slots, audio, input, `run()` zone loop, `runLoop()` fixed 60 Hz; `registerZoneRunner(id, fn)` replaces the stub of a zone (M3+) |
 | `frontend.ts`, `fenodes.ts`, `credits.ts` | z60FRE stage, menu, credits |
 | `playzone.ts`, `loopmachine.ts`, `hud.ts` | stub zone runner, loop template (`LoopConfig`, modes 7/0/1/9/2/3/4/5/8), HUD |
 | `menu.ts`, `menudraw.ts`, `menuui.ts` | menu engine + drawing + event handler (FUN_0041fd45 / 0041d765 / 0041b500) on the page table of the EXE |

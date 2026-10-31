@@ -30,7 +30,7 @@ export class ParEmu {
   /**
    * @param recs the records of the oracle's world ({ name, m, flags, rx, ry, rz })
    * @param anims Map(record index -> AnimInstance of the oracle's own world)
-   * @param o { rand(range): number (the port's FUN_004388ae), col: { sweep(recIdx, from, delta, mask, r, s) -> {rec, point, normal} | null, probe(...), ground(from) -> point | null, box(recIdx, a, b, outP, outN) -> boolean } }
+   * @param o { randInt(): number (the scripted rand(), 0 .. 32767), col: { sweep(recIdx, from, delta, mask, r, s) -> {rec, point, normal} | null, probe(...), ground(from) -> point | null, box(recIdx, a, b, outP, outN) -> boolean } }
    */
   constructor(pe, recs, anims, o) {
     const cpu = (this.cpu = createGameCpu(pe));
@@ -40,7 +40,7 @@ export class ParEmu {
     mem.addRegion({ lo: RECORDS_BASE, hi: RECORDS_BASE + 0x10000, name: 'records' });
     this.brk = HEAP_BASE;
     this.log = []; this.nodes = {}; this.anims = new Map(); this.animRec = new Map(); this.unhooked = new Map(); this.speechIds = [];
-    this.rand = o.rand; this.col = o.col;
+    this.randInt = o.randInt; this.col = o.col;
     this.nRecs = recs.length;
     mem.w32(0x983800, recs.length); mem.w32(0x983804, RECORDS_BASE);
     recs.forEach((r, i) => {
@@ -57,7 +57,7 @@ export class ParEmu {
     const logf = (s) => this.log.push(s);
     const L = this;
     H.set(0x433d38, (c) => { const p = L.alloc(c.arg(0)); L.nodes[c.arg(0)] = p; c.eax = p; });
-    H.set(0x4388ae, (c) => { c.fpush(L.rand(c.argf(0))); });
+    H.set(0x85daf0, (c) => { c.eax = L.randInt(); });      // FUN_004388ae runs natively on the scripted rand()
     H.set(0x443580, (c) => { c.eax = c.arg(0) | 0x100000; });
     H.set(0x4433b0, (c) => { c.eax = c.arg(0) | 0x200000; });
     H.set(0x4435a0, (c) => { logf(`p ${c.arg(0) & 0xfffff}`); c.eax = 0; });
@@ -116,7 +116,7 @@ export class ParEmu {
       if (hit) { put3(c.arg(3), op); put3(c.arg(4), on); }
       c.eax = hit ? 1 : 0;
     });
-    cpu.exec = [[0x465539, 0x470a20], CRT];
+    cpu.exec = [[0x465539, 0x470a20], CRT, [0x4388ae, 0x4388e7]];
     for (const a of NATIVE) cpu.native.add(a);
     cpu.fallback = (addr) => (c) => { L.unhooked.set(addr, (L.unhooked.get(addr) ?? 0) + 1); c.eax = 0; };
   }

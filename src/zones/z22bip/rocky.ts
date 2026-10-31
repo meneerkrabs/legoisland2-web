@@ -7,6 +7,7 @@ import type { GameRecord } from '../../game/record.ts';
 import type { BehaviourNode } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import { bipRun, f32, REC } from './run.ts';
+import { randF } from '../../game/crt.ts';
 import { PLANE } from './plane.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
 
@@ -107,7 +108,7 @@ export class RockyNode implements BehaviourNode {
       s.vx = F(1 * rec.m[8]); s.vy = F(1 * rec.m[9]); s.vz = F(1 * rec.m[10]);
       s.vy = F(s.vy - F(ROCKY.GRAVITY * ROCKY.LOB));
       s.life = ROCKY.STONE_LIFE;
-      s.sx = F(run.crt.float(ROCKY.SPIN)); s.sy = F(run.crt.float(ROCKY.SPIN)); s.sz = F(run.crt.float(ROCKY.SPIN));
+      s.sx = F(randF(ROCKY.SPIN)); s.sy = F(randF(ROCKY.SPIN)); s.sz = F(randF(ROCKY.SPIN));
       s.ax = s.ay = s.az = 0;
       return;
     }

@@ -58,7 +58,7 @@ const inner = {
     ok(f32(pe, 0x931ef8) === PLANE.FUEL_UNIT && f32(pe, 0x8928a8) === PLANE.SPEED_TURN && f32(pe, 0x892100) === PLANE.TURN_DIV, 'fuel unit 6825, speed factor 1/256, turn divisor 128');
     near(f32(pe, 0x8920d8), PLANE.BANK_K, 1e-9, 'pi / 180 (0x8920d8)');
     ok(f64(pe, 0x8928b0) === PLANE.SOUND_HZ_BASE && f64(pe, 0x8928b8) === PLANE.SOUND_HZ_PER_PITCH, 'engine sound rate 56750 - 65.5 * pitch (doubles 0x8928b0 / b8)');
-    ok(Math.fround(f64(pe, 0x892890)) === PLANE.HEADING_BAND && Math.fround(f64(pe, 0x892898)) === -PLANE.HEADING_BAND, 'heading band +-0.9 (doubles 0x892890 / 98, cast to float by the code)');
+    ok(f64(pe, 0x892890) === PLANE.HEADING_BAND && f64(pe, 0x892898) === -PLANE.HEADING_BAND, 'heading band +-0.9 (doubles 0x892890 / 98: `fcomp / fadd / fsub qword`, used as doubles)');
     ok(f64(pe, 0x8928a0) === PLANE.WRAP_LIMIT, 'the heading wrap threshold is the double 0x8928a0 (= float32 pi)');
     ok(f32(pe, 0x892254) === PLANE.FUEL_CAN && f32(pe, 0x892074) === PLANE.FUEL_LOW_SAY && f32(pe, 0x892060) === PLANE.FUEL_LOW_ALARM, 'fuel can 50 %, speech below 15 %, alarm below 10 %');
     // the hit tests and the medals (immediates of FUN_00709258 / FUN_00709fac)

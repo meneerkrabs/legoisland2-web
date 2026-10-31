@@ -11,11 +11,12 @@ import { fileURLToPath } from 'node:url';
 import { buildNpcOracle, NPC_CTORS, ZONES, installObserver, resetObs, obs, mergeVary, neverVaried, m8Nodes, m8Io, randomRoundTrip } from '../lib/m8-save-npc.mjs';
 import { lcg } from '../lib/m7-isl-veh-emu.mjs';
 import { compareBlocks } from '../lib/m8-save.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCEN = ['m7-isl-npc-emu', 'm7-isl-npc-human', 'm7-isl-bb-npc', 'm7-isl-bb-eras', 'm7-isl-bb-free', 'm7-isl-bb-gates', 'm7-isl-bb-hit', 'm7-isl-bb-pconly', 'm7-isl-bb-pizza', 'm8-save-npc-long', 'm5-z07CSI-npc'];
 
-export default {
+const __test = {
   name: 'm8-save-npc',
   async run(ctx) {
     const failures = [], notes = [];
@@ -68,3 +69,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

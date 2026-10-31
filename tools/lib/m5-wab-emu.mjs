@@ -66,9 +66,10 @@ export class WabEmu {
     const logf = (s) => this.log.push(s);
     const L = this;
     H.set(0x433d38, (c) => { const p = L.alloc(c.arg(0)); L.nodes[c.arg(0)] = p; c.eax = p; });
-    H.set(0x435c91, (c) => { c.eax = Math.trunc(L.ticks * 1000 / 30); });
-    // FUN_004388ae(range): the scripted integer (the port draws `value % n` from the same sequence)
-    H.set(0x4388ae, (c) => { c.fpush(L.rand()); });
+    // FUN_00435c91 = GetTickCount() - DAT_009dab64: the shared clock (src/zones/common/tickrand.ts; the test pins the tick source of src/game/crt.ts)
+    H.set(0x435c91, (c) => { c.eax = o.clock(); });
+    // FUN_004388ae(range) = `range <= 0 ? 0 : (float)((float)rand() / 32767 * range)` (24-bit x87: every step a float32), rand() scripted (the port draws the same 15 bit values)
+    H.set(0x4388ae, (c) => { const r = c.argf(0); c.fpush(r <= 0 ? 0 : Math.fround(Math.fround(L.rand() / 32767) * r)); });
     // sounds
     H.set(0x443580, (c) => { c.eax = c.arg(0) | 0x100000; });
     H.set(0x4433b0, (c) => { c.eax = c.arg(0) | 0x200000; });

@@ -3,6 +3,7 @@
 import { nativeNodes, portNodes, compareBlocks, origBlock, hex } from '../lib/m8-save.mjs';
 import { hubOracle } from '../lib/m8-save-hubs.mjs';
 import { RECORDS_BASE } from '../lib/m7-isl-veh-emu.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 /** the zones' roster / decor constructor tails (FUN_00655de3 ..., past `zoneCodeIndex`'s hi): the record variant words after the original's constructors */
 const ROSTER_EXEC = { z14OSD: [[0x655000, 0x656500]], z16PYA: [[0x698000, 0x699000]], z23DIP: [[0x765000, 0x765500]], z40OGL: [[0x811000, 0x811700]] };
 
@@ -10,7 +11,7 @@ const ONLY = process.env.M8_ONLY ? new Set(process.env.M8_ONLY.split(',').map((x
 const ZONES = process.env.M8_ZONES ? process.env.M8_ZONES.split(',') : ['z14OSD', 'z16PYA', 'z23DIP', 'z40OGL'];
 export const MINE = new Set([0x629d7e, 0x62ad35, 0x62af8d, 0x62b220, 0x62ba3b, 0x727e84, 0x677350, 0x7281aa, 0x7e31fc, 0x7e4f9c, 0x7e539e, 0x7e5ea7, 0x7e61e9, 0x7e6498, 0x7e69a2, 0x7e6bb2]);
 
-export default {
+const __test = {
   name: 'm8-save-hubs',
   run(ctx) {
     const failures = [], notes = [];
@@ -38,3 +39,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

@@ -6,12 +6,13 @@ import { installSaveHost, syncGlobalsFromPort, originalWrite, RECORDS_BASE } fro
 import { setIslandRandom } from '../../src/island/rng.ts';
 import { captureWorld, tagOf, listedNodes } from '../../src/shell/saveworld.ts';
 import { newSaveFromGame, encodeSave, decodeSave, saveChecksum, VARS_FIRST, VARS_COUNT } from '../../src/shell/save.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const STRICT_CLIPS = process.env.M8_STRICT_CLIPS === '1';
 const ZONES = process.env.M8_ZONES ? process.env.M8_ZONES.split(',') : ['isl2', 'isl16', 'isl37', 'isl56', 'isl61', 'z07CSI', 'z13CAI', 'z14OSD', 'z16PYA', 'z23DIP', 'z40OGL'];
 const tagName = (t) => String.fromCharCode(t & 0xff, (t >> 8) & 0xff, (t >> 16) & 0xff, (t >>> 24) & 0xff);
 
-export default {
+const __test = {
   name: 'm8-save-world',
   run(ctx) {
     setIslandRandom(() => 0);
@@ -110,3 +111,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

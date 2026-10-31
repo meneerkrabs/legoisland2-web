@@ -23,7 +23,7 @@ export function cai(h) {
   S.veh = () => page.evaluate(() => {
     const z = window.__zone; if (!z) return null;
     const g = z.world.ext.get('island.vehicles'), c = g?.current, v = z.sh.vars;
-    return { name: c ? c.name : null, x: c ? c.x : 0, y: c ? c.y : 0, z: c ? c.z : 0, ry: c ? c.ry : 0, ctrl: v.get(0x5e), tick: z.world.tickCount, next: v.get(5), node: v.get(0x58), arch: z.info.archive, s250: v.get(0xfa), cs: z.game?.debug?.().cutscene ?? false };
+    return { name: c ? c.name : null, x: c ? c.x : 0, y: c ? c.y : 0, z: c ? c.z : 0, ry: c ? c.ry : 0, ctrl: v.get(0x5e), tick: z.world.tickCount / 2, next: v.get(5), node: v.get(0x58), arch: z.info.archive, s250: v.get(0xfa), cs: z.game?.debug?.().cutscene ?? false };
   });
   /** a record's position */
   S.at = (name) => page.evaluate((n) => { const r = window.__zone.world.records.find((x) => x.name === n); return r ? [r.x, r.y, r.z] : null; }, name);

@@ -122,15 +122,15 @@ export class DipPepSwitch implements BehaviourNode {
         if (a && Math.trunc(a.frame) < 4) c.sfxAt(soundId(c, SND.STEP[k]), pos(REC.REX1));
       }
       // FUN_004388ae(300): the brontosaurus roars: 298 -> 0x322 (DAT_05d5d144), 299 / 300 -> 0x321 (DAT_05d5d140), at BRON
-      const r1 = randTrunc(300);   // RNG: FUN_004388ae = rand() / 32767 * 300 (src/island/rng.ts, shared MSVC rand later)
+      const r1 = randTrunc(300);   // FUN_004388ae(300.0) -> __ftol: the float32 product of src/island/rng.ts on the shared crt.ts rand()
       if (r1 < 299) { if (r1 > 0x129) c.sfxAt(soundId(c, SND.BRON_B), pos(REC.BRON)); }
       else c.sfxAt(soundId(c, SND.BRON_A), pos(REC.BRON));
       // FUN_004388ae(60): the creature whose position the next call plays at: < 10 TRI2, < 20 TRI1, < 30 STE2, < 40 STE1, < 50 TRX2, else TRX1
-      const r2 = randTrunc(60);   // RNG
+      const r2 = randTrunc(60);   // FUN_004388ae(60.0) -> __ftol
       const who = r2 < 10 ? REC.TRI2 : r2 < 20 ? REC.TRI1 : r2 < 30 ? REC.STE2 : r2 < 40 ? REC.STE1 : r2 < 50 ? REC.TRX2 : REC.TRX1;
       const at = pos(who);
       // FUN_004388ae(300): 297 -> 0x320, 298 -> 0x31f, 299 / 300 -> 0x31e
-      const r3 = randTrunc(300);  // RNG
+      const r3 = randTrunc(300);  // FUN_004388ae(300.0) -> __ftol
       if (r3 < 299) {
         if (r3 < 0x12a) { if (r3 > 0x128) c.sfxAt(soundId(c, SND.CALL_C), at); }
         else c.sfxAt(soundId(c, SND.CALL_B), at);

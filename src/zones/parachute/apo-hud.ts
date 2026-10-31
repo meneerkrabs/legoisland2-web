@@ -29,7 +29,8 @@ export class ApoHud {
   spin: [number, number, number] = [14, 44, 74];
   frame: ApoHudFrame = { text: '0', groups: [0x4a, 0x2c, 0xe], tints: [0x88888888, 0x88888888, 0x88888888], chuteIcon: 12, gauge: { segments: [], marker: 0, value: 0 } };
 
-  update(run: ApoRun, dt = 1): ApoHudFrame {
+  /** one call of FUN_007d0f00 per drawn frame; `dt` = DAT_008b1718 (the spin counters step `1 * dt`) */
+  update(run: ApoRun, dt: number): ApoHudFrame {
     const f = this.frame;
     f.text = String(ftol(run.score));
     // group g covers rings 5g .. 5g + 4; the slot order is reversed (group 3 is the bottom icon)

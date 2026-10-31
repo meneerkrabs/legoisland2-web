@@ -15,19 +15,19 @@ import { B } from '../../game/input.ts';
 import { eulerMatrix, eulerRotation, eulerScaledMatrix, fr, mulMatrices, normalise3, reflect3, rotateY, toWorld } from '../exact.ts';
 import { GATE_OFF, NO_HANDLE } from '../../fx/particles/zone.ts';
 import type { ZoneParticles } from '../../fx/particles/zone.ts';
-import { rand as utilRand } from '../parachute/util.ts';
+import { crtRand, randFrom } from '../common/crtrand.ts';
+import type { RandSource } from '../common/crtrand.ts';
 import type { Vec3 } from '../parachute/util.ts';
 import { K, MEDAL, REC, VAR, WINCH, BRONTY, sharedOf, finishGame } from './rules.ts';
 import type { HatShared, HatSound } from './rules.ts';
 import { restoreHooks } from '../../restore/flag.ts';
 
 const PI = fr(3.1415927), TWO_PI = fr(6.2831855);      // _DAT_0089207c, _DAT_00892094 (-PI: _DAT_00892098)
-/** FUN_004388ae(max): `rand() / 32767 * max` with every operation rounded to float32 (the shared source hands out the integer rand: recovered from its product with 32767) */
-function rand(max: number): number {
-  if (max <= 0) return 0;
-  const r = Math.round(utilRand(32767));
-  return fr(fr(r / 32767) * max);
-}
+/** the C runtime's rand() behind FUN_004388ae: the shared generator (src/game/crt.ts); the node tests inject a scripted source (0 .. 32767) */
+let randSource: RandSource = crtRand;
+export function setHatRandSource(f: RandSource | null) { randSource = f ?? crtRand; }
+/** FUN_004388ae(max): `(float) rand() / 32767.0f * max` with every operation rounded to float32, 0 without a draw for max <= 0 (src/zones/common/crtrand.ts) */
+const rand = (max: number): number => randFrom(randSource, max);
 
 // ------------------------------------------------------------------------------------------------ matrix helpers of the engine (float32, tools/lib/m7-z28HAT-emu.mjs compares them bit for bit)
 

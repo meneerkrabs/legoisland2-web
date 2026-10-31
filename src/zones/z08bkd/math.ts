@@ -2,6 +2,7 @@
 import { C } from './consts.ts';
 
 import { fr, ad, sb, ml, dv, sq } from '../common/f32.ts';
+import { randF } from '../../game/crt.ts';
 
 /** FUN_005bb164: an angle wrapped into [0, 2 pi) (two loops, like the original) */
 export function wrapAngle(a: number): number {
@@ -76,7 +77,7 @@ export function normalize3(v: number[]): number[] {
 /**
  * The zone's own "random" source (FUN_005baf8f / FUN_005baffd): a clock that advances by the tick's seconds each frame of mode 2 and wraps above 1.0,
  * and `pick(n)` turns its phase into an index: thresholds K/n, 2K/n, 4K/n ... with K = 0.95 (_DAT_008924e4); the first one the phase is below, else 0.
- * (FUN_004388ae(x) elsewhere is the C runtime's rand() scaled to [0, x): `Rng`.)
+ * (FUN_004388ae(x) elsewhere is the C runtime's rand() scaled to [0, x]: `Rng`.)
  */
 export class ZoneClock {
   /** DAT_05d5ab04: seconds of the last tick, DAT_05d5ab08: the phase */
@@ -99,13 +100,13 @@ export class ZoneClock {
   }
 }
 
-/** FUN_004388ae(x): rand() / 32767 * x (the C runtime's generator: a seedable stand-in with the same range) */
+/**
+ * FUN_004388ae(x) on the shared CRT generator (src/game/crt.ts): `(float) rand() / 32767.0f * x` in float32 steps, 0 for x <= 0 (no draw), the result can equal x.
+ * The zone draws `ftol(FUN_004388ae(x))` for the diver's wave and the shock sound; tests script rand() with `setRandSource` of crt.ts.
+ */
 export class Rng {
-  private s: number;
-  constructor(seed = 12345) { this.s = seed >>> 0; }
-  next(): number { this.s = (Math.imul(this.s, 1103515245) + 12345) >>> 0; return ((this.s >>> 16) & 0x7fff) / 32767; }
-  /** a float in [0, x] */
-  float(x: number): number { return x <= 0 ? 0 : this.next() * x; }
+  /** FUN_004388ae(x) */
+  float(x: number): number { return randF(x); }
   /** `ftol(FUN_004388ae(x))` */
   int(x: number): number { return Math.trunc(this.float(x)); }
 }

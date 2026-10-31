@@ -61,8 +61,8 @@ export interface CntHost {
   say(id: string): void;
   getVar(i: number): number;
   setVar(i: number, v: number): void;
-  /** rand() / RAND_MAX */
-  rand(): number;
+  /** FUN_004388ae(x): `(float) rand() / 32767.0f * x` in float32 (src/zones/common/crtrand.ts `randFrom`; the zone game draws from src/game/crt.ts) */
+  rand(x: number): number;
   /** the visor attachment's rotation (the matrix FUN_0043a5e4(+0x158, angle, 0, 0, tx, ty, tz) that FUN_0043e910 hands to the model) */
   visor(angle: number): void;
 }
@@ -131,6 +131,9 @@ export class CentrifugeSim {
     this.monSet(7, 7);                                  // FUN_007aff48(+0x138, table, 7) after +0x13c = 7
   }
 
+  /** (+0xdc - +0xd8) * power + +0xd8: the arm's angular step at the current power, per operation float32 */
+  private omegaAt(): number { return f(f(f(K.OMEGA_MAX - K.OMEGA_MIN) * this.power) + K.OMEGA_MIN); }
+
   /** FUN_007b2460: Bob's next state = max(0, n), more than 3 -> 4 */
   setBobNext(n: number) { let v = n < 1 ? 0 : n; if (v > 3) v = 4; this.bobNext = v; }
 
@@ -147,9 +150,9 @@ export class CentrifugeSim {
     m.frame = m.start;
   }
   /** FUN_007aff9f: one frame forward; true when the end of the range was reached (the frame restarts at the range start) */
-  private monAdvance(): boolean {
+  private monAdvance(fdt: number): boolean {
     const m = this.mon;
-    m.frame = f(m.frame + 1);
+    m.frame = f(f(1 * fdt) + m.frame);           // 1.0 * DAT_008b1718 + frame
     if (m.frame >= m.end) { m.frame = m.start; return true; }
     return false;
   }
@@ -157,8 +160,9 @@ export class CentrifugeSim {
   // ---------------------------------------------------------------- one tick of FUN_007b0c6e
 
   /** `pressed` = the buttons that went down this tick (DAT_00983840: 1 left, 2 right, 0x40 the action button) */
-  step(pressed: number) {
+  step(pressed: number, dt = 1) {
     const h = this.host;
+    const fdt = f(dt);
     this.ticks++;
     h.play(SND.AMBIENT);
     switch (this.state) {
@@ -173,8 +177,9 @@ export class CentrifugeSim {
         if (pressed & 0x40) { this.state = S.WAIT; this.clip = PEP.START; h.pep.start(this.clip, 0); h.play(SND.BRAKE_OFF); }
         break;
       case S.RUN:
-        this.windows(pressed);
-        this.angle = f(f(f(f(K.OMEGA_MAX - K.OMEGA_MIN) * this.power + K.OMEGA_MIN) * 1) + this.angle);
+        this.windows(pressed, fdt);
+        // ((+0xdc - +0xd8) * power + +0xd8) * DAT_008b1718 + angle, every operation a float32 (x87 at 24 bit)
+        this.angle = f(f(this.omegaAt() * fdt) + this.angle);
         if (this.angle >= TWO_PI) this.angle = f(this.angle - TWO_PI);
         this.bobPower = this.power;
         this.pitch(); h.play(SND.ENGINE);
@@ -184,11 +189,11 @@ export class CentrifugeSim {
       case S.STOP:
         this.pitch(); h.play(SND.ENGINE); h.play(SND.SWISH);
         if (this.score > MEDAL_MIN - 1) this.medalOk = true;
-        this.power = f(this.power - f(0.01));
+        this.power = f(this.power - f(f(0.01) * fdt));
         h.show(REC.RYEL, true); h.show(REC.LYEL, true); h.show(REC.RGRN, false); h.show(REC.LGRN, false); h.show(REC.RLIT, false); h.show(REC.LLIT, false);
         {
-          const omega = f(f(K.OMEGA_MAX - K.OMEGA_MIN) * this.power + K.OMEGA_MIN);
-          this.angle = f(omega + this.angle);
+          const omega = this.omegaAt();
+          this.angle = f(f(omega * fdt) + this.angle);
           if (TWO_PI < this.angle) this.angle = f(this.angle - TWO_PI);
           if (this.power <= 0) {
             this.power = 0;
@@ -228,12 +233,12 @@ export class CentrifugeSim {
         this.visorAngle = 0; this.visorStep = f(0.1); this.visorFirst = false;
         this.monSet(8, 8);
       } else {
-        if (fr > 0x19 && fr < 0x23) { this.visorAngle = f(this.visorAngle + this.visorStep); h.visor(f(this.visorAngle * 1)); }
+        if (fr > 0x19 && fr < 0x23) { this.visorAngle = f(this.visorAngle + this.visorStep); h.visor(f(this.visorAngle * fdt)); }     // the step per tick; only the matrix's angle carries dt
         if (fr > 0x22) this.monSet(0, 0);
       }
     }
     // ---- the monitor's frame ranges: a finished range picks the next one by power
-    if (this.monAdvance()) {
+    if (this.monAdvance(fdt)) {
       const m = this.mon;
       switch (m.cur) {
         case 0: case 2: case 4: case 6: {
@@ -269,7 +274,7 @@ export class CentrifugeSim {
     if (this.clip === PEP.SPIN) {
       h.pep.seek(f(h.pep.frameCount * this.power));
     } else {
-      const r = h.pep.advance(1);
+      const r = h.pep.advance(1, dt);
       if (r === 0 && this.clip === PEP.BELT) {
         const fr = Math.trunc(h.pep.frame);
         if (fr > 0x13 && fr < 0x16) { h.play(SND.SEATBELT); h.say('LESGCE09'); }
@@ -313,7 +318,7 @@ export class CentrifugeSim {
     return 'right';
   }
 
-  private windows(pressed: number) {
+  private windows(pressed: number, fdt: number) {
     const h = this.host;
     let c = this.angle;
     if (c <= PI) { if (c < -PI) c = f(c + TWO_PI); } else c = f(c - TWO_PI);
@@ -359,7 +364,7 @@ export class CentrifugeSim {
       if (c > win) this.launch = false;
     }
     if (this.resetStreak) { this.streak = 0; this.hudStreak = 0; this.resetStreak = false; }
-    this.time = f(this.time - 1);
+    this.time = f(this.time - f(1 * fdt));       // +0xf0 -= 1.0 * DAT_008b1718
     if (this.time <= 0) {
       this.time = 0; this.state = S.STOP; this.setBobNext(1);
       this.clip = PEP.SPIN; h.pep.start(this.clip, 0);
@@ -393,7 +398,7 @@ export class CentrifugeSim {
   // ---------------------------------------------------------------- Bob (FUN_007b24a2)
 
   /** one tick of the technician's controller */
-  bobStep() {
+  bobStep(dt = 1) {
     const a = this.host.bob, h = this.host;
     switch (this.bobState) {
       case 0: a.start(BOB.IDLE, 0); this.bobState = 7; break;
@@ -401,9 +406,9 @@ export class CentrifugeSim {
       case 2: a.start(BOB.BUTTON_B, 0); this.setBobNext(3); this.bobState = 7; break;
       case 3: a.start(BOB.IDLE, 0); this.bobState = 7; break;
       case 4: {
-        if (this.bobPower <= h.rand()) a.start(BOB.IDLE, 0);
+        if (this.bobPower <= h.rand(1)) a.start(BOB.IDLE, 0);
         else {
-          switch (Math.trunc(h.rand() * 4)) {
+          switch (Math.trunc(h.rand(4))) {
             case 0: a.start(BOB.BUTTON_A, 0); h.play(SND.BOB_BUTTON1); break;
             case 1: a.start(BOB.BUTTON_B, 0); h.play(SND.BOB_BUTTON2); break;
             case 2: a.start(BOB.BUTTON_C, 0); h.play(SND.BOB_BUTTON3); break;
@@ -411,16 +416,16 @@ export class CentrifugeSim {
             default: break;
           }
         }
-        this.bobSpeed = f(3 * this.bobPower + 1);
+        this.bobSpeed = f(f(3 * this.bobPower) + 1);        // 3.0 * power + 1.0 (+0x20)
         this.bobState = 7;
         break;
       }
       case 5: a.start(BOB.CLIP_7, 0); this.setBobNext(3); this.bobState = 7; break;
       case 6: a.start(BOB.CLIP_4, 0); this.setBobNext(3); this.bobState = 7; break;
-      case 7: if (a.frameCount < this.bobSpeed + 1 + a.frame) this.bobState = this.bobNext; break;
+      case 7: if (a.frameCount < f(f(1 + a.frame) + f(this.bobSpeed * f(dt)))) this.bobState = this.bobNext; break;     // FUN_0043b92a (clip end within this step)
       default: break;
     }
-    a.advance(this.bobSpeed);
+    a.advance(this.bobSpeed, dt);
   }
 
   /** FUN_007b204c: the controller's destructor stops the loops */

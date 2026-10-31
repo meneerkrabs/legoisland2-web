@@ -40,7 +40,7 @@ export default {
     // records
     const r = new GameRecord('PEPP'); r.m.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]); r.x = 10.04; r.y = 2; r.z = -3.256; r.ctrl = {};
     ok(gobLine(r, 7) === 'PEPP @  10.0,   2.0, -3.26. V:Y, AI:Y (   7)' || /^PEPP @ +10\.0, +2\.0, +-3\.26\. V:Y, AI:Y \( +7\)$/.test(gobLine(r, 7)), `gob line "${gobLine(r, 7)}"`);
-    moveRecord(r, 'by', [1, 1, 1]); ok(Math.abs(r.x - 11.04) < 1e-4 && r.prev[12] === r.x, 'Move By');
+    moveRecord(r, 'by', [1, 1, 1]); ok(Math.abs(r.x - 11.04) < 1e-4, 'Move By');   // (no previous-tick matrix any more: the loop draws the last step, alpha is always 1)
     moveRecord(r, 'to', [0, 0, 0]); ok(r.x === 0 && r.y === 0 && r.z === 0, 'Move To');
     r.setEuler(0, Math.PI / 2, 0, 0, 0, 0); moveRecord(r, 'fwd', [0, 0, 5]); ok(Math.abs(Math.abs(r.x) - 5) < 1e-3, `Forwards follows the record's yaw (x ${r.x})`);
     ok(HIDDEN_NAMES.test('BTB7') && HIDDEN_NAMES.test('XXX3') && !HIDDEN_NAMES.test('PEPP'), 'hidden record names');

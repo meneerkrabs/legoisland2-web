@@ -118,7 +118,7 @@ export const CATALOGUE: CatalogueEntry[] = [
     id: 'biplane-nl', title: 'Bi-Plane Fuel Fix (Nederlands)', authors: ['Xiron', 'JappaWakka'],
     description: 'Herstelt het veel te snel leeglopen van de benzine in het tweedekkerspel. Twee varianten: beeldscherm vol en venster.',
     size: 1715, unpacked: 0, host: IA, thread: THREADS.collection, fit: 'nl', fitNote: NL,
-    portNote: 'Geen effect in de port: de fout (het leeglopen hing af van de beeldsnelheid) bestaat hier niet, de port rekent met vaste 30 Hz. Je ziet dat in de lijst bij de patch.',
+    portNote: 'Geen effect in de port: de patch vergroot de tank, maar de port heeft de waarde vast in de code. De port rekent met vaste 60 Hz, één stap per beeld zoals het origineel op een 60 Hz-scherm: de benzine loopt dus precies zo snel leeg als daar. Je ziet dat in de lijst bij de patch.',
     status: 'live', source: { kind: 'relay', path: '/ia/legoeiland2dutch/li2_bi-plane_fuel_fix_dutch.zip', file: 'li2_bi-plane_fuel_fix_dutch.zip' },
   },
   {

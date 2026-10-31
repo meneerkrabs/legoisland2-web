@@ -199,12 +199,12 @@ export default {
       loadIslandWalkMaps(I.archive, I.profile.island);
       startPizzaNodes(I.world); startIslandNpcs(I.world);
       const bot = I.rec('BBY0'), music = bot.ctrl.nodes.find((n) => n.kind === 'BOTMUSIC'), p = I.pepper, fx = I.ictx.fx;
-      p.x = bot.x + 200; p.z = bot.z; p.savePrev();
+      p.x = bot.x + 200; p.z = bot.z;
       tick(I, 3);
       const m = fx.emitters.get(music.fxH);
       ok(m && m.name === 'music01.par' && m.pos.join() === '0,0.5,0' && m.rot.join() === '0,0,0' && m.gate.join() === '1,1,1' && m.matrix === music.fxMat, 'BOTMUSIC: music01.par bound to the node\'s own matrix, offset (0, 0.5, 0), gate off');
       fx.clear();
-      const stay = () => { p.x = bot.x + 5; p.y = bot.y; p.z = bot.z; p.savePrev(); };
+      const stay = () => { p.x = bot.x + 5; p.y = bot.y; p.z = bot.z; };
       stay(); tick(I, 2);
       ok(gateOf(I, music.fxH) === '2,1,1' && fx.log.some((l) => l.op === 'matrix' && l.h === music.fxH), 'the bot starts to dance: gate (2, 1, 1) + FUN_00442a00(h, node matrix)');
       const pose = Float32Array.from(bot.anim.pose(1));   // the update advances the animation AFTER it composed the matrix

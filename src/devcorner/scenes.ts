@@ -285,7 +285,7 @@ function build(c: DevCorner): SectionView {
           stat.textContent = `${st.active ? 'loopt' : st.finished ? 'klaar' : 'gestopt'}   tick ${rep.ticks} (${rep.seconds.toFixed(1)} s)   commando's klaar ${rep.finished} / ${rep.total}${rep.dead ? `, nooit gestart ${rep.dead}` : ''}${sub ? `\nondertitel: ${sub.text}` : ''}`;
           stageInfo.textContent = rep.log.length ? `melding${rep.log.length === 1 ? '' : 'en'} van de manager:\n${[...new Set(rep.log)].slice(0, 12).join('\n')}` : '';
           if (!st.active) { clearInterval(stageTimer); stageTimer = 0; draw(); }
-        }, 33);
+        }, 1000 / 60);
       };
       st.start();
       run();

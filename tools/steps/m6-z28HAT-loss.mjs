@@ -13,6 +13,12 @@ export default async ({ page, shot, wait, log, key }) => {
   const menu = () => page.evaluate(() => { const e = __shell.menu.engine; return { page: e.page, item: e.item, open: e.open }; });
   const press = async (k, n = 1) => { for (let i = 0; i < n; i++) { await key(k); await wait(170); } };
   const select = async (idx) => { for (let i = 0; i < 12 && (await menu()).item !== idx; i++) await press('ArrowDown'); };
+  // the pause menu's restart / abort go through the confirm page (0x14: Annuleren, OK; src/shell/menu.ts case 9): choose OK
+  const confirm = async () => {
+    await wait(500);
+    const m = await menu();
+    if (m.open && m.page === 0x14) { for (let i = 0; i < 6 && (await menu()).item !== 2; i++) await press('ArrowDown'); await key('Enter'); }
+  };
   const ready = (a) => page.waitForFunction((att) => window.__zone && window.__zone.info.archive === 'z28HAT' && window.__zone.game && window.__zone.ctx.attempt === att && window.__zone.machine.mode === 1, a, { timeout: 300000 });
   const skip = async () => { for (let i = 0; i < 160 && (await dbg()).cutscene; i++) { await page.keyboard.down('ShiftLeft'); await wait(70); await page.keyboard.up('ShiftLeft'); await wait(70); } await wait(600); };
   const startPlay = async () => { await key('Enter'); await wait(500); await key('Enter'); await wait(900); };
@@ -87,7 +93,7 @@ export default async ({ page, shot, wait, log, key }) => {
   // the pause menu's "Opnieuw starten" (item 4, exit state 3) restarts the zone as well
   await key('Escape'); await wait(600);
   expect('pause menu page 18', (await menu()).page === 18, JSON.stringify(await menu()));
-  await select(4); await press('Enter'); await wait(2500);
+  await select(4); await press('Enter'); await confirm(); await wait(2500);
   await ready(2);
   s = await dbg();
   expect('pause menu restart: attempt 2, no intro cutscene', s.attempt === 2 && !s.cutscene && s.mode === 1, JSON.stringify({ a: s.attempt, cut: s.cutscene }));
@@ -102,7 +108,7 @@ export default async ({ page, shot, wait, log, key }) => {
   expect('second loss: result 2, banner', s.result === 2 && s.mode === 4, JSON.stringify({ result: s.result, score: s.score, mode: s.mode }));
   await key('Enter'); await wait(800);
   expect('result menu page 19 again', (await menu()).page === 19, JSON.stringify(await menu()));
-  await select(2); await press('Enter'); await wait(2500);
+  await select(2); await press('Enter'); await confirm(); await wait(2500);
   await page.waitForFunction(() => window.__zone && window.__zone.info.archive !== 'z28HAT', null, { timeout: 120000 });
   const after = await page.evaluate(() => ({ arch: __zone.info.archive, node: __zone.sh.vars.get(0x58) }));
   log('after abort', JSON.stringify(after));

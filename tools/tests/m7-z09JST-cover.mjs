@@ -1,6 +1,6 @@
 // z09JST differential test, WP-VERIFY coverage (docs/re/m6/z09JST.md "Differential test (WP-VERIFY): coverage"): the original's duel code (FUN_005ce506 with all its helpers, the constructor
 // FUN_005d1f64, mfigman, the camera, the popup / end panel code) in the x86 emulation next to the TypeScript port, tick by tick, every scenario at dt = 1 AND dt = 0.5 (the dt goes into
-// DAT_008b1718 / DAT_008b171c, the hosted engine advance and the clock of the original, and into `world.dt` of the port), with tolerance 1e-5 relative (float32 noise; ints / flags / clips /
+// DAT_008b1718 / DAT_008b171c, the hosted engine advance and the clock of the original, and into `world.dt` of the port), with tolerance 0 (bit for bit; ints / flags / clips /
 // calls exactly) and the instruction coverage of the original counted with the emulator's trace hook. What this adds to tools/tests/m6-z09JST-emu.mjs:
 //   * dt = 0.5 (the first test ran the original with the image's dt = 1 only);
 //   * the states no code sets (0xd, 0x15, 0x1c, 0x1d), reached by writing the state into the node of BOTH sides at several moments of a round (the original's own code then runs the state);
@@ -11,8 +11,10 @@
 import { loadExe } from '../lib/engine-load.mjs';
 import { runScenario, buildOracle, Cov, ZONE_RANGES, NODE_FIELDS } from '../lib/m7-z09JST-cover.mjs';
 import { jstKeys, KEY } from '../lib/jst-bot.mjs';
-import { MsvcRng } from '../../src/zones/z09jst/duel.ts';
+import { MsvcRng } from '../lib/msvc-rng.mjs';
+import { srand, randF } from '../../src/game/crt.ts';
 import { K, hexf, REC } from '../../src/zones/z09jst/consts.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const hx = (n) => n.toString(16);
 const flat = () => ({ range: (x) => x / 2 });
@@ -35,7 +37,7 @@ const FUNCS = [
   [0x5f3d78, 0x5f3f1b, 147, 147], [0x5f3f1b, 0x5f3f60, 25, 25],
 ];
 
-export default {
+const __test = {
   name: 'm7-z09JST-cover',
   run(ctx) {
     const failures = [], notes = [];
@@ -74,7 +76,7 @@ export default {
       if (hexf(pe.u32(0x892100)) !== K.STICK_DIV) failures.push(`K.STICK_DIV ${K.STICK_DIV} != exe ${hexf(pe.u32(0x892100))}`);
       checked++;
       if (hexf(pe.u32(0x8b1718)) !== 1) failures.push('image dt (DAT_008b1718) is not 1');
-      // the random numbers: FUN_004388ae (the engine's rand(range): CRT rand() / 32767 * range, 0 for range <= 0) run natively with the CRT's own rand (0x85daf0, seed 0x964aa4) against `MsvcRng.range`
+      // the random numbers: FUN_004388ae (the engine's rand(range): CRT rand() / 32767 * range, 0 for range <= 0) run natively with the CRT's own rand (0x85daf0, seed 0x964aa4) against the shared `randF` / `srand` of src/game/crt.ts
       {
         const { emu } = buildOracle(ctx, pe, { dt: 1, rng: msvc(1) });
         const cpu = emu.cpu;
@@ -82,16 +84,16 @@ export default {
         const fb = (v) => { const b = new Float32Array([v]); return new Uint32Array(b.buffer)[0]; };
         let nd = 0, nb = 0;
         for (const seed of [1, 12345, 0xdeadbeef, 0x7fffffff, 0x80000000, 0]) {
-          const R = msvc(seed); cpu.mem.w32(0x964aa4, seed >>> 0);
+          srand(seed); cpu.mem.w32(0x964aa4, seed >>> 0);
           for (let i = 0; i < 1500; i++) {
             const range = [200, 500, 7.5, 1000, 0, -3, 32767, 4.5e6][i % 8];
             cpu.call(0x4388ae, [fb(range)]);
-            const o = cpu.fpop(), p = R.range(Math.fround(range));
+            const o = cpu.fpop(), p = randF(Math.fround(range));
             checked++; nd++;
             if (o !== p) { nb++; if (failures.length < 30) failures.push(`rand(${range}) seed ${seed} draw ${i}: original ${o} port ${p}`); }
           }
         }
-        notes.push(`random numbers: ${nd} draws of the original's FUN_004388ae (native CRT rand) against MsvcRng.range, ${nb} differences (same generator, bit-identical; only the seed differs: the port is time seeded)`);
+        notes.push(`random numbers: ${nd} draws of the original's FUN_004388ae (native CRT rand) against crt.ts randF (the port's generator), ${nb} differences (bit-identical for the same seed; the port seeds with the clock like the original)`);
       }
     }
 
@@ -309,7 +311,7 @@ export default {
         emu.cpu.call(0x5d1b41, [emu.node, f], { trace: emu.trace() });
         for (const l of emu.log) ol.push(l);
         const pl = [];
-        snd.play3D = (i, p) => pl.push(`p3 ${i} ${[0, 1, 2].map((k) => p[k].toFixed(2)).join(',')}`);
+        snd.play3D = (i, p) => pl.push(`p3 ${i} ${[0, 1, 2].map((k) => p[k].toString()).join(',')}`);
         d.hooves(f);
         snd.play3D = orig3;
         checked++; nCalls++;
@@ -385,7 +387,8 @@ export default {
       if (missing.length) failures.push(`states not run: ${missing.map(hx).join(' ')}`);
     }
     notes.push(`largest float differences (relative to max(1, |value|)): ${Object.entries(worstAll).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k} ${v.toExponential(1)}`).join(', ')}`);
-    notes.push(`${tot.scenarios} scenarios, ${tot.ticks} ticks compared, ${tot.checked} checks, worst relative difference ${tot.worstRel.toExponential(1)} (${tot.worstName}), tolerance 1e-5; ${tot.exact}/${tot.floats} float compares bit-identical; ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+    notes.push(`${tot.scenarios} scenarios, ${tot.ticks} ticks compared, ${tot.checked} checks, worst relative difference ${tot.worstRel.toExponential(1)} (${tot.worstName}), tolerance 0 (bit for bit); ${((Date.now() - t0) / 1000).toFixed(1)} s`);
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

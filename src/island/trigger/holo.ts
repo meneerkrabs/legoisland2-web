@@ -123,6 +123,8 @@ export class HoloNode implements BehaviourNode {
     this.letter = (this.letter + 1) & 0xff;
     this.id = 'HOLO' + String.fromCharCode(this.letter);
     if (!c?.text.hol?.find(this.id)) { this.letter = 0x40; this.id = 'HOLOA'; }
+    // port: the hint's voice (and the next hint's) is read ahead now; the hologram needs a few frames to appear, then the voice and the subtitle start together (src/audio/speech.ts)
+    if (c?.text.hol) c.prefetchSpeech?.(c.text.hol, [this.id, 'HOLO' + String.fromCharCode((this.letter + 1) & 0xff)]);
     this.saved = [rec.x, rec.y, rec.z, rec.rx, rec.ry, rec.rz];
     w.vars.set(VAR_HOLO_ACTIVE, 1);
     this.show = 1; this.scale = 0; this.shimmer = 0; this.face = 1; this.st = 2; this.timer = 0;

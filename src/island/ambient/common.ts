@@ -27,7 +27,7 @@ const fr = Math.fround;
 
 // ------------------------------------------------------------------------------------------------ rand
 
-/** tests: a deterministic source in [0, 1) (null = Math.random): the island's one source (src/island/rng.ts) */
+/** tests: a deterministic source in [0, 1) (null = the shared C runtime generator, src/game/crt.ts): the island's one source (src/island/rng.ts) */
 export const setAmbientRandom = setIslandRandom;
 /** FUN_004388ae(max): `(float)rand() / 32767 * max` in float32 (0 for max <= 0, no draw) */
 export { rand };

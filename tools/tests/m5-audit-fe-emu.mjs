@@ -12,14 +12,16 @@ import { ArgView } from '../../src/island/args.ts';
 import { setAmbientRandom } from '../../src/island/ambient/common.ts';
 import { Controller } from '../../src/game/controller.ts';
 import { RF_FRUSTUM } from '../../src/game/record.ts';
-import { FePepperNode, FeFigureNode, FeTrainNode, FeBricksterNode, feTables, rng, FE_REC } from '../../src/shell/fenodes.ts';
+import { FePepperNode, FeFigureNode, FeTrainNode, FeBricksterNode, feTables, FE_REC } from '../../src/shell/fenodes.ts';
+import { setRandSource } from '../../src/game/crt.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 /** a seeded rand(): the MSVC LCG (FUN_0085daf0: seed * 214013 + 2531011, bits 16..30) */
 class Lcg {
   constructor(seed, exact = false) { this.s = seed >>> 0; this.exact = exact; }
   int() { this.s = (Math.imul(this.s, 214013) + 2531011) >>> 0; return (this.s >>> 16) & 0x7fff; }
   next() { return this.int() / 32767; }
-  /** `exact`: FUN_004388ae(max) = (float)rand() / 32767 * max, both operations rounded to float32 (0 and no draw for max <= 0), as the island's rng.ts draws it; else the shell nodes' unrounded product */
+  /** `exact`: FUN_004388ae(max) = (float)rand() / 32767 * max, both operations rounded to float32 (0 and no draw for max <= 0), as src/game/crt.ts `randF` draws it; else an unrounded product */
   range(x) { if (x <= 0) return 0; return this.exact ? Math.fround(Math.fround(this.int() / 32767) * Math.fround(x)) : this.next() * x; }
   /** the same draw as the island rng's source value in [0, 1) (rng.ts: rand() = floor(v * 32768)) */
   source() { return (this.int() + 0.5) / 32768; }
@@ -27,7 +29,7 @@ class Lcg {
 
 const NODE_RECORDS = [FE_REC.PEPPER, FE_REC.BRICKSTER, FE_REC.FIGURE, FE_REC.TRAIN];
 
-export default {
+const __test = {
   name: 'm5-audit-fe-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -50,11 +52,14 @@ export default {
     const names = ['pepper', 'brickster', 'figure', 'train'];
     const seenFx = {};
 
-    const scenario = (label, seed, ticks) => {
+    /** the step time of tick t: `dt1` / `dt05` fixed, `real` = the loops' rule (1.0 for the first five frames, then 0.5) */
+    const dtOf = (mode, t) => (mode === 'dt1' ? 1 : mode === 'dt05' ? 0.5 : t < 5 ? 1 : 0.5);
+    const scenario = (label, seed, ticks, mode = 'dt1') => {
       const portRecs = stage(), emuRecs = stage();
       const w = new World(); w.records = portRecs;
-      const rngP = new Lcg(seed), rngO = new Lcg(seed);
-      rng.next = () => rngP.next();
+      // both sides draw the same MSVC LCG: the port through the shared generator (src/game/crt.ts `setRandSource`), the oracle's hooked FUN_004388ae through `range` (float32 operations, as the original's x87 at 24 bit)
+      const rngP = new Lcg(seed), rngO = new Lcg(seed, true);
+      setRandSource(() => rngP.int());
       // the particle calls of the port (FeFx): compared with the original's FUN_0044e920 / FUN_0044ea00 calls recorded by the oracle (tools/lib/fe-emu.mjs `fx`)
       const portFx = [];
       const matOf = (m) => { const a = typeof m === 'function' ? m() : m; const i = portRecs.findIndex((r) => r.m === a); return i >= 0 ? { rec: i } : { local: Array.from(a) }; };
@@ -128,6 +133,8 @@ export default {
       const seen = { gags: new Set(), outfits: new Set(), poses: new Set(), crossings: 0, train: 0, brickster: 0 };
       let lastDir = 0;
       for (let t = 0; t < ticks && failures.length < 14; t++) {
+        const dt = dtOf(mode, t);
+        w.dt = dt; emu.setDt(dt);
         // the update pass: records in index order (0 Pepper, 2 Brickster, 8 figure, 44 train)
         for (const i of NODE_RECORDS) {
           const k = names[NODE_RECORDS.indexOf(i)];
@@ -142,6 +149,7 @@ export default {
         if (nodes.pepper.dir !== lastDir) { seen.crossings++; lastDir = nodes.pepper.dir; }
         if (nodes.train.phase === 1) seen.train++;
       }
+      setRandSource(null);
       return { worst, seen, emu };
     };
 
@@ -149,7 +157,7 @@ export default {
      * the seven butterflies BFS0 .. BFS6 (FUN_004b2d44, update FUN_004b24f8, pre-render FUN_004b2539, which does the moving): Pepper moves on a scripted course, Shift is pressed at
      * random ticks (follow / release), the frustum flag of each record flips at random for stretches of up to 400 ticks (the 200-tick freeze and reset)
      */
-    const butterflies = (label, seed, ticks) => {
+    const butterflies = (label, seed, ticks, mode = 'dt1') => {
       const portRecs = stage(), emuRecs = stage();
       const w = new World(); w.records = portRecs; w.ext.set('frustum', true); w.focus = portRecs[0];
       const inp = { pressed: 0 }; w.input = inp;
@@ -184,6 +192,8 @@ export default {
       const start = ids.map((i) => [portRecs[i].m[12], portRecs[i].m[13], portRecs[i].m[14]]);
       let travelled = 0;
       for (let t = 0; t < ticks && failures.length < 14; t++) {
+        const dt = dtOf(mode, t);
+        w.dt = dt; emu.setDt(dt);
         // Pepper: the same matrix on both sides (a slow course along the stage)
         const px = 40 * Math.sin(t / 150), pz = 5 + 3 * Math.sin(t / 60);
         for (const r of [portRecs[0]]) { r.m[12] = px; r.m[13] = 3.2; r.m[14] = pz; }
@@ -219,7 +229,7 @@ export default {
           cmp(t, `bf${i}.cnt2`, emu.i(nodes.get(i) + 0x40), n.cnt2, 0);
           cmp(t, `bf${i}.off`, emu.i(nodes.get(i) + 0x48), n.off, 0);
           cmp(t, `bf${i}.follow`, emu.i(nodes.get(i) + 0x4c) ? 1 : 0, n.follow ? 1 : 0, 0);
-          cmp(t, `bf${i}.speed`, emu.f(nodes.get(i) + 0x50), n.speed, 1e-5);
+          cmp(t, `bf${i}.speed`, emu.f(nodes.get(i) + 0x50), n.speed, 0);
           if (n.follow) seenFollow++;
           if (n.off === 200) seenReset++;
         }
@@ -230,21 +240,21 @@ export default {
       return { seenFollow, seenReset, worst, travelled };
     };
     const bsum = { follow: 0, reset: 0 };
-    for (const seed of [3, 17, 404]) { const r = butterflies(`butterflies seed ${seed}`, seed, 4000); bsum.follow += r.seenFollow; bsum.reset += r.seenReset; bsum.travelled = (bsum.travelled ?? 0) + r.travelled; }
-    notes.push(`butterflies: 3 seeds x 4000 ticks x 7 records, follow ticks ${bsum.follow}, reset ticks ${bsum.reset}, net travel ${bsum.travelled.toFixed(0)}`);
+    for (const mode of ['dt1', 'dt05', 'real']) for (const seed of [3, 17, 404]) { const r = butterflies(`butterflies ${mode} seed ${seed}`, seed, 4000, mode); bsum.follow += r.seenFollow; bsum.reset += r.seenReset; bsum.travelled = (bsum.travelled ?? 0) + r.travelled; }
+    notes.push(`butterflies: 3 modes (dt 1, dt 0.5, real) x 3 seeds x 4000 ticks x 7 records, follow ticks ${bsum.follow}, reset ticks ${bsum.reset}, net travel ${bsum.travelled.toFixed(0)}`);
 
     const runs = [[1, 6000], [7, 6000], [12345, 6000], [99, 6000], [2026, 6000]];
     const agg = { gags: new Set(), outfits: new Set(), poses: new Set(), crossings: 0, train: 0 };
     let unhooked = new Map();
-    for (const [seed, ticks] of runs) {
-      const r = scenario(`seed ${seed}`, seed, ticks);
+    for (const [seed, ticks, mode] of runs.flatMap(([seed, ticks]) => ['dt1', 'dt05', 'real'].map((mode) => [seed, ticks, mode]))) {
+      const r = scenario(`${mode} seed ${seed}`, seed, ticks, mode);
       for (const g of r.seen.gags) agg.gags.add(g);
       for (const g of r.seen.outfits) agg.outfits.add(g);
       for (const g of r.seen.poses) agg.poses.add(g);
       agg.crossings += r.seen.crossings; agg.train += r.seen.train;
       for (const [a, n] of r.emu.unhooked) unhooked.set(a, (unhooked.get(a) ?? 0) + n);
     }
-    notes.push(`${runs.length} seeds x ${runs[0][1]} ticks: ${agg.crossings} crossings, gags seen ${[...agg.gags].sort().join(',')}, outfits ${agg.outfits.size}, Brickster poses ${[...agg.poses].sort().join(',')}, train ticks ${agg.train}`);
+    notes.push(`${runs.length} seeds x 3 dt modes x ${runs[0][1]} ticks: ${agg.crossings} crossings, gags seen ${[...agg.gags].sort().join(',')}, outfits ${agg.outfits.size}, Brickster poses ${[...agg.poses].sort().join(',')}, train ticks ${agg.train}`);
     notes.push(`particle calls compared with the original's: ${Object.entries(seenFx).map(([k, v]) => `${k} x${v}`).join(', ')}`);
     if (unhooked.size) notes.push(`oracle calls into unhooked engine functions (return 0): ${[...unhooked].map(([a, n]) => `0x${a.toString(16)} x${n}`).join(' ')}`);
     if (agg.crossings < 20) failures.push(`too few crossings (${agg.crossings})`);
@@ -253,3 +263,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

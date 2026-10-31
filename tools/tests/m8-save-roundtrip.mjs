@@ -8,13 +8,14 @@ import { tick, press, hold } from '../lib/island-load.mjs';
 import { setIslandRandom } from '../../src/island/rng.ts';
 import { captureWorld, listedNodes, tagOf } from '../../src/shell/saveworld.ts';
 import { newSaveFromGame, encodeSave, decodeSave } from '../../src/shell/save.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const ZONES = process.env.M8_ZONES ? process.env.M8_ZONES.split(',') : ['isl2', 'isl16', 'isl37', 'isl56', 'isl61', 'z07CSI', 'z13CAI', 'z14OSD', 'z16PYA', 'z23DIP', 'z40OGL'];
 const TICKS = Number(process.env.M8_TICKS ?? 240);
 const tagName = (t) => String.fromCharCode(t & 0xff, (t >> 8) & 0xff, (t >> 16) & 0xff, (t >>> 24) & 0xff);
 const KEYS = ['ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown', 'ShiftLeft', 'Space'];
 
-export default {
+const __test = {
   name: 'm8-save-roundtrip',
   run(ctx) {
     // the builder scripts rand to 0 while it builds both sides; the play that follows draws from a seeded generator (a constant source would spin the animals' `do s = rand(4) while (s == state)` forever)
@@ -94,3 +95,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

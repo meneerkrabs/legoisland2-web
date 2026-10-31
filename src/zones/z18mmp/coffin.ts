@@ -10,6 +10,7 @@ import type { ZoneParticles } from '../../fx/particles/zone.ts';
 import { REC, VAR, BIT, CLIP, SND, MUSIC, K, f32 } from './consts.ts';
 import { MmpShared } from './shared.ts';
 import { coffinOfMask } from './pepper.ts';
+import { ad, sb, ml } from '../common/f32.ts';
 
 /** the states of a coffin (node +0x22) */
 export const CS = { IDLE: 0, OPENING: 1, OPEN: 3, WRONG: 5, CLOSING: 6, MATCHED: 7 } as const;
@@ -31,7 +32,7 @@ export class CoffinNode implements BehaviourNode {
   init(world: { records: readonly GameRecord[] }) {
     const cs = world.records[REC.CASE[this.n]], coff = world.records[REC.COFFIN[this.n]];
     coff.rx = 0; coff.rz = 0;
-    coff.ry = Math.atan2(cs.m[8], cs.m[10]);
+    coff.ry = f32(Math.atan2(cs.m[8], cs.m[10]));
     this.partner = 0; this.state = CS.IDLE; this.counter = 0;
   }
 
@@ -83,10 +84,10 @@ export class CoffinNode implements BehaviourNode {
       }
       case CS.OPENING: {
         if (sh.puzzleMusicArmed) { snd.music(MUSIC.PUZZLE); sh.puzzleMusicArmed = false; }
-        coff.ry = f32(coff.ry - K.LID_TURN);
+        coff.ry = sb(coff.ry, K.LID_TURN);
         coff.setEuler(0, coff.ry, 0, coff.x, coff.y, coff.z);
         this.spinSound(coffAt());
-        y += K.SYMBOL_RISE * dt;
+        y = ad(ml(K.SYMBOL_RISE, dt), y);
         if (--this.counter === 0) { vars.or(VAR.READY, bit); this.state = CS.OPEN; sh.track[n] = 1; }
         break;
       }
@@ -121,9 +122,9 @@ export class CoffinNode implements BehaviourNode {
         break;
       }
       case CS.CLOSING: {
-        coff.ry = f32(coff.ry + K.LID_TURN);
+        coff.ry = ad(coff.ry, K.LID_TURN);
         coff.setEuler(0, coff.ry, 0, coff.x, coff.y, coff.z);
-        y -= K.SYMBOL_RISE * dt;
+        y = sb(y, ml(K.SYMBOL_RISE, dt));
         if (--this.counter === 0) {
           vars.andNot(VAR.OPEN, bit);
           this.state = CS.IDLE;
@@ -137,8 +138,10 @@ export class CoffinNode implements BehaviourNode {
         // the symbol floats to the key's place (0.4 per tick per axis), the pair is done when both arrived
         const key = rs[REC.KEY];
         let arrived = 0;
-        if (z - key.z <= 0.4) { if (-0.4 <= z - key.z) arrived = 1; else z += 0.4 * dt; } else z -= 0.4 * dt;
-        if (x - key.x <= 0.4) { if (-0.4 <= x - key.x) arrived += 1; else x += 0.4 * dt; } else x -= 0.4 * dt;
+        // (FUN_006aadf6 state 7: float32 differences, the step 0x892118 = 0.4 times dt, the lower limit 0x892720)
+        const dzk = sb(z, key.z), dxk = sb(x, key.x);
+        if (dzk <= K.MATCH_STEP) { if (K.MATCH_LOW <= dzk) arrived = 1; else z = ad(ml(K.MATCH_STEP, dt), z); } else z = sb(z, ml(K.MATCH_STEP, dt));
+        if (dxk <= K.MATCH_STEP) { if (K.MATCH_LOW <= dxk) arrived += 1; else x = ad(ml(K.MATCH_STEP, dt), x); } else x = sb(x, ml(K.MATCH_STEP, dt));
         if (this.partner === 0) {
           if ((vars.get(VAR.OPEN) & bit) === 0) {
             mummy.anim?.start(CLIP.M_GONE, 0); sh.track[n] = 4; this.state = CS.IDLE;
@@ -154,7 +157,7 @@ export class CoffinNode implements BehaviourNode {
         break;
       }
     }
-    rec.ry = f32(rec.ry + K.SPIN * dt);
+    rec.ry = ad(ml(K.SPIN, dt), rec.ry);
     const fx = sh.fx;
     if (fx) { if (this.state === CS.IDLE) fx.off(this.fxTwin); else fx.on(this.fxTwin); fx.setMatrix(this.fxTwin, rec.m); }
     this.trackMummies(w);
@@ -175,8 +178,8 @@ export class CoffinNode implements BehaviourNode {
         case 4: {
           const r = ma.advance(0.1, dt);
           const f = Math.trunc(ma.frame);
-          const s = K.MUMMY_LEAVE * dt;
-          m.m[12] += s * m.m[8]; m.m[13] += s * m.m[9]; m.m[14] += s * m.m[10];
+          const s = ml(K.MUMMY_LEAVE, dt);
+          m.m[12] = ad(m.m[12], ml(s, m.m[8])); m.m[13] = ad(m.m[13], ml(s, m.m[9])); m.m[14] = ad(m.m[14], ml(s, m.m[10]));
           if (r !== 0 || f > 0x1e) {
             ma.start(CLIP.M_STAND, 0);
             if (sh.fx) { sh.fx.on(this.fxTwin); sh.fx.on(this.fxSmoke[0]); sh.fx.on(this.fxSmoke[1]); }     // the puff of smoke (this node's emitters)
@@ -196,7 +199,7 @@ export class CoffinNode implements BehaviourNode {
             sh.fx?.setMatrix(this.fxSmoke[k], mj.m);
             sh.fx?.setMatrix(this.fxSmoke[k], mj.m);
             k++;
-            sh.poof -= 1.0 * dt;
+            sh.poof = sb(sh.poof, ml(1.0, dt));
             if (sh.poof < 45) mj.flags &= ~2;
             if (sh.poof < 0) { track[j] = 6; sh.fx?.off(this.fxSmoke[0]); sh.fx?.off(this.fxSmoke[1]); }
             if (k === 2) j = 12;

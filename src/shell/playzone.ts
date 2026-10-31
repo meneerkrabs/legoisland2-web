@@ -84,6 +84,7 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
   try { shadowArchive = await sh.data.archive('Shadow'); } catch { /* no blob shadow */ }
 
   const world = new World();
+  world.dt = sh.dt; world.invDt = Math.fround(1 / sh.dt);   // DAT_008b1718 is a global: the previous loop's last value (src/game/world.ts `advanceDt`)
   world.vars = sh.vars;
   world.externalInput = true;
   world.input = sh.input;
@@ -128,7 +129,7 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     try { whole = restoreWorld(world, save, { bricks: !deferBricks }); } catch (e) { console.warn('save load', e); }   // (the original's reader just returns 0 where a step fails)
     if (deferBricks && whole) bricksPending = save;
     const c = world.camera.c;
-    if (!c.slice(0, 6).every(Number.isFinite) || !(c[0] || c[1] || c[2])) { world.camera.init(player); world.camera.savePrev(); }   // a file without a camera (older port saves)
+    if (!c.slice(0, 6).every(Number.isFinite) || !(c[0] || c[1] || c[2])) { world.camera.init(player); }   // a file without a camera (older port saves)
   }
   sh.live = live;
   if (pending) restore(pending, true);
@@ -147,7 +148,21 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
   let held: string | null = null;
   /** the time a voice of a `held` / `none` line would take while muted (no `ga`): the timed subtitle of the shell's lines stands in for it there, these lines have none */
   let mutedVoice = 0;
+  /** the length of a timed subtitle in the game's time unit (1/30 s): 1 s + 2 / 30 s per character */
   const subtitleTicks = (t: string) => 30 + 2 * t.length;
+  /** port only: read the speech of these lines of `table` into memory in the background (src/audio/speech.ts `prefetch`): what the zone is going to say, before it says it */
+  const prefetchSpeech = (ids: Iterable<string>, table: MessageTable | null, opts: { decode?: boolean } = {}) => {
+    if (!table) return;
+    const idx: number[] = [];
+    for (const id of ids) { const v = table.voice(id); if (v >= 0) idx.push(v); }
+    sh.audio.prefetchSpeech(idx, opts);
+  };
+  // the mini-games say a handful of lines out of their own table (intro, hit / miss calls, the result): read them all ahead, in speech order, while the zone loads (the hubs and the island say
+  // lines of their story tables / cutscenes instead: those are read ahead by the nodes and the cutscene host)
+  if (strings) {
+    const voiced = strings.entries.map((e) => ({ tag: e.tag, v: strings!.voice(e.tag) })).filter((x) => x.v >= 0).sort((x, y) => x.v - y.v);
+    if (voiced.length > 0 && voiced.length <= 60) prefetchSpeech(voiced.map((x) => x.tag), strings);
+  }
   /** FUN_00439bf8 + FUN_00435a11 for the lines `a` (and `b`) of `table`; `subtitle`: zonegame.ts `SubtitleMode` */
   const sayFrom = (table: MessageTable | null, a: string | null, b?: string | null, voice = true, subtitle: SubtitleMode = 'timed'): boolean => {
     const lines = [a, b].filter((x): x is string => !!x);
@@ -166,9 +181,12 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     say: (a, b) => sayFrom(strings, a, b),
     sayFrom,
     speechIdle: () => subs.length === 0 && mutedVoice <= 0 && (sh.audio.ga?.speech.idle ?? true),
+    speechWaiting: () => sh.audio.speechWaiting,
+    prefetchSpeech: (ids, table = strings, opts) => prefetchSpeech(ids, table, opts),
     stopSpeech() { subs.length = 0; mutedVoice = 0; sh.audio.ga?.speech.stop(); },   // (FUN_00435b07 leaves the four subtitle lines alone)
     clearSubtitle() { held = null; },
-    subtitle: () => (held ? { id: '', text: held, ticksLeft: Infinity } : subs[0] ?? null),
+    // (port: a subtitle is shown from the moment its audio starts: while the line's data is still on its way the text waits with it, see SpeechEngine.waiting)
+    subtitle: () => (sh.audio.speechWaiting ? null : held ? { id: '', text: held, ticksLeft: Infinity } : subs[0] ?? null),
     text(ui, id, x, y, o = {}) {
       const table = o.table === 'std' ? sh.std : o.table === 'menu' ? null : strings;
       const t = table ? table.text(id) : sh.msgs.label(`!${id}`);
@@ -235,7 +253,7 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
       varChanged = sh.vars.get(V.NS_NEXT_SUBGAME) !== sh.vars.get(V.CURRENT_SUBGAME);
       if (dev) { dev.afterSim(); if (dev.storyLeave()) storyAdvanced = true; }   // free camera / autoplay (F8) of the corner
     }
-    if (island) hud?.updateIsland(sh.vars);   // FUN_004b908d: every frame of the island loop, whatever the mode
+    if (island) hud?.updateIsland(sh.vars, world.dt);   // FUN_004b908d: every frame of the island loop, whatever the mode
     if (m.mode === MODE.PLAY && gameOver) bannerOpen = true;
     if (m.mode === MODE.BANNER && !bannerOpen) bannerOpen = true;
     if (m.mode === MODE.RESULT) game?.resultTick?.();
@@ -252,8 +270,9 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     if (m.mode === MODE.INTRO && wasHolding && !holding && game?.introId) ctx.say(game.introId);   // the brief after the cutscene (z40aPO)
     wasHolding = holding;
     if (m.mode === MODE.BANNER && !game?.tickInBanner) game?.bannerTick?.();
-    if (subs.length > 0 && --subs[0].ticksLeft <= 0) subs.shift();
-    if (mutedVoice > 0) mutedVoice--;
+    // the timed subtitle / muted-voice stand-ins count in the game's time unit (1/30 s: `30 + 2 * length` of them), each sim step takes `DAT_008b1718` of it
+    if (subs.length > 0 && !sh.audio.speechWaiting && (subs[0].ticksLeft -= world.dt) <= 0) subs.shift();   // (port: the subtitle time runs from the audio's start)
+    if (mutedVoice > 0) mutedVoice -= world.dt;
     // a zone whose mode 1 has no panel (the island) leaves it on any button (DAT_00983840 != 0)
     // M5 audit: the mini-game loops leave the intro / help screens on ANY pressed button (`DAT_00983840 != 0`: the arrows, Z / X / C and the `<>` key count too), not only on Enter / Space / Shift / Alt / Ctrl; the same for the end banner (mode 4), whose three exceptions (z05WAB, z38PAR, z40aPO) test the HELD buttons through `skipBanner`
     const anyButton = ((m.mode === MODE.INTRO || m.mode === MODE.HELP || m.mode === MODE.HELP2) && (pressed & ~B.ESC) !== 0) || (m.mode === MODE.BANNER && ((pressed & ~B.ESC) !== 0 || game?.skipBanner?.() === true)) ? B.ENTER : 0;   // skipBanner: z01BPK's banner is left at once without points
@@ -270,23 +289,26 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     }
     if (prev === MODE.PAUSE && m.mode !== MODE.PAUSE) sh.menu.close();
     if (prev === MODE.RESULT && m.mode !== MODE.RESULT) sh.menu.close();
+    if (hud && m.mode !== MODE.PAUSE) hud.step(sh.ui, world.dt);   // FUN_0045f771: the letterbox bars grow once per drawn frame of the original = once per sim step, `rate * DAT_008b1718`
     sh.audio.frame(world.camera.c, world.dt);   // FUN_004434d0 (the 3D listener = the camera) + FUN_00435a5e (the speech state machine), once per frame
+    game?.beforeRender?.(1);   // (the zone's per-frame view settings, fov / near, are those of this pass's frustum)
+    gr.stepView();   // the draw pass of this loop pass: the frustum the nodes of the next pass read (FUN_00444370), per sim step, not per browser frame
     return m.done;
   };
 
-  const render = (alpha: number, dt: number) => {
-    const a = m.mode === MODE.PLAY || m.mode === MODE.FADE_OUT || m.mode === MODE.FADE_IN ? alpha : 1;
+  const render = (_alpha: number, dt: number) => {
+    const a = 1;   // no interpolation: the loop passes alpha = 1 and a faster display draws the last step again
     game?.beforeRender?.(a);
     gr.loopMode = m.mode;   // the fade-in has the set-up helpers' fog, the play call takes over when it completes (src/game/fogphases.ts)
-    gr.render(dev ? dev.alpha(a) : a, dt);
+    gr.render(a, dt);
     sh.ui.begin(sh.canvas.width, sh.canvas.height);
-    if (hud && m.mode !== MODE.PAUSE) hud.draw(sh.ui, dt * 30);
+    if (hud && m.mode !== MODE.PAUSE) hud.draw(sh.ui);
     if (game && m.mode !== MODE.PAUSE) game.draw2d?.(sh.ui, dt, m.mode);
     // mode 1: the one-line brief (FUN_00439c6f(zone table, font, id, 1, 0, 320, 120, 30)), mode 9: the controls help
     if (m.mode === MODE.INTRO && !game?.introHold?.() && game?.introPanel !== false) drawIntroScreen(sh.ui, panelEnv, introLines());
     if (m.mode === MODE.HELP && helpControls) drawHelp(sh.ui, sh.menuSet, strings, helpControls, panelEnv);
     // spoken lines of the game while playing (a mini-game of the original shows no subtitle for them, only the cutscenes do: the cutscene style of FUN_0045d47f)
-    if (subs.length > 0 && sh.options.subtitlesOn && m.mode === MODE.PLAY && !held) drawSubtitle(sh.ui, subs[0].text);
+    if (subs.length > 0 && !sh.audio.speechWaiting && sh.options.subtitlesOn && m.mode === MODE.PLAY && !held) drawSubtitle(sh.ui, subs[0].text);
     // the talking NPCs' four lines (FUN_00460003 draws whatever FUN_0045d47f wrote; the subtitle option was asked when they were written)
     if (held && m.mode === MODE.PLAY) drawSubtitle(sh.ui, held);
     if (m.mode === MODE.PAUSE || (m.mode === MODE.RESULT && !game?.resultHold?.())) sh.menu.draw(sh.ui, sh.menuSet);
@@ -299,7 +321,8 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
   Object.assign(window as unknown as Record<string, unknown>, { __zone: { info, loaded, world, machine: m, gr, hud, sh, game, ctx } });
 
   stopLoading();   // the loading card is presented until the loop takes over
-  await sh.runLoop(tick, render);
+  await sh.runLoop(tick, render, world, zoneName === 'z03PPH');
+  sh.dt = world.dt;
   removeEventListener('keydown', onKey);
   const devExit = dev?.exit ?? null;
   dev?.destroy();

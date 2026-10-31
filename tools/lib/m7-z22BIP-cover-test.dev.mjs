@@ -5,7 +5,7 @@ import '../../src/zones/z22BIP.ts';
 // z22BIP, differential test WP-VERIFY "coverage" (docs/re/m6/z22BIP.md, section "Differential test (WP-VERIFY): coverage"). It extends tools/tests/m6-z22BIP.mjs (which runs the original's
 // node code in the x86 emulator at dt = 1 only, tolerance 2e-3, for 900 / 3374 / 700 / 800 / 700 ticks) with:
 //   * every scenario at dt = 1 AND dt = 0.5 (DAT_008b1718 / DAT_008b171c in the emulator, `world.dt` in the port, the hosted animation advance with the same dt),
-//   * tolerance 1e-5 relative (float32 noise; coordinates relative to max(300, |value|); absolute floor 4e-5 = 1 ulp at 500; sweep deltas 4 ulp of their start point),
+//   * tolerance 0: every float compared bit for bit (WP-TIME float32 sweep; before it 1e-5 relative, coordinates relative to max(300, |value|)),
 //   * state injected into both sides (fuel, speed, ammo, thrust, steering, pitch, altitude, impulse, heading band, heading wrap, teleports, scores, monkey / rope states, bananas next to
 //     the targets, melons next to the plane, the random table index, scripted box probe hits), so that the branches random flying rarely reaches are compared too,
 //   * every engine call the original makes, compared with the port in order: sounds with their handles (the sound-table ids), speech, particles, every collision sweep with all its
@@ -32,7 +32,8 @@ export default {
       return r;
     };
     const ok = (c, msg) => { checked++; if (!c) failures.push(msg); };
-    const run = (name, fn) => { const t0 = Date.now(); let r; try { r = fn(); } catch (e) { r = { checked: 0, failures: [`${name} crashed: ${e.stack || e}`], notes: [] }; } r.ms = Date.now() - t0; return take(name, r); };
+    const only = process.env.BIP_ONLY ? new RegExp(process.env.BIP_ONLY) : null;      // dev: run only the scenarios whose name matches
+    const run = (name, fn) => { if (only && !only.test(name)) return { checked: 0, failures: [], notes: [], stats: new Proxy({}, { get: (_t, k) => (k === 'modes' ? '' : k === 'run' ? {} : 0) }), ms: 0 }; const t0 = Date.now(); let r; try { r = fn(); } catch (e) { r = { checked: 0, failures: [`${name} crashed: ${e.stack || e}`], notes: [] }; } r.ms = Date.now() - t0; return take(name, r); };
 
     // ---- the course
     run('spline', () => splineScenario(ctx, { cov }));

@@ -183,3 +183,10 @@ Engine: `GENERICBITS` (`FUN_00442900` at 0x839c11). Emitters per person (`src/zo
 ## WP-MINI (2026-10-29): residual check
 
 Re-checked against the code and the oracle: nothing of the old residual list is open. Particles wired (above, `m8-wire-z50LTC`); the `FUN_00429e00` slope alignment is called and bit-exact (`m7-z50LTC-emu`, 41 M comparisons at 24-bit x87); the `table > 0` portal variant with `DAT_05d58688` is ported (`PortalNode`, 12 randomised blocks, 2740 hits of var 0xbb in the oracle); the person sounds play at Pepper's position (audio.md 11.4, `FUN_004433f0`; the priming hack is gone); `SDREAMS` -> var 0xd -> the island's WORM portal is `m5-audit-cheats` / `m5-z50LTC-sdreams`; mode 1 waits for a button (WP-SHELL, U8); the "plays no music" statement of section 1 is superseded by audio.md 11.2 (the zone's music call `FUN_004432c0` plays `ad2`, at the zone start and again on leaving the intro; WP-AUDIO). Not exact: none known.
+
+
+## WP-TIME (fixed 60 Hz step, shared RNG, float32 sweep)
+
+* dt audit: all timers were dt-scaled already (portal age `+0x40 += 1.0 * dt` with the 30.0 arming limit = 60 ticks at dt 0.5, the appear timer `-= 1.0 * dt` in the pepswitc pre-render, every animation advance `advance(1, dt)`); integer per-update counters stay (the twinkle counter `+0x25`, the talk loop counter `+0x34`). The spin (0.5 degree) and the turn to the camera are in the portal's UPDATE (once per sim step), not a draw hook.
+* The pepswitc draw hook FUN_0083aa8d (fall guard, `DAT_008ae330 = 64`, candidate reset) runs in the original's draw pass, once per drawn frame = once per sim step. The renderer calls node hooks at the display rate, so the zone game now runs it from `world.afterTick` (`runDrawHooks` restricted to the pepswitc node, only when it ran) and `LtcPepSwitch.draw` ignores a repeat within the same tick (`drawn`, reset by the update).
+* No random numbers in this zone. Oracles: `m7-z50LTC-emu` (dt 1 and 0.5) and `m5-audit-z50LTC-emu` (TOL 2e-5 -> 0, worst difference 0.0) compare at tolerance 0; `m3-z50LTC` has a dt 0.5 block (appear timer 10 ticks apart, twinkle 3 updates, portal age 0.5 per tick, armed after 60 ticks).

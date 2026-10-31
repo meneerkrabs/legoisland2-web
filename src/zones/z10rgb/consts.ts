@@ -111,9 +111,9 @@ export const K = {
   MUZZLE: [0, Math.fround(4.8), Math.fround(11.2)] as readonly number[], SHOT_SCALE_FIRST: 8, SHOT_SCALE: 6, PITCH_K: 2.5, PITCH_0: f32(0x3f4ccccd), RELOAD: 100,
   /** the gauge in a cannon: 0 .. 100 (the reload), else 0 .. 12 (the cannons left) */
   GAUGE_RELOAD: 100, GAUGE_CANNONS: 12,
-  /** the invulnerability after a hit: DAT_0090bdf8 starts at 3.0 and falls by (1/30) * dt^2 per tick */
+  /** the invulnerability after a hit: DAT_0090bdf8 starts at 3.0 and falls by (1/30) * dt * dt per update (FUN_005f72c0: `_DAT_008922bc * DAT_008b1718 * DAT_008b1718`): 90 updates at dt 1, 360 at dt 0.5 */
   BLINK: 3, BLINK_STEP: f32(0x3d08850a),
-  /** PeppHit (FUN_00618360): the jump 4.0, gravity 0.5, bounce -0.4, rest below 2.4, the landing waits 30 ticks (FUN_00618612) */
+  /** PeppHit (FUN_00618360): the jump 4.0, gravity 0.5, bounce -0.4, rest below 2.4, the landing waits 30 counter ticks (FUN_00618612; the counter DAT_05d5b340 = ftol(float += 1 * dt)) */
   HIT_VY: 4, HIT_G: 0.5, HIT_BOUNCE: f32(0xbecccccd), HIT_REST: f32(0x4019999a), HIT_WAIT: 30, HIT_CLIP_END: 2,
   /** the player's camera: sub-game 9 moves eye and target by Pepper's velocity (FUN_0042d4b1); the eye starts 8 higher (_DAT_00892090) */
   CAM_RAISE: 8,

@@ -87,7 +87,7 @@ export class OglPepSwit implements BehaviourNode {
     this.init(w);
     const g = oglGlobals(w);
     lampBlink(w);
-    // RNG: FUN_004388ae(300) / FUN_004388ae(120)
+    // FUN_004388ae(300) / FUN_004388ae(120): the C runtime's rand() of src/game/crt.ts through src/island/rng.ts
     const a = randInt(300);
     if (a < 299) { if (a < 0x12a) { if (0x128 < a) play2d(w, SND.RAND_297); } else play2d(w, SND.RAND_298); }
     else play2d(w, SND.RAND_299);

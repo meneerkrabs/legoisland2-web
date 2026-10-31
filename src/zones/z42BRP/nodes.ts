@@ -8,8 +8,9 @@
 //     brickst 0x82714a (update 0x826b40)  Brickster paces between the two bots' places, the third pizza ends the game
 //     bottop  0x824a02 (update 0x8243e5)  the four brick bots that march across the roof
 //     zonetop 0x825378 (update 0x824c80)  the roof floor collapses row by row, the door of the end cutscene
-// The node's "draw hook" work does not exist in this zone: the records are drawn with their own matrices. Timing: fixed 30 Hz (`w.dt` = 1 where the original multiplies by
-// DAT_008b1718); the game clock the zone reads (FUN_00435cbb) counts 1/60 s: `BrpState.clock()` = 2 per tick.
+// The node's "draw hook" work does not exist in this zone: the records are drawn with their own matrices. Timing: fixed 60 Hz step, one tick = one drawn frame of the original (`w.dt`
+// where the original multiplies by DAT_008b1718: 1 for the first five frames, then 0.5); the game clock the zone reads (FUN_00435cbb = ftol(ms * 0.06), 1/60 s) is the
+// deterministic stand-in `BrpState.clock()` = 1 per tick (a tick is 1/60 s whatever `dt` says).
 import { parseBlk } from '../../formats/anim.ts';
 import type { Blk } from '../../formats/anim.ts';
 import type { Archive } from '../../formats/archive.ts';
@@ -24,6 +25,8 @@ import { B } from '../../game/input.ts';
 import type { WaypointSystem } from '../../game/walker.ts';
 import { MAP_PATH } from '../../game/walker.ts';
 import { boneOfPose } from '../common/pose.ts';
+import { rand as crtRand } from '../../game/crt.ts';
+import type { RandFn } from '../../fx/particles/core.ts';
 import { REC, REC_NAMES, SND, VAR, RUN, ROOF, BOT, FLOOR, BOSS, PARTS, CLIP } from './rules.ts';
 
 /** constructor addresses of the zone (the extraction's attaches, docs/re/zone-setup.md) */
@@ -61,8 +64,8 @@ const animOf = (r: GameRecord): AnimInstance => r.anim ?? NO_ANIM;
 
 /** what the host fills in: sound, speech, the cutscene, the clock; the defaults only record what happened */
 export interface BrpEnv {
-  /** rand() / 32767 of FUN_004388ae (a float in [0, 1)) */
-  rng(): number;
+  /** the C runtime's rand() (0 .. 32767, FUN_0085daf0) behind FUN_004388ae; the zone game passes the shared generator (src/game/crt.ts), tests a scripted source */
+  rng: RandFn;
   /** FUN_00435c91: milliseconds since the loop started (the random numbers of the bots scale with it) */
   ms(): number;
   /** FUN_004435a0: a 2D sound by sound-table id */
@@ -79,10 +82,10 @@ export interface BrpEnv {
   cutsceneActive(): boolean;
 }
 
-/** a small deterministic generator (tests); the game uses Math.random */
-export function lcg(seed: number): () => number {
+/** the C runtime's generator (FUN_0085daf0: MSVC LCG, 0 .. 32767) with a private state (tests; the game draws from the shared one, src/game/crt.ts) */
+export function lcg(seed: number): RandFn {
   let s = seed >>> 0;
-  return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+  return () => { s = (Math.imul(s, 0x343fd) + 0x269ec3) >>> 0; return (s >>> 16) & 0x7fff; };
 }
 
 export class BrpState {
@@ -135,9 +138,8 @@ export class BrpState {
   bossBone(w: World, clip: number, frame: number) { boneOfPose(this.bossFxM, w.records[REC.BSTR], clip, frame, 10); }
 
   constructor() {
-    const rng = lcg(1);
     this.env = {
-      rng,
+      rng: crtRand,
       ms: () => 100000 + this.clock() * (1000 / 60),
       sfx: (id) => { this.sounds.push({ id, pos: null }); },
       sfx3: (id, pos) => { this.sounds.push({ id, pos }); },
@@ -149,10 +151,13 @@ export class BrpState {
   }
   sfx(id: number) { this.env.sfx(id); }
   sfx3(id: number, pos: V3, voice = 0) { this.env.sfx3(id, pos, voice); }
-  /** FUN_004388ae(x) of the original: rand() / 32767 * x */
-  rand(x: number): number { return x <= 0 ? 0 : this.env.rng() * x; }
-  /** FUN_00435cbb: ticks of 1/60 s (a tick of step `dt` is 2 * dt of them: 2 at 30 Hz, 1 at 60 Hz; the clock is `GetTickCount`-based in the original) */
-  clock(): number { return Math.trunc((this.w?.tickCount ?? 0) * 2 * (this.w?.dt ?? 1)); }
+  /** FUN_004388ae(x) of the original: `(float) rand() / 32767.0f * x` stored as a float (x87 at 24 bit), 0 without a draw for x <= 0 */
+  rand(x: number): number { return x <= 0 ? 0 : F(F(this.env.rng() / 32767) * F(x)); }
+  /**
+   * FUN_00435cbb = ftol(GetTickCount-based ms * 0.06): ticks of 1/60 s. The sim steps at a fixed 60 Hz (one tick = one drawn frame = 1/60 s whatever `dt` is: dt = 1 only
+   * for the first five frames' step size), so the deterministic stand-in for the clock is the tick counter
+   */
+  clock(): number { return this.w?.tickCount ?? 0; }
 }
 
 const states = new WeakMap<World, BrpState>();
@@ -209,8 +214,6 @@ export function runCamera(w: World, r: GameRecord) {
 
 export class PepBrpNode extends BrpNode {
   readonly kind = 'pepbrp';
-  /** the widened switch probe (T1a, docs/re/gaps.md), only at a step coarser than 60 Hz (`w.dt > 0.5`): at dt = 0.5 the original's own probe hits switch 2 (tools/tests/m7-z42BRP-emu.mjs, T1a); false = always the original's probe (tests) */
-  static widenTrigger = true;
   /** +0x14: the radius of the circle (BRP's collision radius * 0.465) */
   R = 0;
   /** +0x18: the start angle; +0x78: the angle now; +0x7c: the angle one tick ago; +0x74: angular speed this tick (-0.0192 / 0 / +0.0192) */
@@ -337,9 +340,9 @@ export class PepBrpNode extends BrpNode {
       // the second probe: what is under Pepper now
       const h2 = sweep(w, r, [pos[0], pos[1] + RUN.PROBE_UP, pos[2]], [0, RUN.PROBE_DOWN, 0], RUN.SWEEP_RADIUS, RUN.SWEEP_SKIN);
       const hr = h2?.rec ?? null;
-      // the switches: the original steps 0.0192 * dt per frame (dt = the frame time, usually well below 1): at the port's fixed 30 Hz step the second switch's window (0.0066 rad
-      // wide at the tower's radius) is a third of a step and, on the lap it sits on, holds no step position at all: the trigger probe is widened by half a step
-      const tr = sweep(w, r, [pos[0], pos[1] + RUN.PROBE_UP, pos[2]], [0, RUN.PROBE_DOWN, 0], RUN.SWEEP_RADIUS + (PepBrpNode.widenTrigger && w.dt > 0.5 ? 0.5 * RUN.TURN_RATE * this.R : 0), RUN.SWEEP_SKIN)?.rec ?? null;
+      // the switches: the original's own probe (T1a closed). The angle steps 0.0192 * dt per frame; at the 60 Hz step (dt 0.5) the lattice of the float32 `fmod(a, 2 pi)`
+      // contains the midpoints and the 0.0066 rad window of switch 2 is hit (tools/tests/m7-z42BRP-emu.mjs: the original's code in the emulation agrees tick by tick)
+      const tr = sweep(w, r, [pos[0], pos[1] + RUN.PROBE_UP, pos[2]], [0, RUN.PROBE_DOWN, 0], RUN.SWEEP_RADIUS, RUN.SWEEP_SKIN)?.rec ?? null;
       if (tr === rec(w, REC.SWIC1)) { this.sw1 = true; S.sfx3(SND.MOVEP_BIG, posOf(rec(w, REC.BRI2))); }
       if (tr === rec(w, REC.SWIC2)) { this.sw2 = true; S.sfx3(SND.MOVEP_BIG, posOf(rec(w, REC.BRI3))); }
       if (hr === rec(w, REC.BRI7)) this.crumble = true;
@@ -1039,7 +1042,7 @@ export class ZoneLoop {
   help2Pending = false;
   /** call after the nodes ran; returns 1 when the banner follows (the result is always a success: FUN_00404d14(&next, exit == 2, 1)) */
   update(w: World, S: BrpState, cutsceneActive = S.env.cutsceneActive()): number {
-    if (!cutsceneActive && S.endState === 0) S.elapsed += 2 * w.dt;
+    if (!cutsceneActive && S.endState === 0) S.elapsed += 1;     // the clock's difference of this frame: 1/60 s (see `BrpState.clock`)
     if (w.vars.get(VAR.PHASE) === 2 && !this.help2Done) this.help2Pending = true;
     if (S.endTimer !== 0 && !cutsceneActive) {
       if (S.endTimer === 1) return 1;

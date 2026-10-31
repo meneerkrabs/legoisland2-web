@@ -47,9 +47,11 @@ export class BrickEmu {
       const m = L.pmalloc(0x7c);
       const n = path.toLowerCase().includes('brickmorph\\') ? L.bricksPerModel(file) : 0;
       let head = 0, tail = 0;
-      for (let k = 0; k < n; k++) { const b = L.pmalloc(0x180); mem.w32(b + 0x48, head); if (head) mem.w32(head + 0x4c, b); else tail = b; head = b; }
+      const ptrs = [];
+      for (let k = 0; k < n; k++) { const b = L.pmalloc(0x180); mem.w32(b + 0x48, head); if (head) mem.w32(head + 0x4c, b); else tail = b; head = b; ptrs.push(b); }
       mem.w32(m, head); mem.w32(m + 4, tail); mem.w32(m + 0x64, n);
       L.models.push({ path, ptr: m, n });
+      o.fill?.(file, m, ptrs, L);     // (simulation oracle: the bricks' fields and the model's layer count come from the port's parse of the same file)
       c.eax = m;
     });
     for (const a of [0x44d330, 0x44db30, 0x4434b0, 0x4433f0, 0x44d420, 0x43a9e5, 0x44ac70]) H.set(a, () => {});
@@ -72,14 +74,26 @@ export class BrickEmu {
     for (const [addr, id] of Object.entries(CALLBACKS)) {
       cpu.watches.set(Number(addr), (c) => { L.cbLog.push({ fn: id, slot: (c.arg(0) - BASE) / SLOT, stage: c.arg(2) & 0xff }); });
     }
+    if (o.sim) {
+      // the simulation oracle (tools/lib/brick-sim-emu.mjs): the brick actions, the brick matrices, the pairing and the stage callbacks run natively; only the model parser, the sounds and the mesh
+      // transform of the draw (FUN_00886be0) stay hosted. The pool of actions is set up by FUN_0044ac70 like the original's start-up does.
+      for (const a of [0x44d330, 0x44d420, 0x43a9e5, 0x44ac70, 0x44ad00, 0x44c180, 0x43ac78]) H.delete(a);
+      cpu.exec.push([0x438880, 0x438970], [0x43a340, 0x43acb0], [0x43cec0, 0x43cf50], [0x447c90, 0x44e800]);
+      this.snd = [];
+      const at = (p) => (p ? [mem.f32(p), mem.f32(p + 4), mem.f32(p + 8)] : null);
+      H.set(0x4433f0, (c) => { this.snd.push({ play: c.arg(0) >>> 0, pos: at(c.arg(1)) }); c.eax = 0; });
+      H.set(0x4434b0, (c) => { this.snd.push({ stop: c.arg(0) >>> 0 }); c.eax = 0; });
+      H.set(0x886be0, (c) => { c.eax = 0; });
+    }
     // scratch buffers (the heap of SaveEmu is small: nothing is allocated per call)
     this.bufImg = this.alloc(0x60000); this.bufLoad = this.alloc(0x60000); this.bufStr = this.alloc(0x400); this.bufWords = this.alloc(0x80);
     this.poolBase = this.alloc(0x300000); this.pool = this.poolBase;
+    if (o.sim) this.call(0x44ac70, []);
   }
   alloc(n) { return this.E.alloc(n); }
   /** model / brick blocks (zeroed); rewound when the loader rebuilds the whole table */
   pmalloc(n) { const p = this.pool; this.pool += (n + 15) & ~15; this.mem.fill(p, n, 0); return p; }
-  call(a, args = []) { this.cpu.steps = 0; return this.cpu.call(a, args, { maxSteps: 20_000_000 }); }
+  call(a, args = [], maxSteps = 20_000_000) { this.cpu.steps = 0; return this.cpu.call(a, args, { maxSteps }); }
   rec(i) { return RECORDS_BASE + i * REC; }
   setVar(i, v) { this.mem.w32(A.VARS + 4 * i, v); }
   str(s) { const p = this.bufStr; for (let i = 0; i < s.length; i++) this.mem.w8(p + i, s.charCodeAt(i)); this.mem.w8(p + s.length, 0); return p; }
@@ -109,7 +123,7 @@ export class BrickEmu {
     const src = this.bufLoad; let p = src;
     for (const b of imgs) { if (b) { this.mem.write(p, b); p += IMG; } else { this.mem.w8(p, 0); p += 1; } }
     this.cbLog.length = 0; this.models.length = 0; this.pool = this.poolBase;
-    this.call(0x449be0, [src]);
+    this.call(0x449be0, [src], this.loadSteps ?? 20_000_000);
   }
   /** the original's slot memory (for the fields the image does not carry) */
   slotBytes(i) { return this.mem.read(BASE + i * SLOT, SLOT); }

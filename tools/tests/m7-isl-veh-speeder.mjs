@@ -6,6 +6,8 @@ import { speederDuel, CARS, DRIVERS, MOVE_VAR, CTOR_CAR, B, REC, RECORDS_BASE } 
 import { lcg } from '../lib/m7-isl-veh-emu.mjs';
 import { partMatrix } from '../../src/island/trigger/parts.ts';
 import { withCdHeap } from '../lib/m8-save-pizza.mjs';
+import { setIslandRandom } from '../../src/island/rng.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MAXFAIL = 30;
 
@@ -17,15 +19,14 @@ const suite = {
     let checked = 0;
     const cover = { ticks: 0, sessions: 0, frame0: 0, hits: 0, horns: 0, bursts: 0, playerHit: 0, pitch: 0, shifts: 0, returns: 0, driverOut: 0, driverIn: 0, pitchUp: 0, pitchDown: 0, popUp: 0 };
     const devs = new Map(), unhooked = new Map();
-    const realRandom = Math.random;
 
     const session = (label, node, dt, syncMode, seed) => {
-      // scripted random source: the k-th call of either side returns the same value (the port's `Math.random` is replaced for the session)
+      // scripted random source: the k-th call of either side returns the same value (the port's island random source, src/island/rng.ts, is replaced for the session)
       const seq = []; const rr = lcg(seed);
       // k = 0..5 -> the value k + 0.5 (trunc = k); k = 6 -> exactly 6.0 for the original (FUN_004388ae(6.0) = rand() / 32767 * 6 reaches 6.0 for rand() = 32767) and 1.0 for the port's Math.random (never returned by it)
       const val = (n) => { while (seq.length <= n) { const k = Math.floor(rr() * 6); seq.push(seq.length % 19 === 11 ? 6 : k); } return seq[n]; };
       let nO = 0, nP = 0;
-      Math.random = () => { const k = val(nP++); return k === 6 ? 32767.5 / 32768 : (k + 0.5) / 6; };
+      setIslandRandom(() => { const k = val(nP++); return k === 6 ? 32767.5 / 32768 : (k + 0.5) / 6; });
       const d = speederDuel(ctx, { node, dt, rng: { range: (x) => { if (!(x > 0)) return 0; const k = val(nO++); return k === 6 ? 6.0 : k + 0.5; } }, maxFail: MAXFAIL, failures, tolFree: 1e-4, rotAbsSync: 1e-5 });
       d.label = label; cover.sessions++; d.syncMode = syncMode;
       nP = 0;   // (the port's world set-up drew from the script (the nodes' constructors: random starts); the original's set-up runs natively: the script starts at the first tick for both)
@@ -183,11 +184,11 @@ const suite = {
         scenario(S, label, false);
         finish(S.d, label);
       }
-    } finally { Math.random = realRandom; }
+    } finally { setIslandRandom(null); }
     for (const [id, e] of devs) notes.push(`KNOWN DEVIATION ${id}: ${e.count}x, first ${e.first}`);
     notes.push(`unhosted engine calls (returned 0): ${[...unhooked].map(([a, n]) => '0x' + a.toString(16) + ' x' + n).join(', ') || 'none'}`);
     notes.push(`coverage: ${JSON.stringify(cover)}`);
     return { checked, failures, notes };
   },
 };
-export default { ...suite, run: (ctx) => withCdHeap(() => suite.run(ctx)) };
+export default guarded({ ...suite, run: (ctx) => withCdHeap(() => suite.run(ctx)) });

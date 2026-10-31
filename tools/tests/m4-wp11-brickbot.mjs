@@ -28,7 +28,7 @@ function facePepper(I, bot, d = 14, off = 0) {
   p.x = bot.x + Math.sin(a) * d; p.z = bot.z + Math.cos(a) * d;
   const g = w.col.terrainHeight(p.x, bot.y + 10, p.z, 0);
   p.y = g > -1e30 ? g : bot.y;
-  p.ry = Math.atan2(bot.x - p.x, bot.z - p.z); p.rebuildYaw(); p.savePrev();
+  p.ry = Math.atan2(bot.x - p.x, bot.z - p.z); p.rebuildYaw();
 }
 /** throw at the bot (Space) until the hit node registers a hit (armed 0); tries from the front, behind and the sides (the pizza can hit a tree or
  *  an umbrella the bot walks past). Returns the tick of the hit, -1 when none of the tries hit. */

@@ -17,7 +17,6 @@ export function moveRecord(r: GameRecord, mode: 'to' | 'by' | 'fwd', d: [number,
   if (mode === 'to') { r.x = d[0]; r.y = d[1]; r.z = d[2]; }
   else if (mode === 'by') { r.x += d[0]; r.y += d[1]; r.z += d[2]; }
   else { const w = r.toWorld(d); r.x = w[0]; r.y = w[1]; r.z = w[2]; }
-  r.savePrev();
 }
 export const HIDDEN_NAMES = /^(BTB\d|XXX3|BML[24]|HOLO)/;
 

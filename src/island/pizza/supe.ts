@@ -201,7 +201,6 @@ export class SupeNode implements BehaviourNode {
     this.landNow = 0;
     const p = waypoints.nodePos(MAP_OTH, this.goal);
     rec.x = p[0]; rec.y = p[1]; rec.z = p[2];
-    rec.savePrev();
   }
 
   /** the constructor's fields that are not part of the save block: the landing zones (+0x14..+0x20) and the east line's x (+0x24), functions of the waypoint maps */
@@ -372,6 +371,12 @@ export class SupeNode implements BehaviourNode {
   }
   /** PORT EXTENSION: end the manual flight (he flies to the nearest helipad and puts Pepper down: the original's 0xc..0xf states) */
   stopManual(): void { if (this.manual) this.manual.exit = true; }
+  /**
+   * PORT EXTENSION: the turn rate of the helipad approach (0xc / 0xd). The original only enters it from the track, lined up with the pad; after a manual flight he can come
+   * from any side, and at TURN5 his turning circle (FLY / TURN5 = 27.5) is wider than the 0xd arrival radius (24), so he would circle the pad for ever. Only then he turns at
+   * TURN20 (as in 0xe); with `manual` null this is the original's TURN5.
+   */
+  private manualTurn(): number { return this.manual?.exit ? SUPE.TURN20 : SUPE.TURN5; }
 
   private stopSkate(w: World) { const c = tryCtx(w); if (c) for (const id of SKATE_SOUNDS) c.stopSfx(id); }
   private trackPoint(up: number): number[] { const p = waypoints.nodePos(MAP_ROAD, this.road); p[1] = ad(p[1], up); return p; }
@@ -381,7 +386,7 @@ export class SupeNode implements BehaviourNode {
     if (y < rec.y) rec.y = y;
   }
   /** Pepper keeps / takes the fly clip (states 0xd / 0xe) */
-  private pepFly(P: GameRecord, dt = 1) { if (P.anim?.clip === SUPE.CLIP_FLY) P.anim.advance(1.0, dt); else P.anim?.start(SUPE.CLIP_FLY, 0); }
+  private pepFly(P: GameRecord, dt: number) { if (P.anim?.clip === SUPE.CLIP_FLY) P.anim.advance(1.0, dt); else P.anim?.start(SUPE.CLIP_FLY, 0); }
   /** a cutscene took over: back to free flight towards the hub, non-solid */
   private toHub(rec: GameRecord) {
     rec.anim?.start(SUPE.CLIP_FLY, 0);
@@ -580,7 +585,7 @@ export class SupeNode implements BehaviourNode {
           if (held & B.SPACE) rec.y += MANUAL.VERT * w.dt;
           if (held & B.ALT) rec.y -= MANUAL.VERT * w.dt;
           rec.flags |= RF_NO_COLLIDE;
-          this.pepFly(P);
+          this.pepFly(P, fr(w.dt));
           this.carry(w, rec, P);
           this.camera(w, rec, SUPE.CAM_A, MANUAL.EASE);
           break;
@@ -619,7 +624,7 @@ export class SupeNode implements BehaviourNode {
           w.vars.set(SUPE.PC, SUPE.PC_CARRIED);
           const t = this.padPoint(SUPE.UP80);
           rec.flags |= RF_NO_COLLIDE;
-          if (flyTo(w, rec, t, SUPE.R_PAD_HIGH, SUPE.TURN5)) this.state = ST.PAD_LOW;
+          if (flyTo(w, rec, t, SUPE.R_PAD_HIGH, this.manualTurn())) this.state = ST.PAD_LOW;
           P.anim?.advance(1.0, dt);
           this.rise(w, rec, t[1]);
           this.carry(w, rec, P);
@@ -628,7 +633,7 @@ export class SupeNode implements BehaviourNode {
         }
         case ST.PAD_LOW: {
           const t = this.padPoint(SUPE.UP16);
-          const arrived = flyTo(w, rec, t, SUPE.R_PAD_LOW, SUPE.TURN5);
+          const arrived = flyTo(w, rec, t, SUPE.R_PAD_LOW, this.manualTurn());
           rec.flags |= RF_NO_COLLIDE;
           if (arrived) this.state = ST.PAD;
           this.pepFly(P, dt);

@@ -9,6 +9,7 @@ import { RECORDS_BASE, REC, fr } from '../lib/m7-isl-veh-emu.mjs';
 import { loadMessages } from '../../src/ui/strings.ts';
 import { setIslandRandom } from '../../src/island/rng.ts';
 import { cRand } from '../lib/c-rand.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MAXFAIL = 30;
 
@@ -115,4 +116,4 @@ export const makeHoloTest = (name, dts) => ({
     return { checked, failures, notes };
   },
 });
-export default makeHoloTest('m7-isl-veh-holo', [1, 0.5]);
+export default guarded(makeHoloTest('m7-isl-veh-holo', [1, 0.5]));

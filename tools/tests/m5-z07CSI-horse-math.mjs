@@ -3,11 +3,12 @@
 import { makeCsiDuel, NATIVE_CTORS, lcg } from '../lib/m5-z07CSI-emu.mjs';
 import { normalize, transformPoint, eulerRotation, f } from '../../src/zones/z07CSI/horse/math.ts';
 import { GameRecord } from '../../src/game/record.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const DVB = new DataView(new ArrayBuffer(4));
 const bits = (x) => { DVB.setFloat32(0, x); return DVB.getUint32(0); };
 
-export default {
+const __test = {
   name: 'm5-z07CSI-horse-math',
   run(ctx) {
     const failures = [], notes = [];
@@ -51,3 +52,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

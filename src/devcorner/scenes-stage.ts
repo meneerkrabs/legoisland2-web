@@ -43,6 +43,8 @@ export class Stage {
   eyeTrail: Pt[] = [];
   tgtTrail: Pt[] = [];
   ticks = 0;
+  /** the sum of the step times (DAT_008b1718) of those ticks: the script's clock runs in dt-units of 1/30 s */
+  elapsed = 0;
   /** the stage's own copies of the speech / subtitle options (start from the game's options; the panel can switch them: a script says its lines instantly with speech off) */
   speechOn = false;
   textOn = false;
@@ -82,12 +84,11 @@ export class Stage {
     const c = this.world.camera.c;
     c.set([0, 8, -18, 0, 2, 0, 0, 1, 0]);
     this.world.camera.updateView();
-    this.world.camera.savePrev();
   }
 
   /** FUN_0045c40c(0) */
   start(): boolean {
-    this.eyeTrail = []; this.tgtTrail = []; this.ticks = 0;
+    this.eyeTrail = []; this.tgtTrail = []; this.ticks = 0; this.elapsed = 0;
     this.world.vars.set(0xb, 0);
     this.started = this.host.start(0);
     this.note();
@@ -98,10 +99,13 @@ export class Stage {
   /** the script ran to its end (or was stopped) after a start */
   get finished(): boolean { return this.started && !this.host.active(); }
 
-  /** one 30 Hz tick of the manager (FUN_0045c402) */
+  /** one 60 Hz step of the manager (FUN_0045c402), then the step time of the next one (`World.advanceDt`, the loops' rule) */
   step() {
     if (!this.host.active()) return;
+    this.elapsed += this.world.dt;
     this.host.tick();
+    this.world.frame++;           // DAT_009da5cc: the pre-render pass of the full world counts it; the stage has no such pass
+    this.world.advanceDt();
     this.ticks++;
     this.note();
   }
@@ -118,6 +122,6 @@ export class Stage {
 
   report(): StageReport {
     const r = this.host.runner, cmds = r.inspect().commands;
-    return { ticks: this.ticks, seconds: this.ticks / 30, finished: cmds.filter((m) => m.state === 3).length, total: cmds.length, dead: cmds.filter((m) => m.dead).length, log: [...r.log] };
+    return { ticks: this.ticks, seconds: this.elapsed / 30, finished: cmds.filter((m) => m.state === 3).length, total: cmds.length, dead: cmds.filter((m) => m.dead).length, log: [...r.log] };
   }
 }

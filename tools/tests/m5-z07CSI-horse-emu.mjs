@@ -7,6 +7,7 @@ import '../../src/zones/z07CSI/horse/index.ts';
 import { makeCsiDuel, NATIVE_CTORS, B, lcg, RECORDS_BASE, REC, f32 } from '../lib/m5-z07CSI-emu.mjs';
 import { castleSpots } from '../lib/m5-z07CSI-horse-spots.mjs';
 import { horseAxes, coverage } from '../../src/zones/z07CSI/horse/hors.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MAXFAIL = 40;
 const HORS = 48, PEPP = 7, JKIT = 46, SADDLES = [51, 52, 53];
@@ -14,7 +15,7 @@ const KEYS = [0, 0, B.UP, B.UP, B.UP, B.DOWN, B.LEFT, B.RIGHT, B.UP | B.LEFT, B.
 const NODE_F = { 0x1c: 'omega', 0x20: 'jumpY0', 0x24: 'hop', 0x2c: 'turnRate', 0x30: 'turnAccel', 0x34: 'pitch', 0x38: 'backTicks', 0x3c: 'sx', 0x40: 'sy', 0x44: 'sz', 0x48: 'syaw', 0x50: 'idle', 0x58: 'standT' };
 const NODE_I = { 0x18: 'st', 0x4c: 'sound', 0x54: 'active' };
 
-export default {
+const __test = {
   name: 'm5-z07CSI-horse-emu',
   async run(ctx) {
     const failures = [], notes = [];
@@ -230,3 +231,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

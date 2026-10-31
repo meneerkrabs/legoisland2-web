@@ -3,6 +3,8 @@ export interface AudioFiles {
   /** Whole file; throws when missing. Paths in installed layout, any case, '/' or '\' (GameFiles from src/files.ts fits). */
   read(path: string): Promise<Uint8Array>;
   has?(path: string): boolean;
+  /** Resolves when the bytes of these files are local (GameFiles.ready: over the range route one merged request per run of neighbours; unknown paths are ignored). Used to read speech ahead. */
+  ready?(paths: Iterable<string>): Promise<void>;
 }
 
 /** "_Data\\sounds\\\\z02LGI\\Silence.wav" -> "_Data/sounds/z02LGI/Silence.wav" (the table has double separators in many paths). */

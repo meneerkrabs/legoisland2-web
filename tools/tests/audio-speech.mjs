@@ -17,6 +17,7 @@ export default {
 
     ok(sp.idle && !sp.hasRequest, 'idle at the start');
     ok(sp.say(5) === true, 'a request is accepted');
+    await flush();             // the (missing) file's read fails: the port's `waiting` hold (audio data still on its way) is over, only the machine is under test
     ok(sp.idle && sp.hasRequest, 'idle between the request and its first tick (state 0)');
     ok(sp.say(6) === false, 'a second request is ignored while one exists');
     // the first request of the session: 6 ticks of warm-up (the counter runs 0..5 while <= 5.0), the machine starts on the 7th
@@ -30,6 +31,7 @@ export default {
 
     // later requests start at the very next tick
     ok(sp.say(7) === true, 'the next request is accepted');
+    await flush();
     sp.tick(1);
     ok(sp.state === 1 && !sp.idle, 'a later request starts at the next tick (no delay)');
     await flush(); sp.tick(1);
@@ -37,17 +39,18 @@ export default {
 
     // two lines: A, then B when A has ended, then close
     ok(sp.say(1, 2) === true, 'a pair is accepted');
+    await flush();
     sp.tick(1); ok(sp.state === 1, 'pair: A starts (state 1)');
     await flush(); sp.tick(1); ok(sp.state === 2, 'pair: B starts when A has ended (state 2)');
     await flush(); sp.tick(1); ok(sp.state === 0 && !sp.hasRequest, 'pair: closed when both are finished');
 
     // stop() = FUN_00435b07: closes at once
-    sp.say(3); sp.tick(1); ok(sp.state === 1, 'a line started'); sp.stop(); ok(sp.state === 0 && !sp.hasRequest && sp.idle, 'stop closes both lines at once');
-    // the 30 Hz loop with dt = 0.5 (60 Hz steps of the future simulation) takes twice as many ticks for the warm-up
+    sp.say(3); await flush(); sp.tick(1); ok(sp.state === 1, 'a line started'); sp.stop(); ok(sp.state === 0 && !sp.hasRequest && sp.idle, 'stop closes both lines at once');
+    // the warm-up counter adds the constant 1.0 per pass (_DAT_00892020), not DAT_008b1718: dt 0.5 (the 60 Hz sim) takes the same 6 passes + the starting one
     const sp2 = new SpeechEngine(ctx, {}, files, ['A0', 'A1']);
-    sp2.say(1);
+    sp2.say(1); await flush();
     let n = 0; while (sp2.state === 0 && n < 100) { sp2.tick(0.5); n++; await flush(); }
-    ok(n === 13, `warm-up with dt 0.5 takes 13 ticks (6 frames of the original + the starting tick) (${n})`);
+    ok(n === 7, `warm-up with dt 0.5 takes 7 ticks like dt 1 (6 passes of the original + the starting tick) (${n})`);
     return { checked, failures };
   },
 };

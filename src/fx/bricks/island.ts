@@ -7,6 +7,7 @@ import type { World } from '../../game/world.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { IslandSetup } from '../../formats/emusetup.ts';
 import type { BrickLibrary } from '../../formats/bricks.ts';
+import { randF, setRandSource } from '../../game/crt.ts';
 import { tryCtx } from '../../island/ctx.ts';
 import { islandSoundHandles } from '../../island/ambient/common.ts';
 import { BrickFxManager, NO_SLOT } from './manager.ts';
@@ -18,12 +19,13 @@ export const BUILDING_SLOTS = 0x05d58304, BUILDING_COUNT = 0x008d95f8;
 /** the island set-up's FX_Bricks calls (emusetup host names) */
 const FN = { INIT: 0x447cc0, REGISTER: 0x447d20, MODEL: 0x447da0, STAGE: 0x447d70, WAIT: 0x447ed0 } as const;
 
-let randomFn: (() => number) | null = null;
-/** tests: a deterministic source for FUN_004388ae (null = Math.random) */
-export function setBrickRandom(f: (() => number) | null) { randomFn = f; }
-/** FUN_004388ae(max) = rand() / 32767 * max */
-export const brickRand = (max: number) => (max <= 0 ? 0 : Math.fround((randomFn ?? Math.random)() * max));
-
+/**
+ * tests: a scripted unit source [0, 1) for the shared game RNG (src/game/crt.ts `setRandSource`, which feeds FUN_0085daf0's rand() 0..32767 to every call site of the game);
+ * null restores the original's LCG. Kept for the tests that script the brick effects' draws (new tests can call `setRandSource` directly).
+ */
+export function setBrickRandom(f: (() => number) | null) { setRandSource(f ? () => Math.floor(f() * 32768) : null); }
+/** FUN_004388ae(max) = (float)rand() / 32767.0f * max, float32 steps, no draw for max <= 0: the shared `randF` of the CRT port (src/game/crt.ts) */
+export const brickRand = randF;
 /** the zone game (and tests) install the brick library (`Bricks` + `BrickMorph` archives) before the first tick */
 export function installBrickLibrary(w: World, lib: BrickLibrary) { w.ext.set(LIB_KEY, lib); w.ext.delete(FX_KEY); }
 

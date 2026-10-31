@@ -6,6 +6,9 @@ import '../../src/zones/z17WAS.ts';
 import { REC, SN, prepareWas, WasShared, PepWasNode, ZoneWasNode, CTOR_PEPWAS, CTOR_ZONEWAS } from '../../src/zones/z17was/rules.ts';
 import { registerCtor, unregisterCtor } from '../../src/game/setup.ts';
 import { B } from '../../src/game/input.ts';
+import { setRandSource, setTickCountSource } from '../../src/game/crt.ts';
+import { msClock, startTickClock } from '../../src/zones/common/tickrand.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // z17WAS, M5 audit, ORACLE test: the original's whack-a-snake code (zonewas FUN_00699e80, pepwas FUN_0069b9b0, both constructors) is executed in the x86 interpreter
 // (tools/lib/m5-was-emu.mjs) next to the TypeScript port; both get the same buttons and the same random numbers (the port draws `value % n`, the original's FUN_004388ae returns the
@@ -17,7 +20,7 @@ const KEYBIT = { ArrowUp: B.UP, ArrowLeft: B.LEFT, ArrowRight: B.RIGHT, ArrowDow
 const KEY_OF_BASKET = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'];   // basket k0 = down, k1 = up, k2 = left, k3 = right
 const gen = (seed) => { let s = seed >>> 0; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s >>> 8; }; };
 
-export default {
+const __test = {
   name: 'm5-audit-z17WAS-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -31,17 +34,22 @@ export default {
     const arch = ctx.archives.find((a) => a.name === 'z17WAS');
     const rigs = () => ({ SNAK: parseBlk(arch.read(arch.find('anim/SNAK.blk'))), MFIG: parseBlk(arch.read(arch.find('anim/MFIG.blk'))) });
 
-    const scenario = (label, seed, player, ticks) => {
+    const scenario = (label, seed, player, ticks, dt = 1) => {
       WasShared.resetGlobals();
       const L = loadZone(ctx, 'z17WAS');
       const w = L.world;
       w.externalInput = true;
+      w.dt = dt;
       const nodes = prepareWas(w, L.pepper, rigs(), L.pe);
       const sh = nodes.shared, node = nodes.node, pepNode = nodes.pepNode;
       const next = gen(seed), drawn = [];
       const ev = [];
       sh.sounds = { play: (id) => ev.push(`p ${id}`), play3D: (id, x, y, z) => ev.push(`p3 ${id} ${[x, y, z].map((v) => v.toFixed(2)).join(',')}`) };
-      sh.rng = { int: (n) => { const v = next(); drawn.push(v); return v % n; } };
+      // the port's own draws (crt.ts rand() through WasRng's exact default, FUN_004388ae scaled by the real clock) run on a scripted 15 bit source and a scripted tick clock; the oracle replays them
+      let tk = 0;
+      setTickCountSource(() => 5000 + Math.floor(tk * 1000 / 60));
+      setRandSource(() => { const v = next() & 0x7fff; drawn.push(v); return v; });
+      startTickClock();
       // ---- the oracle: its own world, rigs bound the way the builder does, then the original's constructors
       const L2 = loadZone(ctx, 'z17WAS');
       const R2 = L2.world.records;
@@ -51,13 +59,14 @@ export default {
       for (const i of REC.SKEL) { R2[i].anim = new AnimInstance(rg.MFIG); anims.set(i, R2[i].anim); }
       const recs = R2.map((r) => ({ name: r.name, m: Array.from(r.m), flags: r.flags, rx: r.rx, ry: r.ry, rz: r.rz }));
       let di = 0;
-      const emu = new WasEmu(pe, recs, anims, { rand: () => drawn[di++] });
+      const emu = new WasEmu(pe, recs, anims, { rand: () => drawn[di++], clock: () => msClock() });
+      emu.cpu.mem.wf32(0x8b1718, dt);   // DAT_008b1718 (the constructor's `ftol(15.0 * dt)` reads it too)
       emu.construct(0, REC.WAS);
       const mem = emu.cpu.mem;
       const pbase = emu.pep, zbase = emu.was;
       const nf = (o) => mem.f32(zbase + o), ni = (o) => mem.r32(zbase + o), n16 = (o) => mem.r16(zbase + o), n8 = (o) => mem.r8(zbase + o);
       const worst = {};
-      const num = (tick, name, orig, port, tol = 1e-5) => {
+      const num = (tick, name, orig, port, tol = 0) => {
         checked++;
         const d = Math.abs(orig - port);
         worst[name] = Math.max(worst[name] ?? 0, d);
@@ -68,7 +77,7 @@ export default {
       const compareRecords = (t) => {
         for (let i = 0; i < w.records.length; i++) {
           const r = w.records[i], a = emu.recPtr(i);
-          for (let k = 0; k < 16; k++) num(t, `rec${i}(${r.name}).m${k}`, mem.f32(a + 0xc + 4 * k), r.m[k], 1e-4);
+          for (let k = 0; k < 16; k++) num(t, `rec${i}(${r.name}).m${k}`, mem.f32(a + 0xc + 4 * k), r.m[k]);
           eq(t, `rec${i}(${r.name}).flags`, mem.r16(a + 0x60) & 0xffff, r.flags & 0xffff);
         }
         for (const [p, an] of emu.anims) {
@@ -86,6 +95,7 @@ export default {
         ev.length = 0; drawn.length = 0; di = 0;
         const sc0 = node.score, gm0 = node.gems;
         w.input.pressed = key ? KEYBIT[key] : 0;      // the buttons that went down this tick, exactly (the shell samples the input itself)
+        tk = t + 1;
         w.tick();
         const olog = emu.tick(key ? KEYBIT[key] : 0, 0, REC.WAS);
         emu.render(visible);
@@ -141,7 +151,14 @@ export default {
     scenario('smart2', 1234, smart(), 2900);
     // a spamming player (any button every tick)
     scenario('spam', 9, (n, p, s, t) => ['ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown'][t % 4], 2900);
+    // the same at dt = 0.5 (the 60 Hz step: every counter steps by rate * DAT_008b1718, the clock counts 0.5 per tick, the constructor's timer is ftol(15 * 0.5) = 7)
+    scenario('mash dt0.5', 18, mash(4), 5800, 0.5);
+    scenario('idle dt0.5', 6, () => null, 5800, 0.5);
+    scenario('smart dt0.5', 78, smart(), 5800, 0.5);
+    scenario('spam dt0.5', 10, (n, p, s, t) => ['ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown'][t % 4], 5800, 0.5);
+    setRandSource(null); setTickCountSource(null);
     unregisterCtor(CTOR_PEPWAS); unregisterCtor(CTOR_ZONEWAS);
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

@@ -2,9 +2,10 @@
 // (src/zones/z14OSD/*) with the same scripted inputs (Pepper's place, buttons, game variables, the random integers, a scripted ground), compared tick by tick: Tumblewd (all states, sounds incl. the
 // "TUM01" pattern, destroy), scorpion + the grab node (sight, attack, grab, return home; node fields, animation, sounds, the probe arming, the framework's controller words), Gems (pick-up, countdown,
 // score, collected-before), PEPPSW (walk / swim / skateboard, the music level), the HUD function FUN_00628410. Collision answers are the port's CollisionWorld or a scripted ground, the SAME on both
-// sides (collision is not the subject). The comparison is bit-exact except where a case says otherwise (framework `distSq`: a tolerance, see the notes).
+// sides (collision is not the subject). The comparison is bit-exact (tolerance 0, dt 1 and 0.5; the framework's `distSq` and the tumbleweed matrix are exact since the float32 sweep).
 import { OsdDuel, B, stream } from '../lib/m5-z14OSD-duel.mjs';
 import { withCdAlloc } from '../lib/m8-save-hubs.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const TUM = [104, 105, 106, 107, 108, 109, 111], SCR = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17], GEM = [114, 115, 116, 117, 118, 119, 120, 121, 122, 123], PEP = 4, BOARD = 64;
 const MAXFAIL = 25;
@@ -23,9 +24,9 @@ const inner = {
       if (w.length) notes.push(`${d.label}: largest deviations ${w.map(([k, v]) => `${k} ${v.toExponential(1)}`).join(', ')}`);
       for (const [a, n] of d.emu.unhooked) bump(`unhooked 0x${a.toString(16)}`, n);
     };
-    /** the framework words every scenario compares: ran masks, squared distances (the port's framework computes them in doubles: 1e-6 relative), variables, sounds, probes */
+    /** the framework words every scenario compares: ran masks, squared distances, variables, sounds, probes */
     const common = (d, o = {}) => {
-      d.compareControllers({ tolDist: 1e-6, pepperBits: !!o.pepperBits });
+      d.compareControllers({ pepperBits: !!o.pepperBits });
       d.compareVars();
       d.compareSounds({ dedupeStops: !!o.dedupeStops });
       d.compareProbes({ results: true });
@@ -36,7 +37,7 @@ const inner = {
       common(d);
       const m = d.emu.cpu.mem;
       for (const i of TUM) {
-        d.compareRecord(i, { rotAbs: 1.3e-7 });   // rotation elements: the shared matrix builder (src/formats/matrix.ts) vs the original's x87 FUN_0043a4a1: up to 1 float32 ulp apart (sin / cos rounding order)
+        d.compareRecord(i);
         const a = d.onode(i, 'TUM'), n = d.pnode(i, 'TUM');
         d.cmp('vy (+0x20)', m.f32(a + 0x20), n.vy); d.cmp('yNow (+0x24)', m.f32(a + 0x24), n.yNow); d.cmp('timer (+0x28)', m.f32(a + 0x28), n.timer);
         d.eq('state (+0x2c)', m.r32(a + 0x2c), n.state); d.cmp('spin (+0x30)', m.f32(a + 0x30), n.spin);
@@ -213,4 +214,4 @@ const inner = {
 };
 
 // the original's node memory is the debug heap's (0xCD-filled fresh blocks; only the node sizes here, the controllers' own uninitialised words are not modelled by this test): the words a constructor never writes (the Tumblewd's +0x24, the scorpion's +0x28) are compared with the port's initial values
-export default { name: inner.name, run: (ctx) => withCdAlloc(() => inner.run(ctx), [0x34, 0x2c, 0x1c, 0x20, 0x38]) };
+export default guarded({ name: inner.name, run: (ctx) => withCdAlloc(() => inner.run(ctx), [0x34, 0x2c, 0x1c, 0x20, 0x38]) });

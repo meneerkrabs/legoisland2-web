@@ -33,14 +33,16 @@ export class ParHud {
   frame: ParHudFrame = { text: '0', compass: 14, chuteIcon: 12, rings: [0x92, 0x74, 0x56], gauge: { segments: [], marker: 0, value: 0 } };
 
   /** one call of FUN_00466f50: updates the run's "chute allowed" state (and speaks the hint) as the original does */
-  update(run: ParRun, pilotYaw: number, dt = 1): ParHudFrame {
+  update(run: ParRun, pilotYaw: number, dt: number): ParHudFrame {
     const f = this.frame;
     f.text = String(ftol(run.score));
     // compass: the wind direction relative to the pilot's yaw, 0..2 pi -> 72 frames
-    let a = TWO_PI - (run.windDir - pilotYaw);
-    if (a < 0) a += TWO_PI;
-    if (a > TWO_PI) a -= TWO_PI;
-    let idx = ftol(((a * 57.3) / 360) * 72);
+    // 24-bit x87: every operation rounds to float32 (FUN_00466f50 at 0x466f8e: a = 2 pi - (wind - yaw) stored as a float, then * 57.3f / 360f * 72f)
+    const r = Math.fround;
+    let a = r(r(TWO_PI) - r(run.windDir - pilotYaw));
+    if (a < 0) a = r(a + r(TWO_PI));
+    if (a > r(TWO_PI)) a = r(a - r(TWO_PI));
+    let idx = ftol(r(r(r(a * r(57.3)) / 360) * 72));
     if (idx < 0 || 0x47 < idx) idx = 0;
     f.compass = idx + HUD_TEX.COMPASS0;
     // ring icons
@@ -54,11 +56,11 @@ export class ParHud {
     f.chuteIcon = run.chuteOk ? HUD_TEX.CHUTE_OK : HUD_TEX.CHUTE_NO;
     // gauge: the first phase shows the altitude as a fraction of the start height; below a quarter of it (>= 153 / 204 of the bar) the second phase shows the
     // height above the ground relative to the height at which the chute became allowed
-    let local20 = 204 - (run.y / run.startAlt) * 204;
+    let local20 = r(204 - r(r(run.y / run.startAlt) * 204));
     let upper: number;
     if (153 <= local20) {
       upper = HUD_TEX.GAUGE_LOW;
-      local20 = 204 - (run.height / run.refAlt) * 204;
+      local20 = r(204 - r(r(run.height / run.refAlt) * 204));
       if (!run.chuteOk) run.speak('LESGPT12');
       run.chuteOk = true;
     } else {
@@ -67,9 +69,9 @@ export class ParHud {
     }
     f.gauge.segments = Array.from({ length: 12 }, (_, i) => (i < 3 ? HUD_TEX.GAUGE_LOW : upper));
     if (local20 > 204) local20 = 204;
-    const v80 = 204 - local20;
+    const v80 = r(204 - local20);
     f.gauge.value = v80;   // DAT_05d4e138: not clamped below; FUN_00460214 clamps its ratio to 0..1
-    f.gauge.marker = Math.min(1, Math.max(0, v80 / 204));
+    f.gauge.marker = Math.min(1, Math.max(0, r(v80 / 204)));
     return f;
   }
 }

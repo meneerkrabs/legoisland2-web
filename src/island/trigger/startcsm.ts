@@ -143,6 +143,8 @@ export class StartCsmNode implements BehaviourNode {
   slot: number;
   /** node +0x3a */
   armed = false;
+  /** port only (not saved): the cutscene's voices were asked to be read ahead */
+  prefetched = false;
   /** node +0x3c: index of the nearest waypoint (never written by the constructor: 0xCDCDCDCD from the debug heap, the first armed update sets it) */
   nearest = CD32;
   /** node +0x3b: padding byte of the saved block (never written by the original's code: the constructor's allocation leaves it 0) */
@@ -196,6 +198,8 @@ export class StartCsmNode implements BehaviourNode {
           if (d <= best) { this.nearest = i; best = d; }
         }
         if (a.keyMask === 0 && a.icon !== 0 && best < this.r2icon) V.or(VAR_INTERACT_ICONS, a.icon);
+        // port: Pepper is within twice the trigger's radius: read the cutscene's voices ahead (its first line is said the moment it starts; src/audio/speech.ts)
+        if (!this.prefetched && this.slot >= 0 && best < this.r2 * 4) { this.prefetched = true; c.prefetchCutscene?.(this.slot); }
         if (this.r2 < best || (pc & 0x1d) === 0) return NODE_NONE;
         if ((w.input.pressed & a.keyMask) !== a.keyMask) { V.or(VAR_INTERACT_ICONS, a.icon); return NODE_NONE; }
         if (a.keyMask === 0) {

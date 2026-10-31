@@ -81,7 +81,7 @@ export function createHarness(ctx, G) {
   hook(0x85d640, (c) => { const sp = c.esp; c.fpush(Math.atan2(mem.f64(sp + 4), mem.f64(sp + 12))); });
   // the controller probe request of the rats (FUN_00427014): the probe pass runs for them after the update pass
   hook(0x427014, () => {});
-  cpu.exec = [[0x6a2000, 0x6ad000], [0x858d30, 0x873e00], [0x42373e, 0x423760], [0x43a4a1, 0x43a8e0], [0x43cec0, 0x43cf30]];
+  cpu.exec = [[0x6a2000, 0x6ad000], [0x858d30, 0x873e00], [0x42373e, 0x423760], [0x43a4a1, 0x43a8e0], [0x43cec0, 0x43cf57]];
   cpu.fallback = (a) => { H.unhooked.add(a); throw new Error(`z18MMP emu: unhooked call to 0x${a.toString(16)}`); };
   cpu.invalidate();
 

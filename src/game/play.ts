@@ -1,5 +1,5 @@
 // Dev entry of the playable engine: ?play=1&zone=z02LGI|z03PPH[&pos=x,y,z][&from=z03PPH][&era=N][&mute=1] (docs/engine-api.md "Game engine").
-// Loads the zone, runs the 30 Hz simulation (src/game) and draws it with GameRenderer; a small HUD (H toggles) and window.__game for scripts.
+// Loads the zone, runs the fixed 60 Hz simulation (src/game, one step per drawn frame, `World.advanceDt`) and draws it with GameRenderer; a small HUD (H toggles) and window.__game for scripts.
 import { Renderer, lightSetFromLgt } from '../render/index.ts';
 import { extractRenderParams } from '../formats/zoneparams.ts';
 import { GameData } from '../viewer/data.ts';

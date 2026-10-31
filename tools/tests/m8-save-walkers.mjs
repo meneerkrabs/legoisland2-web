@@ -12,6 +12,7 @@ import { Walker, WaypointSystem, waypoints, NPC_SPEED, NPC_TURN_RATE, NPC_RADIUS
 import { GameRecord } from '../../src/game/record.ts';
 import { captureWalkers, applyWalkers } from '../../src/game/walkersave.ts';
 import { buildIslandOracle, buildHubOracle } from '../lib/m8-save.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const rng = (seed) => { let s = seed >>> 0; const f = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; f.int = (n) => Math.floor(f() * n); return f; };
 const fr = Math.fround;
@@ -34,7 +35,7 @@ function diffTable(a, b, shift = 0) {
   return null;
 }
 
-export default {
+const __test = {
   name: 'm8-save-walkers',
   run(ctx) {
     const failures = [], notes = [];
@@ -208,3 +209,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

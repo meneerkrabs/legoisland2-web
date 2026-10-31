@@ -9,6 +9,7 @@ import type { Hit } from '../../game/collision.ts';
 import { B } from '../../game/input.ts';
 import { REC, VAR, BIT, CLIP, CAT_CLIP, PS, SND, MUSIC, K } from './consts.ts';
 import { MmpShared, normalise, shown } from './shared.ts';
+import { ad, sb, ml, sq } from '../common/f32.ts';
 
 /** FUN_006ac310(n) -> the coffin index n of a one-bit mask (0..11), -1 for anything else (FUN_006ac699 / FUN_006ac3bb / FUN_006ac52a return 0 for those) */
 export function coffinOfMask(mask: number): number {
@@ -22,7 +23,7 @@ const HEAP_FILL = -107374176;
 const F = Math.fround;
 
 /** the anim "ended soon" test FUN_0043b92a(anim, rate) */
-export function endedSoon(anim: { frameCount: number; frame: number }, rate: number, dt = 1): boolean { return anim.frameCount < rate * dt + 1.0 + anim.frame; }
+export function endedSoon(anim: { frameCount: number; frame: number }, rate: number, dt: number): boolean { return anim.frameCount < ad(ad(1.0, anim.frame), ml(rate, dt)); }
 
 export class PepperNode implements BehaviourNode {
   readonly kind = 'mmpWalk';
@@ -76,9 +77,10 @@ export class PepperNode implements BehaviourNode {
     if (held & B.UP) ud = -1; else if (held & B.DOWN) ud = 1;
     const cam = w.camera.c;
     const cr = normalise([cam[9], 0, cam[11]]);
-    let mx = lr * cr[0], mz = lr * cr[2];
+    // (0x6a512b ..: `(float)lr * c + 0.0` then `(float)(-ud) * c' + that`, every operation a float32 result)
+    let mx = ad(ml(lr, cr[0]), 0), mz = ad(ml(lr, cr[2]), 0);
     const cf = normalise([cam[15], 0, cam[17]]);
-    mx += -ud * cf[0]; mz += -ud * cf[2];
+    mx = ad(ml(-ud, cf[0]), mx); mz = ad(ml(-ud, cf[2]), mz);
     if (K.STICK_Z_FROM < z) { if (x < -K.STICK_X_LIMIT) x = -K.STICK_X_LIMIT; if (K.STICK_X_LIMIT < x) x = K.STICK_X_LIMIT; }
     if (this.state === PS.FREE && (vars.get(VAR.OPEN) & BIT.CHASE) !== 0) this.state = PS.CHASE;
     if (this.state !== PS.TO_PEDESTAL && this.state !== PS.TAKE_PAGE && (vars.get(VAR.READY) & BIT.PAGE) !== 0 && (vars.get(VAR.MATCHED) & BIT.PAGE) === 0) {
@@ -98,8 +100,8 @@ export class PepperNode implements BehaviourNode {
       let best: GameRecord | null = null, bestKind = 0, bestD = K.HIT_RADIUS;
       const test = (r: GameRecord, kind: number, needStanding: boolean) => {
         if (needStanding && !(shown(r) && r.anim?.clip === CLIP.M_STAND)) return;
-        const ex = F(r.x - x), ey = F(r.y - y), ez = F(r.z - z);
-        const d = F(Math.sqrt(ez * ez + ey * ey + ex * ex));
+        const ex = sb(r.x, x), ey = sb(r.y, y), ez = sb(r.z, z);
+        const d = sq(ad(ad(ml(ex, ex), ml(ey, ey)), ml(ez, ez)));       // FUN_0085d104: the asm adds x, y, z
         if (d < bestD) { best = r; bestKind = kind; bestD = d; }
       };
       test(rs[REC.GUARD[0]], 1, false); test(rs[REC.GUARD[1]], 2, false); test(rs[REC.GUARD[2]], 3, false);
@@ -107,7 +109,7 @@ export class PepperNode implements BehaviourNode {
       for (let n = 3; n <= 10; n++) test(rs[REC.MUMMY_OF[n]], n + 1, true);   // 0x3330 .. 0x3608 (kinds 4..11)
       for (let n = 0; n <= 2; n++) test(rs[REC.MUMMY_OF[n]], n + 12, true);   // 0x3670 .. 0x3740 (kinds 12..14)
       if (best) {
-        const r3 = sh.rng.int(3);      // RNG: the original draws ftol(FUN_004388ae(GetTickCount())) % 3 (wall clock)
+        const r3 = sh.rng.int(3);      // ftol(FUN_004388ae((float)FUN_00435c91())) % 3 (the real clock)
         snd.play2D(SND.SQUEAL[r3]);
         const b = best as GameRecord;
         if (bestKind >= 1 && bestKind <= 3) snd.play3D(`groan${bestKind}`, SND.GROAN[bestKind - 1], { x: b.x, y: b.y, z: b.z });
@@ -131,15 +133,15 @@ export class PepperNode implements BehaviourNode {
     // ---- the state machine
     const approach = (sym: GameRecord, cs: GameRecord, ahead: number, stopDist: number): boolean => {
       // FUN_006a4fd0 states 1 / 3 / 5: walk to a point `ahead` along the case's forward axis, facing the symbol; true when there
-      const dx = F(sym.x - x), dz = F(sym.z - z);
-      const d = normalise([dx, 0, dz]); dirx = d[0]; diry = 0; dirz = d[2];
-      const tx = F(cs.m[8] * ahead + sym.x), tz = F(cs.m[10] * ahead + sym.z);          // float32 locals (the sums of large coordinates: the rounding is visible in the direction)
-      const mvx = F(tx - x), mvz = F(tz - z);
-      const dist = F(Math.sqrt(mvz * mvz + mvx * mvx));
-      const dot = F(fwd[2] * d[2] + fwd[0] * d[0]);       // (the dot product is with the NORMALISED direction to the symbol)
+      const dx = sb(sym.x, x), dz = sb(sym.z, z);
+      const d = normalise([dx, 0, dz]); dirx = dx; diry = 0; dirz = dz;      // (the direction the turn code uses is the RAW offset: the original copies it before normalising the other array, FUN_0043cec0 on local_168)
+      const tx = ad(ml(cs.m[8], ahead), sym.x), tz = ad(ml(cs.m[10], ahead), sym.z);          // float32 locals (the sums of large coordinates: the rounding is visible in the direction)
+      const mvx = sb(tx, x), mvz = sb(tz, z);
+      const dist = sq(ad(ml(mvx, mvx), ml(mvz, mvz)));
+      const dot = ad(ml(fwd[0], d[0]), ml(fwd[2], d[2]));       // (the dot product is with the NORMALISED direction to the symbol; the y term is 0)
       if (stopDist <= dist || dot <= K.FACING) {
         const u = normalise([mvx, 0, mvz]);
-        this.vx = F(u[0] * K.WALK_SPEED); this.vz = F(u[2] * K.WALK_SPEED);
+        this.vx = ml(u[0], K.WALK_SPEED); this.vz = ml(u[2], K.WALK_SPEED);
         return false;
       }
       return true;
@@ -149,11 +151,11 @@ export class PepperNode implements BehaviourNode {
         if (anim.advance(2.5, dt) !== 0) { this.state = PS.FREE; anim.start(CLIP.IDLE, 0); this.cur = 0; this.playing = CLIP.IDLE; }
         const m = this.hitRec;
         if (!m) { this.state = PS.FREE; break; }
-        const d = normalise([x - m.x, 0, z - m.z]);
-        this.vx = F(d[0] * K.HIT_PUSH); this.vz = F(d[2] * K.HIT_PUSH);
-        const dot = rec.m[10] * d[2] + rec.m[9] * 0 + rec.m[8] * d[0];
+        const d = normalise([sb(x, m.x), 0, sb(z, m.z)]);
+        this.vx = ml(d[0], K.HIT_PUSH); this.vz = ml(d[2], K.HIT_PUSH);
+        const dot = ad(ml(rec.m[8], d[0]), ml(rec.m[10], d[2]));          // (the y term is 0)
         const k = 0 <= dot ? K.HIT_PUSH : -K.HIT_PUSH;
-        dirx = d[0] * k; dirz = d[2] * k;
+        dirx = ml(d[0], k); dirz = ml(d[2], k);
         // (the original never sets the y of this direction: the debug heap's fill value, so the normalised direction points down and Pepper keeps turning, +-0.349 per tick)
         diry = HEAP_FILL;
         break;
@@ -161,14 +163,14 @@ export class PepperNode implements BehaviourNode {
       case PS.TO_PEDESTAL: {
         const st = rs[REC.STAND];
         vars.or(VAR.MATCHED, BIT.CHASE);
-        const dx = F(st.x - x), dz = F(st.z - z);
-        const d = normalise([dx, 0, dz]); dirx = d[0]; diry = 0; dirz = d[2];
-        const mvx = F(st.x - x), mvz = F(F(st.z - 8) - z);
-        const dist = F(Math.sqrt(mvz * mvz + mvx * mvx));
-        const dot = F(fwd[2] * d[2] + fwd[0] * d[0]);
+        const dx = sb(st.x, x), dz = sb(st.z, z);
+        const d = normalise([dx, 0, dz]); dirx = dx; diry = 0; dirz = dz;      // (raw offset, see approach())
+        const mvx = sb(st.x, x), mvz = sb(sb(st.z, 8), z);
+        const dist = sq(ad(ml(mvx, mvx), ml(mvz, mvz)));
+        const dot = ad(ml(fwd[0], d[0]), ml(fwd[2], d[2]));
         if (K.ARRIVE <= dist || dot <= K.FACING) {
           const u = normalise([mvx, 0, mvz]);
-          this.vx = F(u[0] * K.WALK_SPEED); this.vz = F(u[2] * K.WALK_SPEED);
+          this.vx = ml(u[0], K.WALK_SPEED); this.vz = ml(u[2], K.WALK_SPEED);
         } else {
           this.state = PS.TAKE_PAGE;
           anim.start(CLIP.PAGE_TAKE, 0);
@@ -222,7 +224,7 @@ export class PepperNode implements BehaviourNode {
       case PS.RESTART: {
         // the boulder caught Pepper (or he hit a wall): back to the pedestal, the page already in the bag; the boulder and the pillars start over (MATCHED 0x4000)
         const st = rs[REC.STAND];
-        x = st.x; y = st.y; z = st.z - 8;
+        x = st.x; y = st.y; z = sb(st.z, 8);
         const h = w.col.sweep(rec, [x, y, z], [0, -40, 0], 3, 0.8, 4.8);
         if (h) y = F(h.point[1]);
         this.state = PS.TURN_BACK;
@@ -232,7 +234,7 @@ export class PepperNode implements BehaviourNode {
         break;
       }
       case PS.CHASE: {
-        this.vx = F(mx * K.WALK_SPEED);
+        this.vx = ml(mx, K.WALK_SPEED);
         if (x < -K.STICK_X_LIMIT) x = -K.STICK_X_LIMIT;
         if (K.STICK_X_LIMIT < x) x = K.STICK_X_LIMIT;
         this.vz = K.CHASE_VZ;
@@ -241,20 +243,20 @@ export class PepperNode implements BehaviourNode {
       default: {
         // PS.FREE: Pepper walks with the keys
         this.coffinBit = 0; this.symRec = null;
-        this.vx = F(mx * K.WALK_SPEED); this.vz = F(mz * K.WALK_SPEED);
+        this.vx = ml(mx, K.WALK_SPEED); this.vz = ml(mz, K.WALK_SPEED);
       }
     }
 
     // ---- the collapse: the boulder reaches Pepper, the walls of the corridor, the gate at the end
     if ((vars.get(VAR.OPEN) & BIT.CHASE) !== 0 && this.state !== PS.SQUASHED && this.state !== PS.RESTART) {
       const rock = rs[REC.ROCK];
-      if (Math.abs(rock.z - z) < K.ROCK_NEAR && !sh.stopClock) {
+      if (Math.abs(sb(rock.z, z)) < K.ROCK_NEAR && !sh.stopClock) {
         this.state = PS.SQUASHED;
         this.vx = 0; this.vy = 0; this.vz = 0;
         anim.start(CLIP.SQUASH, 0);
         snd.say('ADSGMM14');
       }
-      if (K.WALL_X <= Math.abs(x + this.vx)) {
+      if (K.WALL_X <= Math.abs(ad(x, this.vx))) {
         this.state = PS.BUMP;
         this.vx = 0;
         anim.start(CLIP.HIT, 0);
@@ -266,8 +268,8 @@ export class PepperNode implements BehaviourNode {
           gate.y = K.GATE_Y;
           vars.or(VAR.MATCHED, BIT.CHASE);
           if (!shown(rec)) vars.or(VAR.NEAR, BIT.CHASE);       // the way out is shut behind Pepper: the tomb is escaped
-        } else gate.y = F(gate.y - K.GATE_STEP * dt);
-        if (z < gate.z + 8) {
+        } else gate.y = sb(gate.y, ml(K.GATE_STEP, dt));
+        if (z < ad(gate.z, 8)) {
           this.cur = 5;
           this.vx = 0; this.vy = 0; this.vz = 0;
           if (anim.clip === CLIP.LEAP && endedSoon(anim, 1.5, dt)) rec.flags &= ~2;
@@ -277,15 +279,15 @@ export class PepperNode implements BehaviourNode {
 
     // ---- walls: a sweep along the velocity at 2.8 above the feet, slide along what it hits
     {
-      const from = [x, F(y + K.SWEEP_Y), z];
-      const delta = [F(this.vx * dt), 0, F(this.vz * dt)];
+      const from = [x, ad(y, K.SWEEP_Y), z];
+      const delta = [ml(this.vx, dt), 0, ml(this.vz, dt)];
       const h = w.col.sweep(rec, from, delta, 3, 1.2, 1.2);
       if (h) {
-        const n = h.normal;
-        const dot = n[2] * this.vz + n[1] * 0 + n[0] * this.vx;
-        this.vx = F(this.vx - n[0] * dot); this.vz = F(this.vz - n[2] * dot);
-        const delta2 = [F(this.vx * dt), 0, F(this.vz * dt)];
-        const h2 = w.col.sweep(rec, [x, F(y + K.SWEEP_Y), z], delta2, 3, 1.2, 1.2);
+        const n = [F(h.normal[0]), F(h.normal[1]), F(h.normal[2])];       // (the engine hands the normal over in float32 memory)
+        const dot = ad(ml(n[0], this.vx), ml(n[2], this.vz));            // (x, y, z in the asm; the y term is n.y * 0.0)
+        this.vx = sb(this.vx, ml(n[0], dot)); this.vz = sb(this.vz, ml(n[2], dot));
+        const delta2 = [ml(this.vx, dt), 0, ml(this.vz, dt)];
+        const h2 = w.col.sweep(rec, [x, ad(y, K.SWEEP_Y), z], delta2, 3, 1.2, 1.2);
         if (h2) {
           this.vx = 0; this.vz = 0;
           if (dirz === -8) { this.state = PS.BUMP; anim.start(CLIP.HIT, 0); }       // only the walk back from the pedestal sets this direction
@@ -294,12 +296,12 @@ export class PepperNode implements BehaviourNode {
     }
     // ---- the floor: a sweep down from 2.8 above, gravity 0.08 per tick, the pit sends Pepper back up
     {
-      const from = [x, F(y + K.SWEEP_Y), z];
-      const delta = [0, F(this.vy * dt - K.SWEEP_Y), 0];
+      const from = [x, ad(y, K.SWEEP_Y), z];
+      const delta = [0, sb(ml(this.vy, dt), K.SWEEP_Y), 0];
       if (y < K.RESPAWN_Y) { y = K.RESPAWN_TOP; x = 0; }
       let hit: Hit | null = null;
       if (!(0 < this.vy)) hit = w.col.sweep(rec, from, delta, 3, 0.8, 0);
-      if (!hit) this.vy = F(this.vy - K.GRAVITY);
+      if (!hit) this.vy = sb(this.vy, K.GRAVITY);
       else { y = F(hit.point[1]); this.vy = 0; }
     }
 
@@ -315,7 +317,7 @@ export class PepperNode implements BehaviourNode {
     }
     if ((flags & 8) !== 0) {
       if (this.hold > 0) this.hold--;
-      speed = Math.hypot(this.vx, this.vz);
+      speed = sq(ad(ml(this.vx, this.vx), ml(this.vz, this.vz)));        // FUN_0085d104 of (vx*vx + 0) + vz*vz, stored as a float
       if (this.cur !== 5) {
         if (speed <= K.SPEED_RUN) {
           if (speed <= K.SPEED_WALK) {
@@ -329,18 +331,18 @@ export class PepperNode implements BehaviourNode {
     let rate: number;
     switch (this.playing) {
       case 0: rate = 0; break;
-      case 1: rate = speed * K.RATE * 40; break;
-      case 2: rate = speed * K.RATE * 35; break;
-      case 3: rate = speed * K.RATE * 17; break;
+      case 1: rate = ml(ml(speed, K.RATE), 40); break;
+      case 2: rate = ml(ml(speed, K.RATE), 35); break;
+      case 3: rate = ml(ml(speed, K.RATE), 17); break;
       case 4: rate = 1.5; break;
       case 5: rate = shown(rec) ? 1.5 : 0; break;
       default: rate = 1.0;
     }
-    if ((flags & 1) !== 0 && this.cur !== 0) { x = F(x + this.vx * dt); y = F(y + this.vy * dt); z = F(z + this.vz * dt); }
+    if ((flags & 1) !== 0 && this.cur !== 0) { x = ad(ml(this.vx, dt), x); y = ad(ml(this.vy, dt), y); z = ad(ml(this.vz, dt), z); }
     if ((flags & 2) !== 0 && this.cur !== 0 && (dirx !== 0 || dirz !== 0)) {
       const d = normalise([dirx, diry, dirz]);
-      if (fwd[2] * d[2] + fwd[0] * d[0] <= K.TURN_SNAP) {
-        if (right[2] * d[2] + right[0] * d[0] <= 0) rec.ry = F(rec.ry - K.TURN_STEP * dt); else rec.ry = F(rec.ry + K.TURN_STEP * dt);
+      if (ad(ad(ml(fwd[0], d[0]), ml(fwd[1], d[1])), ml(fwd[2], d[2])) <= K.TURN_SNAP) {
+        if (ad(ad(ml(right[0], d[0]), ml(right[1], d[1])), ml(right[2], d[2])) <= 0) rec.ry = sb(rec.ry, ml(K.TURN_STEP, dt)); else rec.ry = ad(ml(K.TURN_STEP, dt), rec.ry);
       } else rec.ry = F(Math.atan2(d[0], d[2]));
     }
     if ((flags & 4) !== 0 && rate > 0) {

@@ -62,6 +62,7 @@ export default {
     ok(one.bricks.length === 2 && one.layers === 1 && Math.abs(one.bricks[0].pos[0] - 1.6) < 1e-6 && Math.abs(one.bricks[0].pos[1] - 2.88) < 1e-5 && one.bricks[0].group === 8 && one.bricks[1].group === 0xd
       && one.bricks[1].colour2 === 0x11 && one.bricks[0].colour2 === -1 && Math.abs(one.bricks[0].rot[1] + Math.PI / 2) < 1e-5, 'model line rules (grid 0.8 / 0.96, centre added, y + pi wrapped, groups, colours, NEWLAYER)');
 
+    const ref = {};   // tick counts measured at dt = 1, for the dt = 0.5 runs below (the same effect takes twice the steps at half the step)
     // ------------------------------------------------------------------ era 0: the set-up's registrations, the house stage PH01
     {
       const I = loadIsland(ctx, { node: 2, bricks: true });
@@ -92,6 +93,7 @@ export default {
         if (rec.enabled) { done = t; break; }
       }
       notes.push(`PH01: all bricks home after ${landed} ticks, record shown after ${done} ticks`);
+      ref.landed = landed; ref.done = done;
       ok(landed > 140 && landed < 170, `bricks land after 3 s of drops + 61 ticks of falling (${landed})`);
       ok(done > landed + 85 && done < landed + 95, `the record is shown after the 3 s wait (${done - landed} ticks later)`);
       tick(I, 1);
@@ -118,10 +120,38 @@ export default {
       for (; t < 2000 && s.record.enabled; t++) tick(I);
       const m = s.models[1];
       notes.push(`SHP1 (shop01.txt, ${m.count} bricks, ${m.layers} layers) floated away in ${t} ticks`);
+      ref.shp1 = t;
       ok(!s.record.enabled && t > 100 && t < 1000, `era 0 SHP1: hidden after the bricks rose 200 units (${t} ticks)`);
       ok(m.bricks.every((b) => b.offset[0] ** 2 + b.offset[1] ** 2 + b.offset[2] ** 2 > 40000 || b.offset[1] > 150), 'every brick is far up');
     }
 
+    // ------------------------------------------------------------------ the same effects at dt = 0.5 (the fixed 60 Hz step after the first five frames: every tick counts half)
+    {
+      const I = loadIsland(ctx, { node: 2, bricks: true });
+      I.world.dt = 0.5;
+      tick(I, 1);
+      const fx = islandBrickFx(I.world);
+      const h1 = fx.slots.find((s) => s && s.record.name === 'PH01'), rec = h1.record, tail = h1.models[1].tail();
+      I.vars.set(h1.v, 1);
+      let landed = -1, done = -1;
+      for (let t = 1; t < 900; t++) {
+        tick(I);
+        if (landed < 0 && tail.slice(0, 0x16).every((b) => b.offset[1] === 0 && !b.moving)) landed = t;
+        if (rec.enabled) { done = t; break; }
+      }
+      notes.push(`PH01 at dt 0.5: all bricks home after ${landed} ticks, record shown after ${done} ticks`);
+      ok(Math.abs(landed - 2 * ref.landed) <= 4, `dt 0.5: the bricks land after twice the ticks (${landed} vs 2 x ${ref.landed})`);
+      ok(Math.abs(done - 2 * ref.done) <= 6, `dt 0.5: the record is shown after twice the ticks (${done} vs 2 x ${ref.done})`);
+      const J = loadIsland(ctx, { node: 2, bricks: true });
+      J.world.dt = 0.5;
+      tick(J, 1);
+      const s = islandBrickFx(J.world).slots.find((x) => x && x.record.name === 'SHP1');
+      J.vars.set(s.v, 1);
+      let t = 0;
+      for (; t < 3000 && s.record.enabled; t++) tick(J);
+      notes.push(`SHP1 at dt 0.5 floated away in ${t} ticks`);
+      ok(t > 1.5 * ref.shp1 && t < 2.3 * ref.shp1, `dt 0.5: SHP1 floats away in about twice the ticks (${t} vs 2 x ${ref.shp1}; the random delays of the blow-away differ between the runs)`);
+    }
     // ------------------------------------------------------------------ era 1: RESQ falls into place (callback 7)
     {
       const I = loadIsland(ctx, { node: 7, bricks: true });

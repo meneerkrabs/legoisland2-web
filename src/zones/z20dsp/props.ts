@@ -65,15 +65,15 @@ export class FallingNode extends PropNode {
     } else if (this.state === 1) {
       this.curY = f32(this.curY + this.vy);
       this.vy = f32(this.vy - 0.3199999928474426);
-      rec.anim?.advance(1.0);
+      rec.anim?.advance(1.0, w.dt);
       if (this.curY < this.groundY) {
-        sh.sounds.play(sh.rng.int(2) === 0 ? SND.COW2 : SND.COW1);
+        sh.sounds.play(sh.rng.tick(2) === 0 ? SND.COW2 : SND.COW1);
         rec.anim?.start(3, 0);
         this.curY = this.groundY; this.state = 2;
       }
     } else if (this.state === 2) {
-      if (rec.anim && rec.anim.advance(1.0) !== 0) { rec.anim.start(2, 0); this.state = 3; }
-    } else if (rec.anim && rec.anim.advance(1.0) !== 0) rec.anim.start(2, 0);
+      if (rec.anim && rec.anim.advance(1.0, w.dt) !== 0) { rec.anim.start(2, 0); this.state = 3; }
+    } else if (rec.anim && rec.anim.advance(1.0, w.dt) !== 0) rec.anim.start(2, 0);
     rec.m[13] = this.curY;
     return NODE_CONTINUE;
   }
@@ -105,9 +105,9 @@ export class BerthaNode extends PropNode {
     rec.anim?.start(clip, 0);
     this.shared.sounds.play(SND.FISHSPLASH);
   }
-  update(_w: World, rec: GameRecord): number {
+  update(w: World, rec: GameRecord): number {
     if ((rec.flags & RF_ENABLED) !== 0 && rec.anim) {
-      if (rec.anim.advance(1.0) !== 0) {
+      if (rec.anim.advance(1.0, w.dt) !== 0) {
         rec.flags &= ~RF_ENABLED;
         rec.anim.start(0, 0);
         this.shared.sounds.play(SND.FISHSPLASH);
@@ -361,7 +361,7 @@ export class WalkRockNode extends PropNode {
     }
     if (bot) {
       if (clip === 0) {
-        if (bot.anim && bot.anim.advance(1.0) !== 0) {
+        if (bot.anim && bot.anim.advance(1.0, w.dt) !== 0) {
           if (this.state === 3) bot.anim.start(15, 0);
           else if (this.state === 2) { bot.anim.start(15, 0); this.state = 3; this.botYaw = this.yaw; }
         }

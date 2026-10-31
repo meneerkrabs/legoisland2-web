@@ -1,7 +1,7 @@
 // z36CNT (M5 audit): the original's centrifuge code run in the x86 interpreter (src/formats/x86emu.ts) as an ORACLE for the TypeScript port (tools/tests/m5-audit-z36CNT-emu.mjs).
 // Native from the user's own executable: the TRAI constructor FUN_007b20a8 and its update FUN_007b0c6e (with FUN_007b0401 windows / lights, FUN_007aff48 / FUN_007aff9f monitor
 // ranges, FUN_007af902 pitch), Bob's FUN_007b2836 / FUN_007b24a2, the matrix helpers, the C runtime. Hosted: animation instances (the port's AnimInstance), sounds, speech, game
-// variables, the random numbers (a scripted fraction). Nothing of the executable is stored here, only addresses.
+// variables, rand() (FUN_0085daf0: a scripted 15 bit source; FUN_004388ae runs natively), FUN_0043b76a's advance by `rate * DAT_008b1718` (the port's AnimInstance). Nothing of the executable is stored here, only addresses.
 import { createCpu } from '../../src/formats/x86emu.ts';
 
 export const RECORDS_BASE = 0x10000000, HEAP_BASE = 0x20000000;
@@ -10,7 +10,7 @@ const CRT = [0x858d30, 0x873e00];
 const NATIVE = [0x43a340, 0x43a4a1, 0x43a5e4, 0x43a9e5, 0x43ab72, 0x43abe6, 0x43ac78, 0x43af16, 0x43ae1e, 0x43cec0, 0x43a8bb, 0x43ad29];
 
 export class CntEmu {
-  /** @param recs the 20 records ({ name, m, flags }), @param anims Map(record index -> AnimInstance), @param o { rand(): number in [0, 1), vars: Map } */
+  /** @param recs the 20 records ({ name, m, flags }), @param anims Map(record index -> AnimInstance), @param o { rand(): int 0 .. 32767, vars: Map, dt } */
   constructor(pe, recs, anims, o) {
     const cpu = (this.cpu = createCpu(pe));
     const mem = cpu.mem;
@@ -18,7 +18,9 @@ export class CntEmu {
     mem.addRegion({ lo: RECORDS_BASE, hi: RECORDS_BASE + 0x10000, name: 'records' });
     this.brk = HEAP_BASE;
     this.log = []; this.nodes = {}; this.anims = new Map(); this.unhooked = new Map(); this.speechIds = [];
-    this.rand = o.rand; this.vars = o.vars;
+    this.rand = o.rand; this.vars = o.vars; this.dt = o.dt ?? 1;
+    cpu.cw = 0x7f;      // the executable runs the x87 in 24-bit precision (Direct3D 7): every + - * / rounds to float32
+    mem.wf32(0x8b1718, this.dt); mem.wf32(0x8b171c, 1 / this.dt);
     mem.w32(0x983800, recs.length); mem.w32(0x983804, RECORDS_BASE);
     recs.forEach((r, i) => {
       const a = RECORDS_BASE + i * REC;
@@ -36,7 +38,7 @@ export class CntEmu {
     const L = this;
     H.set(0x43e910, (c) => { c.eax = 0; });      // FUN_0043e910: attaches the visor matrix to the model (the port keeps it in the renderer)
     H.set(0x433d38, (c) => { const p = L.alloc(c.arg(0)); L.nodes[c.arg(0)] = p; c.eax = p; });
-    H.set(0x4388ae, (c) => { c.fpush(L.rand() * c.argf(0)); });
+    H.set(0x85daf0, (c) => { c.eax = L.rand(); });
     H.set(0x443580, (c) => { c.eax = c.arg(0) | 0x100000; });
     H.set(0x4435a0, (c) => { logf(`p ${c.arg(0) & 0xfffff}`); c.eax = 0; });
     H.set(0x4435b0, (c) => { logf(`s ${c.arg(0) & 0xfffff}`); c.eax = 0; });
@@ -47,16 +49,18 @@ export class CntEmu {
     H.set(0x435a11, (c) => { const a = c.arg(0), b = c.arg(1); logf(`say ${L.speechIds[a - 1]}${b !== 0xffffffff ? `+${L.speechIds[b - 1]}` : ''}`); c.eax = 0; });
     const inst = (c) => L.anims.get(c.arg(0));
     H.set(0x43b6a3, (c) => { const a = inst(c); c.eax = a && a.start(c.arg(1) & 0xff, c.argf(2)) ? 1 : 0; });
-    H.set(0x43b76a, (c) => { const a = inst(c); c.eax = a ? a.advance(c.argf(1)) : 0; });
+    H.set(0x43b76a, (c) => { const a = inst(c); c.eax = a ? a.advance(c.argf(1), L.dt) : 0; });
     H.set(0x43b73f, (c) => { const a = inst(c); c.fpush(a ? a.frame : 0); });
     H.set(0x43b753, (c) => { const a = inst(c); c.fpush(a ? a.frameCount : 0); });
-    // FUN_0043b92a(anim, speed): 2 when the clip's last frame has been reached (`frameCount < speed * dt + 1 + frame`)
-    H.set(0x43b92a, (c) => { const a = inst(c); c.eax = a && a.frameCount < c.argf(1) * 1 + 1 + a.frame ? 2 : 0; });
+    // FUN_0043b92a(anim, speed): 2 when `(float)(1.0 + frame + speed * DAT_008b1718)` (each operation float32) exceeds the clip's frame count (asm 0x43b949 .. 0x43b979)
+    H.set(0x43b92a, (c) => { const a = inst(c); const f = Math.fround; c.eax = a && f(f(1 + a.frame) + f(c.argf(1) * f(L.dt))) > a.frameCount ? 2 : 0; });
     H.set(0x43b64d, (c) => { const a = inst(c); c.eax = a && a.seek(c.argf(1)) ? 1 : 0; });
-    cpu.exec = [[0x7ae867, 0x7b6081], CRT];
+    cpu.exec = [[0x7ae867, 0x7b6081], [0x4388ae, 0x4388e7], CRT];       // FUN_0043b92a (the clip end test, hosted below: it reads the engine's animation instance) and FUN_004388ae natively
     for (const a of NATIVE) cpu.native.add(a);
     cpu.fallback = (addr) => (c) => { L.unhooked.set(addr, (L.unhooked.get(addr) ?? 0) + 1); c.eax = 0; };
   }
+  /** DAT_008b1718 / DAT_008b171c for the next tick */
+  setDt(dt) { this.dt = dt; this.cpu.mem.wf32(0x8b1718, dt); this.cpu.mem.wf32(0x8b171c, Math.fround(1 / dt)); }
   alloc(n) { const p = this.brk; this.brk += (n + 15) & ~15; return p; }
   recPtr(i) { return RECORDS_BASE + i * REC; }
   /** Bob's constructor (record 0), then the machine's (record 18), as the set-up attaches them */

@@ -6,7 +6,7 @@ export default {
   name: 'm7-isl-bb-npc',
   run(ctx) {
     const notes = [], st = newStats(), cov = newCov();
-    for (const [node, dt] of [[7, 1], [30, 1], [7, 0.5]]) {
+    for (const [node, dt] of [[7, 1], [30, 1], [7, 0.5], [30, 0.5]]) {
       const P = createBB(ctx, { node, dt, seed: 300 + node });
       const w = P.w, sc = dt === 1 ? 1 : 2, c = newCov();
       setVar(P, 0x5e, 1); setVar(P, 9, 1);

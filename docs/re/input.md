@@ -27,7 +27,7 @@ was wrong, and the port keeps them held (`InputMapper.update`). Consequently the
 * Pad buttons are **not rebindable** in the original either: the key page's capture (`FUN_00438099`) scans mouse buttons 2..7 and the keyboard only. The `JOY:n` name format exists for table entries only.
 * Rumble: `FUN_00438518` is empty. No hot-plug handling in the original (enumerated once); the browser reveals pads after a first input, so the first pad present is used on every tick.
 
-The state is read **once per tick** like the original's poll: a key pressed and released between two ticks is not seen. Bots must hold a key >= 3 ticks (100 ms; `browse.mjs` `key()` holds 70 ms, its island auto-tap 100 ms). `InputMapper.latchTaps` is a test-only switch that keeps taps.
+The state is read **once per tick** like the original's poll: a key pressed and released between two ticks is not seen. Bots must hold a key >= 5 ticks of the fixed 60 Hz step (70 ms or more; `browse.mjs` `key()` holds 70 ms, its island auto-tap 100 ms). `InputMapper.latchTaps` is a test-only switch that keeps taps.
 
 ## 2. Key bindings (FUN_00436f7d, FUN_00437e82, FUN_00437f6e): fixed key plus current key
 `current[i]` comes from Settings 4..0x10 (default = the fixed key). `flag[i] = 1` unless the fixed key equals the current key of some entry (`FUN_00436f7d`). Rebinding entry A from key O to K (`FUN_00437e82`):

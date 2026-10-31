@@ -12,10 +12,10 @@
 //   * Random numbers: the engine draws from a 4096 entry table of floats (`FUN_00454460` fills it with `rand() / 32767`), advanced with a shared circular
 //     index; the C runtime `rand()` is used for the table, a few sign decisions and the colour mirror. Both go through the injectable `RandFn`.
 
-/** RNG: the C runtime `rand()` of the original (0..32767). Replaced by the shared WP-TIME generator when it exists (`ParticleEngine.setRand`). */
+/** the C runtime `rand()` of the original (0..32767): the engine's default is the shared CRT generator (src/game/crt.ts `rand`); tests inject their own through `EngineOptions.rand` */
 export type RandFn = () => number;
 
-/** RNG: MSVC `rand()` (LCG 214013 / 2531011, bits 16..30), seeded like `srand(seed)`. Default until the shared game RNG (WP-TIME) is injected. */
+/** MSVC `rand()` (LCG 214013 / 2531011, bits 16..30), seeded like `srand(seed)`: a private generator for tests (the game uses the shared one in src/game/crt.ts) */
 export function msvcRand(seed = 1): RandFn {
   let s = seed >>> 0;
   return () => { s = (Math.imul(s, 214013) + 2531011) >>> 0; return (s >>> 16) & 0x7fff; };

@@ -4,7 +4,7 @@ import type { Mat4 } from './math.ts';
 import type { FogSetup } from '../formats/zoneparams.ts';
 import { fogRange } from '../formats/zoneparams.ts';
 
-/** The game's logic and animation run at 30 Hz: DAT_008b1718 = frame time / (1/30 s) (FUN_00443e40, target interval = QPF * 1/30) */
+/** The game's time unit is 1/30 s: DAT_008b1718 = frame time / (1/30 s) (FUN_00443e40, target interval = QPF * 1/30; 0.5 at the port's fixed 60 Hz step). The renderer's state steps take that dt directly (no seconds -> ticks conversion any more) */
 export const GAME_TICK = 30;
 /** vertical field of view in radians for the default "zoom" factor DAT_0089df2c = 1.0 (FUN_0041533b: m11 = cot(fov / 2) * 0.75, m22 = cot(fov / 2)) */
 export const DEFAULT_FOV = 1.0;

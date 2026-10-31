@@ -7,9 +7,12 @@ import type { GameRecord } from '../../game/record.ts';
 import type { BehaviourNode } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import { bipRun, f32, msClock, REC } from './run.ts';
+import { randF } from '../../game/crt.ts';
 import { setRotation } from './plane.ts';
 import { PLANE } from './plane.ts';
-import { buildMatrix } from '../../formats/matrix.ts';
+import { eulerMatrix, matThen } from '../common/matrix.ts';
+import { normalise3 } from '../exact.ts';
+import { ad, sb, ml, sq } from '../common/f32.ts';
 
 const F = Math.fround;
 export const CTOR_MONKEY = 0x70fafb;
@@ -62,7 +65,7 @@ export class MonkeyNode implements BehaviourNode {
     const frame = Math.trunc(anim?.frame ?? 0);
     if (this.state === 1) {
       // a chatter sound now and then (ftol(FUN_004388ae(GetTickCount - start)) % 90 hits one of three values)
-      const r = Math.trunc(run.crt.float(msClock(w))) % MONKEY.CHATTER_MOD;
+      const r = Math.trunc(randF(msClock())) % MONKEY.CHATTER_MOD;
       for (const [v, snd] of MONKEY.CHATTER) if (r === v) { run.sound.at(snd, [rec.x, rec.y, rec.z]); break; }
       for (const [a, b] of MONKEY.THROW_FRAMES) if (a <= frame && frame < b) { this.throwMelon(w, rec); break; }
     } else if (this.state === 2) { anim?.start(this.clipHit, 0); this.state = 3; }
@@ -81,9 +84,9 @@ export class MonkeyNode implements BehaviourNode {
       m.born = this.clock;
       m.x = rec.x; m.y = rec.y; m.z = rec.z;
       m.spin = 0;
-      const v = [F(pl.x - rec.x), F(pl.y - rec.y), F(pl.z - rec.z)];
-      const l = Math.hypot(v[0], v[1], v[2]) || 1;
-      m.vx = F(v[0] / l); m.vy = F(v[1] / l); m.vz = F(v[2] / l);
+      const v = [sb(pl.x, rec.x), sb(pl.y, rec.y), sb(pl.z, rec.z)];
+      normalise3(v);                                          // FUN_0043cec0
+      m.vx = v[0]; m.vy = v[1]; m.vz = v[2];
       run.sound.at('chimpThrow', [rec.x, rec.y, rec.z]);
       run.cue?.('bip-melon-throw', [rec.x, rec.y, rec.z]);
       return;
@@ -97,13 +100,16 @@ export class MonkeyNode implements BehaviourNode {
     for (const m of this.melons) {
       if (!m.active) continue;
       if (m.born + MONKEY.MELON_LIFE < this.clock) { m.active = false; continue; }
-      m.x = F(F(m.vx * MONKEY.MELON_STEP) + m.x); m.y = F(F(m.vy * MONKEY.MELON_STEP) + m.y); m.z = F(F(m.vz * MONKEY.MELON_STEP) + m.z);
-      m.spin = F(m.spin + MONKEY.MELON_SPIN);
-      const d = Math.hypot(F(pl.x - m.x), F(pl.y - m.y), F(pl.z - m.z));
+      m.x = ad(ml(m.vx, MONKEY.MELON_STEP), m.x); m.y = ad(ml(m.vy, MONKEY.MELON_STEP), m.y); m.z = ad(ml(m.vz, MONKEY.MELON_STEP), m.z);
+      m.spin = ad(m.spin, MONKEY.MELON_SPIN);
+      // FUN_0085d104(sqrt) of dx*dx + dy*dy + dz*dz, the asm adds x, y, z (0x70f0e6 .. 0x70f0fa), stored as a float
+      const dx = sb(pl.x, m.x), dy = sb(pl.y, m.y), dz = sb(pl.z, m.z);
+      const d = sq(ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz)));
       if (d < MONKEY.MELON_HIT) {
-        const vy = Math.abs(run.nextRandom()), vx = run.nextRandom(), vz = Math.abs(run.nextRandom());
-        const l = Math.hypot(vx, vy, vz) || 1;
-        m.vx = F(vx / l); m.vy = F(vy / l); m.vz = F(vz / l);
+        const ry = Math.abs(run.nextRandom()), rx = run.nextRandom(), rz = Math.abs(run.nextRandom());   // drawn in the order y (fabs), x, z (fabs)
+        const v = [rx, ry, rz];
+        normalise3(v);                                          // FUN_0043cec0
+        m.vx = v[0]; m.vy = v[1]; m.vz = v[2];
         if (walk && !walk.rolling) {
           run.sound.play('melonHit');
           walk.rolling = true; walk.rollAngle = 0;
@@ -116,24 +122,24 @@ export class MonkeyNode implements BehaviourNode {
     this.clock++;
   }
 
-  /** FUN_0070f6ec (the draw): the monkey turns to face the plane (forward = the direction to it, up = world up, right = their horizontal cross) at twice its size */
+  /** FUN_0070f6ec (the draw): the monkey turns to face the plane (forward = the direction to it, up = world up, right = their horizontal cross, FUN_0043cec0 on each) at twice its size */
   face(rec: GameRecord, pl: GameRecord) {
-    const d = [pl.x - rec.x, pl.y - rec.y, pl.z - rec.z];
-    const l = Math.hypot(d[0], d[1], d[2]) || 1;
-    const f = [d[0] / l, d[1] / l, d[2] / l];
-    const r = [f[2], 0, -f[0]], rl = Math.hypot(r[0], r[2]) || 1;
+    const f = [sb(pl.x, rec.x), sb(pl.y, rec.y), sb(pl.z, rec.z)];
+    normalise3(f);
+    // right = up x forward with up = (0, 1, 0): (1 * fz - 0 * fy, 0 * fx - 0 * fz, 0 * fy - 1 * fx)
+    const r = [sb(ml(1, f[2]), ml(0, f[1])), sb(ml(0, f[0]), ml(0, f[2])), sb(ml(0, f[1]), ml(1, f[0]))];
+    normalise3(r);
     const k = this.drawScale;
     const m = rec.m;
-    m[0] = F(r[0] / rl * k); m[1] = 0; m[2] = F(r[2] / rl * k);
+    m[0] = ml(r[0], k); m[1] = ml(r[1], k); m[2] = ml(r[2], k);
     m[4] = 0; m[5] = k; m[6] = 0;
-    m[8] = F(f[0] * k); m[9] = F(f[1] * k); m[10] = F(f[2] * k);
+    m[8] = ml(f[0], k); m[9] = ml(f[1], k); m[10] = ml(f[2], k);
   }
 }
 
-/** the matrix of a melon for drawing: the spin about z (FUN_0043a4a1 rewrites the rotation of the matrix the throw made with the yaw 0x40afeda2 on the first update) and the place, scaled by 4 (FUN_0070f6ec: FUN_0043a9e5(.., melon, diag 4)) */
+const MELON_SCALE_M = new Float32Array([4, 0, 0, 0, 0, 4, 0, 0, 0, 0, 4, 0, 0, 0, 0, 1]);
+/** the matrix of a melon for drawing: the spin about z (FUN_0043a4a1 rewrites the rotation of the matrix the throw made) and the place, then FUN_0043a9e5(.., melon, diag 4) (FUN_0070f6ec) */
 export function melonMatrix(m: Melon): Float32Array {
-  const r = buildMatrix(0, 0, m.spin, m.x, m.y, m.z);
-  for (const i of [0, 1, 2, 4, 5, 6, 8, 9, 10]) r[i] *= MONKEY.MELON_SCALE;
-  return r;
+  return matThen(MELON_SCALE_M, eulerMatrix(0, 0, m.spin, m.x, m.y, m.z));
 }
 void setRotation;

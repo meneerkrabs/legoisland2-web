@@ -77,7 +77,9 @@ export class ZoneEmu {
     this.vars = new Map();
     H.set(0x417575, (c) => { c.eax = (L.vars.get(c.arg(0)) ?? 0) >>> 0; });
     H.set(0x417597, (c) => { L.vars.set(c.arg(0), c.arg(1) | 0); logf(`setVar ${c.arg(0)} ${c.arg(1) | 0}`); c.eax = 0; });
-    H.set(0x4388ae, (c) => { c.fpush(L.o.rng.range(c.argf(0))); });
+    // `rng.int()` (the scripted rand(), 0 .. 32767): FUN_004388ae runs natively on top of the hooked FUN_0085daf0; `rng.range(x)` (older callers): FUN_004388ae itself is hooked
+    if (L.o.rng.int) H.set(0x85daf0, (c) => { c.eax = L.o.rng.int(); });
+    else H.set(0x4388ae, (c) => { c.fpush(L.o.rng.range(c.argf(0))); });
     // sounds: every load gets a handle of its own, named by the global the zone's loader stored it in
     this.loads = []; this.handleName = new Map(); this.loadId = new Map();
     let nh = 0x1000;
@@ -190,7 +192,7 @@ export class ZoneEmu {
     H.set(0x46055f, (c) => { c.eax = 0; });
     // atan2(y, x): the CRT version loads an 80 bit constant (not modelled by the interpreter): two doubles on the stack, the result in st0
     H.set(0x85d640, (c) => { const sp = c.regs[4]; c.fpush(Math.atan2(mem.f64(sp + 4), mem.f64(sp + 12))); });
-    cpu.exec = [...o.exec, CRT];
+    cpu.exec = [...o.exec, CRT, ...(o.rng.int ? [[0x4388ae, 0x4388e7]] : [])];
     for (const a of [...NATIVE, ...(o.native ?? [])]) cpu.native.add(a);
     cpu.fallback = (addr) => (c) => { L.unhooked.set(addr, (L.unhooked.get(addr) ?? 0) + 1); c.eax = 0; };
   }

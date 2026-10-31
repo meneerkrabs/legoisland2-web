@@ -9,13 +9,14 @@ import { setIslandRandom } from '../../src/island/rng.ts';
 import { crashSoundId, parkSession, parkSlotOf, islandSlot2d } from '../../src/island/vehicles/crashsound.ts';
 import { createGameCpu } from '../../src/formats/x86emu.ts';
 import { applyDecorEra, readDecorSetGroups, decorEraColumn } from '../../src/island/decorsets.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // WP-ISLAND (gaps S3 / S6 / S8 / S11): the kids' jump node (FUN_004bf329), Pepper's swim splash ring (FUN_0088d1f6 / FUN_0088cfcb), the hologram's shimmer (FUN_0088d666 state 3),
 // the records FUN_0051c823 hides, the NPC groups of the era set-ups. Run: node tools/test-formats.mjs --only m4-s-island -v
 
 const f32 = Math.fround;
 
-export default {
+const __test = {
   name: 'm4-s-island',
   run(ctx) {
     const failures = [], notes = [];
@@ -303,3 +304,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

@@ -71,8 +71,8 @@ export default {
     }
 
     // ============================================================ the zone loads
-    const fresh = (seedv = 1) => { seeded(seedv); const L = loadZone(ctx, 'z40aPO'); const run = startApoRun(L.world, L.archive); const pilot = L.pepper.ctrl.find('ApoPilot'); return { L, w: L.world, run, pilot, p: L.pepper, hud: new ApoHud() }; };
-    const step = (G, mask = 0) => { G.w.input.setVirtual(mask); G.w.tick(); if (!G.run.over) G.hud.update(G.run); };
+    const fresh = (seedv = 1, dt = 1) => { seeded(seedv); const L = loadZone(ctx, 'z40aPO'); L.world.dt = dt; const run = startApoRun(L.world, L.archive); const pilot = L.pepper.ctrl.find('ApoPilot'); return { L, w: L.world, run, pilot, p: L.pepper, hud: new ApoHud() }; };
+    const step = (G, mask = 0) => { G.w.input.setVirtual(mask); G.w.tick(); if (!G.run.over) G.hud.update(G.run, G.w.dt); };
     {
       const G = fresh();
       const R = G.run.recs;
@@ -134,9 +134,29 @@ export default {
       ok(J.run.ring[4] === 2, `no ring of group 1 passed and below 1400: the group is missed (flag ${J.run.ring[4]})`);
       J.p.y = 790; J.run.y = 790; step(J); ok(J.run.ring[9] === 2, 'group 2 missed below 800');
       J.p.y = 300; J.run.y = 300; step(J); ok(J.run.ring[14] === 2, 'group 3 missed below 310');
-      J.hud.update(J.run); ok(J.hud.frame.groups.join() === '106,105,104', `HUD: missed icons 104 / 105 / 106 (${J.hud.frame.groups})`);
+      J.hud.update(J.run, 1); ok(J.hud.frame.groups.join() === '106,105,104', `HUD: missed icons 104 / 105 / 106 (${J.hud.frame.groups})`);
       const rr = J.run.recs.rc[4]; J.p.x = rr.x; J.p.z = rr.z; J.p.y = rr.y + 5; J.run.y = J.p.y; J.pilot.state = AS.FALL; for (let k = 0; k < 20; k++) step(J);
       ok(J.run.ring[4] === 2, 'the last ring of a missed group can no longer be passed');
+    }
+
+    // ============================================================ the same scripted WIN at the game's 60 Hz step (world.dt = 0.5)
+    {
+      const G = fresh(1, 0.5);
+      let t = 0; const st = [];
+      for (; t < 18000 && !G.run.over; t++) {
+        const m = apoBotStep(apoSnapshot(G.w), { land: 3 });
+        const before = G.pilot.state; step(G, m);
+        if (G.pilot.state !== before) st.push(`${before}>${G.pilot.state}@${t}`);
+      }
+      const hits = G.run.ring.reduce((n, x) => n + (x === 1), 0);
+      notes.push(`WIN run at dt 0.5: ${t} ticks, score ${G.run.score}, rings ${hits}/15, states ${st.join(' ')}`);
+      ok(G.run.over && hits >= 10, `dt 0.5: the bot passes ${hits} of 15 rings`);
+      ok(st.some((x) => x.startsWith('2>3')) && st.some((x) => x.startsWith('4>5')) && st.some((x) => x.startsWith('5>6')), `dt 0.5: state sequence ${st}`);
+      // the HUD's spin counter steps 1 * dt (float32): half a frame per tick at dt 0.5
+      const hh = new ApoHud(), rr = { score: 0, ring: Array(15).fill(0), y: 2000, startAlt: 2000, height: 100, refAlt: 2000, chuteOk: false };
+      rr.ring[0] = 1;
+      hh.update(rr, 0.5); hh.update(rr, 0.5);
+      ok(hh.spin[0] === 15, `dt 0.5: the ring group icon's spin counter advanced 1 in two frames (${hh.spin[0]})`);
     }
 
     // ============================================================ scripted WIN: rings, wing, landing on target 3
@@ -243,11 +263,11 @@ export default {
       const G = fresh(); step(G);
       const f = G.hud.frame;
       ok(f.text === '0' && f.groups.join() === '74,44,14' && f.chuteIcon === APO_HUD.CHUTE_NO, `initial HUD ${f.groups} ${f.chuteIcon}`);
-      G.run.ring[0] = 1; const seen = []; for (let i = 0; i < 40; i++) { G.hud.update(G.run); seen.push(G.hud.frame.groups[2]); }
+      G.run.ring[0] = 1; const seen = []; for (let i = 0; i < 40; i++) { G.hud.update(G.run, 1); seen.push(G.hud.frame.groups[2]); }
       ok(seen[0] === 15 && Math.max(...seen) === 43 && seen.includes(14), `group 1 spins 14 .. 43: ${seen.slice(0, 5)} .. ${Math.max(...seen)}`);
-      G.run.ring[7] = 1; G.hud.update(G.run); ok(G.hud.frame.groups[1] >= 44 && G.hud.frame.groups[1] <= 73, 'group 2 spins 44 .. 73');
-      G.run.y = 499; G.run.height = 400; G.run.refAlt = 500; G.hud.update(G.run); ok(G.run.chuteOk, 'the wing becomes available below a quarter of the start height (500)');
-      G.hud.update(G.run); ok(G.hud.frame.chuteIcon === 9 && G.hud.frame.gauge.segments.every((x) => x === 11), 'icon 9, all segments 11');
+      G.run.ring[7] = 1; G.hud.update(G.run, 1); ok(G.hud.frame.groups[1] >= 44 && G.hud.frame.groups[1] <= 73, 'group 2 spins 44 .. 73');
+      G.run.y = 499; G.run.height = 400; G.run.refAlt = 500; G.hud.update(G.run, 1); ok(G.run.chuteOk, 'the wing becomes available below a quarter of the start height (500)');
+      G.hud.update(G.run, 1); ok(G.hud.frame.chuteIcon === 9 && G.hud.frame.gauge.segments.every((x) => x === 11), 'icon 9, all segments 11');
     }
     {
       const v = new GameVars();

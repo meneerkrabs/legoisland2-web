@@ -136,6 +136,8 @@ export const K = {
   PEPPER_START_Z: 15,
   // coffin: a symbol is within reach when its squared distance to Pepper is below 8 (0x892090); the mummy leaves 0.04 per tick (0x8925ec)
   OPEN_REACH: 8, MUMMY_LEAVE: f32(0.04),
+  /** a matched symbol floats to the key's place: 0.4 per tick (0x892118), arrived when within -0.4 (0x892720) .. 0.4 */
+  MATCH_STEP: f32(0.4), MATCH_LOW: f32(-0.4),
   OPEN_TICKS: 12, WRONG_TICKS: 20, SPIN: f32(0.087266), LID_TURN: f32(0.174532), SYMBOL_RISE: f32(0.32), SYMBOL_REST_Y: f32(9.688),
 } as const;
 

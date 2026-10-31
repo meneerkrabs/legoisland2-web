@@ -10,7 +10,7 @@ Addresses are VAs of the NL retail build; `FUN_` names are the Ghidra names of `
 | file | what |
 |---|---|
 | `src/zones/z39ASB.ts` | registration: `registerCtor(0x7b96a0, ShuttleNode)` + `registerZoneGame('z39ASB', createAsbGame)` |
-| `src/zones/z39ASB/belt.ts` | **the simulation** (pure TS, no DOM): `AsteroidBelt` = shuttle node update / hit test / layout / asteroid motion / scoring, `MsvcRand`, `EngineModel`, constants `C` |
+| `src/zones/z39ASB/belt.ts` | **the simulation** (pure TS, no DOM): `AsteroidBelt` = shuttle node update / hit test / layout / asteroid motion / scoring, `BeltRng`, `EngineModel`, constants `C` |
 | `src/zones/z39ASB/game.ts` | `ShuttleNode` (the behaviour node), `createAsbGame` (the `ZoneGame`: HUD, banner, speech, sounds, FOV, backdrop, test aids) |
 | `src/zones/z39ASB/hudmodel.ts` | the HUD geometry (hit icons, hull gauge, score position) as data |
 | `src/zones/z39ASB/backdrop.ts` | the star field quad of the draw hook (`Backdrop`, `backdropCorners`) |
@@ -119,7 +119,7 @@ Music: `Z38PAR` (`Asteroids.sgt`, the same as z38PAR / z40aPO; started by the sh
 * **Music starts with the zone**, not when the loop leaves the help (`FUN_004432c0` in mode 9 -> 2): the shell's `enterZone` starts `Z38PAR` at zone entry for every zone.
 * **Controller rumble** (`FUN_00438518(0, 100, 100)` while the camera shakes) is not ported; the analog stick values are not used (the port's input mapper only has direction bits).
 * The roll accumulators (+0x2a8 / +0x2ac / +0x2b4) are kept but nothing reads them (in the original they are passed to `FUN_007b7c24`, which ignores its arguments); the Euler decay of the shuttle record (2 degrees per tick towards 0) is skipped because nothing ever sets those angles; the thrust glow (+0x2d0, +-0.05 per tick towards "steering") is kept (it probably feeds the exhaust particles, which are not drawn).
-* The random source: the original uses the C `rand()` (seeding not found: probably `srand(time)`), the port a time-seeded MSVC LCG (`MsvcRand`); the *random* sound choices use `rand() & 1` instead of the original's `ftol(rand-ish * tick) & 1`. Same distributions, not the same sequence.
+* The random source (WP-TIME): the shared C runtime generator of `src/game/crt.ts` (`BeltRng`, default source `rand()`; `FUN_004388ae(x)` = `randFrom`, float32 like the x87 at 24 bit); the zone has no `srand` of its own (the start-up one, `FUN_00402bac`, seeds it). The constructor first burns the star table's 100 draws (`FUN_007b780c`: two `FUN_004388ae(64)` per star, 50 stars, nothing reads the stars) so the layout continues the sequence like the original. The hit test's sound picks are `ftol(FUN_004388ae((float) FUN_00435c91())) & 1` / `% 3` with `FUN_00435c91` = GetTickCount - start: `AsteroidBelt.ms` (default: the real clock since the belt was created, tests script it).
 * A Codex review of `belt.ts` against the decompile (five findings: SHUT flags, the unused tilt accumulator, float32 rounding of the asteroid angles, the frustum bit, the tick-scaled random choices) was applied except the last point (the original scales `rand()` by the elapsed milliseconds before taking the parity / modulo; the port uses `rand()` directly: a different random sequence, the same distribution).
 * A restart (pause menu / result menu) re-runs the whole zone (new layout, fresh records) instead of resetting the records with `FUN_007b9b50` + `FUN_007b70a1(0)`: equivalent.
 * The loop's draw of the intro (mode 1) shows the scene behind the panel only through the generic runner (opaque panel), as for all zones.
@@ -163,8 +163,7 @@ Variables the island / information centre read: 0x29 (best score, `SWITCH_GME_HI
 the ORIGINAL's shuttle node runs in the x86 emulation next to `AsteroidBelt` + `BeltSound`: constructor `FUN_007b96a0` (with the star table `FUN_007b780c` and the asteroid layout `FUN_007b9917`, both drawing the original's own
 `rand()` values), update `FUN_007b82dd` (state machine, controls incl. the pad axes, hull / score, camera, HUD values) with the hit test `FUN_007b7f68`, the asteroid motion `FUN_007b91b9`, the thrust / gyro pitch `FUN_007b6f1f` /
 `FUN_007b6de3`, the draw hook `FUN_007b9434` / `FUN_007b959c`, the end of a run `FUN_007b7e9a` and the banner frame `FUN_007b61a4`. Same buttons / axes and the same random numbers (the port's rng is fed the C `rand()` values 0..32767
-that the host hands the original: the hit-sound choices of the original scale `rand()` with `GetTickCount` (`ftol(FUN_004388ae(tick)) & 1`, `% 3`): the host returns the raw `rand()` for those calls, so the port's `rng.next() & 1` is compared
-like for like; the stars' 100 rand() values before the layout are skipped on the port side). Compared tick by tick: the node's fields (+0x18 .. +0x2d8), SHUT / HULL / 235 asteroid records (matrix, Euler, frustum / enabled bits),
+that the host hands the original: the hit-sound choices of the original scale `rand()` with `GetTickCount` (`ftol(FUN_004388ae(tick)) & 1`, `% 3`): FUN_004388ae runs natively on the original's side on a hosted `rand()`; both sides get the same scripted `ms` (1000000) for the picks, the port burns the stars' 100 draws itself). Compared tick by tick: the node's fields (+0x18 .. +0x2d8), SHUT / HULL / 235 asteroid records (matrix, Euler, frustum / enabled bits),
 the camera, the HUD globals (gauge, score text, frame tint, hit-icon tints), result / game variables, the engine pitch counters, the pitch each loop ends the tick with and every sound / speech call (as a multiset per tick: the port plays the
 state loops after the whole update, the original inside it). dt is a parameter of both sides (M7 gave `AsteroidBelt.update(inp, dt)` and the `EngineModel` steps their dt). Scenarios (dt 1 and 0.5): a dodging bot flies the whole course
 (win, 2442 ticks at dt 1, 4887 at dt 0.5, same z and about the same score), idle (five hits, failure), a dodging bot that burns fuel until the hull is empty, random keys, pad-stick input; `FUN_007b7e9a` over 420 cases (scores around
@@ -179,7 +178,7 @@ Deviations found and FIXED in the port (`belt.ts`, `sound.ts`, `game.ts`):
 * float32 stores of the stick path (`dx`, the tilt accumulators `+0x2a8 / +0x2ac / +0x2b4`): drifted by about 2e-6 per 16 ticks of full stick.
 
 Recorded, not changed: the port logs no `rate` call when nothing changed (the original does not either), but plays / stops the alarm and miss sounds as the groups they are (one `warnEnd` event = the four stops the original makes one by one);
-a loop stopped twice in the same tick (the gyro by both `FUN_007b6f1f(0)` calls of the tick the run ends) is stopped once by the port. The random sound choices still use `rand()` where the original multiplies with the tick count (same distribution,
+a loop stopped twice in the same tick (the gyro by both `FUN_007b6f1f(0)` calls of the tick the run ends) is stopped once by the port. (WP-TIME: the sound picks now scale with the clock like the original; the old note follows: same distribution,
 cannot be reproduced). The constructor also draws 100 values for the star table before the layout (not ported: nothing reads the table), so a seeded layout differs from the original's by that offset only.
 
 ## WP-PART-WIRE / WP-MINI (2026-10-29)
@@ -188,3 +187,10 @@ cannot be reproduced). The constructor also draws 100 values for the star table 
 * `starfield.par` (the archive's file; first line `starfield`) is never started: no string reference and no call in the executable. The star field is the backdrop quad (`Backdrop`). Closed.
 * Verified: `m8-wire-z39ASB` (names, offsets, gate sequence of a success and a failure run), `m7-z39ASB-emu` (14.9 M checks) and `m3-z39ASB` unchanged.
 * Visible behaviour (headless run `tools/steps/m8-asb-fx.mjs`): 386 exhaust particles listed during the fly-in (state 0: one saturated white / yellow additive cloud behind the shuttle), none in the controlled flight (the gates are off from the end of the fly-in), on again in the end states. Not compared with a reference video.
+
+
+## WP-TIME (fixed 60 Hz step, shared RNG, float32 sweep)
+
+* dt audit: nothing per drawn frame in this zone (the draw hook FUN_007b9434 / 007b959c only sets flags / matrices from the node's state, done at the end of every update = once per sim step); every `* DAT_008b1718` of the update, the asteroid motion and the engine counters is dt-scaled (see above), `world.dt` is passed by `ShuttleNode` / the zone game; the layout and recycling have no dt.
+* RNG: see the random-source note above (shared generator, float32 `FUN_004388ae`, ms-scaled picks, 100 star draws burned). `tools/lib/asb-rng.mjs` gives the node tests a scripted source.
+* Float32: `gauge` (DAT_05d4e138) is a float store now; with that `m7-z39ASB-emu` (dt 1 and 0.5) and `m5-audit-z39ASB-emu` (dt 1) compare at TOLERANCE 0 (every node field, the SHUT / HULL / asteroid matrices and Euler angles, the camera, the HUD globals): 14.9 M / 7.0 M comparisons, the sound / speech calls with their ids.

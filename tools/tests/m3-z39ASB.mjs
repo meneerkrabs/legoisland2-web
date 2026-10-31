@@ -1,11 +1,12 @@
 // M3 zone port z39ASB (Asteroid Belt): the shuttle simulation (src/zones/z39ASB/belt.ts) with scripted input on the real zone's records, against the executable's
 // constants (docs/re/m3/z39ASB.md): layout, speed regimes, controls (inverted up / down), hit test, 5 hits fail, hull use, finish, medals / hiscore / trophy variables,
 // HUD model, backdrop corners, sound ids. A scripted WIN (a bot that dodges) and two scripted LOSSES (five hits, hull used up).
+import { seededRng } from '../lib/asb-rng.mjs';
 import { unregisterCtor, ctorFactory } from '../../src/game/setup.ts';
 import { GameVars } from '../../src/game/vars.ts';
 import { B } from '../../src/game/input.ts';
 import { RF_ENABLED, RF_FRUSTUM, RF_NO_DRAW } from '../../src/game/record.ts';
-import { AsteroidBelt, MsvcRand, EngineModel, C, ST, VAR, SCRATCH_VARS, regimeOf, medalIndex, RF_HIDDEN_ASTEROID } from '../../src/zones/z39ASB/belt.ts';
+import { AsteroidBelt, EngineModel, C, ST, VAR, SCRATCH_VARS, regimeOf, medalIndex, RF_HIDDEN_ASTEROID } from '../../src/zones/z39ASB/belt.ts';
 import { hudSprites, hitIcons, gaugeSprites, SEGMENT_TEX, HUD_TEX } from '../../src/zones/z39ASB/hudmodel.ts';
 import { backdropCorners, BACKDROP_INDICES } from '../../src/zones/z39ASB/backdrop.ts';
 import { SND, IMPACTS, YELLS, MISSES, BeltSound } from '../../src/zones/z39ASB/sound.ts';
@@ -88,16 +89,16 @@ export default {
         const r = L2.world.records;
         const events = [];
         const cam = new Float64Array(18);
-        const belt = new AsteroidBelt({ shut: r[1], hull: r[2], asteroids: r.filter((x) => x.name.startsWith('AST')) }, cam, new MsvcRand(seed), vars, (e) => events.push(e));
+        const belt = new AsteroidBelt({ shut: r[1], hull: r[2], asteroids: r.filter((x) => x.name.startsWith('AST')) }, cam, seededRng(seed), vars, (e) => events.push(e));
         return { belt, events, cam, vars, L: L2, shut: r[1], hull: r[2], ast: belt.recs.asteroids };
       };
 
       // ---- rand() is the MSVC LCG; FUN_004388ae scales it
       {
-        const r = new MsvcRand(1);
+        const r = seededRng(1);
         ok(r.next() === 41 && r.next() === 18467 && r.next() === 6334, 'MSVC rand() with seed 1: 41, 18467, 6334');
-        ok(new MsvcRand(5).range(0) === 0 && new MsvcRand(5).range(-3) === 0, 'range <= 0 gives 0');
-        const m = new MsvcRand(7); let mx = 0; for (let i = 0; i < 2000; i++) mx = Math.max(mx, m.range(60)); ok(mx < 60 && mx > 50, 'range(60) stays below 60');
+        ok(seededRng(5).range(0) === 0 && seededRng(5).range(-3) === 0, 'range <= 0 gives 0');
+        const m = seededRng(7); let mx = 0; for (let i = 0; i < 2000; i++) mx = Math.max(mx, m.range(60)); ok(mx < 60 && mx > 50, 'range(60) stays below 60');
       }
 
       // ---- layout (FUN_007b9917): z series with the spacing regimes, x / y ranges, drift every third
@@ -127,6 +128,19 @@ export default {
       // ---- speed regimes
       ok(regimeOf(0).maxSpeed === Math.fround(2.4) && regimeOf(1024).maxSpeed === Math.fround(2.4) && regimeOf(1025).maxSpeed === Math.fround(3.6) && regimeOf(3072).maxSpeed === Math.fround(3.6) && regimeOf(3073).maxSpeed === Math.fround(4.8) && regimeOf(6144).maxSpeed === Math.fround(4.8) && regimeOf(6145).maxSpeed === 6, 'max speed by z: 2.4 / 3.6 / 4.8 / 6.0 at 1024 / 3072 / 6144');
       ok(regimeOf(0).spacing === 20 && regimeOf(2000).spacing === 16 && regimeOf(4000).spacing === 14 && regimeOf(7000).spacing === 12, 'spacing by z: 20 / 16 / 14 / 12');
+
+      // ---- the 60 Hz step (dt = 0.5): the fly-in takes twice the ticks, the hull / frame counter / speed step scale with dt, the engine counter truncates per call
+      {
+        const a = fresh(), b = fresh();
+        let n1 = 0, n05 = 0;
+        while (a.belt.state === ST.INTRO && n1 < 500) { a.belt.update({ held: 0 }, 1); n1++; }
+        while (b.belt.state === ST.INTRO && n05 < 1000) { b.belt.update({ held: 0 }, 0.5); n05++; }
+        ok(Math.abs(n05 - 2 * n1) <= 2, `dt 0.5: the fly-in takes twice the ticks (${n1} / ${n05})`);
+        ok(Math.abs(a.shut.z - b.shut.z) < 4, `dt 0.5: the shuttle covers the same distance in the fly-in (${a.shut.z.toFixed(2)} / ${b.shut.z.toFixed(2)})`);
+        const f0 = b.belt.frame, h0 = b.belt.hull;
+        b.belt.update({ held: B.LEFT }, 0.5);
+        ok(b.belt.frame === f0 + 0.5 && b.belt.hull === h0 - 0.5, `dt 0.5: the frame counter and the hull cost move by 0.5 per tick (${b.belt.frame - f0}, ${h0 - b.belt.hull})`);
+      }
 
       // ---- intro fly-in: the camera comes in at 4 per tick, the state changes to FLY after 99 ticks, HULL replaces SHUT
       {
@@ -386,7 +400,7 @@ export default {
         ok(n instanceof ShuttleNode, 'setupZone attached the ShuttleNode to SHUT');
         const r = L3.world.records;
         const vars = L3.world.vars;
-        const belt = new AsteroidBelt({ shut: r[1], hull: r[2], asteroids: r.filter((x) => x.name.startsWith('AST')) }, L3.world.camera.c, new MsvcRand(5), vars);
+        const belt = new AsteroidBelt({ shut: r[1], hull: r[2], asteroids: r.filter((x) => x.name.startsWith('AST')) }, L3.world.camera.c, seededRng(5), vars);
         n.belt = belt;
         L3.world.vars.set(2, 1);
         L3.world.input.setVirtual(0);

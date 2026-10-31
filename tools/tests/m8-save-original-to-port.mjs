@@ -9,13 +9,14 @@ import { hold } from '../lib/island-load.mjs';
 import { setIslandRandom } from '../../src/island/rng.ts';
 import { captureWorld, restoreWorld, listedNodes, tagOf } from '../../src/shell/saveworld.ts';
 import { newSaveFromGame, encodeSave, decodeSave, applySaveVars } from '../../src/shell/save.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const ZONES = process.env.M8_ZONES ? process.env.M8_ZONES.split(',') : ['isl2', 'isl16', 'isl37', 'isl56'];
 const TICKS = Number(process.env.M8_TICKS ?? 120);
 const tagName = (t) => String.fromCharCode(t & 0xff, (t >> 8) & 0xff, (t >> 16) & 0xff, (t >>> 24) & 0xff);
 const B_ = { LEFT: 1, RIGHT: 2, UP: 4, DOWN: 8 };
 
-export default {
+const __test = {
   name: 'm8-save-original-to-port',
   run(ctx) {
     let seed = 24681357;
@@ -96,3 +97,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

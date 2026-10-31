@@ -3,6 +3,8 @@ import { CntEmu } from '../lib/m5-cnt-emu.mjs';
 import { parseBlk } from '../../src/formats/anim.ts';
 import { AnimInstance } from '../../src/game/anim.ts';
 import { layoutFrom, blurCopies, armShadows } from '../../src/zones/z36cnt/pose.ts';
+import { nextDt } from '../../src/game/world.ts';
+import { randFrom } from '../../src/zones/common/crtrand.ts';
 import { euler24 } from '../../src/zones/common/x87.ts';
 import { REC as CREC, CentrifugeSim, readFrameTable, S, VAR_HISCORE_CNT, VAR_TROPHY_CNT } from '../../src/zones/z36cnt/sim.ts';
 
@@ -13,6 +15,8 @@ import { REC as CREC, CentrifugeSim, readFrameTable, S, VAR_HISCORE_CNT, VAR_TRO
 
 const BTN = 0x40;
 const gen = (seed) => { let s = seed >>> 0; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return (s >>> 8) / 16777216; }; };
+/** a scripted rand() (0 .. 32767) */
+const rnd15 = (seed) => { let s = seed >>> 0; return () => { s = (Math.imul(s, 0x343fd) + 0x269ec3) >>> 0; return (s >>> 16) & 0x7fff; }; };
 
 export default {
   name: 'm5-audit-z36CNT-emu',
@@ -26,9 +30,12 @@ export default {
     const table = readFrameTable((va) => pe.u32(va));
     const scene = sceneOf(ctx, 'z36CNT');
 
-    const scenario = (label, seed, player, ticks, hiscore0 = 0) => {
+    const scenario = (label, seed, player, ticks, hiscore0 = 0, dt = 1) => {
       const f0 = failures.length;
-      const next = gen(seed), drawn = [];
+      const next = rnd15(seed), drawn = [];
+      label = `${label} dt${dt}`;
+      const real = dt === 'real';
+      let dtNow = real ? 1 : dt;
       const vars = new Map([[VAR_HISCORE_CNT, hiscore0], [VAR_TROPHY_CNT, 0]]), vars2 = new Map(vars);
       const ev = [];
       const flags = scene.records.map((r) => r.flags);
@@ -37,7 +44,7 @@ export default {
         show: (i, on) => { if (on) flags[i] |= 2; else flags[i] &= ~2; },
         play: (id) => ev.push(`p ${id}`), stop: (id) => ev.push(`s ${id}`), rate: (id, hz) => ev.push(`r ${id} ${hz}`), say: (id) => ev.push(`say ${id}`),
         getVar: (i) => vars.get(i) ?? 0, setVar: (i, v) => { vars.set(i, v); ev.push(`setVar ${i} ${v}`); },
-        rand: () => { const v = next(); drawn.push(v); return v; },
+        rand: (x) => randFrom(() => { const v = next(); drawn.push(v); return v; }, x),
         visor: () => {},
       };
       const sim = new CentrifugeSim(host, table);
@@ -45,11 +52,11 @@ export default {
       const pep2 = new AnimInstance(rig), bob2 = new AnimInstance(rig);
       const recs = scene.records.map((r) => ({ name: r.name, m: Array.from(r.m ?? new Float32Array(16)), flags: r.flags }));
       let di = 0;
-      const emu = new CntEmu(pe, recs, new Map([[19, pep2], [0, bob2]]), { rand: () => drawn[di++], vars: vars2 });
+      const emu = new CntEmu(pe, recs, new Map([[19, pep2], [0, bob2]]), { rand: () => drawn[di++], vars: vars2, dt: dtNow });
       emu.construct();
       const mem = emu.cpu.mem, T = emu.trai, B = emu.bob;
       const tf = (o) => mem.f32(T + o), ti = (o) => mem.r32(T + o), tb = (o) => mem.r8(T + o);
-      const num = (tick, name, orig, port, tol = 1e-5) => { checked++; if (!(Math.abs(orig - port) <= tol * Math.max(1, Math.abs(orig)))) bad(`${label}: tick ${tick} ${name}: original ${orig} port ${port}`); };
+      const num = (tick, name, orig, port) => { checked++; if (!Object.is(orig, port) && !(orig === port)) bad(`${label}: tick ${tick} ${name}: original ${orig} port ${port}`); };
       const eq = (tick, name, orig, port) => { checked++; if (JSON.stringify(orig) !== JSON.stringify(port)) bad(`${label}: tick ${tick} ${name}: original ${JSON.stringify(orig)} port ${JSON.stringify(port)}`); };
       const compare = (t) => {
         eq(t, 'state', ti(0xf8), sim.state); eq(t, 'clip', ti(0xfc), sim.clip); num(t, 'time', tf(0xf0), sim.time); num(t, 'bonusHits', tf(0xf4), sim.bonusHits);
@@ -73,11 +80,12 @@ export default {
       for (let t = 0; t < ticks && failures.length === f0; t++) {
         const pressed = player(sim, t);
         ev.length = 0; drawn.length = 0; di = 0;
-        sim.bobStep(); sim.step(pressed);
+        sim.bobStep(dtNow); sim.step(pressed, dtNow);
         const olog = emu.tick(pressed);
         eq(t, 'calls', olog, ev);
         eq(t, 'random calls', di, drawn.length);
         compare(t);
+        if (real) { dtNow = nextDt(t + 1, dtNow); emu.setDt(dtNow); }
         states.add(sim.state); maxScore = Math.max(maxScore, sim.score);
       }
       notes.push(`${label}: ${ticks} ticks, states ${[...states].sort().join('')}, score ${sim.score}, power ${sim.power.toFixed(2)}, result ${sim.result}, hiscore ${vars.get(VAR_HISCORE_CNT)} trophy ${vars.get(VAR_TROPHY_CNT)}, unhooked ${JSON.stringify([...emu.unhooked].map(([a, n]) => `${a.toString(16)}x${n}`))}`);
@@ -105,21 +113,26 @@ export default {
     // a player that hits most windows (a missed window resets the streak, two hits in a row add power): perfect, but a quarter of the presses are dropped
     const g3 = gen(21), g4 = gen(22);
     const partial = (sim, t) => { const b = perfect(sim, t); if (sim.state === S.RUN && b && g3() < 0.25) return 0; if (sim.state === S.RUN && !b && g4() < 0.02) return g4() < 0.5 ? 1 : 2; return b; };
-    scenario('partial', 7, partial, 3400);
-    scenario('partial, low hi-score', 8, partial, 3400, 500);
-    scenario('perfect', 1, perfect, 3400);
-    scenario('mash', 2, mash, 3400);
-    scenario('lazy', 3, lazy, 600);
-    scenario('sloppy', 4, sloppy, 3400);
-    scenario('perfect, better hi-score', 5, perfect, 3400, 99999);
-    scenario('perfect, worse hi-score', 6, perfect, 3400, 3000);
+    for (const dt of [1, 0.5]) {
+      const k = 1 / dt;
+      scenario('partial', 7, partial, 3400 * k, 0, dt);
+      scenario('partial, low hi-score', 8, partial, 3400 * k, 500, dt);
+      scenario('perfect', 1, perfect, 3400 * k, 0, dt);
+      scenario('mash', 2, mash, 3400 * k, 0, dt);
+      scenario('lazy', 3, lazy, 600 * k, 0, dt);
+      scenario('sloppy', 4, sloppy, 3400 * k, 0, dt);
+      scenario('perfect, better hi-score', 5, perfect, 3400 * k, 99999, dt);
+      scenario('perfect, worse hi-score', 6, perfect, 3400 * k, 3000, dt);
+    }
+    // the game's own step rule (1 for the first five frames, then 0.5)
+    scenario('perfect, real dt rule', 9, perfect, 6800, 0, 'real');
 
     // ---- the placement of the machine (the draw hook FUN_007b1a1b, `poseAt` of pose.ts) at many angles / powers: the real copy's matrices of TRAI / CHAI / WEIG / PEPP
     {
       const L = loadZone(ctx, 'z36CNT');
       const R = L.world.records;
       const recs = R.map((r) => ({ name: r.name, m: Array.from(r.m), flags: r.flags }));
-      const emu = new CntEmu(pe, recs, new Map([[19, new AnimInstance(rig)], [0, new AnimInstance(rig)]]), { rand: () => 0.5, vars: new Map() });
+      const emu = new CntEmu(pe, recs, new Map([[19, new AnimInstance(rig)], [0, new AnimInstance(rig)]]), { rand: () => 16384, vars: new Map() });
       emu.construct();
       const mem = emu.cpu.mem;
       { const cw = emu.cpu.cw; emu.cpu.cw = 0x7f; emu.cpu.steps = 0; emu.cpu.call(0x7afe61, [], { maxSteps: 100000 }); emu.cpu.cw = cw; }   // FUN_007afe61: the five shadow points of the zone set-up

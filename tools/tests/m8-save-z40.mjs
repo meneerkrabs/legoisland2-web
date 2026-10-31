@@ -9,11 +9,12 @@ import { vehicles } from '../../src/island/vehicles/common.ts';
 import { oglGlobals } from '../../src/zones/z40OGL/peppswit/globals.ts';
 import { compareBlocks, snapshotBlocks, restoreBlocks } from '../lib/m8-save.mjs';
 import { withCdAlloc, eraDiff, ERA_VARS } from '../lib/m8-save-hubs.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const N = Number(process.env.M8_Z40_TICKS ?? 700);
 const OVERLAY = 0x7e31fc;
 
-export default {
+const __test = {
   name: 'm8-save-z40',
   run(ctx) {
     return withCdAlloc(() => {
@@ -215,3 +216,4 @@ export default {
     });
   },
 };
+export default guarded(__test);

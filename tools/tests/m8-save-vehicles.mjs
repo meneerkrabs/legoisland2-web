@@ -15,6 +15,7 @@ import { buildHubOracle } from '../lib/m8-save.mjs';
 import { loadHub } from '../lib/hub-load.mjs';
 import { speederDuel, CARS, MOVE_VAR } from '../lib/m7-isl-veh-speeder.mjs';
 import { nativeNodes, portNodes, snapshotBlocks, restoreBlocks, origLoad, hex, firstDiff, buildIslandOracle } from '../lib/m8-save.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const FAM = new Set([0x430e6c, 0x4325e8, 0x88fb35, 0x4bb1a6, 0x4bb582]);
 const MASK = new Map([[0x88fb35, [[0x3c, 0x4c]]]]);
@@ -230,7 +231,7 @@ function chainedWords(ctx, notes) {
   return n;
 }
 
-export default {
+const __test = {
   name: 'm8-save-vehicles',
   async run(ctx) {
     active = true;
@@ -262,3 +263,4 @@ export default {
     return { checked: stats.compared, failures, notes };
   },
 };
+export default guarded(__test);

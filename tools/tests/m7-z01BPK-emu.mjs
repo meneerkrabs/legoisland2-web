@@ -32,7 +32,7 @@ export default {
     const bad = (msg) => { if (failures.length < MAXFAIL) failures.push(msg); else if (failures.length === MAXFAIL) failures.push('... more failures'); };
     const maxErr = {}, inexact = {}, inexactMax = {};
     let nums = 0;
-    const TOL = 5e-6, TOL_CAMERA = 2.5e-5, ABS = 0;     // float32 noise of the shared CollisionWorld (hit points / normals, <= 2e-6 relative) times the camera's 14 unit offset
+    const TOL = 0, TOL_CAMERA = 0, ABS = 0;     // bit-exact: every float of the port equals the original's (WP-TIME: skate.ts / run.ts are float32 per operation)
     const num = (a, b, msg, cls = 'x') => {
       checked++;
       const tol = cls === 'camera' ? TOL_CAMERA : TOL;
@@ -406,7 +406,7 @@ export default {
         }
       });
       notes.push(`${stats.ticks} ticks compared in ${((Date.now() - t0all) / 1000).toFixed(1)} s (original ${(stats.ms / Math.max(1, stats.ticks)).toFixed(2)} ms per pass)`);
-      notes.push('KNOWN (shared module, not fixed here): src/game/collision.ts evaluates the sweeps in doubles, the original stores float32 at every step: hit points / normals differ by up to about 2e-6 relative (see the max error line), which reaches the half-pipe matrices, jumpY and the camera; no branch of the park code depended on it in these runs');
+      notes.push('exact: tolerance 0 (the port\'s float32 operations of skate.ts / run.ts and the shared float32 CollisionWorld agree with the original bit for bit)');
       notes.push(`per scenario: ${stats.byScenario.join('; ')}`);
       notes.push(`visited: ${Object.entries(stats.flags).sort().map(([k, v]) => `${k} ${v}`).join(', ')}`);
       notes.push(`float comparisons ${nums}, not bit-identical as float32 (count, max error / tolerance): ${Object.entries(inexact).sort((x, y) => y[1] - x[1]).slice(0, 14).map(([k, v]) => `${k} ${v} (${inexactMax[k].toFixed(3)})`).join(', ')}`);

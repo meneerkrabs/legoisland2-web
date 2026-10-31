@@ -1,6 +1,6 @@
 import { GameVars, V, PC } from '../../src/game/vars.ts';
 import { Controller, updatePass, prerenderPass, drawPass, runDrawHooks, registerNode, createNode, registeredNodes, NODE_NONE, NODE_STOP, NODE_CONTINUE, NODE_RERUN } from '../../src/game/controller.ts';
-import { World } from '../../src/game/world.ts';
+import { World, nextDt, TICK_HZ } from '../../src/game/world.ts';
 import { GameRecord, RF_ENABLED } from '../../src/game/record.ts';
 import { loadExe } from '../lib/engine-load.mjs';
 
@@ -108,8 +108,13 @@ export default {
     registerNode('TestNode', () => mk('reg', 0));
     ok(registeredNodes().includes('TestNode') && createNode('TestNode').kind === 'reg', 'registry');
     let threw = false; try { createNode('Nope'); } catch { threw = true; } ok(threw, 'unknown node throws');
-    // fixed step: the world's dt is always one 30 Hz tick
-    ok(w.dt === 1, 'dt = 1.0 per tick');
+    // a node test world starts at dt = 1 (the node tests set `w.dt` by hand); the loops advance it with the original's rules after every step (FUN_00443e40 `nextDt`): 1.0 for the first five
+    // frames, then the fixed 60 Hz step's frame time of half a game tick, a stall counts as 1.0, growth is capped at 3x
+    ok(w.dt === 1 && w.invDt === 1 && TICK_HZ === 60, 'dt = 1.0 before the first step');
+    { let d = 1, seq = []; for (let f = 0; f < 9; f++) { d = nextDt(f, d); seq.push(d); } ok(seq.join() === '1,1,1,1,1,0.5,0.5,0.5,0.5', `dt per frame ${seq}`); }
+    ok(nextDt(5, 0.1) === Math.fround(0.3), 'growth capped at 3x of the previous step');
+    ok(nextDt(7, 0.5, 20) === 1, 'a stall (frame time > 15) counts as 1.0');
+    { const w2 = new World(); w2.advanceDt(); ok(w2.dt === 1 && w2.invDt === 1, 'advanceDt in frame 0'); w2.frame = 5; w2.advanceDt(); ok(w2.dt === 0.5 && w2.invDt === 2, 'advanceDt after frame 5: 0.5 and 1 / dt = 2'); }
     ok(PC.WALK === 1 && PC.SWIM === 2 && (RF_ENABLED & 2) === 2, 'constants');
     notes.push(`registered nodes: ${registeredNodes().join(', ')}`);
     return { checked, failures, notes };

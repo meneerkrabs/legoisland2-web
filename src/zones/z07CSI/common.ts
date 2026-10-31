@@ -26,7 +26,7 @@ export function distSq32(w: World, rec: GameRecord): number {
 
 /**
  * FUN_004388ae(max) as the original's x87 code returns it (24-bit precision, `fild r; fdiv 32767.0f; fmul max; fst`): rand() / 32767 is rounded to float32, the product with the float32 `max`
- * is rounded again (the shared `rand(max)` computes `r / 32767 * max` in doubles: up to 1 ulp apart).
+ * is rounded again (the shared `rand(max)` of island/rng.ts does the same two float32 roundings on the shared crt.ts generator; this keeps the argument's float32 test of the original).
  */
 export function rand32(max: number): number {
   if (f32(max) <= 0) return 0;

@@ -34,8 +34,8 @@ export class MmpRun {
   reason: 'none' | 'time' | 'caught' | 'escaped' = 'none';
   constructor(sh: MmpShared) { this.sh = sh; }
 
-  /** the loop's mode 2 before the update pass: the danger meter relaxes (0.2 per tick) and the clock counts (a second = 31 ticks the first time, then 30) while it runs */
-  beforeTick(dt = 1) {
+  /** the loop's mode 2 before the update pass: the danger meter relaxes (0.2 per tick) and the clock counts while it runs: `frac = 1.0 * dt + frac` (DAT_008b1718, dt-scaled like the original: a second is more than 30 dt units, i.e. 31 steps at dt 1 the first time, then 30) */
+  beforeTick(dt: number) {
     const sh = this.sh;
     if (0 <= sh.danger) sh.danger = Math.fround(sh.danger - Math.fround(K.DANGER_DECAY * dt));
     if (!sh.stopClock) {

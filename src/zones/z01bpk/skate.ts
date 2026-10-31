@@ -15,6 +15,7 @@ import type { World } from '../../game/world.ts';
 import { B } from '../../game/input.ts';
 import { RAMP_TABLE } from '../../game/camera.ts';
 import { setYawMatrix } from './run.ts';
+import { normalise3, toWorld } from '../exact.ts';
 import type { BpkRun } from './run.ts';
 
 // ---------------------------------------------------------------------------------------------------------------------------------- constants
@@ -113,12 +114,10 @@ export function holdsTrick(held: number, steer: number, y: number, clip: number)
 const UNSET = -107374176.0;    // a local of the original that is not written on one path: the debug heap fill 0xcccccccc read as a float
 const NO_GROUND = -1000.0;     // 0x8920fc
 
-/** FUN_0043cec0: normalise in place with the executable's float32 stores: l = (float)(x x + y y + z z), k = (float)(1 / sqrt(l)), v[i] = (float)(k v[i]); a zero vector stays zero */
-function normalize(v: number[]): number[] {
-  const l = f32(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-  if (l !== 0) { const k = f32(1 / Math.sqrt(l)); v[0] = f32(k * v[0]); v[1] = f32(k * v[1]); v[2] = f32(k * v[2]); }
-  return v;
-}
+/** FUN_0043cec0: normalise in place (src/zones/exact.ts: x, y, z sum of squares, 1 / sqrt, float32 per operation); returns the vector */
+function normalize(v: number[]): number[] { normalise3(v); return v; }
+/** x87 24-bit `a * b + c * d + e * f` in the asm's order (x, y, z): every product and every sum rounded to a float32 */
+const dot3 = (a: number, b: number, c: number, d: number, e: number, g: number): number => f32(f32(f32(a * b) + f32(c * d)) + f32(e * g));
 
 /** the states in which the park plays its rolling sound (FUN_0048fece) */
 const ROLLING = [0x0e, 0x19, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2d];
@@ -231,6 +230,12 @@ export class BpkSkate implements BehaviourNode {
   private board(w: World): GameRecord | null { return w.records[this.run.board] ?? null; }
 
   // ------------------------------------------------------------------------------------------------------------------------------- input
+  /** the jump arc of the states 0x20 / 0x32: `vy * t + y0 + g * (t * t) * 0.5`, every product and sum a float32 in the original's order (local_4c + y0, then + local_5c) */
+  private arcY(w: World): number {
+    const a = f32(this.vy * this.t), b = f32(this.t * this.t), c = f32(f32(w.gravity * b) * 0.5);
+    return f32(f32(a + this.y0) + c);
+  }
+
   /** FUN_00490af4: the key ramp */
   ramp(held: number) {
     let rx = this.rampX, ry = this.rampY, b1 = false, b2 = false;
@@ -248,7 +253,7 @@ export class BpkSkate implements BehaviourNode {
   private input(w: World, rec: GameRecord) {
     this.ramp(w.input.held);
     if (this.maxSpeed <= this.speed) this.speed = this.maxSpeed; else this.speed = f32(this.speed + PARK.PUSH);
-    if (this.state !== 0x20) rec.ry = f32(this.steer * PARK.TURN * w.dt + rec.ry);
+    if (this.state !== 0x20) rec.ry = f32(f32(f32(f32(this.steer) * PARK.TURN) * w.dt) + rec.ry);   // (float) steer * 0x8924f8 * DAT_008b1718 + yaw
   }
 
   // ------------------------------------------------------------------------------------------------------------------------------- sound
@@ -271,23 +276,23 @@ export class BpkSkate implements BehaviourNode {
       rec.anim?.start(pepClip, 0);
       board?.anim?.start(4, 0);
       const s = f32(this.steer / 127.0);
-      if (board?.anim) { const n = f32((board.anim.frameCount - 1) * 0.5); board.anim.seek(f32(n * s + n)); }
-      if (rec.anim) { const n = f32((rec.anim.frameCount - 1) * 0.5); rec.anim.seek(f32(n * s + n)); }
+      if (board?.anim) { const n = f32((board.anim.frameCount - 1) * 0.5); board.anim.seek(f32(f32(n * s) + n)); }
+      if (rec.anim) { const n = f32((rec.anim.frameCount - 1) * 0.5); rec.anim.seek(f32(f32(n * s) + n)); }
     };
     switch (this.state) {
       case 0x0e: case 0x19: rate = 1.0; break;
       case 0x16: this.speed = 0; boardRate = 0.5; break;
       case 0x20: {
         // the jump arc: y = vy t + y0 + g t^2 / 2 with vy = g t + v0
-        this.t = f32(PARK.PUSH * dt + this.t);
-        this.vy = f32(this.t * w.gravity + this.v0);
-        let y = f32(this.vy * this.t + this.y0 + w.gravity * (this.t * this.t) * 0.5);
+        this.t = f32(f32(PARK.PUSH * dt) + this.t);
+        this.vy = f32(f32(this.t * w.gravity) + this.v0);
+        let y = this.arcY(w);
         const cur = rec.y;
-        if (4.0 < Math.abs(y - cur) && y - cur < 0) y = f32(cur - 4.0);
+        if (4.0 < Math.abs(f32(y - cur)) && f32(y - cur) < 0) y = f32(cur - 4.0);
         if (y < cur) this.jumpY = y;
         else {
           const h = w.col.sweep(rec, [rec.x, f32(cur + 4.0), rec.z], [0, f32(y - cur), 0], 1, PARK.BUMP_RADIUS, PARK.BUMP_RADIUS);
-          this.jumpY = h ? f32((f32(h.point[1]) - f32(y - cur)) - 4.0) : y;
+          this.jumpY = h ? f32(f32(f32(h.point[1]) - f32(y - cur)) - 4.0) : y;
         }
         this.grounded = 0;
         this.vx = 0; this.vyv = 0; this.vz = 0;
@@ -314,14 +319,14 @@ export class BpkSkate implements BehaviourNode {
           if (this.steer < 0x15 && -0x15 < this.steer) {
             if (rec.anim?.clip !== 0x2b) { next = 0x2b; board?.anim?.start(3, 0); }
           } else { lean(0x53); boardRate = 0; }
-          if (this.charge < PARK.CHARGE_MAX) this.charge = f32(PARK.CHARGE_STEP * dt + this.charge);
+          if (this.charge < PARK.CHARGE_MAX) this.charge = f32(f32(PARK.CHARGE_STEP * dt) + this.charge);
         }
         rate = 0;
         break;
       case 0x32:
-        this.t = f32(PARK.PUSH * dt + this.t);
-        this.vy = f32(this.t * w.gravity + this.v0);
-        this.jumpY = f32(this.vy * this.t + this.y0 + w.gravity * (this.t * this.t) * 0.5);
+        this.t = f32(f32(PARK.PUSH * dt) + this.t);
+        this.vy = f32(f32(this.t * w.gravity) + this.v0);
+        this.jumpY = this.arcY(w);
         this.speed = -1.0;
         rate = 1.0;
         break;
@@ -349,8 +354,8 @@ export class BpkSkate implements BehaviourNode {
       if (fwdY !== 0) this.pipeSpeed = f32(0.25 / fwdY);
     } else {
       if (this.spin >= 0 || fwdY <= PARK.SPIN_STOP) {
-        if (this.spin > 0 && PARK.SPIN_STOP < fwdY) rec.ry = f32(this.spin * PARK.DEG * w.dt + rec.ry);
-      } else rec.ry = f32(this.spin * PARK.DEG * w.dt + rec.ry);
+        if (this.spin > 0 && PARK.SPIN_STOP < fwdY) rec.ry = f32(f32(f32(this.spin * PARK.DEG) * w.dt) + rec.ry);
+      } else rec.ry = f32(f32(f32(this.spin * PARK.DEG) * w.dt) + rec.ry);
       if (rec.anim?.clip !== 0x5f) setYawMatrix(rec);
     }
   }
@@ -407,7 +412,7 @@ export class BpkSkate implements BehaviourNode {
       }
       case 0x23: this.maxSpeed = PARK.MAX_SPEED; this.speed = 0; if (this.animResult === 2) next = 0x29; break;
       case 0x2a:
-        if (this.charge < PARK.CHARGE_MAX) this.charge = f32(PARK.CHARGE_STEP * w.dt + this.charge);
+        if (this.charge < PARK.CHARGE_MAX) this.charge = f32(f32(PARK.CHARGE_STEP * w.dt) + this.charge);
         if (this.animResult !== 0) {
           if ((w.input.held & B.ALT) !== 0) next = 0x2b;
           else { this.t = 0; this.v0 = f32(this.charge * PARK.JUMP_V0); this.charge = 0; this.jumpY = f32(this.y0 + 4.0); this.y0 = rec.y; next = 0x20; }
@@ -474,7 +479,7 @@ export class BpkSkate implements BehaviourNode {
       }
     }
     const fx = rec.m[8], fy = rec.m[9], fz = rec.m[10];
-    this.vx = f32(this.speed * fx * dt); this.vyv = f32(this.speed * fy * dt); this.vz = f32(this.speed * fz * dt);
+    this.vx = f32(f32(this.speed * fx) * dt); this.vyv = f32(f32(this.speed * fy) * dt); this.vz = f32(f32(this.speed * fz) * dt);   // speed * forward * DAT_008b1718, float32 per operation
     if (this.onPipe && !this.grounded && this.pipeRec) {
       // above a half-pipe the board slides along the pipe's right axis by pipeSpeed (the sign follows the spin)
       const pr = this.pipeRec.m;
@@ -489,10 +494,10 @@ export class BpkSkate implements BehaviourNode {
       let h = w.col.sweep(rec, from, [this.vx, this.vyv, this.vz], 3, PARK.RADIUS, PARK.SKIN);
       if (h && h.rec.name !== 'QPIP') {
         const n = [f32(h.normal[0]), f32(h.normal[1]), f32(h.normal[2])];
-        const d = f32(n[2] * this.vz + n[1] * 0 + n[0] * this.vx);
-        this.vx = f32(this.vx - n[0] * d); this.vyv = f32(this.vyv - n[1] * d); this.vz = f32(this.vz - n[2] * d);
+        const d = dot3(n[0], this.vx, n[1], 0, n[2], this.vz);
+        this.vx = f32(this.vx - f32(n[0] * d)); this.vyv = f32(this.vyv - f32(n[1] * d)); this.vz = f32(this.vz - f32(n[2] * d));
         if (this.spin === 0) {
-          const dr = n[2] * rec.m[2] + n[1] * rec.m[1] + n[0] * rec.m[0];
+          const dr = dot3(n[0], rec.m[0], n[1], rec.m[1], n[2], rec.m[2]);
           if (dr <= 0) rec.ry = f32(rec.ry - PARK.WALL_TURN * dt); else rec.ry = f32(PARK.WALL_TURN * dt + rec.ry);
         }
         h = w.col.sweep(rec, [ox, f32(oy + PARK.FEET), oz], [this.vx, this.vyv, this.vz], 3, PARK.RADIUS2, PARK.SKIN);
@@ -525,12 +530,12 @@ export class BpkSkate implements BehaviourNode {
     next = this.machine(w, rec, next);
     // an edge in front (only on the start platform, z <= -25): off it in a jump (v0 30)
     const yNow = rec.y;
-    const px = f32(rec.m[8] * PARK.AHEAD + ox), py = f32(rec.m[9] * PARK.AHEAD + oy), pz = f32(rec.m[10] * PARK.AHEAD + oz);
+    const px = f32(f32(rec.m[8] * PARK.AHEAD) + ox), py = f32(f32(rec.m[9] * PARK.AHEAD) + oy), pz = f32(f32(rec.m[10] * PARK.AHEAD) + oz);
     let below = f32(w.col.groundRay(px, f32(py + 4.0), pz));
     if (below < NO_GROUND) below = w.seaLevel;
     const hd = w.col.sweep(rec, [px, f32(py + 80.0), pz], [0, -160.0, 0], 1, 0.009999999776482582, 0);   // FUN_00441a90
     if (hd && below < f32(hd.point[1])) below = f32(hd.point[1]);
-    if (PARK.LEDGE < yNow - below && w.col.groundRay(ox, f32(oy + 4.0), oz) < rec.y && this.state !== 0x20 && this.state !== 0x16 && next !== 0x20 && rec.z <= PARK.LEDGE_Z) {
+    if (PARK.LEDGE < f32(yNow - below) && w.col.groundRay(ox, f32(oy + 4.0), oz) < rec.y && this.state !== 0x20 && this.state !== 0x16 && next !== 0x20 && rec.z <= PARK.LEDGE_Z) {
       this.launch(rec);
       next = 0x20;
     }
@@ -549,11 +554,11 @@ export class BpkSkate implements BehaviourNode {
     const c = w.camera.c;
     const k = this.state === 0x20 ? PARK.CAM_EASE_AIR : PARK.CAM_EASE;
     c[3] = rec.x; c[4] = f32(rec.y + 4.0); c[5] = rec.z;
-    const ideal = rec.toWorld(PARK.CAM_OFFSET).map(f32);
-    c[0] = f32((ideal[0] - c[0]) * k + c[0]);
+    const ideal = toWorld(rec.m, PARK.CAM_OFFSET);       // FUN_0043ab72
+    c[0] = f32(f32(f32(ideal[0] - c[0]) * k) + c[0]);
     if (-PARK.CAM_X <= c[0]) { if (PARK.CAM_X < c[0]) c[0] = PARK.CAM_X; } else c[0] = -PARK.CAM_X;
-    c[1] = f32((ideal[1] - c[1]) * k + c[1]);
-    c[2] = f32((ideal[2] - c[2]) * k + c[2]);
+    c[1] = f32(f32(f32(ideal[1] - c[1]) * k) + c[1]);
+    c[2] = f32(f32(f32(ideal[2] - c[2]) * k) + c[2]);
     if (-PARK.CAM_Z <= c[2]) { if (PARK.CAM_Z < c[2]) c[2] = PARK.CAM_Z; } else c[2] = -PARK.CAM_Z;
     return NODE_STOP;
   }
@@ -577,10 +582,10 @@ export function alignTo(rec: GameRecord, nIn: readonly number[]) {
   const m = rec.m;
   const n = normalize([f32(nIn[0]), f32(nIn[1]), f32(nIn[2])]);
   let f = [m[8], m[9], m[10]];
-  const d = f32(f[2] * n[2] + f[1] * n[1] + f[0] * n[0]);
-  f = [f32(f[0] - d * n[0]), f32(f[1] - d * n[1]), f32(f[2] - d * n[2])];
+  const d = dot3(n[0], f[0], n[1], f[1], n[2], f[2]);
+  f = [f32(f[0] - f32(d * n[0])), f32(f[1] - f32(d * n[1])), f32(f[2] - f32(d * n[2]))];
   normalize(f);
-  const r = [f32(n[1] * f[2] - n[2] * f[1]), f32(n[2] * f[0] - n[0] * f[2]), f32(n[0] * f[1] - n[1] * f[0])];
+  const r = [f32(f32(n[1] * f[2]) - f32(n[2] * f[1])), f32(f32(n[2] * f[0]) - f32(n[0] * f[2])), f32(f32(n[0] * f[1]) - f32(n[1] * f[0]))];
   m[0] = r[0]; m[1] = r[1]; m[2] = r[2];
   m[4] = n[0]; m[5] = n[1]; m[6] = n[2];
   m[8] = f[0]; m[9] = f[1]; m[10] = f[2];

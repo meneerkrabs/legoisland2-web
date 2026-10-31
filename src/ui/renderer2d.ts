@@ -11,6 +11,7 @@ import type { UiFontData } from './fonts.ts';
 import { drawString, layoutMessage, lineHeight, measureText, COLOUR_SHADOW } from './layout.ts';
 import type { Align, LayoutFont, ScreenEnv, TextCmd } from './layout.ts';
 import { LoadingCard } from './loadingcard.ts';
+import { getTickCount } from '../game/crt.ts';
 
 // ---------------------------------------------------------------------------------------------------- textures
 
@@ -149,14 +150,14 @@ export class Ui2D {
   private cur: Batch | null = null;
   private layer = 0;
   // letterbox state (FUN_0045f750 / FUN_0045f771)
-  private lbMode = 0; private lbH = 0; private lbRate = 0;
+  private lbMode = 0; private lbState = 0; private lbH = 0; private lbRate = 0; private lbMax = 0;
   /** horizontal shift (canvas pixels) of what is queued next: see `anchor()` */
   private dx = 0;
   /** the loading card of the fade overlay (FUN_0040d1be, loadingcard.ts): the two faces of the disc and its text; null = only the black quad */
   card: { pizza: UiTexture; cd: UiTexture; text: string } | null = null;
   readonly cardState = new LoadingCard();
   /** GetTickCount (ms) of the card's clock */
-  clockMs: () => number = () => Math.trunc(performance.now());
+  clockMs: () => number = () => getTickCount();   // GetTickCount of the shared C runtime (src/game/crt.ts; tests pin it with setTickCountSource)
 
   constructor(gl: WebGL2RenderingContext, opts: { fit?: 'fit' | 'stretch' } = {}) {
     this.gl = gl;
@@ -338,18 +339,30 @@ export class Ui2D {
     if (t) this.text(1, t.text, cf.textX, cf.textY, { colour: 0, maxChars: 30 });
   }
   /**
-   * Cinematic bars (FUN_0045f750 / FUN_0045f7a8 / FUN_0045f8a1): `mode` 0 off, 1 top + bottom bar, 2 bottom bar only. The bar height grows by H / 30 per tick
-   * (`dt` in 1/30 s ticks) up to 0.21875 H (H = canvas height); changing the mode restarts the animation. Black, over the whole canvas width.
+   * Cinematic bars, the state machine of FUN_0045f771 (FUN_0045f750 sets the mode and re-arms it: state 1; FUN_0045f7a8 = the arming pass; FUN_0045f8a1 = the pass that
+   * steps and draws): `mode` 0 off, 1 top + bottom bar, 2 bottom bar only. Call ONCE PER SIM STEP (= once per drawn frame of the original) with `dt` = DAT_008b1718. The pass that sees a
+   * new mode only arms (no bar yet: max = H * 0.4375 * 0.5, rate = H / 30, height 0, float32 like the x87 at 24 bit); every later pass adds `rate * dt` (`_DAT_05d4dce8 * DAT_008b1718 +
+   * height`) and stops at the max once `ftol(height)` reaches it. `letterboxDraw` queues the bars of the current state.
    */
-  letterbox(mode: 0 | 1 | 2, dt = 1) {
-    if (mode !== this.lbMode) { this.lbMode = mode; this.lbH = 0; this.lbRate = this.ch / 30; }
-    if (mode === 0) return;
-    const max = this.ch * 0.4375 * 0.5;
-    this.lbH += this.lbRate * dt;
-    if (Math.trunc(this.lbH) >= max) { this.lbH = max; this.lbRate = 0; }
+  letterboxStep(mode: 0 | 1 | 2, dt: number) {
+    const fr = Math.fround;
+    if (mode !== this.lbMode) { this.lbMode = mode; this.lbState = 1; }
+    if (this.lbState === 1) {
+      if (mode === 0) { this.lbState = 0; return; }
+      const H = fr(this.ch);
+      this.lbMax = fr(fr(H * fr(0.4375)) * fr(0.5)); this.lbH = 0; this.lbRate = fr(H / fr(30)); this.lbState = 2;
+      return;
+    }
+    if (this.lbState !== 2) return;
+    this.lbH = fr(fr(this.lbRate * fr(dt)) + this.lbH);
+    if (this.lbMax <= Math.trunc(this.lbH)) { this.lbH = fr(this.lbMax * fr(1)); this.lbRate = 0; }
+  }
+  /** the bars of the state `letterboxStep` left: black, over the whole canvas width (FUN_0043c267 with colour 0xff000000) */
+  letterboxDraw() {
+    if (this.lbState !== 2 || this.lbMode === 0) return;
     const h = Math.trunc(this.lbH), H = Math.trunc(this.ch), W = Math.trunc(this.cw);
     const k = 0xff000000;
-    if (mode === 1) this.quad(0, MODE_FLAT, this.white, 0, 0, W, h, 0, 0, 1, 1, [k, k, k, k]);
+    if (this.lbMode === 1) this.quad(0, MODE_FLAT, this.white, 0, 0, W, h, 0, 0, 1, 1, [k, k, k, k]);
     this.quad(0, MODE_FLAT, this.white, 0, H - h, W, H, 0, 0, 1, 1, [k, k, k, k]);
   }
   /** current bar height in canvas pixels */

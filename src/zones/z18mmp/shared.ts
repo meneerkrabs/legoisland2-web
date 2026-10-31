@@ -4,6 +4,8 @@ import type { World } from '../../game/world.ts';
 import type { ZoneParticles } from '../../fx/particles/zone.ts';
 import { REC, K } from './consts.ts';
 import { normalise3 } from '../exact.ts';
+import { randF } from '../../game/crt.ts';
+import { msClock } from '../common/tickrand.ts';
 
 /** a position for the 3D sounds */
 export interface P3 { x: number; y: number; z: number }
@@ -26,18 +28,18 @@ export interface MmpSounds {
   say(a: string, b?: string): void;
 }
 export interface MmpRng {
-  /** a uniform float 0 .. x (FUN_004388ae(x)) */
+  /** FUN_004388ae(x): 0 .. x */
   float(x: number): number;
-  /** a uniform integer 0 .. n-1 */
+  /** `ftol(FUN_004388ae((float)FUN_00435c91())) % n`: the pick scaled by the milliseconds since the clock base (the symbol shuffle FUN_006a3861 with n = 12, the mummy hit's squeal FUN_006a4fd0 with n = 3) */
   int(n: number): number;
 }
-// RNG: the default source (the original's rand() / the clock); the tests and the bots inject a seeded one (`sh.rng`)
-export const mathRng: MmpRng = { float: (x) => Math.random() * x, int: (n) => Math.floor(Math.random() * n) };
+/** the default source: the shared C runtime generator (src/game/crt.ts) and the real clock (FUN_00435c91); the tests and the bots inject a seeded one (`sh.rng`) */
+export const crtRng: MmpRng = { float: (x) => randF(x), int: (n) => Math.trunc(randF(msClock())) % n };
 export const silentSounds: MmpSounds = { play2D() {}, stop2D() {}, play3D() {}, stop3D() {}, idle3D: () => true, music() {}, say() {} };
 
 /** the globals of the zone: DAT_05d5beb0 (seconds), DAT_05d5bef0 (danger), DAT_05d5bff8 (clock stopped), DAT_05d5beec (beep countdown) ... */
 export class MmpShared {
-  /** DAT_05d5beb0: seconds played; `frac` = the loop's local tick counter (counts 30 ticks per second) */
+  /** DAT_05d5beb0: seconds played; `frac` = the loop's local accumulator (`1.0 * dt + frac`, DAT_008b1718: dt units, a second when it exceeds 30) */
   seconds = 0; frac = 0;
   /** DAT_05d5bff8: set when Pepper passes the gate: the clock stands still */
   stopClock = false;
@@ -56,7 +58,7 @@ export class MmpShared {
   /** the zone's particle engine (FUN_00442900 in FUN_006a489a); null in node tests without one */
   fx: ZoneParticles | null = null;
   sounds: MmpSounds = silentSounds;
-  rng: MmpRng = mathRng;
+  rng: MmpRng = crtRng;
   /** the records of the zone (filled by `prepareMmp`) */
   records: GameRecord[] = [];
   /** Pepper's node, for the other nodes that read its state */

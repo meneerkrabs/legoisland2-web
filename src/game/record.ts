@@ -64,12 +64,10 @@ export class GameRecord {
   /** walk code: yaw only, at the current position */
   rebuildYaw() { this.setEuler(0, this.ry, 0, this.m[12], this.m[13], this.m[14]); }
 
-  /** local -> world (FUN_0043ab72), out = v * M */
+  /** local -> world (FUN_0043ab72), out = v * M: every product and sum rounded to float32 in the original's order (x87 at 24 bit), identical to `toWorld` of src/zones/exact.ts */
   toWorld(v: ArrayLike<number>, out: number[] = [0, 0, 0]): number[] {
-    const m = this.m;
-    out[0] = v[0] * m[0] + v[1] * m[4] + v[2] * m[8] + m[12];
-    out[1] = v[0] * m[1] + v[1] * m[5] + v[2] * m[9] + m[13];
-    out[2] = v[0] * m[2] + v[1] * m[6] + v[2] * m[10] + m[14];
+    const m = this.m, f = Math.fround;
+    for (let j = 0; j < 3; j++) out[j] = f(f(f(f(v[0] * m[j]) + f(v[1] * m[4 + j])) + f(v[2] * m[8 + j])) + m[12 + j]);
     return out;
   }
   /** world -> local for rotation-only matrices (FUN_0043b022) */

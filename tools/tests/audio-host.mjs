@@ -33,7 +33,7 @@ function fakeAudio() {
       setGroove(n) { calls.push(`music.groove ${n}`); },
     },
     ambience: { async start(k) { calls.push(`ambience ${k}`); return true; } },
-    speech: { say(i) { calls.push(`speech.say ${i}`); return true; }, tick(dt) { calls.push(`speech.tick ${dt}`); } },
+    speech: { say(i) { calls.push(`speech.say ${i}`); return true; }, tick() { calls.push('speech.tick'); } },
     resetZone() { calls.push('resetZone'); },
     setMusicVolume() {}, setSfxVolume() {}, setSpeechVolume() {},
   };
@@ -162,7 +162,7 @@ export default {
         h.frame(cam, 1);
         const got = h.ga.calls.find((c) => c.startsWith('listener')) ?? null;
         ok(got === want, `${zone}: listener ${got} want ${want}`);
-        ok(h.ga.calls.includes('speech.tick 1'), `${zone}: the speech state machine ticks with the frame`);
+        ok(h.ga.calls.includes('speech.tick'), `${zone}: the speech state machine ticks with the frame`);
       }
     }
 

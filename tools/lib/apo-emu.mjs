@@ -18,7 +18,7 @@ export class ApoEmu {
    * @param pe the executable
    * @param recs the records of the oracle's own world ({ name, m, rx, ry, rz, flags, index })
    * @param anims Map(record index -> AnimInstance of the oracle's own world): PEPP and the three rock monsters
-   * @param o { rng: { range(x) }, parts(i), proxy: { recs, sweep, box, shadow } }: the collision calls are answered by the port's collision code on a proxy world whose
+   * @param o { rng: { int() -> rand() 0..32767 }, parts(i), proxy: { recs, sweep, box, shadow } }: the collision calls are answered by the port's collision code on a proxy world whose
    *          records are synchronised from this memory at every call (so the oracle's nodes see their own record state)
    */
   constructor(pe, recs, anims, o) {
@@ -49,7 +49,7 @@ export class ApoEmu {
     H.set(0x433d60, (c) => { c.eax = 0; });
     H.set(0x417575, (c) => { c.eax = (L.vars.get(c.arg(0)) ?? 0) >>> 0; });
     H.set(0x417597, (c) => { L.vars.set(c.arg(0), c.arg(1) | 0); logf(`setVar ${c.arg(0)} ${c.arg(1) | 0}`); c.eax = 0; });
-    H.set(0x4388ae, (c) => { c.fpush(L.o.rng.range(c.argf(0))); });
+    H.set(0x85daf0, (c) => { c.eax = L.o.rng.int(); });      // FUN_004388ae runs natively on the scripted rand()
     // sounds
     H.set(0x4359d5, (c) => { c.eax = 0; });
     H.set(0x443580, (c) => { c.eax = c.arg(0) | 0x100000; });
@@ -156,7 +156,7 @@ export class ApoEmu {
       c.eax = t.length;
     });
     H.set(0x46055f, (c) => { c.eax = 0; });
-    cpu.exec = [[0x7cf129, 0x7e22b0], CRT];
+    cpu.exec = [[0x7cf129, 0x7e22b0], CRT, [0x4388ae, 0x4388e7]];
     if (o.nativeBox) cpu.hooks.delete?.(0x7d3050);
     for (const a of NATIVE) cpu.native.add(a);
     cpu.fallback = (addr) => (c) => { L.unhooked.set(addr, (L.unhooked.get(addr) ?? 0) + 1); c.eax = 0; };

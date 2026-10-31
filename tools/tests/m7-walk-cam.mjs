@@ -1,4 +1,5 @@
 import { createRunner, makeScript, rng } from '../lib/m7-walk-run.mjs';
+import { B } from '../../src/game/input.ts';
 import { parseCompiledWaypoints } from '../../src/formats/waypoints.ts';
 
 // M7 / WP-VERIFY + WP-ISLAND-FIX: the chase camera of src/game/camera.ts against the original's FUN_0042c227 (chase), FUN_0043cc5c (view basis), FUN_0042b8e8 (key ramps) in the x86 emulation,
@@ -32,6 +33,19 @@ export default {
     for (let i = 0; i < 3; i++) {
       const nd = nodes[r.int(nodes.length)], dt = i === 1 ? 0.5 : 1;
       run(`mouse island ${i}`, 'z02LGI', dt, makeScript(60 + i, 200, { camera: i === 2 }), { pos: [nd.x, nd.y + 0.5, nd.z], yaw: r() * 6.28, mouse: mouseScript(70 + i, 200), setup: i === 2 ? (L, w) => { w.camera.vehicle = true; } : undefined });
+    }
+    // the camera keys in every combination (Z, X, C and the `<>` key alone and together, with and without walking keys): FUN_0042b8e8's ramps in all their branches, dt 1 and 0.5
+    const keyFuzz = (seed, ticks) => {
+      const r = rng(seed), out = [], CK = [B.Z, B.X, B.C, B.KEY1000], DK = [0, B.UP, B.UP, B.UP | B.LEFT, B.UP | B.RIGHT, B.LEFT, B.DOWN];
+      while (out.length < ticks) {
+        let bits = DK[r.int(DK.length)]; for (const k of CK) if (r() < 0.35) bits |= k;
+        for (let i = 3 + r.int(14); i > 0 && out.length < ticks; i--) out.push(bits);
+      }
+      return out;
+    };
+    for (const [zone, dt, seed] of [['z02LGI', 1, 91], ['z02LGI', 0.5, 92], ['z03PPH', 1, 93], ['z03PPH', 0.5, 94], ['z50LTC', 1, 95]]) {
+      const o = zone === 'z02LGI' ? { pos: [nodes[5].x, nodes[5].y + 0.5, nodes[5].z], yaw: 1.0 } : {};
+      run(`camera keys fuzz ${zone}`, zone, dt, keyFuzz(seed, dt === 1 ? 320 : 420), o);
     }
     run('mouse z03PPH', 'z03PPH', 1, makeScript(65, 200), { mouse: mouseScript(75, 200) });
     run('mouse z50LTC', 'z50LTC', 0.5, makeScript(66, 200), { mouse: mouseScript(76, 200) });

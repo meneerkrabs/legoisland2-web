@@ -15,15 +15,16 @@ import { prepareBkd } from '../../src/zones/z08bkd/run.ts';
 import { REC, RIG_OF_RECORD, SND } from '../../src/zones/z08bkd/consts.ts';
 import { BallNode } from '../../src/zones/z08bkd/bodies.ts';
 import '../../src/zones/z08BKD.ts';
+import { setRandSource, randF } from '../../src/game/crt.ts';
 
 export const RB = 0x40000000, AB = 0x42000000, PB = 0x43000000, HB = 0x44000000;
 const F32 = new Float32Array(1);
 export const f32 = (v) => { F32[0] = v; return F32[0]; };
 
-/** the scripted random source shared by both sides */
+/** the scripted rand() shared by both sides (FUN_0085daf0: seed * 0x343fd + 0x269ec3, (seed >> 16) & 0x7fff): the port's draws come through crt.ts `randF` on `setRandSource`, the original's FUN_004388ae is hosted with the same float32 formula */
 export function makeU(seed) {
   const g = { s: seed >>> 0, pos: 0 };
-  g.next = () => { g.s = (Math.imul(g.s, 1664525) + 1013904223) >>> 0; g.pos++; return g.s / 4294967296; };
+  g.next = () => { g.s = (Math.imul(g.s, 0x343fd) + 0x269ec3) >>> 0; g.pos++; return (g.s >>> 16) & 0x7fff; };
   return g;
 }
 
@@ -48,7 +49,8 @@ export function bootBkd(ctx, { seed = 1, dt = 1 } = {}) {
   sb.at = (name, pos) => { G.sndCalls.push(['at', name, f32(pos[0]), f32(pos[1]), f32(pos[2])]); G.log.push(['at', SND[name], f32(pos[0]), f32(pos[1]), f32(pos[2])]); };
   // the port's draws of the random source
   const rng = G.run.env.rng;
-  rng.float = (x) => { G.draws.push(x); return x <= 0 ? 0 : G.U.next() * x; };
+  setRandSource(() => G.U.next());
+  rng.float = (x) => { G.draws.push(x); return randF(x); };
   rng.int = (x) => Math.trunc(rng.float(x));
   Object.assign(G, { R: w.records, env: G.run.env });
   G.tick = (mask = 0) => { w.input.setVirtual(mask); G.run.beforeTick(); w.tick(); G.run.afterTick(); };
@@ -81,7 +83,7 @@ export function createHarness(ctx) {
   hook(0x439bf8, (c) => { const tok = 0x7000 + tokens.size; tokens.set(tok, mem.cstr(c.arg(1))); mem.w32(c.arg(2), tok); });
   hook(0x435a11, (c) => { push(['say', tokens.get(c.arg(0))]); });
   hook(0x435c91, (c) => { c.eax = 1; });
-  hook(0x4388ae, (c) => { const x = c.argf(0); H.draws.push(x); c.fpush(H.G.U.next() * x); });
+  hook(0x4388ae, (c) => { const x = c.argf(0); H.draws.push(x); c.fpush(x <= 0 ? 0 : f32(f32(H.G.U.next() / 32767) * f32(x))); });      // FUN_004388ae: 0.0 for x <= 0 (no draw), else (float) rand() / 32767.0f * x in float32 steps
   hook(0x417575, (c) => { c.eax = H.G.w.vars.get(c.arg(0)); });
   hook(0x417597, (c) => { H.G.w.vars.set(c.arg(0), c.arg(1) | 0); });
   // ---- animation instances

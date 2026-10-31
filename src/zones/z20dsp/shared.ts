@@ -4,6 +4,8 @@ import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { TrackSpline } from './spline.ts';
 import { ReplayBuffer } from './replay.ts';
+import { rand as crtRand } from '../../game/crt.ts';
+import { msClock } from '../common/tickrand.ts';
 
 const F = Math.fround;
 /** the "no ground" value of the terrain functions: the float -1e38 (0xfe967699, _DAT_008920c4) */
@@ -65,16 +67,15 @@ export class SoundLog implements DspSounds {
 }
 
 /**
- * The game's random numbers: FUN_004388ae(max) = float(float(rand() / 32767) * max) in the 24-bit x87 (`fild; fdiv 32767.0f; fmul max`), used as `ftol(FUN_004388ae(n))`. `next()` is rand() / 32767
- * (0..1 inclusive: r = 32767 gives n itself, as in the original); injectable for tests (the differential test feeds both sides the same draws).
+ * The game's random numbers over the shared C runtime generator (src/game/crt.ts): FUN_004388ae(max) = float(float(rand() / 32767) * max) in the 24-bit x87 (`fild; fdiv 32767.0f; fmul max`),
+ * used as `ftol(FUN_004388ae(n))`. `next()` is rand() / 32767 (0..1 inclusive: r = 32767 gives n itself, as in the original); the differential test subclasses it to feed both sides the same draws.
  */
 export class DspRng {
-  private s: number;
-  constructor(seed = 0x1234567) { this.s = seed >>> 0; }
-  // RNG: the C runtime's rand() (15 bits) of the original; the shared game generator replaces this one when WP-TIME lands
-  next(): number { this.s = (Math.imul(this.s, 1664525) + 1013904223) >>> 0; return (this.s >>> 17) / 32767; }
+  next(): number { return crtRand() / 32767; }
   /** `ftol(FUN_004388ae(n))` */
-  int(n: number): number { return Math.trunc(Math.fround(Math.fround(this.next()) * Math.fround(n))); }
+  int(n: number): number { if (!(n > 0)) return 0; return Math.trunc(Math.fround(Math.fround(this.next()) * Math.fround(n))); }
+  /** `ftol(FUN_004388ae((float)FUN_00435c91())) % n` (& 1 for n = 2): the sound picks (cows, bumps, the horn) scale rand() by the real milliseconds since the zone's start */
+  tick(n: number): number { return this.int(msClock()) % n; }
 }
 
 /** the particle calls of the zone (FUN_00442960 start, FUN_00442a00 parent matrix, FUN_00442a40 restart); the zone game binds them to the particle engine, tests record them */

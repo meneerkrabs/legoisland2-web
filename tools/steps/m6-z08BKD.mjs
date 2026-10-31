@@ -30,7 +30,7 @@ function recordPaths(ticks) {
   for (const f of fs.readdirSync(dataDir).filter((f) => f.endsWith('.bod')).sort()) { const n = f.slice(0, -4); archives.push(new Archive(n, fs.readFileSync(path.join(dataDir, f)), fs.readFileSync(path.join(dataDir, n + '.bob')))); }
   const L = loadZone({ dataRoot, dataDir, archives }, 'z08BKD');
   const run = prepareBkd(L.world, L.archive, L.scene);
-  const hz = recordHazards(run, L.world, ticks);
+  const hz = recordHazards(run, L.world, ticks, { tps: 60, advance: true });   // the game's own step: 60 ticks a second, dt 1 for the first five frames then 0.5
   return { ...hz, data: Array.from(hz.data), rz: Array.from(hz.rz), anchor: Array.from(hz.anchor) };
 }
 
@@ -46,7 +46,7 @@ export default async ({ page, shot, wait, log, key }) => {
   const ready = (m) => page.waitForFunction((m) => window.__zone && window.__zone.info.archive === 'z08BKD' && window.__zone.machine.mode === m && window.__zone.world.tickCount >= 0, m, { timeout: 300000 });
 
   const t0 = Date.now();
-  const hz = recordPaths(15600);
+  const hz = recordPaths(31200);
   log('recorded the creatures\' paths', Date.now() - t0, 'ms');
 
   await ready(1);
@@ -60,7 +60,7 @@ export default async ({ page, shot, wait, log, key }) => {
     hz.data = Float32Array.from(hz.data); hz.rz = Float32Array.from(hz.rz); hz.anchor = Float32Array.from(hz.anchor);
     hz.octo = undefined;
     const grid = buildGrid(z.world), tight = buildGrid(z.world, { length: 4.5, half: 1.15, back: 0.2 });
-    const bot = new Bot(grid, { hazards: hz, margin: 2.5, horizon: 90, tight });
+    const bot = new Bot(grid, { hazards: hz, margin: 2.5, tps: 60, tight });
     const KEYS = [[1, 'ArrowLeft'], [2, 'ArrowRight'], [4, 'ArrowUp'], [8, 'ArrowDown']];
     const st = { on: false, keys: 0, asked: 0 };
     const input = z.sh.input, orig = input.update.bind(input);
@@ -106,7 +106,7 @@ export default async ({ page, shot, wait, log, key }) => {
     await snap('7-deep', d.pos[1] < -125);
     await snap('8-four-bricks', d.bricks === 4 && d.pos[1] > 60);
     await snap('9-pocket', d.pos[1] < -160);
-    if (d.bricks === 4 && d.held < 0 && d.ticks > 7000 && !taken.has('script')) {
+    if (d.bricks === 4 && d.held < 0 && d.ticks > 14000 && !taken.has('script')) {
       // the last brick lies in a pocket of the octopus's cave that the bot's coarse grid cannot enter with the engine's exact (float32, hit-cached) collision (see the node test
       // tools/tests/m6-z08BKD.mjs, WIN): as there, it is fetched by script (test aid: the diver is put at the brick, picks it up through the node's own pickup and is put at the
       // surface, where the node delivers it); the delivery, the banner and everything after are real play
@@ -127,7 +127,7 @@ export default async ({ page, shot, wait, log, key }) => {
         return { took: -1 };
       })));
     }
-    if (d.ticks - lastLog >= 1500) { lastLog = d.ticks; log('tick', d.ticks, 'pos', d.pos.map((v) => v.toFixed(1)).join(','), 'bricks', d.bricks, 'held', d.held, 'oxygen %', d.percent.toFixed(1)); }
+    if (d.ticks - lastLog >= 3000) { lastLog = d.ticks; log('tick', d.ticks, 'pos', d.pos.map((v) => v.toFixed(1)).join(','), 'bricks', d.bricks, 'held', d.held, 'oxygen %', d.percent.toFixed(1)); }
     await wait(250);
   }
   await page.evaluate(() => { window.__bkd.on = false; });

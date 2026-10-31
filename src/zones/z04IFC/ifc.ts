@@ -67,10 +67,8 @@ export interface IfcHost {
   restart(id: number): void;
   /** FUN_0043b6a3(Pepper's animation, clip, 0) */
   pepperClip(clip: number): void;
-  /** FUN_00435c91: milliseconds since start-up */
-  ms(): number;
-  /** FUN_0085daf0 / 32767: a random number in [0, 1) */
-  rand(): number;
+  /** `ftol(FUN_004388ae((float) FUN_00435c91())) % n`: rand() of the C runtime (src/game/crt.ts) scaled by the REAL milliseconds since the zone clock base (FUN_00435c81, src/zones/common/tickrand.ts) */
+  pick(n: number): number;
   /** FUN_00439788(IFC table, id): the text of an `IFCxxx` / `LEVxxx` message */
   text(id: string): string;
   /** the menu engine's sounds (FUN_004b02d4 move, 0x25e select, 0x25f back, 0x260 on / off) */
@@ -143,8 +141,8 @@ export class IfcRoom {
     h.play(SND.MAINLOOP);
     h.play(SND.TYPING);
     h.play(SND.PRINTER);
-    // 0x54bd2f: `rand() * ms` truncated, % 2000: four sporadic ambient sounds (each about 1 in 2000 ticks)
-    const t = Math.trunc(h.rand() * h.ms()) % 2000;
+    // 0x54bd2f: `ftol(FUN_004388ae(ms)) % 2000`: four sporadic ambient sounds (each about 1 in 2000 ticks)
+    const t = h.pick(2000);
     if (t < 0x47a) {
       if (t === 0x479) h.play(SND.WIBBLE);
       else if (t === 0xf4) h.play(SND.GARAGE3);
@@ -289,7 +287,7 @@ export class IfcRoom {
     const r = m.step(pressed, 3, pointer);
     this.lastEvent = r.ev;
     if (r.ev === 1) {
-      const n = Math.trunc(this.host.rand() * this.host.ms()) % 3;       // FUN_004388ae(ms) % 3
+      const n = this.host.pick(3);       // ftol(FUN_004388ae(ms)) % 3
       this.host.play(SND.INFO[n]);
       this.pagesOpened++;
     } else if (r.ev === 2 && r.a === -1) {

@@ -9,17 +9,20 @@ import { readAudioTables } from '../../src/audio/tables.ts';
 import { parseMessageFile, MessageTable } from '../../src/ui/strings.ts';
 import * as Z from '../../src/zones/z10RGB.ts';
 import { CTOR, REC, VAR, MODE, PHASE, K, SND, SOUNDS_2D, SOUNDS_3D, CLIP, RIGS, hopTable, f32 } from '../../src/zones/z10rgb/consts.ts';
-import { RgbState, Lcg, wrapPi, yawError, rotate } from '../../src/zones/z10rgb/shared.ts';
+import { RgbState, wrapPi, yawError, rotate } from '../../src/zones/z10rgb/shared.ts';
+import { MsvcRng } from '../lib/msvc-rng.mjs';
+import { setRandSource } from '../../src/game/crt.ts';
 import { allocBall, releaseBall, launchBall, placeBall, stepBall, collideBall, updateBalls, PARKED_Y } from '../../src/zones/z10rgb/balls.ts';
 import { PepSwitcNode, PeppHitNode, CANNON_EULER, shotScale, clipEnding } from '../../src/zones/z10rgb/pepper.ts';
 import { CannonNode, CedricNode, quadratic, solveShot, ballHit } from '../../src/zones/z10rgb/enemy.ts';
 import { RgbGameNode, initRgb } from '../../src/zones/z10rgb/game.ts';
 import { ROUTE, steerKeys, planShot, nextTarget, aimKeys, flight } from '../../src/zones/z10rgb/bot.ts';
 import { SoundBank, SOUND_DEFS } from '../../src/zones/z10rgb/sound.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const hex = (n) => '0x' + n.toString(16);
 
-export default {
+const __test = {
   name: 'm6-z10RGB',
   run(ctx) {
     const failures = [], notes = [];
@@ -158,8 +161,8 @@ export default {
       // ============================================================ the world helpers
       const make = (seed = 1, opts = {}) => {
         shotScale.value = K.SHOT_SCALE_FIRST;
-        const lcg = new Lcg(seed);
-        Z.options.rng = opts.rng ?? (() => lcg.next());
+        const lcg = new MsvcRng(seed);
+        setRandSource(opts.rng ?? (() => lcg.next()));          // the shared rand() of src/game/crt.ts, scripted (0 .. 32767); reset when the test ends
         const L = loadZone(ctx, 'z10RGB');
         const w = L.world;
         w.externalInput = true;
@@ -219,7 +222,7 @@ export default {
         const x = [0, 300, 0];
         let okStep = true;
         for (let t = 1; t <= 40; t++) {
-          stepBall(st, b);
+          stepBall(st, b, 1);
           x[0] += Math.cos(0.5) * 3; x[1] += 8 * Math.sin(0.5) - t * K.G; x[2] += Math.cos(0.5) * 4;
           if (!near(b.rec.x, x[0], 1e-2) || !near(b.rec.y, x[1], 1e-2) || !near(b.rec.z, x[2], 1e-2)) okStep = false;
         }
@@ -494,7 +497,7 @@ export default {
         let t = 0; while (w.vars.get(VAR.MODE) === MODE.HIT && t < 300) { tick(1); t++; }
         ok(w.vars.get(VAR.MODE) === MODE.WALK && t + 81 > 60 && t + 81 < 160, `back in mode 1 after ${t + 81} ticks in all`);
         ok(pep.anim.clip === CLIP.IDLE || pep.anim.clip === 0x3a || pep.anim.clip === 0x1b, `idle clip afterwards (${pep.anim.clip.toString(16)})`);
-        ok(clipEnding({ frame: 28, frameCount: 30 }, 2) === true && clipEnding({ frame: 26.9, frameCount: 30 }, 2) === false, 'FUN_0043b92a: within the last 3 frames');
+        ok(clipEnding({ frame: 28, frameCount: 30 }, 2, 1) === true && clipEnding({ frame: 26.9, frameCount: 30 }, 2, 1) === false && clipEnding({ frame: 28.6, frameCount: 30 }, 1, 0.5) === true && clipEnding({ frame: 28.4, frameCount: 30 }, 1, 0.5) === false, 'FUN_0043b92a: within the last 3 frames');
         // the blinking: invulnerable for 3 / (1/30) = 90 ticks, hidden on the ticks with bit 2 set
         const hidden = []; let n = 0;
         while (!st.vulnerable && n < 300) { tick(1); n++; hidden.push((pep.flags & 2) === 0); }
@@ -511,6 +514,24 @@ export default {
         ballHit(gw.st, gw.pep);
         gw.tick(120);
         ok(gw.pep.y > 0 && gw.w.vars.get(VAR.MODE) !== MODE.HIT || gw.pep.y > -60, `a hit over the water ends on the bridge (y ${gw.pep.y.toFixed(1)}, mode ${gw.w.vars.get(VAR.MODE)})`);
+      }
+
+      // ============================================================ the 60 Hz step: dt = 0.5 (the oracles m6-z10RGB-emu / m7-z10RGB-cover compare it with the original; these are the plain consequences)
+      {
+        const g = make(31);
+        const { st, w, tick } = g;
+        w.dt = 0.5; st.phase = PHASE.BRIDGE; st.vulnerable = false; st.blink = -1;
+        let n = 0; while (!st.vulnerable && n < 1000) { tick(1); n++; }
+        ok(n >= 355 && n <= 366, `dt 0.5: the invulnerability after a hit lasts 3 / ((1/30) * 0.5 * 0.5) = 360 ticks (${n})`);
+        const c0 = st.cannons[0]; c0.timer = 100; tick(10);
+        ok(near(c0.timer, 95, 1e-4), `dt 0.5: the reload timer falls by 0.5 per tick (${c0.timer})`);
+        const f0 = st.tickF; tick(10);
+        ok(near(st.tickF - f0, 5, 1e-4), `dt 0.5: the tick clock (float) advances by 0.5 per tick (${st.tickF - f0})`);
+        const b = st.balls[5];
+        placeBall(b, [0, 300, 0], [3, 8, 4]); launchBall(b, 0.5);
+        for (let i = 0; i < 10; i++) stepBall(st, b, 0.5);
+        ok(b.t === 5 && near(b.rec.x, 5 * Math.cos(0.5) * 3, 1e-3), `dt 0.5: ten ball steps are 5 time units (${b.t}, x ${b.rec.x})`);
+        releaseBall(b);
       }
 
       // ============================================================ the enemy cannons in phase 1
@@ -771,8 +792,8 @@ export default {
         return { g, st, w, shots, hits, ticks: st.ticks };
       };
       {
-        // a WIN: this seed's run destroys all nine cannons (a bot that plans its shots with the flight model and the game's own sweeps, from the cannons whose pitch steps allow a hit; seed 4 no longer wins since the walk / collision packages changed the hops of the bot; the original is hard: Cedric's shots land on the player's cannon about every fourth time)
-        const r = playGame(11);
+        // a WIN: this seed's run destroys all nine cannons (a bot that plans its shots with the flight model and the game's own sweeps, from the cannons whose pitch steps allow a hit; seeds 4 and 11 no longer win since the walk / collision packages changed the hops of the bot and the game draws from the shared CRT generator (T2: the sequence of seed s is the MSVC LCG's); the original is hard: Cedric's shots land on the player's cannon about every fourth time)
+        const r = playGame(10);
         ok(r.st.phase === PHASE.WON && r.st.resultMode === 1, `scripted WIN: phase ${r.st.phase}, result ${r.st.resultMode} after ${r.ticks} ticks, ${r.shots} shots, ${r.hits} hits`);
         ok(r.st.cannonsLeft === 0 && r.st.enemy.every((e) => !(e.flags & 2)), 'all nine cannons destroyed');
         const v = r.w.vars;
@@ -780,9 +801,9 @@ export default {
         ok(r.st.lives >= 1 && r.st.lives <= 4, `lives left: ${r.st.lives}`);
         ok(r.st.score === 1000 - (r.st.baseTick ? 0 : 0) + r.st.score - 1000 || r.st.score > 0, 'score positive');
         ok(v.get(VAR.GAME_ON) === 0 && v.get(VAR.CEDRIC_ON) === 0, 'cannons and Cedric stopped');
-        notes.push(`WIN (seed 11): ${r.ticks} ticks, score ${r.st.score}, trophy ${v.get(VAR.TROPHY_RGB)}, ${r.shots} shots, ${r.hits} hits`);
+        notes.push(`WIN (seed 10): ${r.ticks} ticks, score ${r.st.score}, trophy ${v.get(VAR.TROPHY_RGB)}, ${r.shots} shots, ${r.hits} hits`);
         // determinism: the same seed gives the same game
-        const r2 = playGame(11);
+        const r2 = playGame(10);
         ok(r2.ticks === r.ticks && r2.st.score === r.st.score && r2.shots === r.shots, 'the same seed plays the same game');
         // a different seed differs
         const r3 = playGame(7, { maxTicks: 9000 });
@@ -809,6 +830,8 @@ export default {
     } catch (e) {
       failures.push(`exception: ${e.stack || e}`);
     }
+    setRandSource(null);
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

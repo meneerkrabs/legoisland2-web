@@ -10,7 +10,9 @@ import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { AnimInstance } from '../../game/anim.ts';
 import type { Blk } from '../../formats/anim.ts';
-import { gameRandom } from '../common/tickrand.ts';
+import { msClock } from '../common/tickrand.ts';
+import { randF } from '../../game/crt.ts';
+import { toWorld } from '../exact.ts';
 
 /** constructor addresses in the EXE (the `ctor` of the set-up's attaches, docs/re/zone-setup.md) */
 export const CTOR_PEPWAS = 0x69bf24, CTOR_ZONEWAS = 0x69b337;
@@ -93,6 +95,8 @@ export const K = {
   /** the clock sounds start 16 s before the end (p+0x134) */
   BEEPS: 16,
 } as const;
+/** the y a rising snake stops at: `(p+0x78 + p+0x74) - _DAT_00892084` (the original's evaluation order, float32 per operation) */
+const TOP_Y = f32(f32(K.HIDDEN_Y + K.TRAVEL) - K.TOP_MARGIN);
 
 /** medal thresholds (FUN_00698efe mode 4: `< 0x65`, `< 0x1389`, `< 0x2135`): bronze 101, silver 5001, gold 8501 */
 export const MEDAL = { BRONZE: 101, SILVER: 5001, GOLD: 8501 } as const;
@@ -109,10 +113,12 @@ export interface WasSounds {
   cue?(name: string, kind?: string): void;
 }
 export interface WasRng {
-  /** a uniform integer 0 .. n-1 (the original's `ftol(FUN_004388ae(float))` of FUN_00435c91 = GetTickCount, `& 3` / `% 3`, or FUN_004388ae(8.0)) */
+  /** the original's integer draws: n = 4 (basket, `& 3`) and n = 3 (gem holder, `% 3`) are `ftol(FUN_004388ae((float) FUN_00435c91()))` (rand() scaled by the REAL milliseconds since the
+   *  zone clock base of FUN_00435c81); n = 8 is `ftol(FUN_004388ae(8.0))` (Pepper's grunt, 0 / 1 play a sound) */
   int(n: number): number;
 }
-export const mathRng: WasRng = { int: (n) => Math.floor(gameRandom() * n) };     // RNG: the C runtime generator
+/** the exact draws on the shared C runtime generator (src/game/crt.ts); tests pin the generator with `setRandSource` and the clock with `setTickCountSource` */
+export const crtRng: WasRng = { int: (n) => (n === 8 ? Math.trunc(randF(8)) : Math.trunc(randF(Math.fround(msClock()))) % n) };
 export const silentSounds: WasSounds = { play() {}, play3D() {} };
 
 /** the globals of the zone (DAT_00925e58, DAT_05d5be4c / be50 / be54, the round-robin counters DAT_05d5be58 / be5c) */
@@ -134,7 +140,7 @@ export class WasShared {
   set finalGems(v: number) { WasShared.gemsGlobal = v; }
   swishRr = 0; xswishRr = 0;
   sounds: WasSounds = silentSounds;
-  rng: WasRng = mathRng;
+  rng: WasRng = crtRng;
 }
 
 const hide = (r: GameRecord) => { r.flags &= ~0xffff; };
@@ -165,9 +171,9 @@ export class PepWasNode implements BehaviourNode {
   constructor(shared: WasShared) { this.shared = shared; }
 
   /** the constructor: Pepper's idle clip */
-  init(pep: GameRecord) {
+  init(pep: GameRecord, dt = 1) {
     this.cur = 1; this.busy = true;
-    this.timer = 15;                 // __ftol(_DAT_00892074 (15.0) * DAT_008b1718)
+    this.timer = Math.trunc(f32(15 * dt));                 // __ftol(_DAT_00892074 (15.0) * DAT_008b1718): the step time the constructor sees
     pep.anim?.start(this.cur, 0);
     this.presses = 0; this.next = 0xff; this.dir = -1;
     this.shared.swishRr = 0; this.shared.xswishRr = 0;
@@ -346,17 +352,18 @@ export class ZoneWasNode implements BehaviourNode {
       const snake = R[REC.SNAKE[k]], lid = R[REC.LID[k]];
       const st = this.state[k];
       if (st === SN.RISING) {
-        this.y[k] = f32(this.y[k] + (K.TRAVEL / K.RISE_TICKS) * dt);
+        this.y[k] = f32(f32(f32(K.TRAVEL / K.RISE_TICKS) * dt) + this.y[k]);
         this.lastRise = this.elapsed;                          // p+0x118
-        if (this.y[k] >= K.HIDDEN_Y + K.TRAVEL - K.TOP_MARGIN) {
-          this.y[k] = f32(K.HIDDEN_Y + K.TRAVEL - K.TOP_MARGIN);
+        if (this.y[k] >= TOP_Y) {
+          this.y[k] = TOP_Y;
           this.state[k] = SN.UP;
           this.topAt[k] = elapsed0;
           this.snd(SND.UP[k]);
         }
         snake.y = this.y[k];
-        if (this.holder === k) { if (lid.y < this.y[k] + K.LID_OFFSET + K.HOLDER_LIFT) lid.y = this.y[k] + K.LID_OFFSET + K.HOLDER_LIFT; }
-        else if (lid.y < this.y[k] + K.LID_OFFSET) lid.y = this.y[k] + K.LID_OFFSET;
+        const lidY = f32(this.y[k] + K.LID_OFFSET);
+        if (this.holder === k) { const up = f32(lidY + K.HOLDER_LIFT); if (lid.y < up) lid.y = up; }
+        else if (lid.y < lidY) lid.y = lidY;
       } else if (st === SN.UP) {
         if (elapsed0 - this.topAt[k] <= K.UP_TICKS || this.squash) {
           // the lid rides on the snake's head: bone 10 of the snake's pose, in the snake's frame
@@ -367,8 +374,8 @@ export class ZoneWasNode implements BehaviourNode {
           sa.advance(1.0, dt);
           lid.m.set(snake.m);
           if (bones && bones.length >= 11 * 16) {
-            const p = lid.toWorld([bones[10 * 16 + 12], bones[10 * 16 + 13], bones[10 * 16 + 14]]);
-            if (this.holder === k) p[1] += K.HOLDER_LIFT;
+            const p = toWorld(lid.m, [bones[10 * 16 + 12], bones[10 * 16 + 13], bones[10 * 16 + 14]]);   // FUN_0043ab72 (float32 per operation)
+            if (this.holder === k) p[1] = f32(p[1] + K.HOLDER_LIFT);
             lid.y = p[1]; lid.x = p[0]; lid.z = p[2];
           }
         } else {
@@ -377,7 +384,7 @@ export class ZoneWasNode implements BehaviourNode {
           lid.setEuler(0, 0, 0, lid.x, lid.y, lid.z);
         }
       } else if (st === SN.SINKING) {
-        this.y[k] = f32(this.y[k] - (K.TRAVEL / K.SINK_TICKS) * dt);
+        this.y[k] = f32(this.y[k] - f32(f32(K.TRAVEL / K.SINK_TICKS) * dt));
         snake.y = this.y[k];
         if (this.y[k] <= K.HIDDEN_Y) {
           this.y[k] = K.HIDDEN_Y;
@@ -391,15 +398,15 @@ export class ZoneWasNode implements BehaviourNode {
           }
           this.hit[k] = 0;
         }
-        if (this.y[k] + K.LID_OFFSET < lid.y) {
-          lid.y = this.y[k] + K.LID_OFFSET;
+        if (f32(this.y[k] + K.LID_OFFSET) < lid.y) {
+          lid.y = f32(this.y[k] + K.LID_OFFSET);
           if (lid.y < this.closedY) lid.y = this.closedY;
         }
       }
       if (this.holder !== -1) {
         // the gem sits on its snake
         const hs = R[REC.SNAKE[this.holder]], gem = R[REC.GEMM];
-        gem.x = hs.x; gem.y = hs.y + K.LID_OFFSET + K.GEM_LIFT; gem.z = hs.z;
+        gem.x = hs.x; gem.y = f32(f32(hs.y + K.LID_OFFSET) + K.GEM_LIFT); gem.z = hs.z;
         if (this.gemFresh) { gem.savePrev(); this.gemFresh = false; }   // (port) it appears at its snake, it does not slide there from the origin
       }
     }
@@ -522,9 +529,9 @@ export function setWasCamera(world: World, pep: GameRecord, pe: U32Reader | null
   const look = pe ? [0, 1, 2].map((i) => f32at(pe, 0x8adc60 + 4 * i)) : [0, 4.0, 9.6];
   const c = world.camera.c;
   c[6] = 0; c[7] = 1; c[8] = 0;
-  c[3] = look[0] + pep.x; c[4] = look[1] + pep.y; c[5] = look[2] + pep.z;
-  const e = pep.toWorld(off);
-  c[0] = e[0]; c[1] = e[1] + 0; c[2] = e[2] + EYE_Z_SHIFT;
+  c[3] = f32(look[0] + pep.x); c[4] = f32(look[1] + pep.y); c[5] = f32(look[2] + pep.z);
+  const e = toWorld(pep.m, off);
+  c[0] = e[0]; c[1] = f32(e[1] + 0); c[2] = f32(e[2] + EYE_Z_SHIFT);
   world.camera.updateView();
   world.camera.savePrev();
 }
@@ -546,7 +553,7 @@ export function prepareWas(world: World, pep: GameRecord, rigs: { SNAK: Blk | nu
   pep.ctrl!.nodes = [pepNode];
   pep.ctrl!.exclusive = null;
   node.bind(world.records, rigs);
-  pepNode.init(pep);
+  pepNode.init(pep, world.dt);
   setWasCamera(world, pep, pe);
   return { pepNode, node, shared: node.shared };
 }

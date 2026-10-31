@@ -5,12 +5,13 @@
 // Human1 FUN_004be20f returns 0 on its single-waypoint path (asm 0x4be7f8), the port returned 1 (fixed in src/island/npc/human1.ts; the island's test knew it as D4).
 import { loadCsiAsIsland } from '../lib/m5-z07CSI-load.mjs';
 import { createPair, runPair, newStats, placePepper, pepperAt, sgOf, setVar, CTORS } from '../lib/m7-isl-npc-emu.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MINE = new Set([CTORS.SGMFIG, CTORS.Human1, CTORS.Launch, CTORS.T2PA, CTORS.T2PB, CTORS.T2PC, CTORS.MeetPepp]);
 const NPC_FILE = { 15: 'ci/Data/csifsm1.str', 19: 'ci/Data/csifsm2.str', 24: 'ci/Data/csifsm5.str', 27: 'ci/Data/csifsm6.str' };
 const loader = (node) => (c) => loadCsiAsIsland(c, { node, npcFile: NPC_FILE[node], vars: { 0xa3: node === 15 ? 6 : 7 } });
 
-export default {
+const __test = {
   name: 'm5-z07CSI-npc',
   run(ctx) {
     const notes = [];
@@ -50,14 +51,10 @@ export default {
       P.restore();
     }
     notes.push(`talk: ${talked.join(' ')}; conversations ${st.talks} ticks, lines said ${[...st.said].slice(0, 8).join(', ')}..., cutscenes started ${st.cutscenes}`);
-    // KNOWN D8 (not fixed here, evidence below): the walker's turn-back to a heading (Turn2Pep A of LSD3, gate var 0x111) decides "facing" one tick EARLIER in the original than in the port, because
-    // BSD3's / LSD3's yaw differs by ONE float32 ulp (first exact mismatch: tick 5, BSD3, port 1.5102375745773315 vs original 1.510237455368042: the walker's turn-step arithmetic in
-    // src/game/walker.ts, the island package's file) and the facing test `|yaw - heading| <= step` sits exactly on the boundary (step 0.5236 = a 30 degree turn). The visible effect is that
-    // MOVE_LSD3's bit 0x100 (set every tick by BSD3's Turn2PepC, cleared by LSD3's Turn2PepA) is seen one tick later: 2 variable differences in 4000 ticks, no record differs.
-    const known = st.fail.filter((m) => /^talk n(19|24) BSD3 t12: var 273: original 0x0 port 0x100$/.test(m));
-    const rest = st.fail.filter((m) => !known.includes(m));
-    notes.push(`the D5 / D8 deviations of the walker yaw are fixed (WP-ISLAND-FIX): ${known.length} tolerated differences (any other difference fails)`);
+    // (the walker's D5 / D8 yaw deviations are fixed by WP-ISLAND-FIX: no tolerated differences, any difference fails)
+    const rest = st.fail;
     notes.push(`${st.ticks} ticks compared, ${st.checked} checks`);
     return { checked: st.checked, failures: rest, notes };
   },
 };
+export default guarded(__test);

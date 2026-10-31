@@ -1,8 +1,8 @@
 import { createBrpOracle, runZoneLoop, compareState, compareLogs, teleportPepper, portTick, restartOriginal } from '../lib/m7-z42BRP-emu.mjs';
 import { loadExe } from '../lib/engine-load.mjs';
-import { ZoneLoop, PepBrpNode, stateOf, runCamera } from '../../src/zones/z42BRP/nodes.ts';
+import { ZoneLoop, stateOf, runCamera } from '../../src/zones/z42BRP/nodes.ts';
 import { Phase2Bot } from '../../src/zones/z42BRP/bot.ts';
-import { PLAN1, PLAN1_DT05 } from '../../src/zones/z42BRP/bot-plan.ts';
+import { PLAN1, PLAN1_START } from '../../src/zones/z42BRP/bot-plan.ts';
 import { ROOF_PLANS } from '../../src/zones/z42BRP/bot-plan-roof.ts';
 import {
   VAR, REC, SND, FLOAT_CONSTANTS, readFloat, scoreOf, medalOf, RESULT_LINES, MEDAL_TEXT, clockText, SOUNDS_2D, SOUNDS_3D, MEDAL_GOLD, MEDAL_SILVER, writeResult,
@@ -48,7 +48,7 @@ export default {
     const ok = (c, msg) => { checked++; if (!c) bad(msg); };
     const pe = loadExe(ctx.dataRoot);
     const cov = new Set(), cov05 = new Set(), cov1 = new Set();
-    const known = { T1a: [] };
+    
     let maxUlps = 0, ticksTotal = 0, extra3 = [];
     const t0 = Date.now();
 
@@ -114,7 +114,6 @@ export default {
         noteVoices(E);
         checked += c.checks + l.checks; ticksTotal++;
         maxUlps = Math.max(maxUlps, c.maxUlps);
-        for (const k of c.known) known.T1a.push(k);
         if (c.bad.length || l.bad.length) { for (const m of [...c.bad.slice(0, 4), ...l.bad.slice(0, 2)]) bad(m); return -1; }
         observe(E, prev);
         prev.restarts = E.S.restarts; prev.hits = E.S.peptop?.myHits ?? 0; prev.falls = E.S.falls; prev.nextRow = E.S.zonetop?.nextRow ?? 0;
@@ -122,6 +121,7 @@ export default {
       }
       return n;
     };
+    const expandPlanOf = (plan) => { const a = []; for (const [m, k] of plan) for (let i = 0; i < k; i++) a.push(m); return a; };
     const planSeq = (plan, dt) => { const a = []; for (let i = 0; i < 16 / dt; i++) a.push(0); for (const [m, k] of plan) for (let i = 0; i < k; i++) a.push(m); return a; };
     const fresh = (dt, seed = 1, o = {}) => createBrpOracle(ctx, { dt, seed, ...o });
     const setPhase2 = (E) => { E.P.vars.set(VAR.PHASE, 2); E.O.vars.set(VAR.PHASE, 2); };
@@ -169,24 +169,22 @@ export default {
 
       // ============================================================ 3. the side run: the recorded plan (the original's exact probe), jumps, switch 1, the crumbling / arc platforms, restarts
       {
-        const E = fresh(1);
-        PepBrpNode.widenTrigger = false;
-        const seq = planSeq(PLAN1, 1);
-        const n = lock(E, (t) => (t < 844 ? seq[t] : null), 2000, 'run dt1 plan');
-        ok(n === 844, `dt1 plan: ${n} ticks in lock step (up to the tick before the switch-2 landing)`);
+        // the game's own timeline (dt 1 for the first five frames, then 0.5): PLAN1 from tick PLAN1_START up the whole tower: switch 1, BRI2 / BRI7 / BRI5, switch 2 (the original's own probe), the lift
+        const E = fresh('real');
+        const seq = [...Array(PLAN1_START).fill(0), ...expandPlanOf(PLAN1)];
+        const n = lock(E, (t) => (t < seq.length ? seq[t] : null), 3000, 'run real plan');
+        ok(n === seq.length, `real plan: ${n} of ${seq.length} ticks in lock step`);
+        ok(E.S.pepbrp.sw1 && E.S.pepbrp.sw2, `real plan: both switches were hit in both worlds (sw1 ${E.S.pepbrp.sw1}, sw2 ${E.S.pepbrp.sw2})`);
         // continue with random keys from the end of the plan
         const f = fuzzKeys(11, { left: 0.4, right: 0.3, alt: 0.3 });
-        lock(E, () => f(), 600, 'run dt1 after plan');
-        PepBrpNode.widenTrigger = true;
-        notes.push(`side run dt=1: the plan up to tick 844 (sw1 ${cov.has('run.sw1')}) + 600 random ticks; widened probe off (the original's own probe)`);
+        lock(E, () => f(), 600, 'run real after plan');
+        notes.push(`side run, the game's own timeline: PLAN1 (${seq.length} ticks, sw1 ${cov.has('run.sw1')}, sw2 ${cov.has('run.sw2')}, lift ${cov.has('run.lift')}) + 600 random ticks; the original's own probe`);
       }
       for (const [seed, label] of [[1, 'fuzz-a'], [2, 'fuzz-b'], [3, 'fuzz-c']]) {
         for (const dt of [1, 0.5]) {
           const E = fresh(dt, seed);
-          PepBrpNode.widenTrigger = false;
           const f = fuzzKeys(100 + seed, { left: 0.5, right: 0.15, alt: 0.25 });
           lock(E, () => f(), Math.round(900 / dt), `run ${label} dt${dt}`);
-          PepBrpNode.widenTrigger = true;
         }
       }
       // staged: Pepper put on the tower at heights of the switches / platforms, then random keys (the original's probes for sw1, sw2, BRI7, BRI5, the lift at every stage)
@@ -194,25 +192,30 @@ export default {
         const stages = [[1.45, 57.5, 'sw1'], [2.5216, 84.8, 'sw2 region'], [1.2, 70, 'crumble / arc region'], [-0.5, 100, 'upper tower']];
         for (const [k, [a, y, name]] of stages.entries()) {
           const E = fresh(dt, 5 + k);
-          PepBrpNode.widenTrigger = false;
           const f = fuzzKeys(300 + k, { left: 0.35, right: 0.35, alt: 0.3 });
           lock(E, () => f(), Math.round(400 / dt), `stage ${name} dt${dt}`, {
             before: (t, EE) => { if (t === 0) { EE.mem.wf32(EE.node('pepbrp').node + 0x94, 0); EE.S.pepbrp.hold = 0; teleportPepper(EE, a, y); } },
           });
-          PepBrpNode.widenTrigger = true;
         }
+      }
+      // the crumbling platform BRI7: Pepper put on it (the real run steps on it at the game's dt; at dt = 1 the plan of the old 30 Hz port was the only way there)
+      for (const dt of [1, 0.5]) {
+        const E = fresh(dt, 13);
+        const bri7 = E.P.records[REC.BRI7];
+        const f = fuzzKeys(78, { left: 0.3, right: 0.3, alt: 0.2 });
+        lock(E, (t) => (t < 2 / dt ? 0 : f()), Math.round(300 / dt), `crumble dt${dt}`, {
+          before: (t, EE) => { if (t === 0) { EE.mem.wf32(EE.node('pepbrp').node + 0x94, 0); EE.S.pepbrp.hold = 0; teleportPepper(EE, Math.atan2(bri7.x, bri7.z), bri7.y + 1.2); } },
+        });
       }
       // the lift: Pepper placed on BRI8 (the end of the side run): the lift rises, the phase variable becomes 2, the roof starts
       for (const dt of [1, 0.5]) {
         const E = fresh(dt, 9);
-        PepBrpNode.widenTrigger = false;
         const bri8 = E.P.records[REC.BRI8];
         const f = fuzzKeys(77, { left: 0.2, right: 0.2, up: 0.2, down: 0.2, space: 0.15, alt: 0.1 });
         lock(E, (t) => (t < 4 / dt ? 0 : f()), Math.round(700 / dt), `lift dt${dt}`, {
           before: (t, EE) => { if (t === 0) { EE.mem.wf32(EE.node('pepbrp').node + 0x94, 0); EE.S.pepbrp.hold = 0; teleportPepper(EE, Math.atan2(bri8.x, bri8.z) + 0.04, bri8.y + 1.2); } },
         });
         ok(E.P.vars.get(VAR.PHASE) === 2 && E.O.vars.get(VAR.PHASE) === 2, `lift dt${dt}: both worlds reach phase 2 (${E.P.vars.get(VAR.PHASE)} / ${E.O.vars.get(VAR.PHASE)})`);
-        PepBrpNode.widenTrigger = true;
       }
 
       // ============================================================ 4. the roof: random keys (walls, falls, bot knock-backs, pizza throws), the floor's collapse, the door
@@ -251,74 +254,44 @@ export default {
         };
         const windowAt = (y, radius) => { let lo = null, hi = null; for (let a = 2.45; a < 2.6; a += 1e-5) if (probe(a, y, radius) === REC.SWIC2) { if (lo === null) lo = a; hi = a; } return [lo, hi]; };
         const [wlo, whi] = windowAt(84.8);
-        notes.push(`T1a: the original's probe of switch 2 with Pepper on the ramp (y 84.8) hits for angles ${wlo.toFixed(5)} .. ${whi.toFixed(5)} (${(whi - wlo).toFixed(5)} rad wide; the docs say 0.0066); the port's widened probe (radius 0.16 + 0.5 * 0.0192 * R = ${(0.16 + 0.5 * DELTA * R).toFixed(3)}) hits ${windowAt(84.8, 0.16 + 0.5 * DELTA * R).map((v) => v.toFixed(5)).join(' .. ')}`);
+        notes.push(`T1a: the original's probe of switch 2 with Pepper on the ramp (y 84.8) hits for angles ${wlo.toFixed(5)} .. ${whi.toFixed(5)} (${(whi - wlo).toFixed(5)} rad wide; the docs say 0.0066)`);
         ok(whi - wlo > 0.0060 && whi - wlo < 0.0075, `switch 2's window at ground level is ${(whi - wlo).toFixed(5)} rad (docs: 0.0066)`);
-        // 6b. the lattice of the plan at dt = 1 on that lap: the step positions L0 = 2.53218, L1 = 2.51298 (angle + 2 pi): both outside the window; the landing tick of the plan's last jump
-        const L0 = 2.5321 + 0.0001, planAngle = -3.7510101795196533 + 2 * Math.PI;
-        ok(Math.abs(planAngle - 2.532183) < 1e-4, `lattice point L0 ${planAngle}`);
-        ok(!(planAngle >= wlo && planAngle <= whi) && !(planAngle - DELTA >= wlo && planAngle - DELTA <= whi), `dt=1: neither L0 (${planAngle.toFixed(5)}) nor L1 (${(planAngle - DELTA).toFixed(5)}) lies in [${wlo.toFixed(5)}, ${whi.toFixed(5)}]`);
-        // 6c. the landing overshoot (the probe sees a Pepper whose y is still below the ground in the landing tick): L1 hits for ray starts y in a band, the plan's landing tick has y_air 84.533
-        const Ep = fresh(1);
-        PepBrpNode.widenTrigger = false;
-        const seq = planSeq(PLAN1, 1);
-        lock(Ep, (t) => (t < 845 ? seq[t] : null), 2000, 'T1a plan landing');
-        const yAirLanding = Ep.S.pepbrp.yAir;
-        let band = [null, null];
-        for (let y = 83.5; y < 85.5; y += 0.001) if (probe(planAngle - DELTA, y) === REC.SWIC2) { if (band[0] === null) band[0] = y; band[1] = y; }
-        notes.push(`T1a dt=1: landing overshoot: L1 hits for ray starts y ${band[0]?.toFixed(3)} .. ${band[1]?.toFixed(3)}, the plan's landing tick has y_air ${yAirLanding.toFixed(3)} (ground 84.80)`);
-        ok(band[0] !== null && yAirLanding > band[1], `dt=1: y_air at the landing (${yAirLanding.toFixed(3)}) is above the band ${band[0]} .. ${band[1]} in which L1 would hit`);
-        ok(Ep.S.pepbrp.sw2 === false && Ep.mem.r8(Ep.node('pepbrp').node + 0x8b) === 0, 'dt=1: the plan does not trigger switch 2 in the original nor in the port (widened probe off)');
-        PepBrpNode.widenTrigger = true;
-        // 6d. walking through the window at 16 phases of the lattice: original (emulated) vs port with the original's probe vs port with the widened probe; dt = 1 and 0.5
+        // 6d. walking through the window at 16 phases of the lattice: the original (emulated) against the port, both with the original's own probe (the widening of the earlier port is gone); dt = 1 and 0.5
         const L0n = -3.7510101795196533;
         const table = {};
         for (const dt of [1, 0.5]) {
           const E = fresh(dt);
           const sv = E.save();
           const node = E.node('pepbrp').node;
-          const res = { orig: [], widened: [] };
-          for (const widen of [false, true]) {
-            PepBrpNode.widenTrigger = widen;
-            for (let k = 0; k < 16; k++) {
-              E.load(sv);
-              E.mem.wf32(node + 0x94, 0); E.S.pepbrp.hold = 0;
-              teleportPepper(E, L0n + 12 * DELTA + DELTA * k / 16, 84.8);
-              let first = -1, firstP = -1;
-              const ph = `T1a dt${dt} phase ${k}/16 ${widen ? 'widened' : 'exact'}`;
-              const nn = Math.round(40 / dt);
-              let diverged = false;
-              for (let t = 0; t < nn; t++) {
-                const h = t < 2 ? 0 : LEFT;
-                E.setInput(h, 0);
-                const oe = E.pass();
-                const { log } = portTick(E, ZoneLoop, null, h);
-                if (first < 0 && E.mem.r8(node + 0x8b)) first = t;
-                if (firstP < 0 && E.S.pepbrp.sw2) firstP = t;
-                if (diverged) continue;
-                const c = compareState(E, `${ph} t${t}`, { noCamera: true, known: widen && dt > 0.5 ? new Set(['node pepbrp.sw2']) : undefined });
-                const l = compareLogs(`${ph} t${t}`, log, oe);
-                checked += c.checks + l.checks; ticksTotal++;
-                if (c.known.length) { known.T1a.push(c.known[0]); diverged = true; continue; }
-                if (c.bad.length || l.bad.length) { if (widen && dt > 0.5 && firstP >= 0 && first < 0) { known.T1a.push(`${ph}: port ${c.bad[0] ?? l.bad[0]}`.slice(0, 200)); diverged = true; continue; } for (const m of [...c.bad.slice(0, 3), ...l.bad.slice(0, 2)]) bad(m); break; }
-              }
-              (widen ? res.widened : res.orig).push([first, firstP]);
-              if (!widen) ok(first === firstP, `${ph}: original hits at tick ${first}, the port at ${firstP}`);
-              else if (dt <= 0.5) ok(first === firstP, `${ph}: dt 0.5 needs no widening: original ${first}, port ${firstP}`);
-              else ok(firstP >= 0, `${ph}: the widened probe of the port hits (tick ${firstP}; the original: ${first})`);
+          const res = [];
+          for (let k = 0; k < 16; k++) {
+            E.load(sv);
+            E.mem.wf32(node + 0x94, 0); E.S.pepbrp.hold = 0;
+            teleportPepper(E, L0n + 12 * DELTA + DELTA * k / 16, 84.8);
+            let first = -1, firstP = -1;
+            const ph = `T1a dt${dt} phase ${k}/16`;
+            const nn = Math.round(40 / dt);
+            for (let t = 0; t < nn; t++) {
+              const h = t < 2 ? 0 : LEFT;
+              E.setInput(h, 0);
+              const oe = E.pass();
+              const { log } = portTick(E, ZoneLoop, null, h);
+              if (first < 0 && E.mem.r8(node + 0x8b)) first = t;
+              if (firstP < 0 && E.S.pepbrp.sw2) firstP = t;
+              const c = compareState(E, `${ph} t${t}`, { noCamera: true });
+              const l = compareLogs(`${ph} t${t}`, log, oe);
+              checked += c.checks + l.checks; ticksTotal++;
+              if (c.bad.length || l.bad.length) { for (const m of [...c.bad.slice(0, 3), ...l.bad.slice(0, 2)]) bad(m); break; }
             }
+            res.push([first, firstP]);
+            ok(first === firstP, `${ph}: original hits at tick ${first}, the port at ${firstP}`);
           }
-          PepBrpNode.widenTrigger = true;
           table[dt] = res;
-          const hitsO = res.orig.filter(([f]) => f >= 0).length;
-          const hitsW = res.widened.filter(([, f]) => f >= 0).length;
-          notes.push(`T1a dt=${dt}: the original hits switch 2 for ${hitsO} of 16 phases of the lattice (real lattice, phase 0: ${res.orig[0][0] >= 0 ? 'HIT at tick ' + res.orig[0][0] : 'miss'}); the port's widened probe (active only for dt > 0.5) hits for ${hitsW} of 16 (phase 0: ${res.widened[0][1] >= 0 ? 'hit' : 'miss'})`);
+          const hitsO = res.filter(([f]) => f >= 0).length;
+          notes.push(`T1a dt=${dt}: the original hits switch 2 for ${hitsO} of 16 phases of the lattice (real lattice, phase 0: ${res[0][0] >= 0 ? 'HIT at tick ' + res[0][0] : 'miss'}); the port (the original's own probe) agrees at every phase`);
         }
-        ok(table[1].orig[0][0] < 0, 'T1a: dt = 1, the real lattice (phase 0): the original does NOT hit switch 2');
-        ok(table[0.5].orig[0][0] >= 0, 'T1a: dt = 0.5, the real lattice (phase 0): the original hits switch 2 (no widening needed)');
-        ok(table[1].widened.every(([, f]) => f >= 0), 'T1a: dt = 1: the port widened probe hits at every phase (documented deviation)');
-        ok(table[1].widened[0][0] < 0, 'T1a: dt = 1, widened: the original misses where the port hits (KNOWN DEVIATION, counted)');
-        const ph0 = table[1].widened.filter(([f, p]) => f < 0 && p >= 0).length;
-        notes.push(`T1a KNOWN DEVIATION (dt = 1 only): ${ph0} of 16 lattice phases where the port's widened probe triggers switch 2 and the original's does not; ${known.T1a.length} compared items listed as known`);
+        ok(table[1][0][0] < 0, 'T1a: dt = 1, the real lattice (phase 0): the original does NOT hit switch 2 (the port agrees; dt = 1 is only the first five frames of the real game)');
+        ok(table[0.5][0][0] >= 0, 'T1a: dt = 0.5, the real lattice (phase 0): the original hits switch 2 (the window needs no widening at the game\'s 60 Hz step)');
       }
 
       // ============================================================ 7. the zone loop FUN_0081fd64 natively (modes 7 / 0 / 1 / 9 / 2 / 10 / 4, the game clock, the second help, the end sequence, the score) with the port in step
@@ -429,11 +402,24 @@ export default {
         notes.push(`loop dt=0.5: modes ${modes}, ${res.info.tick} ticks, side run won with the original's probe (sw2 at the lattice midpoint), second help after tick ${res.mode10At}, banner at tick ${res.bannerAt}, clock ${res.E.mem.r32(0x5d5f4c4)} (${clockText(res.E.mem.r32(0x5d5f4c4))})`);
       }
 
+      // the game's own step rule (World.advanceDt: dt 1 for the first five frames, then 0.5), the whole game from the intro: PLAN1 from PLAN1_START, the roof game, the end sequence, the banner
+      {
+        const m = expandPlan(ROOF_PLANS.freal ?? []);
+        ok(m.length > 1000, 'a recorded full game freal exists');
+        const res = loopGame('loop real', 'real', (t) => m[t] ?? 0, null);
+        const modes = res.modes.join(',');
+        ok(/^7,0,1,9,2,10,2,4/.test(modes), `loop real: modes ${modes}`);
+        ok(res.pendingAt > 0 && res.pendingAt === res.mode10At, `loop real: second help after tick ${res.pendingAt} (port) / ${res.mode10At} (original)`);
+        ok(res.E.S.pepbrp.lift && res.E.S.pepbrp.sw1 && res.E.S.pepbrp.sw2, `loop real: the side run was won (sw1 ${res.E.S.pepbrp.sw1}, sw2 ${res.E.S.pepbrp.sw2}, lift ${res.E.S.pepbrp.lift})`);
+        ok(res.bannerAt > 0 && res.bannerAt === res.mode4At, `loop real: banner at tick ${res.bannerAt} (port), original mode 4 at tick ${res.mode4At}`);
+        ok(res.clock0 === Math.trunc(res.E.S.elapsed), `loop real: the clock ${res.clock0} = the port's elapsed ${res.E.S.elapsed}`);
+        notes.push(`loop real (dt 1 for 5 frames, then 0.5): modes ${modes}, ${res.info.tick} ticks, second help after tick ${res.mode10At}, banner at tick ${res.bannerAt}, clock ${res.clock0} (${clockText(res.clock0)})`);
+      }
+
       // ============================================================ 8. the pause menu's restart: the original re-initialises the existing nodes in place (the constructors' re-init branches, FUN_00820f4e(0)),
       //            the port starts a fresh run: after a restart the original's side run must behave like a fresh game (records; flame bobbers excluded: they follow the wall clock)
       for (const dt of [1, 0.5]) {
         const E = fresh(dt, 3);
-        PepBrpNode.widenTrigger = false;
         const f = fuzzKeys(555, { left: 0.45, right: 0.15, alt: 0.3 });
         lock(E, (t) => (t < 16 / dt ? 0 : f()), Math.round(700 / dt), `restart prelude dt${dt}`);
         const before = { sw1: E.S.pepbrp.sw1, restarts: E.S.restarts, y: E.P.records[REC.PEPP].y };
@@ -456,12 +442,10 @@ export default {
           if (c.bad.length || l.bad.length) { for (const m of [...c.bad.slice(0, 3), ...l.bad.slice(0, 2)]) bad(m); bad0 = 1; }
         }
         ok(before.restarts > 0 || before.y > 5, `restart dt${dt}: the prelude left the start (y ${before.y.toFixed(1)}, ${before.restarts} falls)`);
-        PepBrpNode.widenTrigger = true;
       }
     } catch (e) {
       bad(`crashed: ${e.stack || e}`);
     }
-    PepBrpNode.widenTrigger = true;
 
     notes.push(`coverage at dt=1: ${[...cov1].sort().join(' ')}`);
     notes.push(`coverage at dt=0.5: ${[...cov05].sort().join(' ')}`);

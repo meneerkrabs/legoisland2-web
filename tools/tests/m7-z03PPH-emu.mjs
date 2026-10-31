@@ -27,10 +27,11 @@ export default {
     const lcgRnd = (seed) => { let s = seed >>> 0; return () => { s = (Math.imul(s, 1103515245) + 12345) >>> 0; return s / 4294967296; }; };
     const SHIFT = 0x40;
 
-    const make = (seed) => {
+    const make = (seed, dt = 1) => {
       const L = loadZone(ctx, 'z03PPH');
       const w = L.world;
       w.externalInput = true;
+      w.dt = dt;
       const p = L.pepper;
       // Pepper's chain: the zone's own nodes (ClimLadr, PeppComp, browser, map); the port's M1 safety net (StubGuard) and the walk node are not part of the oracle's chain
       const keep = p.ctrl.nodes.filter((n) => !['StubGuard', 'SGwalk'].includes(n.kind));
@@ -199,6 +200,8 @@ export default {
       }
       // ---- 1. scripted visits: walking (hotspots, cameras, door), the trophy browser, the map, the computer, trophies changing
       for (let sd = 0; sd < 6; sd++) { const E = make(10 + sd); visit(E, 2500, `visit${sd}`); }
+      // the same at dt = 0.5 (the 60 Hz step: every dt-scaled node step halves, the per-frame counters do not)
+      for (let sd = 0; sd < 3; sd++) { const E = make(30 + sd, 0.5); visit(E, 2500, `visit dt0.5 ${sd}`); }
       notes.push(`ticks ${stats.ticks} in ${Date.now() - t0} ms`);
     } catch (e) {
       bad(`test crashed: ${e.stack || e}`);

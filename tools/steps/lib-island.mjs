@@ -4,7 +4,7 @@ export function island({ page, wait, log, shot }) {
   S.state = () => page.evaluate(() => {
     const z = window.__zone; if (!z) return null;
     const p = z.loaded.pepper, v = z.sh.vars;
-    return { arch: z.info.archive, mode: z.machine.mode, tick: z.world.tickCount, pos: [p.x, p.y, p.z].map((x) => +x.toFixed(1)), yaw: +p.ry.toFixed(2), node: v.get(0x58), ctrl: v.get(0x5e), cs: !!z.game?.debug?.().cutscene,
+    return { arch: z.info.archive, mode: z.machine.mode, tick: z.world.tickCount / 2, pos: [p.x, p.y, p.z].map((x) => +x.toFixed(1)), yaw: +p.ry.toFixed(2), node: v.get(0x58), ctrl: v.get(0x5e), cs: !!z.game?.debug?.().cutscene,
       pizzas: v.get(0xb0), bricks: v.get(0x4f), pages: v.get(0xa5), heads: v.get(0x52), phase: v.get(0xad), s277: v.get(0x115), s303: v.get(0x12f), sub: v.get(0x59), next: v.get(5) };
   });
   /**
@@ -22,7 +22,7 @@ export function island({ page, wait, log, shot }) {
     return false;
   };
   /** the zone's simulation tick counter (game time: the bots wait in ticks so that a slow page does not make them miss things) */
-  S.ticks = () => page.evaluate(() => window.__zone?.world.tickCount ?? -1);
+  S.ticks = () => page.evaluate(() => (window.__zone ? window.__zone.world.tickCount / 2 : -1));   // game ticks of 1/30 s: the 60 Hz step counts two of its ticks for one
   /** poll `fn` until it is true or `maxTicks` simulation ticks passed (30 per second of game time) */
   S.untilTicks = async (fn, maxTicks, poll = 40) => {
     // (a stalled tick counter must not hang the bot: a paused game (menu open), a hidden page or a frozen zone stops the ticks, so the wait ends after 12 s of wall time without a tick)
@@ -94,6 +94,12 @@ export const teleportTo = (page, x, z, fx, fz) => page.evaluate(([x, z, fx, fz])
 export async function collectHead(S, page, wait, name, bit, log = () => {}) {
   const have = async () => (((await S.vars([0x8e]))[0x8e]) & bit) !== 0;
   const hitOf = (n) => page.evaluate((nm) => { const r = window.__zone.world.records.find((x) => x.name === nm); const hn = r?.ctrl?.nodes.find((x) => x.kind === 'BotHit'); return hn ? { armed: hn.armed } : null; }, n);
+  // (diagnostics of a failed cycle: the bot's record, its hit node, Pepper)
+  const diag = (n) => page.evaluate((nm) => {
+    const w = window.__zone.world, r = w.records.find((x) => x.name === nm), p = window.__zone.loaded.pepper, hn = r?.ctrl?.nodes.find((x) => x.kind === 'BotHit');
+    const f = (v) => +(+v).toFixed(2);
+    return { bot: r ? [f(r.x), f(r.y), f(r.z), r.flags, r.enabled] : null, pep: [f(p.x), f(p.y), f(p.z)], hit: hn ? { armed: hn.armed, fresh: hn.fresh, how: hn.how, dying: hn.dying, count: hn.count, waving: hn.waving } : null, kinds: r?.ctrl?.nodes.map((x) => x.kind), v8e: window.__zone.sh.vars.get(0x8e), v52: window.__zone.sh.vars.get(0x52), tick: w.tickCount, dt: w.dt };
+  }, n);
   for (let cycle = 0; cycle < 10; cycle++) {
     if (await have()) return true;
     let hit = false;
@@ -106,13 +112,13 @@ export async function collectHead(S, page, wait, name, bit, log = () => {}) {
       if (!hit) await S.untilTicks(async () => false, 25, 30);
     }
     if (await have()) return true;
-    if (!hit) { log(name, 'no hit in cycle', cycle); continue; }
+    if (!hit) { log(name, 'no hit in cycle', cycle, JSON.stringify(await diag(name))); continue; }
     await S.teleportNear(name, 3, 0);
     await page.keyboard.down('ArrowUp');
     const got = await S.untilTicks(have, 150, 30);
     await page.keyboard.up('ArrowUp');
     if (got) return true;
-    log(name, 'hit but not collected in cycle', cycle);
+    log(name, 'hit but not collected in cycle', cycle, JSON.stringify(await diag(name)));
   }
   return have();
 }

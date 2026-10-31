@@ -1,7 +1,7 @@
 // The particle system (src/fx/particles): the port against the ORIGINAL engine code (FX_Particle.c, LE2.EXE 0x44e860..0x458b00) run in the x86 interpreter.
 //  1. exact numbers: particle counts / first particle / RNG index of five effects after N ticks, read from the original at control word 0x7f (24-bit x87, as the game runs; seed 7, dt 1, matrix [3 2 -5])
 //  2. loaders: every .app / .emi / .mov / .par record of three archives byte for byte (+ the max particle counts, [EMITS] blocks)
-//  3. scenarios (original vs port every frame: all draw list particles, emitter blocks, matrices, RNG index): move, dt 0.5 .. 1.3, gates, parameter overrides, stop,
+//  3. scenarios (original vs port every frame: all draw list particles, emitter blocks, matrices, RNG index): move, dt 0.5 .. 1.3, the game's dt (1.0 x 5, then 0.5) and a constant 0.5, gates, parameter overrides, stop,
 //     floor / PCOL collision, pause, distance LOD; swirls; the draw functions (quad, clip, sort)
 // PARTICLES_FULL=1 runs every scenario of every effect (several minutes: /tmp scripts of WP-PART: tools/lib/particle-oracle.mjs `runScenario`).
 import { ParticleEngine } from '../../src/fx/particles/engine.ts';
@@ -22,6 +22,9 @@ const GOLD = [
 const SC = {
   move: { frames: 60, move: (f, M) => { M[12] = 3 + f * 0.37; M[13] = 2 + Math.sin(f * 0.2) * 1.5; M[14] = -5 + f * 0.11; } },
   dt: { frames: 50, dt: (f) => 0.5 + (f % 5) * 0.31, move: (f, M) => { M[12] = 3 + f * 0.2; } },
+  // the game's own steps: 1.0 for the first five frames, then 0.5 at the fixed 60 Hz (FUN_00443e40), and the constant 0.5
+  game: { frames: 70, dt: (f) => (f < 5 ? 1 : 0.5), move: (f, M) => { M[12] = 3 + f * 0.2; M[13] = 2 + Math.sin(f * 0.3); } },
+  half: { frames: 70, dt: () => 0.5 },
   gate: { frames: 100, gates: [{ frame: 20, var: 1, mask: 1, value: 1 }, { frame: 50, var: 2, mask: 1, value: 1 }, { frame: 80, var: 1, mask: 0, value: 1 }] },
   param: { frames: 70, params: [{ frame: 10, type: 8, value: 3.5 }, { frame: 30, type: 0, value: 0.5 }, { frame: 40, type: 2, value: 0.2 }, { frame: 50, type: 4, value: 0.9 }] },
   stop: { frames: 90, stop: 30 },

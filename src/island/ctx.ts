@@ -30,6 +30,8 @@ export interface IslandCtx {
   cutsceneActive(): boolean;
   /** FUN_0045c456(on): the override flag DAT_05d4dc8c that dialogs / triggers set */
   holdCutscene(on: boolean): void;
+  /** Port only: the script of `slot` is likely to start soon (its NPC / trigger is near): read its voices ahead (CutsceneHost.prefetch). Optional. */
+  prefetchCutscene?(slot: number): void;
 
   // ---- text and speech (SDText.c, FUN_00439bf8 / FUN_00435a11 / FUN_00435ad3)
   /** the message tables the story handler selected for the current node: `npc` = LI/Data/lifsmN.str (the lines the talking NPCs say: tags `<NAME>A`, `<NAME>C` ...), `hol` = lihol N.str (hologram hints) */
@@ -44,6 +46,10 @@ export interface IslandCtx {
   clearSubtitle(): void;
   /** FUN_00435ad3: no speech is playing */
   speechIdle(): boolean;
+  /** Port only (the original reads speech from disk instantly): the line that starts next has no audio data yet; the NPC's talk clip / mouth wait with it so they start together with the audio. Optional: absent = never. */
+  speechWaiting?(): boolean;
+  /** Port only: read lines `ids` of `table` (the tags a talking NPC / hologram will say) into memory in the background before they are said. Optional. */
+  prefetchSpeech?(table: MessageTable, ids: Iterable<string>, opts?: { decode?: boolean }): void;
   /** FUN_00435b07 */
   stopSpeech(): void;
 
@@ -133,3 +139,8 @@ export function ctxOf(world: World): IslandCtx {
 }
 /** the context when there is one (nodes that also run in tests without it) */
 export function tryCtx(world: World): IslandCtx | undefined { return world.ext.get(KEY) as IslandCtx | undefined; }
+
+/** Port only: the tags of a message table that have a voice, in speech order (the order of the files in the disc image: neighbours are read in one range request; src/audio/speech.ts) */
+export function voicedTags(t: MessageTable): string[] {
+  return t.entries.map((e) => ({ tag: e.tag, v: t.voice(e.tag) })).filter((x) => x.v >= 0).sort((a, b) => a.v - b.v).map((x) => x.tag);
+}

@@ -68,7 +68,7 @@ export function placeSwimmer(w: World): SwimmingBrikimal | null {
   if (!rec || rec.name !== 'BML2' || rec.ctrl?.nodes.some((n) => n.kind === 'Brikimal')) return null;
   const home = swimmerHome(w);
   if (!home) return null;
-  rec.x = home[0]; rec.y = w.seaLevel - FLOAT; rec.z = home[1]; rec.ry = 0; rec.rebuildYaw(); rec.savePrev();
+  rec.x = home[0]; rec.y = w.seaLevel - FLOAT; rec.z = home[1]; rec.ry = 0; rec.rebuildYaw();
   const node = new SwimmingBrikimal(rec.y);
   node.var = VAR_BML2; node.mask = 0; node.value = 0;
   if (!rec.ctrl) rec.ctrl = new Controller();

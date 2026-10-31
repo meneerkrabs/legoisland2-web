@@ -4,13 +4,14 @@
 //   M8_ONLY=0x42f470,0x4bec00  node test.mjs-style focus on constructors;  M8_ZONES=isl2,isl56,z07CSI  zones to run
 import { buildIslandOracle, buildHubOracle, nativeNodes, portNodes, compareBlocks } from '../lib/m8-save.mjs';
 import { setIslandRandom } from '../../src/island/rng.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const ONLY = process.env.M8_ONLY ? new Set(process.env.M8_ONLY.split(',').map((x) => Number(x))) : null;
 const ZONES = process.env.M8_ZONES ? process.env.M8_ZONES.split(',') : ['isl2', 'isl16', 'isl37', 'isl56', 'isl61', 'z07CSI', 'z13CAI', 'z14OSD', 'z16PYA', 'z23DIP', 'z40OGL'];
 /** constructors the port does not build yet (placeholders land here until a worker ports them) */
 const KNOWN_UNPORTED = new Set([]);
 
-export default {
+const __test = {
   name: 'm8-save-nodes',
   run(ctx) {
     // the port's lazy constructor halves (SUPE's destination ...) draw random numbers when the block is first asked for: the oracle's rand is scripted to 0, so is the port's
@@ -42,3 +43,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

@@ -3,17 +3,8 @@
 // `game.ts` (rgbgame) and the ball pool `balls.ts`. Pure TypeScript, no DOM.
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
+import { randF } from '../../game/crt.ts';
 import { K, REC, REC_NAMES, PHASE, VAR } from './consts.ts';
-
-/** a source of uniform numbers in [0, 1) (the original's rand() / 32767; tests inject a seeded one) */
-export interface Rng { next(): number }
-export class MathRng implements Rng { next() { return Math.random(); } }
-/** a small deterministic generator for tests */
-export class Lcg implements Rng {
-  private s: number;
-  constructor(seed = 1) { this.s = seed >>> 0; }
-  next() { this.s = (Math.imul(this.s, 1664525) + 1013904223) >>> 0; return this.s / 4294967296; }
-}
 
 /** the sounds the zone plays, by name (the zone game maps them to sound-table ids, tests record them) */
 export interface SoundSink {
@@ -107,7 +98,6 @@ export function wrapPi(a: number): number { a = F(a); return -PI32 <= a ? (PI32 
 export function yawError(rec: GameRecord, target: ArrayLike<number>): number { return wrapPi(F(rec.ry - F(Math.atan2(F(target[0] - rec.x), F(target[2] - rec.z))))); }
 
 export class RgbState {
-  rng: Rng;
   sound: SoundSink = SILENT;
   /** FUN_00439bf8 + FUN_00435a11: speak a line of the zone's table; false while another is playing */
   say: (id: string) => boolean = () => true;
@@ -174,7 +164,7 @@ export class RgbState {
   /** DAT_05d5b290 etc.: the speech flags (DAT_05d5b418: phase 2 line said, DAT_05d5b41c: banner line said, DAT_05d5bb00: first hit line said) */
   saidPhase2 = false; saidBanner = false; saidFirstHit = false;
   /** the camera and the zoom of the walk, saved when a cannon is entered (node +0x24 .. +0x6c) */
-  camBackup = new Float64Array(18);
+  camBackup = new Float32Array(18);
   savedFov = 1;
   /** node +0x15 of rgbgame: the result variables were written */
   resultWritten = false;
@@ -187,10 +177,8 @@ export class RgbState {
   /** the tick the player's mode word changed (diagnostics) */
   events: string[] = [];
 
-  constructor(rng: Rng = new MathRng()) { this.rng = rng; }
-
-  /** FUN_004388ae(x) */
-  rand(x: number): number { return this.rng.next() * x; }
+  /** FUN_004388ae(x) on the shared CRT generator (src/game/crt.ts): `(float)rand() / 32767.0f * x`, float32 steps, 0 for x <= 0; tests script rand() with `setRandSource` there */
+  rand(x: number): number { return randF(x); }
 
   /** a record the zone looks up by index, with a name check (a different build of the data would have other indices) */
   static check(records: GameRecord[]): string[] {

@@ -2,9 +2,10 @@ import { loadIsland, tick, press } from '../lib/island-load.mjs';
 import { setAmbientRandom, islandRigs, islandSoundHandles, cueTable, DirectorState, directorTick, musicKeysFor, MUSIC_BUILDINGS } from '../../src/island/ambient/index.ts';
 import { animalGlobals, BSpline } from '../../src/island/ambient/animals.ts';
 import { partMatrix } from '../../src/island/trigger/parts.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // WP7 (src/island/ambient): the island's animals, Spin, Brikimal, Music and the director on the real island world (docs/re/m4/wp7-ambient.md).
-export default {
+const __test = {
   name: 'm4-wp7-ambient',
   run(ctx) {
     const failures = [], notes = [];
@@ -222,3 +223,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

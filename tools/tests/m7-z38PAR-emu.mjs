@@ -24,9 +24,8 @@ export default {
   run(ctx) {
     const failures = [], notes = [];
     let checked = 0;
+    const ok0 = (c, msg) => { checked++; if (!c) bad(msg); };
     const pe = loadExe(ctx.dataRoot);
-    const TOL = +(process.env.PAR_TOL ?? 1);
-    const ABS = 6e-4;
     const cover = { states: new Set(), sounds: new Map(), speech: new Map(), landed: 0, bounces: 0, rings: 0, missed: 0 };
     const bump = (m, k) => m.set(k, (m.get(k) ?? 0) + 1);
     const nx = (s) => (Math.imul(s, 1103515245) + 12345) & 0x7fffffff;
@@ -39,23 +38,23 @@ export default {
       let sp = seed, so = seed;
       const dr = { p: [], o: [] };
       setRandomSource(() => { sp = nx(sp); dr.p.push(sp >> 8 & 0x7fff); return (sp >> 8 & 0x7fff) / 32768; });
-      const rngO = { range: (x) => { if (x <= 0) return 0; so = nx(so); dr.o.push([so >> 8 & 0x7fff, x]); return Math.fround(Math.fround((so >> 8 & 0x7fff) / 32767) * x); } };   // FUN_004388ae at 24-bit precision: the division and the product round to float32
+      const rngO = { int: () => { so = nx(so); dr.o.push(so >> 8 & 0x7fff); return so >> 8 & 0x7fff; } };   // the scripted rand(); FUN_004388ae runs natively
       // ---- the port
       const L = loadZone(ctx, 'z38PAR', { pe: loadExe(ctx.dataRoot) });
       const W = L.world; W.dt = dt;
       const run = startParRun(W, L.archive);
       const R = run.recs;
+      for (const r of W.records) if (r.name === 'SEAE') r.flags |= 0x10;     // SeaAmin's constructor (FUN_004b1212): the foam is not solid; both worlds have it from the start (the port's node sets it in its first update, which only runs in the game)
       const pilot = R.pepp.ctrl.find('ParPilot');
       const nodeOf = (kind) => { for (const r of W.records) { const n = r.ctrl?.find(kind); if (n) return { rec: r.index, node: n }; } throw new Error(`no ${kind}`); };
       const birds = nodeOf('ParBirds').node, balloon = nodeOf('ParBalloon').node, boat = nodeOf('ParBoat').node, canopy = nodeOf('ParCanopy').node;
       const nodeRecords = { pilot: R.pepp.index, birds: nodeOf('ParBirds').rec, balloon: nodeOf('ParBalloon').rec, canopy: nodeOf('ParCanopy').rec, plane: nodeOf('ParPlane').rec, boat: nodeOf('ParBoat').rec };
-      // KNOWN DEVIATION (dt = 0.5): `anim.advance(rate)` without `w.dt` in the port's pilot / bird code (the original's FUN_0043b76a steps by rate * DAT_008b1718): the test passes the
-      // world's dt for those calls (and counts them) so that the rest of the dt = 0.5 run is still compared
+      // every animation advance of the port must carry the world's dt (the original's FUN_0043b76a steps by rate * DAT_008b1718): a call without it is a failure
       for (const r of W.records) {
         const a = r.anim;
         if (!a) continue;
         const adv = a.advance.bind(a);
-        a.advance = (rate, d) => { if (d === undefined) { if (dt !== 1) dtShim.n++; return adv(rate, dt); } return adv(rate, d); };
+        a.advance = (rate, d) => { if (d === undefined) { dtShim.n++; bad(`${label}: anim.advance(${rate}) called without dt`); return adv(rate, dt); } return adv(rate, d); };
       }
       const plog = [];
       const wrap = (name, f) => { const o = run.sound[name].bind(run.sound); run.sound[name] = (...a) => { f(...a); return o(...a); }; };
@@ -106,7 +105,7 @@ export default {
         checked++;
         const dd = Math.abs(orig - port);
         if (dd > (worst.get(name) ?? 0)) worst.set(name, dd);
-        if (!(dd <= Math.max(tol * TOL * Math.max(1, Math.abs(orig)), tol <= 1e-6 ? 0 : ABS))) { nfail++; bad(`${label}: tick ${tick} ${name}${idx}: original ${orig} port ${port} (pilot state ${pilot.state})`); }
+        if (dd !== 0 && orig !== port) { nfail++; bad(`${label}: tick ${tick} ${name}${idx}: original ${orig} port ${port} (pilot state ${pilot.state})`); }
       };
       const eq = (name, orig, port, idx = '') => {
         checked++;
@@ -143,7 +142,7 @@ export default {
           if (!all && !chg.has(i)) continue;
           const a = RECORDS_BASE + i * REC, r = W.records[i], nm = r.name;
           if (nm === 'SHAD') { eq('SHAD visible (= DAT_05d57de4)', (mem.r32(0x5d57de4) | 0) !== 0, (r.flags & 2) !== 0); continue; }   // the original shows it only inside the canopy's draw hook, the port keeps a flat quad (known, render only)
-          for (let k = 0; k < 16; k++) cmp(nm + ' m', mem.f32(a + 0xc + 4 * k), r.m[k], 1e-5, `[${k}]`);
+          for (let k = 0; k < 16; k++) cmp(nm + ' m', mem.f32(a + 0xc + 4 * k), r.m[k], 0, `[${k}] #${i}`);
           if (watched.test(nm)) {
             cmp(nm + ' rx', mem.f32(a + 0x4c), r.rx); cmp(nm + ' ry', mem.f32(a + 0x50), r.ry); cmp(nm + ' rz', mem.f32(a + 0x54), r.rz);
             eq(nm + ' visible', (mem.r16(a + 0x60) & 2) !== 0, (r.flags & 2) !== 0, ` #${i}`);
@@ -177,7 +176,8 @@ export default {
           eq('hud chute icon', oh.chuteIcon, ph.chuteIcon);
           // KNOWN DEVIATION: the original does not clamp the gauge position below (DAT_05d4e138 = 204 - local_20 > 204 when height > refAlt); the port's marker is clamped to the bar
           if (oh.gauge > 204.0001) gaugeOver.n++;
-          cmp('hud gauge', Math.min(oh.gauge, 204), 204 * ph.gauge.marker, 1e-5);
+          cmp('hud gauge', oh.gauge, ph.gauge.value, 0);
+          cmp('hud gauge marker', Math.min(1, Math.max(0, Math.fround(oh.gauge / 204))), ph.gauge.marker, 0);
           eq('hud segments', oh.segments.join(), ph.gauge.segments.join());
           for (let g = 0; g < 3; g++) cmp('hud blink counter', oh.blink[g], hud.blink[g], 1e-6, ` ${g + 1}`);
           eq('hud chuteOk', (mem.r32(0x5d57d10) | 0) !== 0, run.chuteOk); cmp('hud refAlt', mem.f32(0x5d57d00), run.refAlt);
@@ -185,7 +185,7 @@ export default {
         // ---- sounds and speech in call order
         const a = parse(olog), b = plog;
         checked++;
-        const same = a.length === b.length && a.every((e, i) => e[0] === b[i][0] && e[1] === b[i][1] && e.slice(2).every((v, k) => Math.abs(v - b[i][2 + k]) <= Math.max(1e-4 * Math.max(1, Math.abs(v)), ABS)));
+        const same = a.length === b.length && a.every((e, i) => e[0] === b[i][0] && e[1] === b[i][1] && e.slice(2).every((v, k) => v === b[i][2 + k]));
         if (!same) { nfail++; bad(`${label}: tick ${tick}: calls differ (pilot state ${pilot.state})\n    original ${a.map((e) => e.join(' ')).join(' | ')}\n    port     ${b.map((e) => e.join(' ')).join(' | ')}`); }
         for (const e of a) if (e[0] === 'p2' && /^(hit|smack|land|thruRing|chute|splash|bigSplash)/.test(e[1]) && evs.length < 14) evs.push(`${e[1]}@${tick}`);
         for (const e of a) { if (e[0] === 'say') bump(cover.speech, e[1]); else bump(cover.sounds, `${e[0]} ${e[1]}`); }
@@ -343,12 +343,12 @@ export default {
     setRandomSource(null);
 
     const m = (x) => [...x].map(([k, v]) => `${k}x${v}`).join(' ');
-    notes.push(`KNOWN DEVIATION (dt 0.5): the port's pilot / pterodactyl code calls anim.advance(rate) without dt: ${dtShim.n} calls had the world's dt passed in by the test`);
-    notes.push(`KNOWN DEVIATION: the HUD gauge value exceeds 204 in the original in ${gaugeOver.n} ticks (height above the last reference altitude); the port clamps the marker to the bar`);
+    ok0(dtShim.n === 0, `every anim.advance of the port carries dt (${dtShim.n} calls without)`);
+    notes.push(`the HUD gauge value (DAT_05d4e138, unclamped) exceeds 204 in ${gaugeOver.n} ticks (height above the last reference altitude) and equals the original's exactly; only the bar's marker ratio is clamped (FUN_00460214 does the same)`);
     {
       const src = fs.readFileSync(new URL('../../src/zones/z38PAR.ts', import.meta.url), 'utf8');
       const calls = (src.match(/hud\.update\(run[^)]*\)/g) ?? []);
-      notes.push(`KNOWN DEVIATION (dt 0.5): HUD blink counters step 1 * DAT_008b1718; src/zones/z38PAR.ts calls ${calls.join(' / ')} without world.dt (${calls.filter((c) => !/dt/.test(c)).length} of ${calls.length} call sites)`);
+      ok0(calls.length > 0 && calls.every((c) => /dt/.test(c)), `HUD blink counters step 1 * DAT_008b1718: every hud.update call site of src/zones/z38PAR.ts passes world.dt (${calls.join(' / ')})`);
     }
     notes.push(`coverage: pilot states ${[...cover.states].sort().join(',')}; ring flags ${cover.rings} passed / ${cover.missed} missed; bounces ${cover.bounces}; landed ${cover.landed}`);
     notes.push(`sound calls: ${m(cover.sounds)}`);

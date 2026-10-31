@@ -241,7 +241,6 @@ export class SgmfigNode implements BehaviourNode {
     if (-1e38 < th) dy = sb(th, from[1]);
     const hit = w.col.probe(rec, from, [0, dy, 0], 1);
     if (!hit) { if (-1e38 < th) rec.y = th; } else { rec.x = hit.point[0]; rec.y = hit.point[1]; rec.z = hit.point[2]; }
-    rec.savePrev();
   }
 
   // ----------------------------------------------------------------------------------------------- FUN_00425c13
@@ -368,12 +367,27 @@ export class SgmfigNode implements BehaviourNode {
     return r;
   }
 
+  /**
+   * Port only (not in the original, which reads a speech file from disk instantly): Pepper is coming near, so read the voice of both pairs of lines this NPC can say (A/B, C/D; the pair
+   * that is next first) into memory in the background: the conversation's talk clip, subtitle and voice then start in the same frame, like the original's. Once per message table.
+   */
+  private prefetchedFor: MessageTable | null = null;
+  private prefetchLines(w: World, rec: GameRecord, ctx: NonNullable<ReturnType<typeof tryCtx>>) {
+    const t = ctx.text.npc;
+    if (!t || t === this.prefetchedFor || w.vars.get(9) === 0) return;
+    this.prefetchedFor = t;
+    const n = rec.name.slice(0, 4);
+    ctx.prefetchSpeech?.(t, this.line > 0 ? [n + 'C', n + 'D', n + 'A', n + 'B'] : [n + 'A', n + 'B', n + 'C', n + 'D']);
+    if (this.slot >= 0) ctx.prefetchCutscene?.(this.slot);      // (the NPC's own cutscene starts instead of the conversation when it has one)
+  }
+
   // ----------------------------------------------------------------------------------------------- FUN_00425902
   private stateLogic(w: World, rec: GameRecord, ctrl: Controller, v: number) {
     if (this.talk & 0x40) return;
     const g = npcGlobals(w), ctx = tryCtx(w);
     let set = 0, clr = 0;
     let { code, dist } = pepperSide(w, rec, ctrl, this.nearR2, FRONT_CONE);
+    if (ctx?.prefetchSpeech && dist < this.nearR2 * 4) this.prefetchLines(w, rec, ctx);
     const shiftOnMe = (w.input.pressed & SHIFT) !== 0 && g.target === rec;
     if (dist <= this.talkR2) {
       // the talk icon of the HUD (INTERACT_ICONS |= 1)
@@ -486,8 +500,11 @@ export class SgmfigNode implements BehaviourNode {
     const pep = w.focus;
     const speechOn = w.vars.get(9) !== 0;
     let end: boolean;
+    // port: the voice of the line has not arrived yet (read from the disc image): the talk clip, the mouth and the conversation timer wait with it, so they start with the audio
+    const waiting = speechOn && !this.pending && (ctx?.speechWaiting?.() ?? false);
     if ((w.input.pressed & SHIFT) === 0) {
-      if (!this.pending) {
+      if (waiting) end = false;
+      else if (!this.pending) {
         this.timer = sb(this.timer, ml(1, fr(w.dt)));
         if (TALK_MIN <= this.timer) end = false;
         else {
@@ -514,7 +531,8 @@ export class SgmfigNode implements BehaviourNode {
       this.camDue = 0;
       if (pep) actorCamera(w, rec, ad(pep.ry, PI), 1, CAM_HEIGHT, readVec(ctx?.pe, CAM_NPC_VA, CAM_NPC_DEFAULT));
     }
-    if ((this.talk & 2) === 0) rec.anim?.advance(1, w.dt);
+    if (waiting) { /* (port) the clip stays on its first frame until the audio starts */ }
+    else if ((this.talk & 2) === 0) rec.anim?.advance(1, w.dt);
     else {
       // pointing: turn towards the target, the point clip runs forward to frame 15 and back
       if (ctrl.walker) {
@@ -541,6 +559,7 @@ export class SgmfigNode implements BehaviourNode {
       return false;
     }
     // the face of the speaking NPC
+    if (waiting) return true;
     g.exprTimer = sb(g.exprTimer, ml(1, fr(w.dt)));
     if (g.exprTimer <= 0) {
       if (rand(100) <= EXPR_MOUTH_CHANCE) { g.exprTimer = 6; ctx?.expression?.(rec, randTrunc(6)); }

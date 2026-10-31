@@ -2,8 +2,8 @@
 //   SEAB  ctor FUN_004266ca  vtable 0x8addd0 {update FUN_00426633 (1), pre-render FUN_00426646 (1), destroy FUN_00426759, draw FUN_00426659 (the default draw), loader FUN_004266a2, saver FUN_00426684}
 //   SSEA  ctor FUN_00426da4  vtable 0x8ade00 {update FUN_00426a13, pre-render FUN_00426a26, destroy FUN_00426e55, draw FUN_00426a43, loader FUN_00426d7c, saver FUN_00426d5e}
 //   SSKY  ctor FUN_00426915  vtable 0x8adde8 {update FUN_004267ac, pre-render FUN_004267bf, destroy FUN_004269ea, draw FUN_004267d2, loader FUN_004268ed, saver FUN_004268cf}
-// The nodes' update / pre-render hooks do nothing (they return 1); all of their work is in the DRAW hooks, which the original runs once per drawn frame and which move the record's matrix: the port's renderer
-// (src/game/render.ts) calls `SkyNode.place` / `SeaNode.place` for the records of the zone that carry them, with the frame's camera, and draws the returned matrix. The node owns the state the original keeps
+// The nodes' update / pre-render hooks do nothing (they return 1); all of their work is in the DRAW hooks, which the original runs once per drawn frame (= once per sim step of the port's 60 Hz loop) and which move the record's matrix: the port's renderer
+// (src/game/render.ts) calls `SkyNode.place` / `SeaNode.place` ONCE PER SIM STEP for the records of the zone that carry them, with the step's camera eye and `SeabedView.dt` = world.dt (the hooks multiply their angle / phase steps by DAT_008b1718), and draws the returned matrix. The node owns the state the original keeps
 // in the node struct (the sky's angle, the sea plane's anchor point), which is what the save game holds; the sea's two orbit phases are engine globals (DAT_009da860 / 864) and live in the node of the world.
 import { registerCtor } from '../../game/setup.ts';
 import { NODE_STOP } from '../../game/controller.ts';
@@ -73,7 +73,7 @@ export class SkyNode extends SceneNode {
 
   /**
    * FUN_004267d2, the draw hook: the record gets the dome's matrix for the CURRENT camera eye `eye` (DAT_009da5e8; that is what the save game holds) and its frustum flag, the angle then turns by 0.000436 x
-   * the frame time and wraps at +-pi. Returns the matrix to draw: the one for `drawEye` (the interpolated eye of the frame) built with the angle before the turn.
+   * the frame time and wraps at +-pi. Returns the matrix to draw, built with the angle before the turn (the same as the record's). `drawEye` is only different from `eye` when a caller still interpolates (the loops run with alpha 1: they pass `eye` twice).
    */
   place(rec: GameRecord, eye: ArrayLike<number>, drawEye: ArrayLike<number>, v: SeabedView): Float32Array {
     rec.flags |= FRUSTUM;
@@ -114,7 +114,7 @@ export class SeaNode extends SceneNode {
 
   /**
    * FUN_00426a43, the draw hook: the anchor is set at the first draw; the orbit phases advance; the plane's range is the far plane, or the fog end (an integer in the engine) when the fog is on and nearer; the anchor
-   * follows the CURRENT camera eye `eye` in steps (x then z, up to 200 rounds); the record gets the matrix (its y is the sea level) and the frustum flag. Returns the matrix to draw for the frame's interpolated eye.
+   * follows the CURRENT camera eye `eye` in steps (x then z, up to 200 rounds); the record gets the matrix (its y is the sea level) and the frustum flag. Returns the matrix to draw (`drawEye` = `eye` since the loops run with alpha 1).
    */
   place(rec: GameRecord, eye: ArrayLike<number>, drawEye: ArrayLike<number>, v: SeabedView): Float32Array {
     if (this.anchored === 0) { this.anchor = [eye[0], eye[1], eye[2]]; this.anchored = 1; }

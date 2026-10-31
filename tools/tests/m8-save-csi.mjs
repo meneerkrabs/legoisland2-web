@@ -12,6 +12,7 @@ import { horseAxes } from '../../src/zones/z07CSI/horse/hors.ts';
 import { compareBlocks, snapshotBlocks, restoreBlocks, nativeNodes, origBlock, hex } from '../lib/m8-save.mjs';
 import { vehicles, berthPos } from '../../src/island/vehicles/common.ts';
 import { looksOf } from '../../src/island/vehicles/looks.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const PARTS = new Set((process.env.M8_CSI ?? 'rats,horse,cai').split(','));
 const MAXFAIL = 40;
@@ -51,7 +52,7 @@ function scratch(emu, fn) {
 }
 const newCover = () => ({ rosters: 0, distinct: new Map(), blocks: 0, moments: 0, trips: 0, loaded: 0, ctors: new Map(), ticks: 0 });
 
-export default {
+const __test = {
   name: 'm8-save-csi',
   async run(ctx) {
     const failures = [], notes = [];
@@ -362,3 +363,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

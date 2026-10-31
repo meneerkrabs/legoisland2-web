@@ -18,6 +18,7 @@ import type { Shell } from './shell.ts';
 import type { ZoneInfo } from './tables.ts';
 
 /** a subtitle shown while a speech line plays (FUN_00435a11 + the subtitle option of the options menu) */
+/** `ticksLeft` is in the game's time unit (1/30 s: one sim step takes `world.dt` of it) */
 export interface Subtitle { id: string; text: string; ticksLeft: number }
 /** how `sayFrom` shows the text: `timed` = each line as a subtitle for its time, together with the voice (the shell's lines); `held` = FUN_0045d47f: the text of the lines
  *  (A + B, FUN_0085b580) written into the four subtitle lines at once, even while the voice has to wait, and shown until `clearSubtitle` (the talking NPCs, FUN_004254a5); `none` = the voice only */
@@ -50,6 +51,13 @@ export interface ZoneGameCtx {
   speechIdle(): boolean;
   /** FUN_00435b07: stop the speech */
   stopSpeech(): void;
+  /**
+   * Port only (the original reads a speech file from disk instantly, so the voice, the subtitle and the talk animation start in one frame): the line that starts next has no audio
+   * data yet, so whatever depends on the audio (an NPC's talk clip and mouth, the subtitle, a speech timer) waits with it. False without audio.
+   */
+  speechWaiting(): boolean;
+  /** Port only: read the speech of lines `ids` of `table` (default: the zone table) into memory in the background, in the order they will be said; never blocks */
+  prefetchSpeech(ids: Iterable<string>, table?: MessageTable | null, opts?: { decode?: boolean }): void;
   /** the subtitle currently shown, if any */
   subtitle(): Subtitle | null;
   /** draw message `id` of the zone table (or STD with `std`) like FUN_00439c6f: wrapped at `maxChars`, centred at x, first baseline y (640x480 grid) */

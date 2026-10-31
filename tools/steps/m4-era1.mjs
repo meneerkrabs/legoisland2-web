@@ -103,7 +103,8 @@ export default async (h) => {
     await S.hold('ArrowUp', 1500);
     await loadFromFrontEnd();
     s = await S.state();
-    expect('load from the front end: island era 1, node 12, at the saved place', s.sub === 31 && s.node === 12 && dist(s.pos, saved.pos) < 1.5 && (s.ctrl & 0xfff) === 1, `saved ${saved.pos} now ${JSON.stringify(s)}`);
+    // (the start tap of `S.start` is an arrow key held for 70 ms = 4 or 5 steps of the 60 Hz loop: Pepper walks up to 2 units before the state is read)
+    expect('load from the front end: island era 1, node 12, at the saved place', s.sub === 31 && s.node === 12 && dist(s.pos, saved.pos) < 3 && (s.ctrl & 0xfff) === 1, `saved ${saved.pos} now ${JSON.stringify(s)}`);
     await shot('era1-03-loaded');
   }
 

@@ -27,6 +27,7 @@ export class FeEmu {
     mem.addRegion({ lo: HEAP_BASE, hi: HEAP_BASE + 0x400000, name: 'heap' });
     mem.addRegion({ lo: RECORDS_BASE, hi: RECORDS_BASE + 0x40000, name: 'records' });
     this.brk = HEAP_BASE;
+    mem.wf32(0x8b1718, 1);   // DAT_008b1718: the step time (tests change it with setDt)
     this.log = [];
     this.rng = o.rng;
     this.unhooked = new Map();
@@ -51,7 +52,8 @@ export class FeEmu {
     H.set(0x4388ae, (c) => { c.fpush(L.rng.range(c.argf(0))); });
     const inst = (c) => L.anims.get(c.arg(0));
     H.set(0x43b6a3, (c) => { const a = inst(c); c.eax = a && a.start(c.arg(1) | 0, c.argf(2)) ? 1 : 0; });
-    H.set(0x43b76a, (c) => { const a = inst(c); c.eax = a ? a.advance(c.argf(1)) : 0; });
+    // FUN_0043b76a advances by rate * DAT_008b1718: the port's AnimInstance gets the step time the test wrote into the emulated memory (`setDt`)
+    H.set(0x43b76a, (c) => { const a = inst(c); c.eax = a ? a.advance(c.argf(1), mem.f32(0x8b1718)) : 0; });
     H.set(0x43b73f, (c) => { const a = inst(c); c.fpush(a ? a.frame : 0); });
     H.set(0x444550, (c) => { logf(`mode ${this.recIndex(c.arg(0))} ${c.arg(1)} ${c.arg(2)}`); c.eax = 0; });
     H.set(0x4446c0, (c) => { logf(`attr ${this.recIndex(c.arg(0))} ${c.arg(1)}`); c.eax = 0; });
@@ -89,6 +91,8 @@ export class FeEmu {
     cpu.fallback = (addr) => (c) => { L.unhooked.set(addr, (L.unhooked.get(addr) ?? 0) + 1); c.eax = 0; };
   }
 
+  /** DAT_008b1718 */
+  setDt(dt) { this.cpu.mem.wf32(0x8b1718, dt); }
   alloc(n) { const p = this.brk; this.brk += (n + 15) & ~15; return p; }
   recPtr(i) { return RECORDS_BASE + i * REC; }
   recIndex(p) { return Math.floor((p - RECORDS_BASE) / REC); }

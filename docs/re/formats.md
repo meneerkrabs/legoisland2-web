@@ -702,12 +702,16 @@ build matrices, `FUN_0043e43d` quaternion -> matrix, `FUN_0043e59e`/`FUN_0043e81
   **inverse** of q. In column-vector form (WebGL): `world_k = world_parent * [ R(q)^T | t ]`.
 * `t` of bone k>0 = `(-offset.x, offset.y, offset.z)` (the `-1` is the integer constant at 0x8b1720); the root (bone 0) uses the frame's first 3
   floats with x negated. The result lives in the same space as the vertex positions of the skinned meshes (the mesh x axis is mirrored w.r.t. the file offsets).
-* Time is in frames. The game advances `time += 1.0 x speed` per game tick (`FUN_0043b76a(inst, 1.0)`; speed 2.0 in a few places), so playback
-  is 1 frame per game tick (the game runs at 30 Hz according to Moreno's analysis; not verified in the EXE). A non-looping clip stops at `frames-1`;
+* Time is in frames. The game advances `frame += rate * DAT_008b1718` per DRAWN frame (`FUN_0043b76a(inst, rate)` multiplies by the global itself; rate 1.0, 2.0 in a few places), and `DAT_008b1718`
+  is the frame time in 1/30 s units (0.5 at 60 Hz), so a clip plays at 30 frames per second whatever the display rate (verified in the decompile, WP-TIME; the float32 accumulation is checked bit for bit
+  against the emulated function at dt 1, 0.5, 0.7 and 2: `m7-pose-emu`). A non-looping clip stops at `frames-1`;
   a looping one (flag 0x10) wraps at `frames` and interpolates from the last frame to frame 0.
 * Interpolation (only when the instance flag bit 2 is clear, which is the normal case): `frac = time - floor(time)`; **if `frac >= 0.1`** the root
   is lerped and the bone quaternions are slerped (shortest path) toward the next frame, otherwise the frame is used exactly (constants 0x8920cc = 0.1f).
-  `sampleBlk(..., snap = 0.1)` reproduces that; the default (snap 0) interpolates always.
+  `sampleBlk(..., snap = 0.1)` reproduces that; the default (snap 0) interpolates always. WP-TIME: `sampleBlk` is the original's `FUN_0043ba7a` / `FUN_0043b987` / `FUN_0043e43d` / `FUN_0043e59e` step for step
+  at the x87's 24 bit precision (the translation lerp `(next - cur) * f + cur`, the quaternion matrix from products of 2x, 2y, 2z, the slerp weights `sin((1 - t) w) / sin w` with the CRT acos / sin, the bone
+  chain `local * parent` with `FUN_0043a9e5`), bit-exact against the emulated original over all 132 rigs (`m7-pose-emu`, tolerance 0). The frame after the last one is frame 0 whatever the loop flag says
+  (`i + 1 < frames ? i + 1 : 0`). `skinPositions` / `skinNormals` follow `FUN_0088b87b` with float32 steps.
 
 Validation: for the minifig skin `MFG_HR` + `MFIG.blk`, the primary and the additional influences of every vertex (436 records in z02LGI) land on the same
 world position to **1.1e-7** at frame 0 of clip 2 (the bind pose of the minifig), and the other human/Brickster meshes (`MFG_*`, `PEPP_*`, `BB_*`, the

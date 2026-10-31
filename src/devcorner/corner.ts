@@ -34,8 +34,6 @@ export class RunHandle {
   }
   afterSim() { for (const k of this.hooks) k.afterSim?.(); }
   storyLeave(): boolean { let r = false; for (const k of this.hooks) if (k.storyLeave?.()) r = true; return r; }
-  /** render interpolation: a paused game is drawn at its last tick (no sweeping between the last two) */
-  alpha(a: number): number { return this.c.isOpen && this.c.pause ? 1 : a; }
   draw3d: NonNullable<RunHook['draw3d']> = (r, eye, vp) => { for (const k of this.hooks) k.draw3d?.(r, eye, vp); };
   hasDraw3d() { return this.hooks.some((k) => k.draw3d); }
   destroy() { for (const k of this.hooks) k.destroy?.(); this.hooks = []; this.c.detach(this); }

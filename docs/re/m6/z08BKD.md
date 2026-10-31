@@ -14,7 +14,7 @@ browser steps `tools/steps/m6-z08BKD.mjs` (win) / `m6-z08BKD-loss.mjs` (loss, pa
 |---|---|
 | `z08BKD.ts` | `registerCtor` for the 12 constructors of FUN_005b9430 (0x5be9f0 anchor, 0x5bfad5 page, 0x5c01e8 brick, 0x5bd2b1 cannon, 0x5bcd17 ball, 0x5be08a clam, 0x5be5e0 octopus, 0x5bd8b4 pirate, 0x5bc592 fish, 0x5bf7ce dolphin, 0x5c23f9 diver, 0x5c06d7 camera); `registerZoneGame('z08BKD')` |
 | `z08bkd/consts.ts` | every float / immediate of the zone as a named constant with its address (`FLOAT_ADDRS` is checked against the EXE by the test), record indices, sound ids, hurt templates, camera table address |
-| `z08bkd/math.ts` | `wrapAngle` FUN_005bb164, `angleDelta` FUN_005bb05d, `rotateShape` FUN_005ba8b0, `segmentSphere` FUN_0043d159, `ZoneClock` FUN_005baf8f / 005baffd, `Rng` (FUN_004388ae) |
+| `z08bkd/math.ts` | `wrapAngle` FUN_005bb164, `angleDelta` FUN_005bb05d, `rotateShape` FUN_005ba8b0, `segmentSphere` FUN_0043d159, `ZoneClock` FUN_005baf8f / 005baffd, `Rng` (FUN_004388ae on the shared CRT generator `src/game/crt.ts`, WP-TIME) |
 | `z08bkd/graph.ts` | waypoint graph FUN_005bb2da of `W_OTH_C.wpt` (69 nodes): `adjacent` FUN_004639a7, tag lookups FUN_005bb867 / 919 / 9eb, loops FUN_005bb600, route search FUN_005bb588 / 3b0 |
 | `z08bkd/hurt.ts` | hurt zones FUN_005ba570 (register), FUN_005ba5d7 (move), FUN_005ba745 (test the diver's quad edges against the spheres) |
 | `z08bkd/physics.ts` | `castQuad` FUN_005ba9a7, `bounce` FUN_005bc194, `swingPush` FUN_005be690 / 005be130, `hitSpin` FUN_005c188e |

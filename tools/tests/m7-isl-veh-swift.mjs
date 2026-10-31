@@ -4,10 +4,11 @@
 // animation clip / frame, sound calls, random draws.
 import { m8Note } from '../lib/m8-d.mjs';
 import { ambientDuel, CTOR, hostFiles, SPLINE_EXEC, giveAnims } from '../lib/m7-isl-veh-ambient.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MAXFAIL = 30;
 
-export default {
+const __test = {
   name: 'm7-isl-veh-swift',
   async run(ctx) {
     const failures = [], notes = [];
@@ -71,3 +72,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

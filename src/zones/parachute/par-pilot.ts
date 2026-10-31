@@ -44,7 +44,7 @@ export const PILOT = {
   PITCH_RATE: f32(0.07),      // double 0x8924a8, stored as a float: node +0x74 per tick while Up / Down are held
   LEAN_LO: 0.6283185,         // double 0x8924a0 (pi / 5)
   LEAN_HI: 2.3561945,         // double 0x892498 (3 pi / 4)
-  FALL_BASE: 0.4,             // 0x892118 and double 0x892490
+  FALL_BASE: Math.fround(0.4),   // the float at 0x892118 (the double at 0x892490, the factor of the sine, holds the same value 0.4000000059604645)
   RING_BONUS: [750, 500, 250] as const,  // 0x8924b0 / 0x8924b4 / 0x892240: ring 1 / 2 / 3
   DIVE_BONUS: 1000,           // 0x892120 (pitch between 4 and 5.5 radians when the ring is passed)
   LAND_FULL: [5000, 2500, 1000] as const,    // 0x8923d8 / 0x892484 / 0x892120: points at the middle of TAR1 / TAR2 / TAR3
@@ -92,7 +92,7 @@ export class ParPilot implements BehaviourNode {
     rec.anim?.start(CLIP.FALL, 0);
     run.startAlt = PILOT.START_ALT; run.y = PILOT.START_ALT;
     run.ring = [0, 0, 0]; run.chuteOk = false; run.score = 0; run.height = 0; run.landBonus = 0; run.canopy = 0; run.over = false;
-    run.windDir = rand(360) / 57.3;   // DAT_05d57d04 = rand(360) / 57.3 (0x42653333)
+    run.windDir = f32(rand(360) / f32(57.3));   // DAT_05d57d04 = rand(360) / 57.3f (0x42653333), a float
   }
 
   update(w: World, rec: GameRecord): number {
@@ -140,10 +140,10 @@ export class ParPilot implements BehaviourNode {
           if (anim.clip === CLIP.FALL) { if (frame < 5 || 0x37 < frame) anim.start(CLIP.LEAN, 0); else anim.advance(1, dt); }
           if (anim.clip === CLIP.LEAN) { frame = ftol(anim.frame); if (frame < 0xf) anim.advance(1, dt); }
         }
-        this.fallTarget = f32(f32(Math.abs(Math.sin(rec.rx) * 0.4)) + PILOT.FALL_BASE);
+        this.fallTarget = f32(f32(Math.abs(Math.sin(rec.rx) * PILOT.FALL_BASE)) + PILOT.FALL_BASE);
         const glide = f32(Math.sin(2 * rec.rx));
         // the wind sound's pitch follows the fall speed: ftol((fall - 0.4) * 17215 + 9114) Hz
-        snd.rate('accel', ftol((this.fallTarget - PILOT.FALL_BASE) * 17215 + 9114));
+        snd.rate('accel', ftol(f32(f32(f32(this.fallTarget - PILOT.FALL_BASE) * 17215) + 9114)));      // float stores after the subtraction, the product and the sum (0x89248c / 0x892488)
         snd.play('accel');
         ex = f32(ex + f32(glide * dt * f32(Math.sin(rec.ry))));      // local_b4 = local_c8 * dt * (FUN_0043ad29(identity, ry) row 2)
         ez = f32(ez + f32(glide * dt * f32(Math.cos(rec.ry))));
@@ -186,7 +186,7 @@ export class ParPilot implements BehaviourNode {
       case S.GLIDE: {
         snd.play('flap');
         if (anim.clip === CLIP.GLIDE) anim.advance(1, dt);
-        this.fwd = f32((this.fall * ey) / (PILOT.START_ALT + PILOT.GLIDE_REF));
+        this.fwd = f32(f32(this.fall * ey) / f32(PILOT.START_ALT + PILOT.GLIDE_REF));      // fall * y / (node +0x14 + +0x18), each operation a float
         if (!(held & B.UP)) {
           if (anim.clip === CLIP.PULL) {
             anim.advance(-1, dt);
@@ -376,12 +376,12 @@ export class ParPilot implements BehaviourNode {
   /** the chase camera of the end of FUN_004686a3 (writes the camera block like the original: eye [0..2], look-at [3..5]) */
   private camera(w: World, rec: GameRecord, ex: number, ey: number, ez: number) {
     const c = w.camera.c;
-    // M = Euler(0, ry, rz) at the pilot
-    const eye = eulerLocalToWorld(rec.ry, rec.rz, [ex, ey, ez], [this.camOff[0], this.camOff[1] + 13.6, this.camOff[2] - 4]);
-    c[3] = ex; c[4] = ey + PILOT.CAM_LIFT * 8; c[5] = ez;
-    c[0] = (eye[0] - c[0]) * this.camLerp + c[0];
-    c[2] = (eye[2] - c[2]) * this.camLerp + c[2];
-    c[1] = (eye[1] - c[1]) * this.camLerp + c[1];
+    // all float32 (24-bit x87, 0x46a757 .. 0x46a8xx): the offsets (+0x60 + 0, +0x64 + 13.6f, +0x68 - 4f), the eye = offsets * M + t, the target (+0x70 * 8 above the pilot), the easing
+    const eye = transformPoint(buildMatrix(0, rec.ry, rec.rz, ex, ey, ez), [f32(this.camOff[0]), f32(f32(this.camOff[1]) + f32(13.6)), f32(f32(this.camOff[2]) + f32(-4))]).map(f32);
+    c[3] = f32(ex); c[4] = f32(f32(PILOT.CAM_LIFT * 8) + f32(ey)); c[5] = f32(ez);
+    c[0] = f32(f32(f32(eye[0] - c[0]) * this.camLerp) + c[0]);
+    c[2] = f32(f32(f32(eye[2] - c[2]) * this.camLerp) + c[2]);
+    c[1] = f32(f32(f32(eye[1] - c[1]) * this.camLerp) + c[1]);
   }
 }
 

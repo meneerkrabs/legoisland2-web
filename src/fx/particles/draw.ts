@@ -5,12 +5,13 @@
 //   material 2 -> block 3: colour = texture * vertex colour, alpha = texture alpha only, SRCALPHA / INVSRCALPHA
 // all with the depth test (LEQUAL) and depth write ON, alpha test >= 1 / 255, no fog, no lighting, the sprite sheet `particle/Text000.tga` (8 x 8 sprites of 32 pixels).
 //
-// Time: the spin of a sprite advances once per game frame AFTER its draw (FUN_0044f4c0), only for sprites that were visible. The port draws once per rendered frame
-// (interpolation), so `draw(viewProj, tick)` advances the spin of the sprites visible at the FIRST draw of a tick when the next tick starts.
+// Time: the spin of a sprite advances once per game frame AFTER its draw (FUN_0044f4c0), by that frame's DAT_008b1718, only for sprites that were visible. One sim step is one
+// drawn frame of the original; the browser calls `draw` once per rAF (any rate), so `draw(viewProj, view, tick)` owes the sprites visible at the FIRST draw of a tick one spin
+// per sim step that ran since (each with the dt of its own step, `ParticleEngine.dtAt`), applied when the next tick is first drawn. The engine itself is not advanced here.
 import type { Archive } from '../../formats/archive.ts';
 import type { Renderer, TexGpu } from '../../render/renderer.ts';
 import type { Mat4 } from '../../render/math.ts';
-import type { ParticleEngine } from './engine.ts';
+import { DT_LOG, type ParticleEngine } from './engine.ts';
 import type { Particle } from './pool.ts';
 import { AP } from './layout.ts';
 import { buildQuad, clipPolygon, frustumPlanes, particlePos, projectPoint, sortSprites, spinStep, visibleFlags, VSTRIDE } from './sprites.ts';
@@ -63,7 +64,6 @@ export class ParticleDraw {
   private verts = new Float32Array(0);
   // deferred spin steps
   private pending: { p: Particle; gen: number }[] = [];
-  private pendingDt = 1;
   private lastTick = -1;
   /** last frame's statistics */
   stats = { listed: 0, visible: 0, polygons: 0, draws: 0 };
@@ -92,9 +92,13 @@ export class ParticleDraw {
     gl.bindVertexArray(null);
   }
 
-  /** apply the spin steps owed from the previous tick (FUN_0044f4c0's update, after the draw of that frame) */
-  private flushSpin(): void {
-    for (const e of this.pending) if (e.p.gen === e.gen) spinStep(e.p, this.pendingDt);
+  /** apply the spin steps owed (FUN_0044f4c0's update after the draw of each frame since the last draw): sim step `lastTick - 1 + i` had the dt `engine.dtAt(...)` */
+  private flushSpin(tick: number): void {
+    const n = Math.min(tick - this.lastTick, DT_LOG);
+    for (let i = 0; i < n; i++) {
+      const dt = this.engine.dtAt(this.lastTick - 1 + i);
+      for (const e of this.pending) if (e.p.gen === e.gen) spinStep(e.p, dt);
+    }
     this.pending.length = 0;
   }
 
@@ -106,7 +110,7 @@ export class ParticleDraw {
     const eng = this.engine;
     const list = eng.drawList;
     const newTick = tick !== this.lastTick;
-    if (newTick) { this.flushSpin(); this.lastTick = tick; }
+    if (newTick) { this.flushSpin(tick); this.lastTick = tick; }
     this.stats.listed = list.length;
     if (!list.length) { this.stats.visible = 0; this.stats.polygons = 0; this.stats.draws = 0; return; }
     const W = view.w, H = view.h;
@@ -164,7 +168,7 @@ export class ParticleDraw {
     }
     this.stats.polygons = runs.reduce((s, r) => s + r.count / 3, 0);
     this.stats.draws = runs.length;
-    if (newTick && !eng.paused) { this.pending = []; for (let k = 0; k < n; k++) { const p = list[this.idx[k]]; this.pending.push({ p, gen: p.gen }); } this.pendingDt = eng.dt; }
+    if (newTick && !eng.paused) { this.pending = []; for (let k = 0; k < n; k++) { const p = list[this.idx[k]]; this.pending.push({ p, gen: p.gen }); } }
     if (!runs.length) return;
     this.submit(out.subarray(0, nv * 10), ind.subarray(0, ni), runs, W, H);
     void vi;

@@ -169,10 +169,11 @@ async function apoGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
         return;
       }
       // after the script: Pepper is put back at the shuttle (0, 2000, 0) and the camera eases to its place (eye = pilot frame * (16, 13.6, 2.4), 85 % per tick)
-      const c = world.camera.c;
-      const eye = transformPoint(buildMatrix(0, pep.ry, pep.rz, pep.x, pep.y, pep.z), [16, 13.6, 2.4]);
-      c[3] = pep.x; c[4] = pep.y + 2; c[5] = pep.z;
-      for (let i = 0; i < 3; i++) c[i] = (eye[i] - c[i]) * 0.85 + c[i];
+      // FUN_007cf929 at 0x7cfb96 (24-bit x87: every operation a float32): target = the pilot's matrix translation (+ 2.0 in y), eye = (16, 13.6f, 2.4f) * M, eased by 0.85f
+      const c = world.camera.c, r = Math.fround;
+      const eye = transformPoint(buildMatrix(0, pep.ry, pep.rz, pep.x, pep.y, pep.z), [16, r(13.6), r(2.4)]);
+      c[3] = r(pep.x); c[4] = r(r(pep.y) + 2); c[5] = r(pep.z);
+      for (let i = 0; i < 3; i++) c[i] = r(r(r(eye[i] - c[i]) * r(0.85)) + c[i]);
       world.camera.updateView(); world.camera.savePrev();
       pep.x = 0; pep.y = 2000; pep.z = 0; pep.savePrev();
     },

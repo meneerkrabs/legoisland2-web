@@ -74,10 +74,11 @@ export default {
     eq('capture waits', e.capture !== 0, true);
     e.feedKey(0x10017); const r = e.step(0, 0); eq('bound key event', [r.ev, r.b], [8, 0x10017]);
 
-    // ---- loop template: fade in 16 ticks, play, pause, resume, quit through the fade out
+    // ---- loop template: fade in (16 steps + the pass that sees 1.0 = 17 passes: FUN_0043ec80(f) first, then `1.0 <= f`, then `f += 0.0625 * dt`), play, pause, resume, quit through the fade out
     const m = new LoopMachine(HUB_CONFIG);
     let n = 0; while (m.mode === MODE.FADE_IN && n < 40) { m.tick({ pressed: 0 }); n++; }
-    eq('fade in takes 16 ticks', n, 16);
+    eq('fade in takes 17 passes', n, 17);
+    eq('the last pass hands 1.0 to the fade', m.fade, 1);
     m.tick({ pressed: 0 }); m.tick({ pressed: 0 });
     eq('init -> play', m.mode, MODE.PLAY);
     m.tick({ pressed: B.ESC }); eq('Esc pauses', m.mode, MODE.PAUSE);
@@ -86,7 +87,17 @@ export default {
     m.tick({ pressed: B.ESC }); m.tick({ pressed: 0, pauseResult: -1 });
     eq('quit starts the fade out', m.mode, MODE.FADE_OUT);
     n = 0; while (!m.done && n < 40) { m.tick({ pressed: 0 }); n++; }
-    eq('fade out takes 16 ticks and ends with exit 0', [n, m.exit], [16, EXIT.QUIT]);
+    eq('fade out takes 17 passes and ends with exit 0', [n, m.exit], [17, EXIT.QUIT]);
+    // dt 0.5 (the 60 Hz step): twice the steps, the shown fade is the level BEFORE the step of that pass
+    {
+      const h = new LoopMachine(HUB_CONFIG); const shown = []; let k = 0;
+      while (h.mode === MODE.FADE_IN && k < 100) { h.tick({ pressed: 0, dt: 0.5 }); shown.push(h.fade); k++; }
+      eq('fade in at dt 0.5 takes 33 passes', k, 33);
+      eq('the shown fade starts at 0 and steps by 1/32', [shown[0], shown[1], shown[2], shown[32]], [0, 0.03125, 0.0625, 1]);
+      h.tick({ pressed: 0 }); h.tick({ pressed: 0 });
+      h.leave(EXIT.QUIT); let j = 0; while (!h.done && j < 100) { h.tick({ pressed: 0, dt: 0.5 }); j++; }
+      eq('fade out at dt 0.5 takes 33 passes', j, 33);
+    }
     // exits of a mini-game: abort -> 4, restart -> 3, finish via banner and result menu -> 2
     const run2 = (f) => { const x = new LoopMachine(MINIGAME_CONFIG); for (let i = 0; i < 18; i++) x.tick({ pressed: 0 }); f(x); let k = 0; while (!x.done && k++ < 60) x.tick({ pressed: 0 }); return x.exit; };
     eq('abort from the pause menu', run2((x) => { x.tick({ pressed: B.ESC }); x.tick({ pressed: 0, pauseResult: -3 }); }), EXIT.ABANDON);

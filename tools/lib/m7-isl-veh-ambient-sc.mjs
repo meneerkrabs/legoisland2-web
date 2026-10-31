@@ -168,7 +168,7 @@ export const briki = async (env) => {
 export const music = async (env) => {
   const { ctx, failures, cover } = env, finish = env.finish;
   const MAXFAIL = 30;
-  for (const [node, label0, dt] of [[2, 'town', 1], [2, 'town', 0.5], [10, 'bots', 1], [30, 'bots+radio', 1], [52, 'bots+radio', 1], [61, 'bots', 1]]) {
+  for (const [node, label0, dt] of [[2, 'town', 1], [2, 'town', 0.5], [10, 'bots', 1], [10, 'bots', 0.5], [30, 'bots+radio', 1], [30, 'bots+radio', 0.5], [52, 'bots+radio', 1], [52, 'bots+radio', 0.5], [61, 'bots', 1], [61, 'bots', 0.5]]) {
     const label = `music node ${node} (${label0}) dt${dt}`;
     const d = ambientDuel(ctx, { node, dt, seed: 4, kinds: ['Music'], ctors: new Set(), pepperFirstKinds: ['Music'], pepperFirstCtors: new Set([CTOR.MUSIC]), maxFail: MAXFAIL, failures,
       beforeAttach: (emu, duel) => hostMusic(emu, duel) });

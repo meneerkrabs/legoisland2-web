@@ -166,7 +166,7 @@ export default {
       ok(ticks > polyLen / (SPEED * 8) * 0.9, `arrived implausibly early: ${ticks} ticks for ${polyLen.toFixed(0)} units`);
       ok(sys.status(h) === STATUS_IDLE && (sys.get(h).flags & WF_STOPPED) !== 0, 'stopped after arrival');
       ok(sys.fromOf(h) === pepp, 'from = goal after arrival');
-      notes.push(`PHSE_DOOR -> SKPK_PEPP01: ${poly.length} nodes, polyline ${polyLen.toFixed(0)} units, ${ticks} ticks (${(ticks / 30).toFixed(0)} s), travelled ${sumDist.toFixed(0)}; max step ${maxStep.toFixed(4)} (speed ${(SPEED * 8).toFixed(4)}), max turn ${maxTurn.toFixed(3)} rad (rate ${TURN.toFixed(3)}), max deviation from the polyline ${maxDev.toFixed(2)}, ended ${Math.hypot(pos[0] - pp[0], pos[2] - pp[2]).toFixed(2)} from the node`);
+      notes.push(`PHSE_DOOR -> SKPK_PEPP01: ${poly.length} nodes, polyline ${polyLen.toFixed(0)} units, ${ticks} steps at dt 1 (${(ticks / 30).toFixed(0)} game seconds of 30 units), travelled ${sumDist.toFixed(0)}; max step ${maxStep.toFixed(4)} (speed ${(SPEED * 8).toFixed(4)}), max turn ${maxTurn.toFixed(3)} rad (rate ${TURN.toFixed(3)}), max deviation from the polyline ${maxDev.toFixed(2)}, ended ${Math.hypot(pos[0] - pp[0], pos[2] - pp[2]).toFixed(2)} from the node`);
 
       // --- a new order on the same walker: back to the door, turning around is allowed (continue flag 0)
       sys.goTo(h, door, 0);

@@ -92,6 +92,10 @@ export class OglDuel {
     this.prevHeld = 0;
     this.emu = new OglEmu(this.pe, this.O, { dt: this.dt, rng: { range: (m) => this.rngO.next() * m } });
     const emu = this.emu;
+    // FUN_004388ae(max) runs NATIVELY (float32 at the 24-bit x87); only the C runtime's rand() (FUN_0085daf0) is the scripted source shared with the port (`floor(v * 32768)` of the [0, 1) value)
+    emu.cpu.exec.push([0x4388ae, 0x4388e7]);
+    emu.cpu.hooks.delete(0x4388ae);
+    emu.cpu.hooks.set(0x85daf0, (c) => { c.eax = Math.floor(this.rngO.next() * 32768) & 0x7fff; });
     emu.setFocus(this.O.pepper.index);
     const ctors = new Set(o.ctors ?? []);
     // the controllers the set-up gave the records (flags), then the constructors in the set-up's order

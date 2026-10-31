@@ -59,3 +59,9 @@ None: no code of PeppSwit.c starts an emitter / `.par` / `.swl`.
 * Sound handles: the original has one handle per slug / citizen (own instances of the same sound id); `AudioHost` picks the playing or first idle slot per id.
 * `DAT_05d5f3c0` / lamp globals start at 0 each zone visit (bss kept across visits in the original).
 * Debug draws (`FUN_00445ba0` / `FUN_00445c70`: sweep lines and points) are only active in the original's debug view and not ported.
+
+## WP-TIME (2026-10-30)
+
+* dt audit: every timer of the zone is a dt-scaled float32 (`lampTimer`, the slug's `timer`, the animation advances `rate * dt`, the walker step) or a per-update quantity the original also does not scale (the slug's crawl 0.08, the falling citizen's 0.8, the krystal's 3-tick pick-up counter); STAR's draw hook is a pure placement at the camera (no state: once per rAF call is the same as once per frame); the HUD's blink counter (`1 * dt`, FUN_007e2ad0) runs in `everyTick` = once per sim step in every mode.
+* RNG: `rand` / `randInt` are the shared CRT generator through `src/island/rng.ts` (no `Math.random` anywhere in the zone); the oracle runs FUN_004388ae natively (float32) on the scripted rand() FUN_0085daf0 (`m5-ogl-emu.mjs`).
+* `m5-z40OGL-peppswit-emu` now runs every section (PEPPSWIT + void in both story nodes, slugs, robots, citizens, HOLO / STAR, decor) at dt = 1 and dt = 0.5, bit for bit (18.7 M checks, tolerance 0).

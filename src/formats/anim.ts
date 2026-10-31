@@ -7,7 +7,7 @@
 // Layouts and conventions: docs/re/fragments/anim.md
 import { Reader } from './reader.ts';
 
-/** Frames per second: the game advances a clip by 1 frame per game tick (30 Hz per Moreno's analysis; not verified in the EXE). */
+/** Frames per second of a clip played at rate 1: FUN_0043b76a adds `rate * DAT_008b1718` per drawn frame and DAT_008b1718 is the frame time in 1/30 s units (0.5 at 60 Hz), i.e. 30 clip frames per second whatever the frame rate. */
 export const ANIM_FPS = 30;
 
 // ---------------------------------------------------------------- .blk
@@ -126,83 +126,107 @@ export function blkClipSeconds(clip: BlkClip): number {
   return clip.frameCount > 1 ? (clip.frameCount - 1) / ANIM_FPS : 0;
 }
 
+const fr = Math.fround;
+/** _DAT_00892230 = 1e-5 (double): quaternions with 1 - dot <= 1e-5 count as parallel (_DAT_008920cc = 0.1f is the snap of `pose`, game/anim.ts POSE_SNAP) */
+const SLERP_EPS = 0.00001;
+
 /**
- * Per-bone object-space matrices of `clip` at fractional frame `frame` (column-major 4x4, 16 floats per bone, WebGL ready),
- * written into `out` (allocated if omitted).
- *
- * Frame interpolation mirrors the game (SDAnim.c, FUN_0043ba7a): the root translation is lerped, the bone quaternions are slerped
- * (shortest path) towards the next frame, and the frame after the last one is frame 0 (that is how looping clips close). With
- * `loop = false` the frame is clamped to [0, frameCount-1] instead (a once-only clip stops on its last frame). The game only
- * interpolates when the fractional part is >= 0.1 and otherwise shows the exact frame: pass `snap = 0.1` to reproduce that.
- *
- * Conventions (exact, see the doc): the game builds row-vector D3D matrices local = [R(q) | (-offset.x, offset.y, offset.z)] with
- * R(q) the usual quaternion matrix, and world = local * parentWorld. As a column-vector matrix that is
- * local = [R(q)^T | t], world = parentWorld * local; the root translation is the frame's first 3 floats with x negated.
- * The resulting space is the space of the .msh vertex data of the skinned meshes (see skinPositions).
+ * FUN_0085e354 (CRT acos): `fpatan(fsqrt((1 + x) * (1 - x)), x)`. The CRT's switch (FUN_00868455: `(cw & 0x300) | 0x7f`) keeps the caller's precision control, so in the game's 24 bit mode the sum, the difference, the product
+ * and the square root round to float32 (fpatan / fsin results are not rounded by the precision control: doubles).
  */
-export function sampleBlk(skeleton: BlkSkeleton, clip: BlkClip, frame: number, loop = true, out?: Float32Array, snap = 0): Float32Array {
+function crtAcos(x: number): number { return Math.atan2(fr(Math.sqrt(fr(fr(1 + x) * fr(1 - x)))), x); }
+
+/**
+ * FUN_0043e59e(out, a, b, t): the slerp of one bone's quaternions (x, y, z, w) at the x87's 24 bit precision, in the order of the machine code. The dot product is formed from four rounded
+ * products added x, y, z, w; a negative one flips `b` (the shortest path); parallel quaternions (1 - dot <= 1e-5) blend linearly with (1 - t, t); otherwise the weights are
+ * sin((1 - t) w) / sin w and sin(t w) / sin w with w = acos(dot) (CRT acos / sin results are doubles; the products, the quotients and the final sums round to 24 bits). The
+ * branch for 1 + dot <= 1e-5 (a flipped dot is never below 0) is the original's too.
+ */
+function slerp(out: Float32Array, oo: number, d: Float32Array, a: number, b: number, t: number) {
+  let dot = fr(fr(fr(fr(d[a] * d[b]) + fr(d[a + 1] * d[b + 1])) + fr(d[a + 2] * d[b + 2])) + fr(d[a + 3] * d[b + 3]));
+  let q0 = d[b], q1 = d[b + 1], q2 = d[b + 2], q3 = d[b + 3];
+  if (!(dot >= 0)) { dot = -dot; q0 = -q0; q1 = -q1; q2 = -q2; q3 = -q3; }
+  if (fr(1 + dot) <= SLERP_EPS) {
+    // (never reached: dot >= 0 here) the original's perpendicular branch
+    const p0 = -q1, p1 = q0, p2 = -q3, p3 = q2;
+    const s0 = Math.sin(fr(fr(1 - t) * 1.5707963705062866)), s1 = Math.sin(fr(t * 1.5707963705062866));
+    out[oo] = fr(fr(d[a] * s0) + fr(p0 * s1)); out[oo + 1] = fr(fr(d[a + 1] * s0) + fr(p1 * s1));
+    out[oo + 2] = fr(fr(d[a + 2] * s0) + fr(p2 * s1)); out[oo + 3] = fr(fr(d[a + 3] * s0) + fr(p3 * s1));
+    return;
+  }
+  let s0: number, s1: number;
+  if (fr(1 - dot) <= SLERP_EPS) { s0 = fr(1 - t); s1 = t; }
+  else {
+    const om = crtAcos(dot), so = Math.sin(om);
+    s0 = fr(Math.sin(fr(fr(1 - t) * om)) / so);
+    s1 = fr(Math.sin(fr(t * om)) / so);
+  }
+  out[oo] = fr(fr(d[a] * s0) + fr(q0 * s1)); out[oo + 1] = fr(fr(d[a + 1] * s0) + fr(q1 * s1));
+  out[oo + 2] = fr(fr(d[a + 2] * s0) + fr(q2 * s1)); out[oo + 3] = fr(fr(d[a + 3] * s0) + fr(q3 * s1));
+}
+
+/**
+ * Per-bone matrices of `clip` at fractional frame `frame`, written into `out` (allocated if omitted), as the original's FUN_0043ba7a / FUN_0043b987 leave them in the animation's buffer: 16 floats per
+ * bone, the game's row-major row-vector 4x4 (the rotation in rows 0..2, the translation in row 3), which read as a column-major WebGL matrix is the transpose, i.e. the same bytes. Every x87 step rounds
+ * to a float32 (bit-exact against the emulated original: tools/tests/m7-pose-emu.mjs). The root bone has no parent (the identity: `FUN_0043ba7a(anim, parent)` is passed one by the draw).
+ *
+ * Frame selection (FUN_0043ba7a): i = floor(frame), f = frame - i (a float32); the translation is lerped (`(next - cur) * f + cur`) and the quaternions slerped with the next frame, the frame after the last
+ * one being frame 0 (whatever the clip's loop flag says); a fractional part below 0.1f (`snap`, 0.1f in the game) or the instance flag 2 (`snap` = Infinity) shows the exact frame i. The original does not
+ * wrap or clamp the frame: a frame at or beyond the frame count (`FUN_0043b874` stops AT the count) reads past the clip's data; the port clamps to the last frame there. `loop` is not used any more.
+ *
+ * Bone k > 0: local = [R(q_k) | (-offset.x, offset.y, offset.z)] and world = local * parent (FUN_0043a9e5), the root's translation is (-x, y, z) of the frame's first three floats.
+ */
+export function sampleBlk(skeleton: BlkSkeleton, clip: BlkClip, frame: number, _loop = true, out?: Float32Array, snap = 0): Float32Array {
   const bones = skeleton.boneCount;
   if (clip.boneCount !== bones) throw new Error('sampleBlk: clip/skeleton bone count mismatch');
   const res = out ?? new Float32Array(bones * 16);
   const n = clip.frameCount;
-  let f = frame;
-  if (n <= 1) f = 0;
-  else if (loop) { f = f % n; if (f < 0) f += n; }
-  else f = Math.min(Math.max(f, 0), n - 1);
-  let f0 = Math.floor(f);
-  let t = f - f0;
-  if (f0 >= n) f0 = n - 1;
-  let f1 = f0 + 1;
-  if (f1 >= n) f1 = loop ? 0 : n - 1;
-  if (f0 === f1 || t < snap) t = 0;
+  const fl = fr(frame);
+  let i = Math.floor(fl), f = fr(fl - fr(i));
+  if (i >= n) { i = n - 1; f = 0; }
+  else if (i < 0) { i = 0; f = 0; }
   const stride = 3 + 4 * bones;
   const d = clip.data;
-  const a = f0 * stride, b = f1 * stride;
-  const tx = d[a] + (d[b] - d[a]) * t, ty = d[a + 1] + (d[b + 1] - d[a + 1]) * t, tz = d[a + 2] + (d[b + 2] - d[a + 2]) * t;
+  let a = i * stride;
+  let cur: Float32Array = d;
+  if (f > 0 && f >= snap) {
+    const b = (i + 1 < n ? i + 1 : 0) * stride;
+    const mixed = mixedFor(stride);
+    mixed[0] = fr(fr(fr(d[b] - d[a]) * f) + d[a]); mixed[1] = fr(fr(fr(d[b + 1] - d[a + 1]) * f) + d[a + 1]); mixed[2] = fr(fr(fr(d[b + 2] - d[a + 2]) * f) + d[a + 2]);
+    for (let k = 0; k < bones; k++) slerp(mixed, 3 + 4 * k, d, a + 3 + 4 * k, b + 3 + 4 * k, f);
+    cur = mixed; a = 0;
+  }
+  const q = LOCAL;
   for (let k = 0; k < bones; k++) {
-    const qa = a + 3 + 4 * k, qb = b + 3 + 4 * k;
-    let x = d[qa], y = d[qa + 1], z = d[qa + 2], w = d[qa + 3];
-    if (t > 0) {
-      let x1 = d[qb], y1 = d[qb + 1], z1 = d[qb + 2], w1 = d[qb + 3];
-      let dot = x * x1 + y * y1 + z * z1 + w * w1;
-      if (dot < 0) { x1 = -x1; y1 = -y1; z1 = -z1; w1 = -w1; dot = -dot; }
-      let s0 = 1 - t, s1 = t;
-      if (1 - dot > 1e-6) {
-        const om = Math.acos(Math.min(1, dot)), so = Math.sin(om);
-        s0 = Math.sin((1 - t) * om) / so; s1 = Math.sin(t * om) / so;
+    const qa = a + 3 + 4 * k;
+    const x = cur[qa], y = cur[qa + 1], z = cur[qa + 2], w = cur[qa + 3];
+    // FUN_0043e43d: the quaternion as a row-vector matrix (2x, 2y, 2z, then the products, each stored as a float32)
+    const x2 = fr(x + x), y2 = fr(y + y), z2 = fr(z + z);
+    const xx = fr(x2 * x), yy = fr(y2 * y), zz = fr(z2 * z), yx = fr(y2 * x), zx = fr(z2 * x), zy = fr(z2 * y), xw = fr(x2 * w), yw = fr(y2 * w), zw = fr(z2 * w);
+    q[0] = fr(1 - fr(yy + zz)); q[4] = fr(yx + zw); q[8] = fr(zx - yw); q[12] = 0;
+    q[1] = fr(yx - zw); q[5] = fr(1 - fr(xx + zz)); q[9] = fr(zy + xw); q[13] = 0;
+    q[2] = fr(zx + yw); q[6] = fr(zy - xw); q[10] = fr(1 - fr(xx + yy)); q[14] = 0;
+    q[3] = 0; q[7] = 0; q[11] = 0; q[15] = 1;
+    if (k === 0) { q[12] = -cur[a]; q[13] = cur[a + 1]; q[14] = cur[a + 2]; }
+    else { q[12] = -skeleton.offsets[k * 3]; q[13] = skeleton.offsets[k * 3 + 1]; q[14] = skeleton.offsets[k * 3 + 2]; }
+    // FUN_0043a9e5(bone, parent, local): local * parent, every product and sum a float32 (the translation row adds the parent's)
+    const o = k * 16, pm: ArrayLike<number> = k === 0 ? IDENT : res, p = k === 0 ? 0 : skeleton.parents[k] * 16;
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 3; c++) {
+        let v = fr(fr(fr(q[r * 4] * pm[p + c]) + fr(q[r * 4 + 1] * pm[p + 4 + c])) + fr(q[r * 4 + 2] * pm[p + 8 + c]));
+        if (r === 3) v = fr(v + pm[p + 12 + c]);
+        res[o + r * 4 + c] = v;
       }
-      x = x * s0 + x1 * s1; y = y * s0 + y1 * s1; z = z * s0 + z1 * s1; w = w * s0 + w1 * s1;
-    }
-    // standard quaternion -> matrix, then transposed (see doc comment)
-    const r00 = 1 - 2 * (y * y + z * z), r01 = 2 * (x * y - z * w), r02 = 2 * (x * z + y * w);
-    const r10 = 2 * (x * y + z * w), r11 = 1 - 2 * (x * x + z * z), r12 = 2 * (y * z - x * w);
-    const r20 = 2 * (x * z - y * w), r21 = 2 * (y * z + x * w), r22 = 1 - 2 * (x * x + y * y);
-    // local rotation L = R^T (rows of L = columns of R)
-    const l00 = r00, l01 = r10, l02 = r20, l10 = r01, l11 = r11, l12 = r21, l20 = r02, l21 = r12, l22 = r22;
-    const o = k * 16;
-    if (k === 0) {
-      // column-major
-      res[o] = l00; res[o + 1] = l10; res[o + 2] = l20; res[o + 3] = 0;
-      res[o + 4] = l01; res[o + 5] = l11; res[o + 6] = l21; res[o + 7] = 0;
-      res[o + 8] = l02; res[o + 9] = l12; res[o + 10] = l22; res[o + 11] = 0;
-      res[o + 12] = -tx; res[o + 13] = ty; res[o + 14] = tz; res[o + 15] = 1;
-    } else {
-      const p = skeleton.parents[k] * 16;
-      const ox = -skeleton.offsets[k * 3], oy = skeleton.offsets[k * 3 + 1], oz = skeleton.offsets[k * 3 + 2];
-      const p00 = res[p], p10 = res[p + 1], p20 = res[p + 2];
-      const p01 = res[p + 4], p11 = res[p + 5], p21 = res[p + 6];
-      const p02 = res[p + 8], p12 = res[p + 9], p22 = res[p + 10];
-      res[o] = p00 * l00 + p01 * l10 + p02 * l20; res[o + 1] = p10 * l00 + p11 * l10 + p12 * l20; res[o + 2] = p20 * l00 + p21 * l10 + p22 * l20; res[o + 3] = 0;
-      res[o + 4] = p00 * l01 + p01 * l11 + p02 * l21; res[o + 5] = p10 * l01 + p11 * l11 + p12 * l21; res[o + 6] = p20 * l01 + p21 * l11 + p22 * l21; res[o + 7] = 0;
-      res[o + 8] = p00 * l02 + p01 * l12 + p02 * l22; res[o + 9] = p10 * l02 + p11 * l12 + p12 * l22; res[o + 10] = p20 * l02 + p21 * l12 + p22 * l22; res[o + 11] = 0;
-      res[o + 12] = p00 * ox + p01 * oy + p02 * oz + res[p + 12];
-      res[o + 13] = p10 * ox + p11 * oy + p12 * oz + res[p + 13];
-      res[o + 14] = p20 * ox + p21 * oy + p22 * oz + res[p + 14];
-      res[o + 15] = 1;
+      res[o + r * 4 + 3] = r === 3 ? 1 : 0;
     }
   }
   return res;
 }
+const IDENT = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+/** scratch of `sampleBlk` (synchronous, not re-entrant): the interpolated frame and the bone's local matrix */
+let mixedBuf = new Float32Array(3 + 4 * 64);
+const LOCAL = new Float32Array(16);
+function mixedFor(stride: number): Float32Array { if (mixedBuf.length < stride) mixedBuf = new Float32Array(stride); return mixedBuf; }
 
 // ---------------------------------------------------------------- SVWL / AVW2 (tail of skinned .msh)
 
@@ -248,58 +272,62 @@ export function parseSvwl(data: Uint8Array, vertexCount: number): Svwl {
 }
 
 /**
- * Skin a mesh: out[v] = sum_i w_i * (M_bone_i * local_i), where the primary influence's local position is the vertex position
- * stored in the .msh and further influences use AVW2's local positions. `matrices` comes from sampleBlk.
- * Same as the game's skinning loop (FUN_0088b87b). Normals: see skinNormals.
+ * Skin a mesh like the game's skinning loop (FUN_0088b87b): out[v] = sum_i w_i * (M_bone_i * local_i), where the primary influence's local position is the vertex position stored in the .msh and
+ * further influences use AVW2's local positions. `matrices` comes from sampleBlk. Every step rounds to a float32 like the original's x87 (24 bit): the point is transformed (FUN_0043ab72: the products
+ * added x, y, z, then the translation), scaled by its weight when that is not 1, and the further influences are ADDED to the vertex (translation first: `new + old`).
  */
 export function skinPositions(positions: Float32Array, svwl: Svwl, matrices: Float32Array, out?: Float32Array): Float32Array {
   const V = svwl.vertexCount;
   const res = out ?? new Float32Array(V * 3);
   const bones = matrices.length / 16;
+  const M = matrices;
+  const point = (m: number, x: number, y: number, z: number, j: number) => fr(fr(fr(fr(x * M[m + j]) + fr(y * M[m + 4 + j])) + fr(z * M[m + 8 + j])) + M[m + 12 + j]);
   for (let v = 0; v < V; v++) {
     const b = svwl.bone[v];
     const x = positions[v * 3], y = positions[v * 3 + 1], z = positions[v * 3 + 2];
     if (b < 0 || b >= bones) { res[v * 3] = x; res[v * 3 + 1] = y; res[v * 3 + 2] = z; continue; }
     const w = svwl.weight[v], m = b * 16;
-    res[v * 3] = w * (matrices[m] * x + matrices[m + 4] * y + matrices[m + 8] * z + matrices[m + 12]);
-    res[v * 3 + 1] = w * (matrices[m + 1] * x + matrices[m + 5] * y + matrices[m + 9] * z + matrices[m + 13]);
-    res[v * 3 + 2] = w * (matrices[m + 2] * x + matrices[m + 6] * y + matrices[m + 10] * z + matrices[m + 14]);
+    res[v * 3] = point(m, x, y, z, 0); res[v * 3 + 1] = point(m, x, y, z, 1); res[v * 3 + 2] = point(m, x, y, z, 2);
+    if (w !== 1) { res[v * 3] = fr(res[v * 3] * w); res[v * 3 + 1] = fr(res[v * 3 + 1] * w); res[v * 3 + 2] = fr(res[v * 3 + 2] * w); }
   }
   const e = svwl.extra;
   for (let i = 0; i < e.count; i++) {
     const v = e.vertex[i], b = e.bone[i];
     if (b >= bones) continue;
     const x = e.local[i * 3], y = e.local[i * 3 + 1], z = e.local[i * 3 + 2], w = e.weight[i], m = b * 16;
-    res[v * 3] += w * (matrices[m] * x + matrices[m + 4] * y + matrices[m + 8] * z + matrices[m + 12]);
-    res[v * 3 + 1] += w * (matrices[m + 1] * x + matrices[m + 5] * y + matrices[m + 9] * z + matrices[m + 13]);
-    res[v * 3 + 2] += w * (matrices[m + 2] * x + matrices[m + 6] * y + matrices[m + 10] * z + matrices[m + 14]);
+    let px = point(m, x, y, z, 0), py = point(m, x, y, z, 1), pz = point(m, x, y, z, 2);
+    if (w !== 1) { px = fr(px * w); py = fr(py * w); pz = fr(pz * w); }
+    res[v * 3] = fr(px + res[v * 3]); res[v * 3 + 1] = fr(py + res[v * 3 + 1]); res[v * 3 + 2] = fr(pz + res[v * 3 + 2]);
   }
   return res;
 }
 
 /**
- * Skin the vertex normals like the game does (FUN_0088b87b): every influence rotates the vertex's own normal with its bone matrix
- * (no per-influence normal exists) and the results are summed with the influence weights. The sum is NOT renormalised by the game
- * (the weights sum to 1, so it is only shorter than 1 when the bone rotations differ); pass `normalize = true` to renormalise.
+ * Skin the vertex normals like the game does (FUN_0088b87b): every influence rotates the vertex's own normal with its bone matrix (FUN_0043abe6; no per-influence normal exists), scales it by the
+ * weight when that is not 1 and the results are summed (float32 steps). The sum is NOT renormalised by the game (the weights sum to 1, so it is only shorter than 1 when the bone rotations
+ * differ); pass `normalize = true` to renormalise (a port extension of the renderer, the fixed-function pipeline normalised the normals).
  */
 export function skinNormals(normals: Float32Array, svwl: Svwl, matrices: Float32Array, out?: Float32Array, normalize = false): Float32Array {
   const V = svwl.vertexCount;
   const res = out ?? new Float32Array(V * 3);
   const bones = matrices.length / 16;
   res.fill(0);
-  const add = (v: number, b: number, w: number) => {
+  const add = (v: number, b: number, w: number, first: boolean) => {
     const x = normals[v * 3], y = normals[v * 3 + 1], z = normals[v * 3 + 2], m = b * 16;
-    res[v * 3] += w * (matrices[m] * x + matrices[m + 4] * y + matrices[m + 8] * z);
-    res[v * 3 + 1] += w * (matrices[m + 1] * x + matrices[m + 5] * y + matrices[m + 9] * z);
-    res[v * 3 + 2] += w * (matrices[m + 2] * x + matrices[m + 6] * y + matrices[m + 10] * z);
+    let nx = fr(fr(fr(x * matrices[m]) + fr(y * matrices[m + 4])) + fr(z * matrices[m + 8]));
+    let ny = fr(fr(fr(x * matrices[m + 1]) + fr(y * matrices[m + 5])) + fr(z * matrices[m + 9]));
+    let nz = fr(fr(fr(x * matrices[m + 2]) + fr(y * matrices[m + 6])) + fr(z * matrices[m + 10]));
+    if (w !== 1) { nx = fr(nx * w); ny = fr(ny * w); nz = fr(nz * w); }
+    if (first) { res[v * 3] = nx; res[v * 3 + 1] = ny; res[v * 3 + 2] = nz; }
+    else { res[v * 3] = fr(nx + res[v * 3]); res[v * 3 + 1] = fr(ny + res[v * 3 + 1]); res[v * 3 + 2] = fr(nz + res[v * 3 + 2]); }
   };
   for (let v = 0; v < V; v++) {
     const b = svwl.bone[v];
     if (b < 0 || b >= bones) { res[v * 3] = normals[v * 3]; res[v * 3 + 1] = normals[v * 3 + 1]; res[v * 3 + 2] = normals[v * 3 + 2]; }
-    else add(v, b, svwl.weight[v]);
+    else add(v, b, svwl.weight[v], true);
   }
   const e = svwl.extra;
-  for (let i = 0; i < e.count; i++) if (e.bone[i] < bones) add(e.vertex[i], e.bone[i], e.weight[i]);
+  for (let i = 0; i < e.count; i++) if (e.bone[i] < bones) add(e.vertex[i], e.bone[i], e.weight[i], false);
   if (normalize) for (let v = 0; v < V; v++) {
     const l = Math.hypot(res[v * 3], res[v * 3 + 1], res[v * 3 + 2]) || 1;
     res[v * 3] /= l; res[v * 3 + 1] /= l; res[v * 3 + 2] /= l;

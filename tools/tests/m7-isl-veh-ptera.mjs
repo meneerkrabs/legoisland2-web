@@ -5,12 +5,13 @@ import '../lib/m8-cdheap.mjs';   // (WP-SAVE: the original's heap is 0xCD-filled
 import { pteraSession, B, RECORDS_BASE, REC, lcg } from '../lib/m7-isl-veh-supe.mjs';
 import { vehicles, berthPos } from '../../src/island/vehicles/common.ts';
 import { compareChainBlocks, cdPatchChain } from '../lib/m8-save-pepper.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MAXFAIL = 30;
 const POOL = [B.SPACE, B.SPACE, B.SPACE | B.LEFT, B.SPACE | B.RIGHT, B.LEFT, B.RIGHT, B.ALT, B.ALT | B.LEFT, B.UP, B.DOWN, B.UP | B.SPACE, B.DOWN | B.SPACE, B.DOWN | B.ALT, 0, 0, B.SPACE | B.UP | B.LEFT, B.DOWN | B.RIGHT];
 const randomKeys = (rnd, pool, maxHold) => { let cur = 0, left = 0; return () => { if (left-- <= 0) { cur = pool[Math.floor(rnd() * pool.length)]; left = 2 + Math.floor(rnd() * (maxHold - 1)); } return cur; }; };
 
-export default {
+const __test = {
   name: 'm7-isl-veh-ptera',
   async run(ctx) {
     const failures = [], notes = [];
@@ -131,3 +132,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

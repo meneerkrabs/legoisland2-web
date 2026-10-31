@@ -17,6 +17,7 @@ import { PyaPepSwitch, CTOR_PEPPSW, setRosterHooks } from './peppsw.ts';
 import { constructRoster, hiddenList, pyaRosterHooks } from './roster.ts';
 import { looksOf } from '../../island/vehicles/looks.ts';
 import { tickIslandBrickFx } from '../../fx/bricks/island.ts';
+import { startTickClock } from '../common/tickrand.ts';
 
 /** DAT_009daa7c: the accessory (the skateboard record: SKBD, record 17 in this zone) */
 const GLOBAL_ACCESSORY = 0x9daa7c;
@@ -53,6 +54,7 @@ registerHub({
   bricks: true,   // FX_Bricks: the Speedster's look change morphs through the brick manager (roster.ts)
   afterSetup({ ictx, world, loaded }) { applyPyaSetup(ictx, world, loaded); },
   onCreate(h) {
+    startTickClock();   // FUN_00435c81 in the wrapper FUN_00675f02: the clock base of FUN_00435c91 (PeppSw's random sound draw)
     const hud = new PyaHud();
     hudOf.set(h, hud);
     hud.init(h.ctx.hud);

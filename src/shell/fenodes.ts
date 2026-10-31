@@ -9,7 +9,7 @@
 //   records 35..41 BFS6..BFS0: FUN_004b2d44 = ButterflyNode of src/island/ambient (the island's code), attached by frontend.ts
 // Save blocks (the front end writes SaveDef.lgo at its start: FUN_0041ad71 -> FUN_00418ec7(-2); docs/re/save.md): each class has `ctor` = the original constructor and the serializer / loader of its
 // vtable (+0x14 / +0x10, both a plain memcpy of a field range of the node block: see each class).
-// Field comments give the byte offset of the original's node block. `rng` is the replaceable FUN_004388ae source (rand() / 32767).
+// Field comments give the byte offset of the original's node block. `rand` is FUN_004388ae on the shared generator (src/game/crt.ts).
 import type { BehaviourNode, Controller } from '../game/controller.ts';
 import { NODE_CONTINUE, registerNode } from '../game/controller.ts';
 import type { GameRecord } from '../game/record.ts';
@@ -17,14 +17,12 @@ import type { World } from '../game/world.ts';
 import { buildMatrix } from '../formats/matrix.ts';
 import type { Pe } from '../formats/exe.ts';
 import { mulGame } from '../render/math.ts';
-import { gameRandom } from '../zones/common/tickrand.ts';
+import { randF } from '../game/crt.ts';
 import { BlockIn, BlockOut } from '../island/blockio.ts';
 
-/** random in [0, 1]: FUN_0085daf0 / 32767 (FUN_004388ae scales it); replaceable so tests are deterministic */
-// RNG: the C runtime generator behind the front end's FUN_004388ae draws (outfit / gag / butterfly picks); the tests replace `next`
-export const rng = { next: () => gameRandom() };
-/** FUN_004388ae(max): 0 for max <= 0, else rand() / 32767 * max (a float10 result the callers store as float32 or truncate) */
-export const rand = (max: number) => (max <= 0 ? 0 : rng.next() * max);
+/** FUN_004388ae(max): `(float)rand() / 32767.0f * max`, every operation a float32 (the x87 at 24 bit), 0 and no draw for max <= 0: the shared C runtime generator of src/game/crt.ts
+ *  (tests inject a scripted rand() with `setRandSource` there) */
+export const rand = randF;
 const f32 = Math.fround;
 const ftol = Math.trunc;
 /** a float given as the hex immediate the original pushes */
@@ -158,7 +156,7 @@ export class FePepperNode implements BehaviourNode {
       this.gag = -1;
       pa?.start(t.word(0, 0), 0);
       sa?.start(t.word(0, 1), 0);
-      this.duration = ftol(10 / r);
+      this.duration = ftol(f32(10 / r));
       this.speed = f32(r * 8);
       if (rand(1) >= fh(0x3f666666)) rec.model = this.model;
       else rec.model = recs[t.outfits[ftol(rand(18))]]?.model ?? rec.model;   // the pointer of the outfit record's model
@@ -168,7 +166,7 @@ export class FePepperNode implements BehaviourNode {
     let bounce = 0;
     if (this.gagLeft >= 1) {
       const len = t.word(this.gag, 2);
-      this.gagLeft = ftol(len - (pa ? pa.frame : 0));
+      this.gagLeft = ftol(f32(len - (pa ? pa.frame : 0)));
       bounce = this.gagLeft > ((len / 2) | 0) ? f32(((len - this.gagLeft) * 8) / len) : f32((this.gagLeft * 8) / len);
     }
     const m = rec.m;
@@ -211,7 +209,7 @@ export class FeFigureNode implements BehaviourNode {
     this.inited = true;
     rec.anim?.start(0x74, 0);
     place(rec, 0, fh(0x3e860a63), 0, fh(0xc0accccd), 8, fh(0x424ccccd));   // FUN_0043a5e4(rec + 0xc, 0, 0.2625, 0, -5.4, 8, 51.2)
-    this.cnt = ftol(rand(300) + 300);
+    this.cnt = ftol(f32(rand(300) + 300));
     this.fl = this.cnt;
   }
   /** Save block = node +0x18 .. +0x20 (saver FUN_004729b0 returns 8 and points at node + 0x18, loader FUN_004729ce = 8 byte memcpy back): f32 fl (+0x18), i32 cnt (+0x1c) */
@@ -227,10 +225,10 @@ export class FeFigureNode implements BehaviourNode {
   update(w: World, rec: GameRecord, _c: Controller): number {
     if (!this.inited) this.init(w, rec);
     if (this.cnt > 0) {
-      this.cnt = ftol(this.cnt - 1 * w.dt);
+      this.cnt = ftol(f32(this.cnt - f32(1 * w.dt)));
       this.cnt = ftol(this.fl);
     } else if ((rec.anim ? rec.anim.advance(1, w.dt) : 0) !== 0) {
-      this.cnt = ftol(rand(300) + 300);
+      this.cnt = ftol(f32(rand(300) + 300));
       this.fl = this.cnt;
     }
     return NODE_CONTINUE;
@@ -313,9 +311,9 @@ export class FeBricksterNode implements BehaviourNode {
   init(_w: World, rec: GameRecord) {
     this.inited = true;
     rec.flags = 0;
-    this.cnt = ftol(rand(300) + 300);
+    this.cnt = ftol(f32(rand(300) + 300));
     this.fl = this.cnt;
-    this.sel = ftol(rand(2) + 1);
+    this.sel = ftol(f32(rand(2) + 1));
     // FUN_0044e920("trainsmoke01.par", rec + 0xc, 0, -5, 0, -pi/2, 0, 0, var 1, mask 1, value 1): the gate (1, 1, 1) is OFF for good (var 1 always reads 0 and nothing of the node
     // changes the gate, no SetGate in the .par): the emitter never emits. Then bone 10's world matrix `local_48 = FUN_0043a9e5(local_48, rec + 0xc, FUN_0043bc58(anim, 10))` is handed
     // to FUN_0044ea00 twice (here and every tick of the clip in the update): the engine keeps the ADDRESS of that stack local, which is dead after the call, so what it reads later is
@@ -348,8 +346,8 @@ export class FeBricksterNode implements BehaviourNode {
       const fin = rec.anim ? rec.anim.advance(1, w.dt) : 0;    // the rate of the pose is 1.0 (the constructor writes 0x3f800000 into every row)
       if (fin !== 0) {
         rec.flags = 0;
-        this.sel = rand(1) <= fh(0x3f733333) ? ftol(rand(2) + 1) : 0;
-        this.cnt = ftol(rand(300) + 300);
+        this.sel = rand(1) <= fh(0x3f733333) ? ftol(f32(rand(2) + 1)) : 0;
+        this.cnt = ftol(f32(rand(300) + 300));
         this.fl = this.cnt;
       } else if (this.fx !== FX_NONE && this.env.fx) { this.follow(rec); this.env.fx.setMatrix(this.fx, this.local); }
     } else {

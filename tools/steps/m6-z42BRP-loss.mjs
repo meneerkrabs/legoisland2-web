@@ -2,7 +2,7 @@
 // the recorded run then takes her up and the roof is left alone (the bots knock her off the back, the floor falls away, the hit counter resets), the pause menu restarts the zone
 // (a fresh run: the clock starts again) and abandons it (the story rewinds to the Ogel hub, node 66).
 //   node tools/browse.mjs "http://localhost:5612/?zone=z42BRP&mute=1" tools/steps/m6-z42BRP-loss.mjs --size 1280x800 --out /tmp/m6-z42BRP
-import { PLAN1 } from '../../src/zones/z42BRP/bot-plan.ts';
+import { PLAN1, PLAN1_START } from '../../src/zones/z42BRP/bot-plan.ts';
 
 export default async ({ page, shot, wait, log, key }) => {
   const fail = [];
@@ -42,7 +42,7 @@ export default async ({ page, shot, wait, log, key }) => {
   await start();
   s = await dbg();
   expect('restart: a fresh run (attempt 1, phase 1, clock reset, no restarts or falls)', s.attempt === 1 && s.g.phase === 1 && s.g.elapsed < 200 && s.g.restarts === 0 && s.g.falls === 0, JSON.stringify({ attempt: s.attempt, phase: s.g.phase, elapsed: s.g.elapsed }));
-  await page.evaluate(async (plan) => {
+  await page.evaluate(async ([plan, start]) => {
     const z = window.__zone, w = z.world, inp = z.sh.input;
     const codes = { 1: 'ArrowLeft', 2: 'ArrowRight', 4: 'ArrowUp', 8: 'ArrowDown', 0x20: 'AltLeft', 0x80: 'Space', 0x10: 'ControlLeft' };
     const flat = [];
@@ -51,14 +51,14 @@ export default async ({ page, shot, wait, log, key }) => {
     const orig = inp.update.bind(inp);
     inp.update = () => {
       let mask = 0;
-      if (!B.off && z.machine.mode === 2 && w.vars.get(0xfa) === 1) { const t = w.tickCount; mask = t >= 16 ? (flat[t - 16] ?? 0) : 0; }
+      if (!B.off && z.machine.mode === 2 && w.vars.get(0xfa) === 1) { const t = w.tickCount; mask = t >= start ? (flat[t - start] ?? 0) : 0; }
       // only drive the keys while the bot plays (mode 2), and release them once when it stops: else the menu's arrow taps of the steps are wiped before they are sampled
       const driving = !B.off && z.machine.mode === 2;
       if (driving || B.drove) for (const [bit, code] of Object.entries(codes)) inp.setKey(code, (mask & +bit) !== 0);
       B.drove = driving;
       orig();
     };
-  }, PLAN1);
+  }, [PLAN1, PLAN1_START]);
   await page.waitForFunction(() => window.__zone.machine.mode === 10, null, { timeout: 240000 });
   await shot('3-help2');
   await key('Enter');

@@ -4,6 +4,7 @@
 import { supeSession, B, RECORDS_BASE, REC } from '../lib/m7-isl-veh-supe.mjs';
 import { waypoints } from '../../src/game/walker.ts';
 import { withCdHeap } from '../lib/m8-save-pizza.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MAXFAIL = 30;
 // (WP-SAVE: the original is a debug build whose heap fills fresh node blocks with 0xCD; the nodes of this family keep that fill in the fields the constructors never write, so the oracle must allocate like it: tools/lib/m8-save-pizza.mjs)
@@ -149,4 +150,4 @@ const suite = {
     return { checked, failures, notes };
   },
 };
-export default { ...suite, run: (ctx) => withCdHeap(() => suite.run(ctx)) };
+export default guarded({ ...suite, run: (ctx) => withCdHeap(() => suite.run(ctx)) });

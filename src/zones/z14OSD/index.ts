@@ -4,6 +4,7 @@
 //   * the hub's constructors (registerCtor by address): Gems 0x62b220, scorpion 0x62ad35 / grab node 0x62af8d, Tumblewd 0x629d7e (also used by z16PYA / z23DIP) and PEPPSW 0x62ba3b (Pepper's mode switch);
 //   * the loop's per-frame code (HUD, the two ambience loops of mode 2);
 //   * the set-up calls the emulation only logged (node 45's sub-object matrices).
+import { startTickClock } from '../common/tickrand.ts';
 import { registerHub } from '../../hub/index.ts';
 import type { HubGame } from '../../hub/game.ts';
 import type { HubContext } from '../../hub/ctx.ts';
@@ -37,6 +38,7 @@ registerHub({
   bricks: true,   // FX_Bricks: the parked helicopter's look change morphs through the brick manager (looks.ts)
   // FUN_006283c0 (the wrapper's HUD set-up)
   onCreate(h: HubGame) {
+    startTickClock();   // FUN_00435c81 in the wrapper FUN_00628252 (nothing in this zone reads FUN_00435c91, the base only matters for a later reader)
     osdState(h.ictx);
     initOsdHud(h.ctx.hud);
     // FUN_00655de3: the decor templates are drawn in mode 1 (and hidden: looks.ts)

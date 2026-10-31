@@ -1,7 +1,11 @@
 import { loadExe, loadZone } from '../lib/engine-load.mjs';
 import { WabEmu } from '../lib/m5-wab-emu.mjs';
+import { crtPick } from '../../src/zones/z05WAB/wab.ts';
 import { takeShared, wabEffects } from '../../src/zones/z05WAB/game.ts';
 import { B } from '../../src/game/input.ts';
+import { setRandSource, setTickCountSource } from '../../src/game/crt.ts';
+import { msClock, startTickClock } from '../../src/zones/common/tickrand.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // z05WAB, M5 audit, ORACLE test: the original's whack-a-bot code (botwab FUN_00569f50 with the presentation FUN_0056bb20 / whack animation FUN_0056c6a5 / alarm FUN_0056c8f1, pepwab
 // FUN_0056c950, both constructors, the camera helpers) is executed in the x86 interpreter (tools/lib/m5-wab-emu.mjs) next to the TypeScript port; both get the same buttons and the
@@ -14,7 +18,7 @@ const KEYBIT = { ArrowUp: B.UP, ArrowLeft: B.LEFT, ArrowRight: B.RIGHT, ArrowDow
 const HOLE_KEY = ['ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown'];
 const gen = (seed) => { let s = seed >>> 0; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s >>> 8; }; };
 
-export default {
+const __test = {
   name: 'm5-audit-z05WAB-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -28,14 +32,19 @@ export default {
       const w = L.world;
       w.externalInput = true;
       const next = gen(seed), drawn = [];
+      // the port's own draws (crtPick: crt.ts rand() scaled by the real zone clock) run on a scripted 15 bit source and a scripted tick clock; the oracle replays them
+      let tk = 0;
+      setTickCountSource(() => 5000 + Math.floor(tk * 1000 / 60));
+      setRandSource(() => { const v = next() & 0x7fff; drawn.push(v); return v; });
+      startTickClock();
       const frames = [], ev = [];
       sh.host = {
         play: (id) => ev.push(`p ${id}`), stop: (id) => ev.push(`s ${id}`),
         play3d: (id, pos) => ev.push(pos ? `p3 ${id} ${pos.map((v) => v.toFixed(2)).join(',')}` : `p3 ${id} none`),
         say: (id) => ev.push(`say ${id}`),
+        random: crtPick,
         setFrame: (t, slot, f) => frames.push([t, slot, f]),
         scrollV: (g, dv) => ev.push(`u ${g} ${dv.toFixed(6)}`),
-        random: (n) => { const v = next(); drawn.push(v); return v % n; },
       };
       const bot = sh.bot, pep = sh.pep;
       // the emitter calls: the port's wabEffects runs on a recording stub of ZoneParticles; the original's calls (FUN_004429a0 / 00442960 / 00442a50 / 00442a20 / 00442a00) are recorded by the harness
@@ -56,7 +65,7 @@ export default {
         sh.host.fx = wabEffects({ world: w }, stub);
       }
       const worst = {};
-      const num = (tick, name, orig, port, tol = 1e-5) => {
+      const num = (tick, name, orig, port, tol = 0) => {
         checked++;
         const d = Math.abs(orig - port);
         worst[name] = Math.max(worst[name] ?? 0, d);
@@ -68,7 +77,8 @@ export default {
       takeShared();
       const recs = L2.world.records.map((r) => ({ name: r.name, m: Array.from(r.m), flags: r.flags, rx: r.rx, ry: r.ry, rz: r.rz }));
       let di = 0;
-      const emu = new WabEmu(pe, recs, L2.world.records[0].anim, { rand: () => drawn[di++] });
+      const emu = new WabEmu(pe, recs, L2.world.records[0].anim, { rand: () => drawn[di++], clock: () => msClock() });
+      emu.cpu.mem.wf32(0x8b1718, dt);   // before the constructors (they read DAT_008b1718 too)
       emu.construct();
       eq(-1, 'constructor texture frames', emu.frames, [['flsh', 0, 0]]);
       eq(-1, 'constructor calls', emu.log, ['anim 1']);   // the idle clip
@@ -90,6 +100,7 @@ export default {
         const key = player(bot, pep, sh, t);
         ev.length = 0; frames.length = 0; drawn.length = 0; di = 0;
         w.input.pressed = key ? KEYBIT[key] : 0;      // the buttons that went down this tick, exactly (the shell samples the input itself)
+        tk = t + 1;
         w.tick();
         const olog = emu.tick(key ? KEYBIT[key] : 0);
         if (key) started++;
@@ -119,11 +130,11 @@ export default {
         eq(t, 'time text', mem.cstr(0x5d4dd60), bot.timeText); eq(t, 'hits text', mem.cstr(0x5d4dd20), bot.hitsText); eq(t, 'miss text', mem.cstr(0x5d4dd44), bot.missText);
         if (!sh.over) { eq(t, 'percentage line', emu.texts.map((x) => [x.text, x.x, x.y, x.wrap]), [[bot.pctText, 320, 400, 30]]); }
         // camera
-        for (let k = 0; k < 6; k++) num(t, `camera${k}`, mem.f32(0x9da5e8 + 4 * k), w.camera.c[k], 1e-4);
+        for (let k = 0; k < 6; k++) num(t, `camera${k}`, mem.f32(0x9da5e8 + 4 * k), w.camera.c[k]);
         // records
         for (let i = 0; i < w.records.length; i++) {
           const r = w.records[i], a = emu.recPtr(i);
-          for (let k = 0; k < 16; k++) num(t, `rec${i}(${r.name}).m${k}`, mem.f32(a + 0xc + 4 * k), r.m[k], 1e-4);
+          for (let k = 0; k < 16; k++) num(t, `rec${i}(${r.name}).m${k}`, mem.f32(a + 0xc + 4 * k), r.m[k]);
           eq(t, `rec${i}(${r.name}).flags`, mem.r16(a + 0x60) & 0xffff, r.flags & 0xffff);
         }
         if (sh.over && overAt < 0) overAt = t;
@@ -153,7 +164,9 @@ export default {
     scenario('smart dt0.5', 24, smart(), 6000, 0.5);
     scenario('idle dt0.5', 4, () => null, 6000, 0.5);
     scenario('all dt0.5', 42, (bot, pep, sh) => { for (let h = 0; h < 4; h++) if (bot.state[h] === 1 && bot.y[h] > -1.2 && pep.busy === 0) return HOLE_KEY[h]; return null; }, 6000, 0.5);
+    setRandSource(null); setTickCountSource(null);
     void r2; void f32;
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

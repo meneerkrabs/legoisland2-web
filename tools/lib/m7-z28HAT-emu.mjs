@@ -146,7 +146,7 @@ export function createHatHarness(ctx, G) {
   hook(0x41761b, (c) => { w.vars.or(c.arg(0), c.arg(1) | 0); });
   hook(0x41766c, (c) => { w.vars.andNot(c.arg(0), c.arg(1) | 0); });
   // random numbers: FUN_004388ae(max) = rand / 32767 * max with the test's integer rand
-  hook(0x4388ae, (c) => { const r = G.rk.draw(); H.draws.push(r); c.fpush(f32(f32(r / 32767) * c.argf(0))); });
+  hook(0x85daf0, () => { const r = G.rk.draw(); H.draws.push(r); cpu.eax = r; });     // FUN_004388ae itself runs natively
   // animation instances (the port's AnimInstance of the record: AB + index * 0x40)
   const animOf = (ptr) => rs[(ptr - AB) / 0x40].anim;
   hook(0x43b6a3, (c) => { c.eax = animOf(c.arg(0)).start(c.arg(1) | 0, c.argf(2)) ? 1 : 0; });
@@ -215,7 +215,7 @@ export function createHatHarness(ctx, G) {
   });
   hook(0x4425e0, (c) => { mem.w32(0x9dec18, c.arg(0)); });
   hook(0x43b64d, (c) => { animOf(c.arg(0)).seek(c.argf(1)); });
-  cpu.exec = [[0x790000, 0x7a0000], [0x858d30, 0x873e00], [0x43a340, 0x43b100], [0x43cd62, 0x43cd9a], [0x43cec0, 0x43d100], [0x4425f0, 0x442680], [0x441a90, 0x441ac0], [0x433450, 0x4334e0], [0x43ecd0, 0x43ee00]];
+  cpu.exec = [[0x790000, 0x7a0000], [0x858d30, 0x873e00], [0x43a340, 0x43b100], [0x43cd62, 0x43cd9a], [0x43cec0, 0x43d100], [0x4425f0, 0x442680], [0x441a90, 0x441ac0], [0x433450, 0x4334e0], [0x43ecd0, 0x43ee00], [0x4388ae, 0x4388e7]];
   cpu.fallback = (a) => { H.unhooked.add(a); throw new Error(`z28HAT emu: unhooked call to 0x${a.toString(16)} from 0x${cpu.callAt?.toString(16)} (frames ${cpu.frames.slice(-4).map((f) => f.toString(16))})`); };
   cpu.invalidate();
 

@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import { loadExe, loadZone } from '../lib/engine-load.mjs';
 import { AsbWorldEmu, RECORDS_BASE } from '../lib/m7-z39ASB-emu.mjs';
-import { AsteroidBelt, ST, VAR, C } from '../../src/zones/z39ASB/belt.ts';
+import { AsteroidBelt, BeltRng, ST, VAR, C } from '../../src/zones/z39ASB/belt.ts';
 import { BeltSound, SND, MISSES } from '../../src/zones/z39ASB/sound.ts';
 import { GameVars } from '../../src/game/vars.ts';
 import { B } from '../../src/game/input.ts';
@@ -32,9 +32,10 @@ export default {
       const t0 = Date.now();
       let sp = seed, so = seed;
       // the port's random source: the C rand() values 0..32767 (MsvcRand's interface); the original's FUN_004388ae(x) = rand / 32767 * x, except for the hit sounds (x = GetTickCount > 1000): rand()
-      const rngP = { next: () => { sp = nx(sp); return (sp >> 8) & 0x7fff; }, range: (x) => (x <= 0 ? 0 : (rngP.next() / 32767) * x) };
-      const rngO = { range: (x) => { if (x <= 0) return 0; so = nx(so); const r = (so >> 8) & 0x7fff; return x > 1000 ? r : (r / 32767) * x; } };
-      for (let i = 0; i < 100; i++) rngP.next();       // FUN_007b780c (called by the constructor before the layout) draws two rand() values for each of the 50 star positions: the port has no star table
+      // both sides draw rand() from the same scripted sequence (a private LCG per side, the same seed); FUN_004388ae runs natively on the original's side (hosted FUN_0085daf0), `randFrom` on the port's.
+      // The hit test's picks scale rand() with FUN_00435c91 (GetTickCount - start): both sides get the same scripted 1000000 ms.
+      const rngP = new BeltRng(() => { sp = nx(sp); return (sp >> 8) & 0x7fff; });
+      const rngO = { int: () => { so = nx(so); return (so >> 8) & 0x7fff; } };
       // ---- the port
       const L = loadZone(ctx, 'z39ASB');
       const W = L.world;
@@ -55,11 +56,11 @@ export default {
         if (e.type === 'warn') p3.push(`p3 #${MISSES[e.miss]} ${e.pos.map(Math.fround)}`);
         if (e.type === 'hit') plog.push(`say OGSGAB0${e.voice === 0 ? 6 : 7}`);
         if (e.type === 'warnEnd') plog.push('s2 #515', 's2 #516', 's3 #458', 's3 #459');       // BeltSound.event('warnEnd') stops the alarm pair and the miss pair silently (no log line)
-      });
+      }, () => 1000000);
       // ---- the oracle world and the original
       const L2 = loadZone(ctx, 'z39ASB');
       const o2 = L2.world.records;
-      const emu = new AsbWorldEmu(pe, { world: L2.world, records: o2, anims: new Map(), pepperIndex: -1 }, { rng: rngO, dt });
+      const emu = new AsbWorldEmu(pe, { world: L2.world, records: o2, anims: new Map(), pepperIndex: -1 }, { rng: rngO, dt, tick: 1000000 });
       const mem = emu.cpu.mem;
       emu.construct();
       const node = emu.node;
@@ -68,7 +69,7 @@ export default {
 
       const worst = new Map();
       let nfail = 0, tick = 0;
-      const cmp = (name, orig, port, tol = 1e-6, idx = '') => {
+      const cmp = (name, orig, port, tol = 0, idx = '') => {
         checked++;
         const dd = Math.abs(orig - port);
         if (dd > (worst.get(name) ?? 0)) worst.set(name, dd);
@@ -93,15 +94,15 @@ export default {
         for (let i = 0; i < asteroids.length; i++) if (full || (Math.abs(asteroids[i].z - belt.cam[2]) < 900)) rs.push(ai0 + i);
         for (const i of rs) {
           const a = RECORDS_BASE + i * REC, r = W.records[i], nm = r.name;
-          for (let k = 0; k < 16; k++) cmp(nm + ' m', mem.f32(a + 0xc + 4 * k), r.m[k], 1e-6, `[${k}]#${i}`);
-          cmp(nm + ' rx', mem.f32(a + 0x4c), r.rx, 1e-6, `#${i}`); cmp(nm + ' ry', mem.f32(a + 0x50), r.ry, 1e-6, `#${i}`); cmp(nm + ' rz', mem.f32(a + 0x54), r.rz, 1e-6, `#${i}`);
+          for (let k = 0; k < 16; k++) cmp(nm + ' m', mem.f32(a + 0xc + 4 * k), r.m[k], 0, `[${k}]#${i}`);
+          cmp(nm + ' rx', mem.f32(a + 0x4c), r.rx, 0, `#${i}`); cmp(nm + ' ry', mem.f32(a + 0x50), r.ry, 0, `#${i}`); cmp(nm + ' rz', mem.f32(a + 0x54), r.rz, 0, `#${i}`);
           // the port's renderer needs RF_NO_DRAW (0x8000) on what the original does not draw: compare the original's own bits 0 (frustum) and 1 (enabled)
           eq(nm + ' flags 0|1', mem.r16(a + 0x60) & 3, r.flags & 3, `#${i}`);
         }
-        for (let k = 0; k < 6; k++) cmp('camera', mem.f32(0x9da5e8 + 4 * k), W.camera.c[k], 1e-6, `[${k}]`);
+        for (let k = 0; k < 6; k++) cmp('camera', mem.f32(0x9da5e8 + 4 * k), W.camera.c[k], 0, `[${k}]`);
         eq('result', mem.r32(0x5d5d524) | 0, belt.result); eq('var 0xfc', emu.vars.get(0xfc) | 0, vars.get(VAR.RESULT));
         if (tick > 0) {      // the HUD values are written by the first update (the port initialises them in its constructor)
-          cmp('gauge', mem.f32(0x5d4e138), belt.gauge, 1e-6);
+          cmp('gauge', mem.f32(0x5d4e138), belt.gauge, 0);
           eq('score text', mem.cstr(0x5d4dd60).trim(), belt.scoreText);
         }
         eq('frame tint', (mem.r32(0x5d4e0c4) >>> 0) & 0xffffff, belt.frameTint & 0xffffff);
@@ -212,7 +213,7 @@ export default {
       const L = loadZone(ctx, 'z39ASB'), L2 = loadZone(ctx, 'z39ASB');
       const W = L.world, o2 = L2.world.records;
       const asteroids = W.records.filter((r) => r.name.startsWith('AST')).slice(0, 256);
-      const emu = new AsbWorldEmu(pe, { world: L2.world, records: o2, anims: new Map(), pepperIndex: -1 }, { rng: { range: () => 1 }, dt: 1 });
+      const emu = new AsbWorldEmu(pe, { world: L2.world, records: o2, anims: new Map(), pepperIndex: -1 }, { rng: { int: () => 1 }, dt: 1 });
       emu.construct();
       let n = 0;
       const mkBelt = (vars) => new AsteroidBelt({ shut: W.records[1], hull: W.records[2], asteroids }, W.camera.c, { next: () => 1, range: () => 1 }, vars, () => {});

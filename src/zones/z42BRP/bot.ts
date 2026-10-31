@@ -32,10 +32,10 @@ function copyObj(o: object): Record<string, unknown> {
 }
 function putObj(o: object, s: Record<string, unknown>) { for (const k of Object.keys(s)) (o as Record<string, unknown>)[k] = copyVal(s[k]); }
 
-/** a random generator whose state can be captured: the node code only calls `rng()` */
+/** a scripted rand() (FUN_0085daf0's LCG, 0 .. 32767) whose state can be captured: the node code only calls `env.rng()` (the browser game uses the shared generator, src/game/crt.ts) */
 export interface StatefulRng { (): number; state: number }
 export function statefulRng(seed: number): StatefulRng {
-  const f = (() => { f.state = (Math.imul(f.state, 1664525) + 1013904223) >>> 0; return f.state / 4294967296; }) as StatefulRng;
+  const f = (() => { f.state = (Math.imul(f.state, 0x343fd) + 0x269ec3) >>> 0; return (f.state >>> 16) & 0x7fff; }) as StatefulRng;
   f.state = seed >>> 0;
   return f;
 }
@@ -45,7 +45,7 @@ export interface Snapshot {
   nodes: Record<string, unknown>[];
   st: Record<string, unknown>;
   vars: Int32Array;
-  tickCount: number; frame: number;
+  tickCount: number; frame: number; dt: number;
   input: { held: number; prevHeld: number; pressed: number };
   rng: number;
 }
@@ -60,7 +60,7 @@ export function capture(w: World): Snapshot {
   const st = copyObj(S);
   for (const k of STATE_SKIP) delete st[k];
   const rng = (S.env.rng as Partial<StatefulRng>).state ?? 0;
-  return { recs, nodes, st, vars: w.vars.a.slice(), tickCount: w.tickCount, frame: w.frame, input: { held: w.input.held, prevHeld: w.input.prevHeld, pressed: w.input.pressed }, rng };
+  return { recs, nodes, st, vars: w.vars.a.slice(), tickCount: w.tickCount, frame: w.frame, dt: w.dt, input: { held: w.input.held, prevHeld: w.input.prevHeld, pressed: w.input.pressed }, rng };
 }
 export function restore(w: World, snap: Snapshot) {
   const S = stateOf(w);
@@ -73,7 +73,7 @@ export function restore(w: World, snap: Snapshot) {
   for (const r of w.records) for (const n of r.ctrl?.nodes ?? []) putObj(n, snap.nodes[k++]);
   putObj(S, snap.st);
   w.vars.a.set(snap.vars);
-  w.tickCount = snap.tickCount; w.frame = snap.frame;
+  w.tickCount = snap.tickCount; w.frame = snap.frame; w.dt = snap.dt; w.invDt = Math.fround(1 / snap.dt);
   Object.assign(w.input, snap.input);
   const rng = S.env.rng as Partial<StatefulRng>;
   if (rng.state !== undefined) rng.state = snap.rng;

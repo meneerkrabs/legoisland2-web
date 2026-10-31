@@ -1,5 +1,6 @@
+import { seededRng } from '../lib/asb-rng.mjs';
 import { loadExe, loadZone } from '../lib/engine-load.mjs';
-import { AsteroidBelt, MsvcRand, ST } from '../../src/zones/z39ASB/belt.ts';
+import { AsteroidBelt, ST } from '../../src/zones/z39ASB/belt.ts';
 import { ASB_EXHAUST } from '../../src/zones/z39ASB/game.ts';
 import { GameVars } from '../../src/game/vars.ts';
 
@@ -18,7 +19,7 @@ export default {
       const L = loadZone(ctx, 'z39ASB');
       const r = L.world.records;
       const cam = new Float64Array(18);
-      const belt = new AsteroidBelt({ shut: r[1], hull: r[2], asteroids: r.filter((x) => x.name.startsWith('AST')) }, cam, new MsvcRand(9), new GameVars());
+      const belt = new AsteroidBelt({ shut: r[1], hull: r[2], asteroids: r.filter((x) => x.name.startsWith('AST')) }, cam, seededRng(9), new GameVars());
       const log = [];
       belt.fxGate = (on) => log.push([belt.state, on]);
       return { belt, log };

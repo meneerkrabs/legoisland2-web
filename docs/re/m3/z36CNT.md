@@ -199,4 +199,14 @@ gold `LESGCE02` y 200 + `LESGCE03` y 380. The medal shown is the flag + the scor
 
 ## WP-PART-WIRE (2026-10-29): particles
 
-`FUN_007af0d2` creates the engine `FUN_00442900("z36cnt")` and the loop updates it (`FUN_00442930`), but the zone never starts an effect (the archive has no `Particle/` folder). Nothing to wire. Closed. (`rand` default: the C runtime generator, `// RNG:`.)
+`FUN_007af0d2` creates the engine `FUN_00442900("z36cnt")` and the loop updates it (`FUN_00442930`), but the zone never starts an effect (the archive has no `Particle/` folder). Nothing to wire. Closed. (`rand` default: `randF` of the C runtime generator, src/game/crt.ts.)
+
+
+## WP-TIME (fixed 60 Hz step, shared RNG, float32 sweep)
+
+The sim ran with `dt = 1` baked in (`* 1`, `time - 1`, `+ 1`, `advance(1)`); it follows `DAT_008b1718` now (`CentrifugeSim.step(pressed, dt)`, `bobStep(dt)`; the zone game passes `w.dt`):
+* dt-scaled floats (float32 per operation, the order of the asm): the arm angle in RUN and STOP (`(OMEGA_MAX - OMEGA_MIN) * power + OMEGA_MIN` rounded per operation, times dt, plus the angle), the power fall in STOP (`0.01 * dt`), the time left (`+0xf0 -= 1.0 * dt`), the monitor frame (`FUN_007aff9f`: `1.0 * dt + frame`), the visor matrix angle (`visorAngle * dt`; the angle itself still steps 0.1 per update), Pepper's clip (`FUN_0043b76a(anim, 1.0)` = `advance(1, dt)`), Bob (`advance(speed, dt)` and the clip-end test `FUN_0043b92a`: `1.0 + frame + speed * dt > frameCount`, per operation float32; Bob's speed `3.0 * power + 1.0` per operation).
+* integer / per-update counters (not dt): the displayed score ticker (+17 per update), the streak, the twinkle-free light logic, `DAT_05d5d488` (a per-frame HUD counter nobody reads).
+* Draw hook FUN_007b1a1b (`placeParts`): a pure function of the last angle / power, no accumulating state: once per sim step is enough.
+* RNG: `host.rand(x)` is `FUN_004388ae(x)` (float32): Bob's `rand(1.0)` against the power and `ftol(rand(4.0))` for the clip (src/zones/common/crtrand.ts `randFrom` in tests, `randF` of src/game/crt.ts in the game).
+* Oracle `m5-audit-z36CNT-emu` runs with the x87 at 24 bit (`cw 0x7f`), FUN_004388ae native on a hosted `rand()`, dt 1 / 0.5 / the game's own rule (1 for the first five frames, then 0.5) and TOLERANCE 0 (4.7 M comparisons). `m3-z36cnt` has a dt 0.5 block.

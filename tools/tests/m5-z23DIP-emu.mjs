@@ -7,13 +7,14 @@ import { loadHub } from '../lib/hub-load.mjs';
 import '../../src/zones/index.ts';
 import { dipAfterSetup, } from '../../src/zones/z23DIP/index.ts';
 import { dipOracle, STRIDE } from '../lib/z23DIP-emu.mjs';
-import { setIslandRandom } from '../../src/island/rng.ts';
+import { setRandSource } from '../../src/game/crt.ts';
 import { setDecorHooks } from '../../src/zones/z23DIP/pepsw.ts';
 import { LoonNode } from '../../src/zones/z23DIP/loon.ts';
 import { REC, CTOR } from '../../src/zones/z23DIP/consts.ts';
 import { DipHudState, initDipHud, updateDipHud } from '../../src/zones/z23DIP/hud.ts';
 import { Hud } from '../../src/shell/hud.ts';
 import { GameVars } from '../../src/game/vars.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const fr = Math.fround;
 /** the records the update's sounds are played at */
@@ -54,7 +55,7 @@ const inner = {
       dipAfterSetup({ ictx: H.ictx, world: H.world, loaded: H.L, archive: H.archive });
       const w = H.world, pep = H.pepper;
       w.col.terrainHeight = (x, y, z, dy) => { const h = terrain(x, y, z, dy); return h === null ? -1e38 : h; };
-      setIslandRandom(() => RAND_POOL[Math.floor(poolP() * RAND_POOL.length)] / 32768);
+      setRandSource(() => RAND_POOL[Math.floor(poolP() * RAND_POOL.length)]);   // the shared crt.ts rand(), scripted
       const sw = pep.ctrl.nodes.find((n) => n.kind === 'PeppSw');
       ok(!!sw && pep.ctrl.nodes[0] === sw && !pep.ctrl.nodes.some((n) => n.kind === 'StubGuard') && pep.ctrl.nodes.map((n) => n.kind).join() === 'PeppSw,SGwalk,sgswim,skate', `node ${node}: Pepper's chain ${pep.ctrl.nodes.map((n) => n.kind)}`);
       // the port's context log
@@ -71,7 +72,7 @@ const inner = {
 
       // same start: Pepper's arrival place (the node's last good place), the board hidden
       const start = O.getPos(16);
-      eq(`node ${node}: arrival x`, start[0], pep.x, 1e-6); eq(`node ${node}: arrival z`, start[2], pep.z, 1e-6);
+      eq(`node ${node}: arrival x`, start[0], pep.x); eq(`node ${node}: arrival z`, start[2], pep.z);
       const nodeO = O.makeNode(node, start);
       ok(sw.returnVisit === (node === 50) && sw.safe[0] === pep.x, `node ${node}: constructor part (story node 50 flag, last good place)`);
       O.emu.setVar(0x5e, 1); w.vars.set(0x5e, 1);
@@ -147,7 +148,7 @@ const inner = {
         // the rare branches of the random draws were hit
         for (const id of [0x322, 0x321, 0x320, 0x31f, 0x31e]) ok(Object.keys(kinds).some((k) => k === `p3:${id}`), `node 50: the random sound ${id.toString(16)} was exercised`);
       }
-      setIslandRandom(null);
+      setRandSource(null);
     }
 
     // ------------------------------------------------------------------------------------------------ the balloon LOON
@@ -168,7 +169,7 @@ const inner = {
       const y0 = loon.y;
       n.ctorInit(w, loon);
       eq(`LOON dt ${dt}: constructor y`, O.getPos(REC.LOON)[1], loon.y); eq(`LOON dt ${dt}: constructor base`, O.mem.f32(nodeP + 0x14), n.baseY);
-      ok(Math.abs(loon.y - fr(y0 + 17.600000381469727)) < 1e-4, `LOON: lifted by 17.6 (${y0} -> ${loon.y})`);
+      ok(loon.y === fr(y0 + 17.600000381469727), `LOON: lifted by 17.6 (${y0} -> ${loon.y})`);
       let hidden = -1;
       for (let t = 0; t < 1200; t++) {
         if (t % 97 === 0) cut = rnd() < 0.4;
@@ -212,14 +213,14 @@ const inner = {
       }
       notes.push('HUD: 3000 ticks of FUN_00726610 against updateDipHud (dt 1 and 0.5)');
     }
-    setIslandRandom(null);
+    setRandSource(null);
     return { checked, failures, notes };
   },
 };
 
 // the executable runs the x87 in 24-bit mode (Direct3D 7 leaves control word 0x7f): the emulator is created with it for this test only (the Cpu reads M7_CW when it is created; a
 // module-level assignment would leak into every test that runs later in the same process, e.g. the default-control-word test of x86emu)
-export default {
+const __test = {
   name: inner.name,
   run(ctx) {
     const old = process.env.M7_CW;
@@ -227,3 +228,4 @@ export default {
     try { return inner.run(ctx); } finally { if (old === undefined) delete process.env.M7_CW; else process.env.M7_CW = old; }
   },
 };
+export default guarded(__test);

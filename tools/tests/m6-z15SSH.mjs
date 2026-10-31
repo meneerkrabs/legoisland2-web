@@ -9,6 +9,10 @@ import {
 } from '../../src/zones/z15ssh/rules.ts';
 import { prepareSsh, PATHS, INTRO_CAMERA } from '../../src/zones/z15ssh/setup.ts';
 import { SshBot } from '../lib/ssh-bot.mjs';
+import { clockRng } from '../../src/zones/z15ssh/rules.ts';
+import { setRandSource, setTickCountSource } from '../../src/game/crt.ts';
+import { startTickClock } from '../../src/zones/common/tickrand.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // z15SSH "Slangen schieten" (docs/re/m6/z15SSH.md): constants and tables against the executable (the code streams of FUN_00656372 / 00657a30 / 00657860 / 006582de /
 // 0065866f / 0065888a / 00658c16 / 00659d94 / 0065a470), the spline / projection against the original's own code run in the x86 emulator, the buggy (speed, camera, crew), the
@@ -17,7 +21,7 @@ import { SshBot } from '../lib/ssh-bot.mjs';
 
 const hex = (n) => '0x' + n.toString(16);
 
-export default {
+const __test = {
   name: 'm6-z15SSH',
   run(ctx) {
     const failures = [], notes = [];
@@ -241,6 +245,17 @@ export default {
         return { L, w, S, node: S.node, cart: S.cart, R: w.records, calls, speech, tick, parts: S.parts, snd: (id) => calls.filter((c) => c.id === id) };
       };
       const run = (g, mask, limit = 9000) => { let n = 0; for (; n < limit && g.node.result === 0; n++) { g.w.input.setVirtual(typeof mask === 'function' ? mask(n) : mask); g.w.tick(); } return n; };
+
+      // ---- the default random source (WP-TIME): the shared C runtime generator and the real clock
+      {
+        const fixed = [32767, 16384, 5];
+        let k = 0; setRandSource(() => fixed[k++ % fixed.length]);
+        setTickCountSource(() => 100); startTickClock(); setTickCountSource(() => 100 + 2000);
+        const f = Math.fround;
+        ok(clockRng.int(10) === Math.trunc(f(f(32767 / 32767) * 10)) && clockRng.int(10) === Math.trunc(f(f(16384 / 32767) * 10)), 'int(n) = ftol(FUN_004388ae(n)): rand() = 32767 gives n itself (the snake slither frame 0 .. 10)');
+        ok(clockRng.int(13, true) === Math.trunc(f(f(5 / 32767) * 2000)) % 13, 'int(n, true) = ftol(FUN_004388ae(ms since the zone start)) % n: the speech chances over the real clock');
+        setRandSource(null); setTickCountSource(null);
+      }
 
       // ---- start state
       {
@@ -581,7 +596,14 @@ export default {
         ok(node.result === RESULT.NO_GEMS && node.gems === 0 && node.score === 0 && node.finalScore === 0, `LOSS (no input): result ${node.result}, gems ${node.gems}, score ${node.finalScore} after ${n} ticks`);
         ok(cart.z > 7000 && node.speed === 0, `the ride ran to z ${cart.z.toFixed(0)}`);
         ok(!isWin(node.result), 'a lost ride');
-        ok(n > 4500 && n < 5600, `the ride takes ${n} ticks (${(n / 30).toFixed(0)} s)`);
+        ok(n > 4500 && n < 5600, `the ride takes ${n} ticks of dt 1 (${(n / 30).toFixed(0)} s of the 30 fps time unit)`);
+        {
+          // the 60 Hz step (dt 0.5): the movement is `x * dt`, so the same ride takes about twice the steps
+          const g5 = make({ coco: false }); g5.w.dt = 0.5;
+          const n5 = run(g5, 0, 20000);
+          ok(g5.node.result === node.result && n5 > 1.9 * n && n5 < 2.1 * n, `the ride takes ${n5} steps at dt 0.5 (${n} at dt 1): about twice, same result`);
+          notes.push(`LOSS at dt 0.5: ${n5} steps (dt 1: ${n})`);
+        }
         ok(g.speech.length > 0 && g.speech.every((s) => ['JOHNA', 'JOHNC', 'ADSGSS10'].includes(s)), `speech while gems are lost: ${[...new Set(g.speech)]}`);
         notes.push(`LOSS (no input): ${n} ticks, 20 gems stolen, result ${node.result}`);
         // the engine is on every tick of the ride
@@ -640,3 +662,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

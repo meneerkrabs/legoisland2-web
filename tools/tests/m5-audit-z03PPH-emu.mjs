@@ -9,7 +9,7 @@ import '../../src/zones/z03PPH.ts';
 import { houseOf, REC, PEPPER_CONTROL } from '../../src/zones/z03PPH/house.ts';
 import { B } from '../../src/game/input.ts';
 
-const TOL = 2e-5;
+const TOL = 0;
 export default {
   name: 'm5-audit-z03PPH-emu',
   run(ctx) {
@@ -18,11 +18,12 @@ export default {
     const pe = loadExe(ctx.dataRoot);
     const KEYS = [0, 0, 0, 0, B.SHIFT, B.SHIFT, B.LEFT, B.RIGHT, B.LEFT, B.RIGHT, B.UP, B.DOWN, B.ALT, B.SPACE, B.CTRL, B.ESC, B.ENTER, B.SHIFT | B.LEFT];
 
-    const run = (label, seed, n) => {
+    const run = (label, seed, n, dt = 1) => {
       let s = seed >>> 0;
       const rnd = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
       const L = loadZone(ctx, 'z03PPH');
       const w = L.world, p = L.pepper, recs = w.records;
+      w.dt = dt;
       w.focus = p;
       const st = houseOf(w);
       const node = (ri, kind) => recs[ri].ctrl.nodes.find((x) => x.kind === kind);
@@ -33,6 +34,7 @@ export default {
       const init = recs.map((r) => ({ name: r.name, m: Array.from(r.m), flags: r.flags }));
       const emu = new PphEmu(pe, init);
       const mem = emu.cpu.mem;
+      mem.wf32(0x8b1718, dt);     // DAT_008b1718
       emu.cpu.call(0x53e7c0, []);             // the sound loader: the slots hold the sound ids
       const ehs = emu.construct(0x5408c4, REC.PHSE), edoor = emu.construct(0x540db1, REC.DOOR);
       const attaches = L.setup.attaches;
@@ -133,6 +135,11 @@ export default {
     for (const seed of [3, 99, 2024]) {
       const st = run(`random${seed}`, seed, 5000);
       checked++; if (!(st.modes.has(1) && st.modes.has(2) && st.modes.has(0x20) && st.modes.has(4)) || st.sounds < 5 || st.leaves < 5) failures.push(`random${seed}: coverage ${[...st.modes]} sounds ${st.sounds} leaves ${st.leaves}`);
+    }
+    // the same at dt = 0.5 (the 60 Hz step)
+    for (const seed of [4, 100]) {
+      const st = run(`random${seed} dt0.5`, seed, 5000, 0.5);
+      checked++; if (!(st.modes.has(1) && st.modes.has(2)) || st.leaves < 5) failures.push(`random${seed} dt0.5: coverage ${[...st.modes]} sounds ${st.sounds} leaves ${st.leaves}`);
     }
     return { checked, failures, notes };
   },

@@ -6,10 +6,11 @@ import { PC, V } from '../../src/game/vars.ts';
 import { B } from '../../src/game/input.ts';
 import { hex, firstDiff } from '../lib/m8-save.mjs';
 import { lcg } from '../lib/m7-isl-veh-emu.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // M7 / WP-VERIFY: swimming (sgswim, FUN_0088c740 with FUN_00422c7e / FUN_00422ddc / FUN_0043363c, run natively in the emulation) against the port's SwimNode (src/game/swim.ts):
 // the dive clip, speed ramp, turning, the pad stick, the two sweeps against the coast, the sea loop, the camera, the sounds. Sync mode, tolerance 0.
-export default {
+const __test = {
   name: 'm7-walk-swim',
   async run(ctx) {
     const failures = [], notes = []; let checked = 0, ticks = 0, scen = 0, blockChecks = 0, fuzzRounds = 0; const ev = { wrap: 0, blocked: 0, slide: 0, pad: 0, dive: 0, stroke: 0, sound: 0 };
@@ -104,3 +105,4 @@ export default {
     return { checked, failures, notes: [`WP-SAVE swim save blocks compared (original FUN_0088cecd vs saveBlock, every tick): ${blockChecks}; loader fuzz rounds ${fuzzRounds}`, `events (original): ${JSON.stringify(ev)}`, `scenarios ${scen}, ticks ${ticks}, checks ${checked}`, ...notes] };
   },
 };
+export default guarded(__test);

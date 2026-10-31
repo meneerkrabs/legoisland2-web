@@ -1,5 +1,6 @@
 // z22BIP: the scenarios of tests/m6-z22BIP.mjs that run the ORIGINAL node functions in the x86 interpreter (tools/lib/bip-emu.mjs) next to the TypeScript port and compare
 // the node state, the records' matrices and the camera tick by tick. Each returns { checked, failures, notes }.
+import { pinBipClock } from './bip-clock.mjs';
 import { loadExe } from './engine-load.mjs';
 import { BipEmu } from './bip-emu.mjs';
 import { BipSpline } from '../../src/zones/z22bip/spline.ts';
@@ -33,7 +34,7 @@ export function bipFixture(ctx) {
 }
 
 /** a comparer: `chk(label, original, port, tol)` records the worst absolute difference per label and the first that exceeds `tol` (relative to max(1, |original|)) */
-export function comparer(tol0 = 2e-3) {
+export function comparer(tol0 = 0) {
   const c = { checked: 0, failures: [], worst: {}, first: null };
   c.chk = (t, n, e, m, tol = tol0) => {
     c.checked++;
@@ -44,8 +45,8 @@ export function comparer(tol0 = 2e-3) {
   };
   c.result = (name) => {
     if (c.first) c.failures.push(`${name}: first difference at tick ${c.first.t}: ${c.first.n} original ${c.first.e} port ${c.first.m}`);
-    const w = Object.entries(c.worst).filter(([, v]) => v > 1e-5).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} ${v.toExponential(1)}`).join(', ');
-    return { checked: c.checked, failures: c.failures, notes: [`${name}: worst differences ${w || 'none above 1e-5'}`] };
+    const w = Object.entries(c.worst).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} ${v.toExponential(1)}`).join(', ');
+    return { checked: c.checked, failures: c.failures, notes: [`${name}: worst differences ${w || 'none (bit-exact)'}`] };
   };
   return c;
 }
@@ -53,6 +54,7 @@ export function comparer(tol0 = 2e-3) {
 /** a small world of records (names / positions / optional matrices): the same description builds the emulated record array and the port's */
 function makeWorld(specs) {
   const w = new World();
+  pinBipClock(w);
   w.records = specs.map((s, i) => {
     const r = new GameRecord(s.name); r.index = i;
     if (s.m) r.m.set(s.m); else { r.x = s.x ?? 0; r.y = s.y ?? 0; r.z = s.z ?? 0; r.m[0] = r.m[5] = r.m[10] = 1; }
@@ -69,17 +71,17 @@ const placePlane = (emu, rec, x, y, z) => { rec.m[12] = x; rec.m[13] = y; rec.m[
 export function oracleSpline(ctx) {
   const F = bipFixture(ctx), sp = F.spline;
   const emu = new BipEmu(F.pe, sp, [{ name: 'XXXX' }]);
-  const cmp = comparer(1e-3);
+  const cmp = comparer();
   const cpu = emu.cpu, mem = cpu.mem, curve = emu.curve;
   const planesP = mem.u32(curve + 4);
-  for (let i = 0; i < sp.n * 4; i++) cmp.chk(0, 'plane', mem.f32(planesP + i * 4), sp.planes[i], 1e-3);
+  for (let i = 0; i < sp.n * 4; i++) cmp.chk(0, 'plane', mem.f32(planesP + i * 4), sp.planes[i]);
   const matP = emu.alloc(64), posP = emu.alloc(16);
   const u32 = (f) => new Uint32Array(new Float32Array([f]).buffer)[0];
   for (const t of [0, 0.01, 0.0167, 0.03, 0.2, 0.5, 0.77, 0.9, 0.99, 0.998]) {
     cpu.regs[1] = curve; cpu.call(0x446af0, [matP, posP, u32(t)]);
     const my = sp.frame(Math.fround(t));
-    for (let i = 0; i < 16; i++) cmp.chk(t, 'frame', mem.f32(matP + i * 4), my.m[i], 1e-3);
-    for (let i = 0; i < 3; i++) cmp.chk(t, 'normal', mem.f32(posP + i * 4), my.normal[i], 2e-3);
+    for (let i = 0; i < 16; i++) cmp.chk(t, 'frame', mem.f32(matP + i * 4), my.m[i]);
+    for (let i = 0; i < 3; i++) cmp.chk(t, 'normal', mem.f32(posP + i * 4), my.normal[i]);
   }
   let seed = 1;
   const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
@@ -89,7 +91,7 @@ export function oracleSpline(ctx) {
     for (let i = 0; i < 3; i++) mem.wf32(q + i * 4, pos[i]);
     cpu.regs[1] = curve; cpu.call(0x447550, [q]);
     const t = sp.nearest(pos);
-    cmp.chk(k, 'progress', mem.f32(curve + 0x1c), t, 1e-3);
+    cmp.chk(k, 'progress', mem.f32(curve + 0x1c), t);
     cmp.chk(k, 'idxA', mem.r32(curve + 0x28), sp.idxA); cmp.chk(k, 'idxB', mem.r32(curve + 0x2c), sp.idxB); cmp.chk(k, 'atEnd', mem.r8(curve + 0x24) ? 1 : 0, sp.atEnd ? 1 : 0);
   }
   return cmp.result('spline');
@@ -228,7 +230,7 @@ export function oracleSequence(ctx, maxTicks = 4000) {
   const compare = (t) => {
     cmp.chk(t, 'takeoff.state', i32(Tk + 0x18), tk.state); cmp.chk(t, 'takeoff.wait', f(Tk + 0x1c), tk.wait); cmp.chk(t, 'takeoff.count', f(Tk + 0x20), tk.count);
     cmp.chk(t, 'takeoff.progress', f(Tk + 0x2c), tk.progress); cmp.chk(t, 'takeoff.climb', f(Tk + 0xc8), tk.climb); cmp.chk(t, 'takeoff.climbSpeed', f(Tk + 0xcc), tk.climbSpeed);
-    cmp.chk(t, 'johnny.wait', f(Jn + 0x18), jn.wait); cmp.chk(t, 'johnny.waiting', f(Jn + 0x1c), jn.waiting); cmp.chk(t, 'johnny.bend', f(Jn + 0x20), jn.bend, 1e-2);
+    cmp.chk(t, 'johnny.wait', f(Jn + 0x18), jn.wait); cmp.chk(t, 'johnny.waiting', f(Jn + 0x1c), jn.waiting); cmp.chk(t, 'johnny.bend', f(Jn + 0x20), jn.bend);
     cmp.chk(t, 'johnny.roll', f(Jn + 0x24), jn.roll); cmp.chk(t, 'johnny.progress', f(Jn + 0x28), jn.progress);
     cmp.chk(t, 'landing.phase', i32(Ld + 0x18), ld.phase);
     if (ld.phase) { cmp.chk(t, 'landing.approach', i32(Ld + 0x1c), ld.approach); cmp.chk(t, 'landing.slide', i32(Ld + 0x20), ld.slide); }

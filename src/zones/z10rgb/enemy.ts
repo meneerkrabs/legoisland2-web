@@ -160,11 +160,11 @@ export class CannonNode implements BehaviourNode {
         // the recoil: the cannon moves along its own up / forward by the recoil velocity (rotated into the world), falls back and bounces
         const v = rotate(rec.m, this.recoil);
         rec.m[12] += v[0]; rec.m[13] += v[1]; rec.m[14] += v[2];
-        if (this.restY < rec.y) this.recoil[1] -= 0.5;
+        if (this.restY < rec.y) this.recoil[1] = F(this.recoil[1] - 0.5);      // the recoil vector is a float vector of the node (+0x34)
         else {
           rec.m[13] = this.restY;
-          this.recoil[1] *= -0.4;
-          this.recoil[2] *= 0.5;
+          this.recoil[1] = F(this.recoil[1] * F(-0.4));
+          this.recoil[2] = F(this.recoil[2] * 0.5);
           if (Math.abs(this.recoil[1]) < K.RECOIL_REST) {
             this.recoil[1] = 0; this.recoil[2] = 0;
             this.state = 4;

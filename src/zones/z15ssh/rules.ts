@@ -17,6 +17,8 @@ import { PathSpline, atPathEnd } from './spline.ts';
 import type { PathFrame } from './spline.ts';
 import { PartStore, then, rotate, rotation, setEulerPos } from './parts.ts';
 import { ad, sb, ml, dv, sq } from '../common/f32.ts';
+import { randF } from '../../game/crt.ts';
+import { msClock } from '../common/tickrand.ts';
 import { transformPoint } from '../common/matrix.ts';
 import { buildMatrix } from '../../formats/matrix.ts';
 import { GATE_OFF, NO_HANDLE } from '../../fx/particles/zone.ts';
@@ -157,9 +159,10 @@ export interface SshSounds {
   stop3D(id: number): void;
 }
 export const silentSounds: SshSounds = { play() {}, stop() {}, rate() {}, volume() {}, play3D() {}, stop3D() {} };
-export interface SshRng { int(n: number): number }
-// RNG: the default source (the original's rand()); the tests inject a seeded one (`SshBinding.rng`)
-export const mathRng: SshRng = { int: (n) => Math.floor(Math.random() * n) };
+/** `int(n)` = `ftol(FUN_004388ae(n))` (the snake's start frame: 0 .. n, n itself when rand() = 32767); `int(n, true)` = `ftol(FUN_004388ae((float)FUN_00435c91())) % n` (the theft / hit speech chances) */
+export interface SshRng { int(n: number, tick?: boolean): number }
+/** the default source: the shared C runtime generator (src/game/crt.ts), the speech chances scaled by the real milliseconds since the zone's start (FUN_00435c91); the tests inject a scripted one (`SshBinding.rng`) */
+export const clockRng: SshRng = { int: (n, tick = false) => (tick ? Math.trunc(randF(msClock())) % n : Math.trunc(randF(n))) };
 
 /** one flying coconut: 0x54 bytes at p+0x64 + 0x54 k: the matrix (position at +0x30), the velocity +0x40, the birth time +0x4c, the flag +0x50 */
 export class Coconut {
@@ -258,7 +261,7 @@ export class CartNode implements BehaviourNode {
 
   private b: SshBinding | null = null;
   private snd: SshSounds = silentSounds;
-  private rng: SshRng = mathRng;
+  private rng: SshRng = clockRng;
   private rec: readonly GameRecord[] = [];
   bound = false;
 
@@ -278,7 +281,7 @@ export class CartNode implements BehaviourNode {
   /** the constructor FUN_00659d94 plus what the loader FUN_0066f47d and the zone init FUN_0065760c leave behind: rigs, start places, clips, initial values */
   bind(b: SshBinding) {
     this.b = b; this.rec = b.records;
-    this.snd = b.sounds ?? silentSounds; this.rng = b.rng ?? mathRng;
+    this.snd = b.sounds ?? silentSounds; this.rng = b.rng ?? clockRng;
     const R = b.records;
     const bad = checkRecords(R);
     if (bad.length) throw new Error(`z15SSH: record table differs from the builder: ${bad.slice(0, 4).join('; ')}`);
@@ -579,7 +582,7 @@ export class CartNode implements BehaviourNode {
             this.snd.play3D(SND.SNAKE_GET_GEM, px, py, pz);
             this.gems--;
             this.log.push(`gem ${i}`);
-            const r = this.rng.int(13);
+            const r = this.rng.int(13, true);
             if (r === 0) this.say('JOHNA'); else if (r === 1) this.say('JOHNC'); else if (r === 2) this.say('ADSGSS10');
           }
           [sn.x, sn.y, sn.z] = this.saved[i];
@@ -642,7 +645,7 @@ export class CartNode implements BehaviourNode {
         const dx = sb(sn.x, c.m[12]), dy = sb(sn.y, c.m[13]), dz = sb(sn.z, c.m[14]);
         const d2 = ftol(ad(ad(ml(dx, dx), ml(dy, dy)), ml(dz, dz)));
         if (d2 < K.HIT_R2) {
-          const r = this.rng.int(15);
+          const r = this.rng.int(15, true);
           if (r === 0) this.say('PEPPA'); else if (r === 1) this.say('PIPPC'); else if (r === 2) this.say('ADSGSS13');
           this.score += K.HIT_SCORE;
           this.snd.stop3D(SND.SNAKE_HIT);

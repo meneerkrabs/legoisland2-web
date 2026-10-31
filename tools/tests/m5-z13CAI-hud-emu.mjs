@@ -17,7 +17,6 @@ export default {
     const emu = H.emu, mem = emu.mem;
     const f32 = (a) => mem.f32(a);
     notes.push(`DAT_008b1718 (frame time) in the image: ${f32(DT)}`);
-    const dt = f32(DT);
     const vars = new GameVars();
     const hud = new Hud(null), cai = new CaiHud();
     cai.init(hud);
@@ -25,15 +24,17 @@ export default {
     const ICONS = [0, 1, 2, 4, 8, 0x10, 0x1e, 0x20, 0x21, 0x40, 0x80, 0xc0, 0x41, 0x60, 0xff, 0x100];
     const CONTROLS = [1, 8, 0x40, 0x101];
     const check = (label, orig, port) => { checked++; if (orig !== port && failures.length < 20) failures.push(`${label}: original ${orig} port ${port}`); };
-    // 1. every icon combination, one pass each (the blink counter starts at 0 and is reset by every non-blink pass)
     let n = 0;
+    for (const dt of [1, 0.5]) {   // DAT_008b1718 of the original and the port's world.dt: the blink counter adds `1.0 * dt` per pass
+    mem.wf32(DT, dt); mem.wf32(0x8b171c, 1 / dt);
+    // 1. every icon combination, one pass each (the blink counter starts at 0 and is reset by every non-blink pass)
     for (const ic of ICONS) for (const ctl of CONTROLS) for (const score of SCORES) {
       emu.setVar(0xc, ic); emu.setVar(0x5e, ctl); emu.setVar(0x17, score);
       vars.set(0xc, ic); vars.set(0x5e, ctl); vars.set(0x17, score);
       mem.wf32(BLINK, 0); cai.blink = 0;
       const r = emu.run(0x61bf8c, []);
       cai.update(hud, vars, dt);
-      const tag = `pass ${n++} icons 0x${ic.toString(16)} control 0x${ctl.toString(16)} score ${score}`;
+      const tag = `dt ${dt} pass ${n++} icons 0x${ic.toString(16)} control 0x${ctl.toString(16)} score ${score}`;
       check(`${tag} slot texture`, mem.r32(SLOT_TEX) | 0, hud.column[0].tex);
       check(`${tag} blink counter`, f32(BLINK), cai.blink);
       check(`${tag} text`, mem.cstr(TEXT), hud.centreText);
@@ -47,12 +48,13 @@ export default {
       emu.setVar(0xc, 0x40); vars.set(0xc, 0x40);
       emu.run(0x61bf8c, []);
       cai.update(hud, vars, dt);
-      check(`blink pass ${t} texture`, mem.r32(SLOT_TEX) | 0, hud.column[0].tex);
-      check(`blink pass ${t} counter`, f32(BLINK), cai.blink);
+      check(`dt ${dt} blink pass ${t} texture`, mem.r32(SLOT_TEX) | 0, hud.column[0].tex);
+      check(`dt ${dt} blink pass ${t} counter`, f32(BLINK), cai.blink);
       seq.push(hud.column[0].tex);
     }
-    notes.push(`blink textures over 80 passes: ${seq.join('')}`);
-    notes.push(`${n} single passes + 80 blink passes against FUN_0061bf8c`);
+    notes.push(`dt ${dt}: blink textures over 80 passes: ${seq.join('')}`);
+    }
+    notes.push(`${n} single passes + 2 x 80 blink passes against FUN_0061bf8c (dt 1 and 0.5)`);
     return { checked, failures, notes };
   },
 };

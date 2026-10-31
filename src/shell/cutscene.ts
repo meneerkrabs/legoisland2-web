@@ -26,37 +26,42 @@
 import type { Cutscene, CutCommand } from '../formats/cutscene.ts';
 import type { Man } from '../formats/anim.ts';
 import { buildMatrix } from '../formats/matrix.ts';
+import { eulerMatrix, mulMatrices, normalise3, toWorld as toWorldF } from '../zones/exact.ts';
 import type { GameRecord } from '../game/record.ts';
 import type { World } from '../game/world.ts';
 import type { WaypointSystem, StepOut } from '../game/walker.ts';
 import { V } from '../game/vars.ts';
+import { randF } from '../game/crt.ts';
+
+/** a float32 given as the hex immediate the original pushes */
+function fh(bits: number): number { const d = new DataView(new ArrayBuffer(4)); d.setUint32(0, bits); return d.getFloat32(0); }
 
 /** units per tick of an actor's MOVEPOSITION when no waypoint system is given (M3 zones: straight walk) */
 export const ACTOR_SPEED = 0.5;
 /** the camera looks at an actor 3.37 above its position (0x892380) */
-export const ACTOR_LOOK_HEIGHT = 3.37;
+export const ACTOR_LOOK_HEIGHT = Math.fround(3.37);
 /** seconds per tick: 0.03333 (0x8922bc) */
 export const SEC_PER_TICK = 0.03333;
 /** FUN_00458d15: default camera ease constants (0x3da3d70a = 0.08 ease, 0x3ecccccd = 0.4 max step) */
-export const CAM_EASE = 0.08, CAM_MAX = 0.4;
+export const CAM_EASE = Math.fround(0.08), CAM_MAX = Math.fround(0.4);
 /** DAT_0089df30 (near plane): 1.0 at the start, 2.0 every frame of a script */
 export const NEAR_START = 1, NEAR_RUNNING = 2;
 /** FUN_00458fa6: at most 0x30 registered actors */
 export const MAX_ACTORS = 0x30;
 /** FUN_0045c66b: walker tuning of an actor's MOVEPOSITION (0x3d4ccccd speed, 0x3f060a63 turn, 0x3e4ccccd / 0x3f400000 radii, 0x3e800000 limit, lane 0) */
-export const CSM_WALK = { speed: 0.05, turn: 0.523596, radiusMin: 0.2, radiusMax: 0.75, radiusLimit: 0.25 };
+export const CSM_WALK = { speed: fh(0x3d4ccccd), turn: fh(0x3f060a63), radiusMin: fh(0x3e4ccccd), radiusMax: fh(0x3f400000), radiusLimit: fh(0x3e800000) };
 /** FUN_0045c80d: the skip key steps a walking actor at most 0x5dd times, then puts it on the node */
 export const SKIP_WALK_STEPS = 0x5dd;
 /** FUN_0045cb50: turn rate used for the one skip step of FOLLOW (0x40490fdb = pi) */
-export const SKIP_FOLLOW_TURN = Math.PI;
+export const SKIP_FOLLOW_TURN = fh(0x40490fdb);
 /** FUN_00422f21 side vectors: camera SETPOSITION actor uses (4, 2, -10) (DAT_008b91a8) and height 3.37; the end of a script puts the camera BEHIND Pepper with
  *  (0, 4, -20) (DAT_008b8658) at height 3.2 (0x404ccccd) */
 export const SIDE_VEC_CSM: readonly [number, number, number] = [4, 2, -10];
 export const SIDE_VEC_END: readonly [number, number, number] = [0, 4, -20];
-export const END_HEIGHT = 3.2;
+export const END_HEIGHT = Math.fround(3.2);
 /** FUN_00422f21: the side order tried when the camera is blocked (DAT_008adc6c = 1 5 2 3 4, ends at 6), the sweep radius 2.4 (0x4019999a), mask 3 */
 export const SIDE_RETRY = [1, 5, 2, 3, 4];
-export const SIDE_SWEEP_RADIUS = 2.4;
+export const SIDE_SWEEP_RADIUS = Math.fround(2.4);
 /** FUN_00422f21: the 0x1000 flag skips the collision test from story node 8 on (var 0x58 >= 8) */
 export const SIDE_NOCOLLIDE = 0x1000;
 /** the side words of `setposition actor <code> <side>` */
@@ -115,6 +120,9 @@ export interface CutsceneEnv {
   /** options: var 9 (CS_SPEECH_ON) and var 0 (CS_TEXT_ON) */
   speechOn(): boolean;
   textOn(): boolean;
+  /** port only (the original reads a speech file instantly, so voice, subtitle and mouth start in one frame): the voice just requested has no audio data yet (it is read from the disc image); the
+   *  mouth, the subtitle and the line's timer wait until it starts. Optional: absent = never. */
+  speechWaiting?(): boolean;
   /** letterbox bars (FUN_0045f750): 0 off, 1 top + bottom */
   letterbox(mode: 0 | 1 | 2): void;
   /** SETANIM: the clip number of an animation name (the zone's animation dictionary DAT_05d4d484); null / -1 = unknown (FUN_0043b6a3 then fails) */
@@ -130,7 +138,7 @@ export interface CutsceneEnv {
   loadMan?: ManLoader;
   /** DAT_0089df30: the near plane (null = the zone's own value DAT_0089df50) */
   setNearPlane?(near: number | null): void;
-  /** FUN_004388ae(n) / n: a random number in [0, 1) (the mouth frames of speaking actors) */
+  /** test hook: replaces the shared generator behind FUN_004388ae(x) (x * this()); unset = `randF` of src/game/crt.ts (the mouth frames of speaking actors) */
   random?(): number;
 }
 
@@ -140,17 +148,21 @@ export interface CutsceneSlot { name: string; script: Cutscene }
 const St = { Pending: 0, Running: 1, Done: 2, Finished: 3 } as const;
 type St = (typeof St)[keyof typeof St];
 
+/** the basis of FUN_004466f0: its 4 x 4 constants (-1 3 -3 1; 3 -6 3 0; -3 0 3 0; 1 4 1 0) stored scaled by float(1/6) (0x892288), each a float32 store */
+const SPLINE_K = Math.fround(0.1666666716337204);
+const SPLINE_B = [[-1, 3, -3, 1], [3, -6, 3, 0], [-3, 0, 3, 0], [1, 4, 1, 0]].map((r) => r.map((v) => Math.fround(v * SPLINE_K)));
+
 /** a camera spline (FUN_004454e0 + FUN_00445340 type 0 + FUN_004466f0): uniform cubic B-spline through the translations of the `.man` records */
 export class CameraSpline {
-  /** +0x18: the points (x negated like FUN_0043ecd0) */
-  readonly pts: Float64Array;
+  /** +0x18: the points (x negated like FUN_0043ecd0), float32 */
+  readonly pts: Float32Array;
   /** +0x14: the point count (the progress step is 1 / count) */
   readonly count: number;
   constructor(man: Man) {
     // FUN_0043ecd0 reads tracks x declared records; the short files (one record fewer) repeat the last record (the read buffer keeps it)
     const n = man.declaredFrames * man.trackCount, d = man.tracks[0];
     this.count = n;
-    this.pts = new Float64Array(n * 3);
+    this.pts = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
       // records are frame-major over the tracks; the camera paths have one track
       const t = i % man.trackCount, f = Math.min(Math.floor(i / man.trackCount), man.frameCount - 1);
@@ -158,22 +170,30 @@ export class CameraSpline {
       this.pts[i * 3] = -src[f * 9 + 3]; this.pts[i * 3 + 1] = src[f * 9 + 4]; this.pts[i * 3 + 2] = src[f * 9 + 5];
     }
   }
-  /** FUN_004466f0 (translation part): f = count * t, i = trunc(f) clamped, u = f - i, basis (-1 3 -3 1; 3 -6 3 0; -3 0 3 0; 1 4 1 0) / 6 */
+  /**
+   * FUN_004466f0 (the translation part; FUN_00445660 is the call through the object's vtable): f = (float)count * t, i = ftol(f) (the points a = i - 1 clamped at 0, i, i + 1, i + 2 clamped
+   * at count - 1; an i past the end becomes count - 1 BEFORE u = f - i), the four weights w = ((u * B[2][c] + u2 * B[1][c]) + u3 * B[0][c]) + B[3][c] (u2 = u * u stored, u3 = u2 * u), then
+   * the position as the asm sums it: x = ((w0 Pa + w3 Pd) + w2 Pc) + w1 Pi, y = ((w2 Pc + w0 Pa) + w3 Pd) + w1 Pi, z = ((w1 Pi + w2 Pc) + w0 Pa) + w3 Pd. Every operation a float32 (x87 at 24 bit).
+   */
   sample(t: number, out: number[] = [0, 0, 0]): number[] {
-    const n = this.count, f = n * t;
+    const fr = Math.fround, n = this.count, f = fr(n * fr(t));
     let i = Math.trunc(f);
     let a = i - 1, c = i + 1, d = i + 2;
     if (a < 0) a = 0;
     if (i >= n) i = n - 1;
     if (c >= n) c = n - 1;
     if (d >= n) d = n - 1;
-    const u = f - i, u2 = u * u, u3 = u2 * u;
-    const w0 = (-u3 + 3 * u2 - 3 * u + 1) / 6, w1 = (3 * u3 - 6 * u2 + 4) / 6, w2 = (-3 * u3 + 3 * u2 + 3 * u + 1) / 6, w3 = u3 / 6;
-    const p = this.pts;
-    for (let k = 0; k < 3; k++) out[k] = w0 * p[a * 3 + k] + w1 * p[i * 3 + k] + w2 * p[c * 3 + k] + w3 * p[d * 3 + k];
+    const u = fr(f - i), u2 = fr(u * u), u3 = fr(u2 * u), B = SPLINE_B;
+    const w = (col: number) => fr(fr(fr(fr(u * B[2][col]) + fr(u2 * B[1][col])) + fr(u3 * B[0][col])) + B[3][col]);
+    const w0 = w(0), w1 = w(1), w2 = w(2), w3 = w(3);
+    const p = this.pts, Pa = a * 3, Pi = i * 3, Pc = c * 3, Pd = d * 3;
+    const m = (wt: number, k: number) => fr(wt * k);
+    out[0] = fr(fr(fr(m(w0, p[Pa]) + m(w3, p[Pd])) + m(w2, p[Pc])) + m(w1, p[Pi]));
+    out[1] = fr(fr(fr(m(w2, p[Pc + 1]) + m(w0, p[Pa + 1])) + m(w3, p[Pd + 1])) + m(w1, p[Pi + 1]));
+    out[2] = fr(fr(fr(m(w1, p[Pi + 2]) + m(w2, p[Pc + 2])) + m(w0, p[Pa + 2])) + m(w3, p[Pd + 2]));
     return out;
   }
-  /** the progress per tick (+0x3c = 1 / FUN_004456e0, a float) */
+  /** the progress per step (+0x3c = 1.0 / (float)count, a float32 store; the step adds `rate * DAT_008b1718`) */
   get rate() { return Math.fround(1 / this.count); }
 }
 
@@ -187,14 +207,19 @@ export class ActorSpline {
     this.rec = man.tracks[0].slice(0, Math.max(0, man.declaredFrames - 1) * 9);
   }
   get rate() { return Math.fround(1 / this.count); }
-  /** FUN_0043efa0(spline, rec + 0xc, t): t clamped to 0..1, i = trunc(t * count), next = min(i + 1, count - 1) */
+  /**
+   * FUN_0043efa0(spline, rec + 0xc, t): t clamped to 0..1, f = t * count (float32), i = ftol(f), next = min(i + 1, count - 1), u = f - i; every value v_k = ((next_k - cur_k) * u) + cur_k
+   * with float32 stores in between (angles 0..2, x negated of 3, y z 4 5, scale 6..8), then FUN_0043a742 (exact builder).
+   */
   apply(t: number, m: Float32Array) {
-    const tt = t < 0 ? 0 : t > 1 ? 1 : t;
-    const f = tt * this.count, i = Math.trunc(f);
+    const fr = Math.fround;
+    t = fr(t);
+    const tt = 0 <= t ? (1 < t ? 1 : t) : 0;
+    const f = fr(tt * this.count), i = Math.trunc(f);
     let j = i + 1;
     if (this.count - 1 <= j) j = this.count - 1;
-    const u = f - i, r = this.rec, a = i * 9, b = j * 9;
-    const v = (k: number) => (r[b + k] - r[a + k]) * u + r[a + k];
+    const u = fr(f - i), r = this.rec, a = i * 9, b = j * 9;
+    const v = (k: number) => fr(fr(fr(r[b + k] - r[a + k]) * u) + r[a + k]);
     m.set(buildMatrix(v(0), v(1), v(2), -v(3), v(4), v(5), v(6), v(7), v(8)));
   }
 }
@@ -203,48 +228,39 @@ export class ActorSpline {
 export interface CarryNode { setParent(parent: GameRecord | null, bone: number): void }
 const isCarry = (n: unknown): n is CarryNode => typeof (n as CarryNode | null)?.setParent === 'function';
 
-/** row-vector 4x4 product a * b (FUN_0043a9e5(out, b, a)) */
-function mul4(a: ArrayLike<number>, b: ArrayLike<number>, out: Float32Array = new Float32Array(16)): Float32Array {
-  const t = new Float32Array(16);
-  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) t[r * 4 + c] = a[r * 4] * b[c] + a[r * 4 + 1] * b[4 + c] + a[r * 4 + 2] * b[8 + c] + a[r * 4 + 3] * b[12 + c];
-  out.set(t);
-  return out;
-}
-
 /**
- * The matrix part of the carry node's pre-render handler FUN_0042992a: bone < 1 copies the parent's matrix and puts the child at parent * offset; otherwise
- * child = (Ry(pi/2) at offset) * bone matrix (FUN_0043bc58) * parent matrix. Returns false when nothing was done (no parent).
+ * The matrix part of the carry node's pre-render handler FUN_0042992a (exact, float32 per operation): bone < 1 copies the parent's matrix and puts the child's translation at the offset
+ * transformed by the parent (FUN_0043ab72); otherwise child = (FUN_0043a5e4 at Ry(pi/2) with the offset as translation) * bone matrix (FUN_0043bc58) * parent matrix (two FUN_0043a9e5).
+ * Returns false when nothing was done (no parent).
  */
 export function carryMatrix(child: GameRecord, parent: GameRecord | null, bone: number, offset: ArrayLike<number> = [0, 0, 0]): boolean {
   if (!parent) return false;
   child.show();
   if (bone < 1) {
     child.m.set(parent.m);
-    const p = parent.toWorld(offset);
+    const p = toWorldF(parent.m, offset);
     child.m[12] = p[0]; child.m[13] = p[1]; child.m[14] = p[2];
     return true;
   }
   const pose = parent.anim?.pose();
   if (!pose || pose.length < (bone + 1) * 16) { child.m.set(parent.m); return true; }
-  const local = buildMatrix(0, Math.PI / 2, 0, offset[0], offset[1], offset[2]);
+  const local = buildMatrix(0, Math.fround(Math.PI / 2), 0, offset[0], offset[1], offset[2]);
   const boneM = pose.subarray(bone * 16, bone * 16 + 16);
-  mul4(mul4(local, boneM), parent.m, child.m);
+  child.m.set(mulMatrices(mulMatrices(local, boneM), parent.m));
   return true;
 }
 
 /**
- * FUN_00422f21(rec, yaw, side, height, vec): the camera looks at rec + (0, height, 0) and sits at the side offset FUN_00422e36 gives, turned by `yaw`. Without the
- * 0x1000 flag (or before story node 8) a blocked view (sweep radius 2.4, mask 3) tries the other sides 1 5 2 3 4 and falls back to the asked side.
+ * FUN_00422f21(rec, yaw, side, height, vec): the camera looks at rec + (0, height, 0) and sits at the side offset FUN_00422e36 gives, turned by `yaw` (FUN_0043a340 + FUN_0043abe6). Without the
+ * 0x1000 flag (or before story node 8) a blocked view (sweep radius 2.4, mask 3) tries the other sides 1 5 2 3 4 and falls back to the asked side. Float32 per operation.
  */
 export function actorCamera(w: World, rec: GameRecord, yaw: number, side: number, height: number, vec: readonly [number, number, number]) {
-  const c = w.camera.c;
-  c[3] = rec.x; c[5] = rec.z; c[4] = rec.y + height;
-  const rot = buildMatrix(0, yaw, 0, 0, 0, 0);
-  const offset = (s: number) => {
-    const v = sideVector(s & 0xff, vec);
-    return [v[0] * rot[0] + v[1] * rot[4] + v[2] * rot[8], v[0] * rot[1] + v[1] * rot[5] + v[2] * rot[9], v[0] * rot[2] + v[1] * rot[6] + v[2] * rot[10]];
-  };
-  const put = (o: number[]) => { c[0] = c[3] + o[0]; c[1] = c[4] + o[1]; c[2] = c[5] + o[2]; };
+  const fr = Math.fround, c = w.camera.c;
+  c[3] = rec.x; c[5] = rec.z; c[4] = fr(rec.y + fr(height));
+  const rot = new Float32Array(16);
+  eulerMatrix(rot, 0, fr(yaw), 0, 0, 0, 0);                                     // FUN_0043a340(local, 0, yaw, 0)
+  const offset = (s: number) => toWorldF(rot, sideVector(s & 0xff, vec));      // FUN_00422e36 then FUN_0043abe6 (((v0 m + v1 m) + v2 m) + 0)
+  const put = (o: number[]) => { c[0] = fr(c[3] + o[0]); c[1] = fr(c[4] + o[1]); c[2] = fr(c[5] + o[2]); };
   let o = offset(side);
   if ((side & SIDE_NOCOLLIDE) === 0 || w.vars.get(0x58) < 8) {
     const look = [c[3], c[4], c[5]];
@@ -314,56 +330,91 @@ interface ActorEntry {
   ignore: [number, number];
 }
 
-/** the camera's eased move (FUN_0045edae / 0045eff9 / 0045f1bc / 0045f2f4): ease-in to `maxStep` per tick, ease-out in the last stretch */
+/**
+ * The camera's eased move, field for field FUN_0045edae (set-up) / FUN_0045eff9 (accelerate) / FUN_0045f1bc (slow down) / FUN_0045f2f4 (the per-step decision): ease-in to `maxStep` per step,
+ * ease-out in the last stretch. The steps are per DRAWN frame (no `DAT_008b1718` in any of them: one call per sim step, whatever dt is); every operation a float32 (x87 at 24 bit): the
+ * differences, the normalised direction (FUN_0043cec0) times `maxStep`, the squared lengths summed x, y, z, the square roots.
+ */
 export class EasedMove {
+  /** +0x28..+0x30 */
   private to: [number, number, number];
+  /** +0x58..+0x60: the step vector of the last pass */
   private v: [number, number, number] = [0, 0, 0];
+  /** +0x4c..+0x54: the unit direction times `maxStep` */
   private unit: [number, number, number] = [0, 0, 0];
+  /** +0x48: the distance left (after the last pass) */
   private remaining: number;
+  /** +0x40 */
   private travelled = 0;
+  /** +0x38 */
   private phase = 0;
+  /** +0x44 */
   private easeStep: number;
-  private lastRemaining = 0;
+  /** the global the caller passes as `param_3` of FUN_0045f2f4 (DAT_05d4dca8 for the eye, DAT_05d4dcac for the look-at): the runner shares one per target */
+  private own = { v: 0 };
   constructor(from: ArrayLike<number>, to: ArrayLike<number>, maxStep: number, easeStep: number) {
-    this.to = [to[0], to[1], to[2]];
-    const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
-    const l = Math.hypot(d[0], d[1], d[2]);
-    this.unit = l ? [(d[0] / l) * maxStep, (d[1] / l) * maxStep, (d[2] / l) * maxStep] : [0, 0, 0];
-    this.remaining = l;
-    this.easeStep = easeStep;
+    const fr = Math.fround;
+    this.to = [fr(to[0]), fr(to[1]), fr(to[2])];
+    const d = [fr(this.to[0] - fr(from[0])), fr(this.to[1] - fr(from[1])), fr(this.to[2] - fr(from[2]))];
+    const n = d.slice();
+    normalise3(n);                                               // FUN_0043cec0
+    const k = fr(maxStep);
+    this.unit = [fr(n[0] * k), fr(n[1] * k), fr(n[2] * k)];
+    this.remaining = EasedMove.length(d);
+    this.easeStep = fr(easeStep);
+  }
+  /** `(float)sqrt(a*a + b*b + c*c)`: the products and sums rounded in the order x, y, z */
+  private static length(d: ArrayLike<number>): number {
+    const fr = Math.fround;
+    return fr(Math.sqrt(fr(fr(fr(d[0] * d[0]) + fr(d[1] * d[1])) + fr(d[2] * d[2]))));
   }
   get target(): readonly [number, number, number] { return this.to; }
-  /** one tick; moves `p` (the camera eye or look-at); true when it has arrived */
-  step(p: number[]): boolean {
-    if (this.travelled < this.remaining) {
-      // FUN_0045eff9: accelerate until the phase reaches 1, then cruise
-      if (this.phase < 1) {
-        this.phase += this.easeStep;
-        this.v = [this.unit[0] * this.phase, this.unit[1] * this.phase, this.unit[2] * this.phase];
-        this.travelled += Math.hypot(this.v[0], this.v[1], this.v[2]);
-      }
-      p[0] += this.v[0]; p[1] += this.v[1]; p[2] += this.v[2];
-      this.remaining = Math.hypot(p[0] - this.to[0], p[1] - this.to[1], p[2] - this.to[2]);
-      return false;
-    }
-    if (0.01 < this.remaining) {
-      // FUN_0045f1bc: slow down by easeStep per tick (not below one step), keep moving
-      if (0 < this.phase) this.phase = this.easeStep <= this.phase - this.easeStep ? this.phase - this.easeStep : this.easeStep;
-      this.v = [this.unit[0] * this.phase, this.unit[1] * this.phase, this.unit[2] * this.phase];
-      p[0] += this.v[0]; p[1] += this.v[1]; p[2] += this.v[2];
-      this.remaining = Math.hypot(p[0] - this.to[0], p[1] - this.to[1], p[2] - this.to[2]);
-      if (this.remaining !== this.lastRemaining) { this.lastRemaining = this.remaining; return this.arrived(p); }
-      this.lastRemaining = 0;
-    }
-    this.remaining = 0;
-    return this.arrived(p, true);
+  /** the distance FUN_0045f2f4 still sees (+0x48) */
+  get left(): number { return this.remaining; }
+  private toTarget(p: number[]): number {
+    const fr = Math.fround;
+    return EasedMove.length([fr(p[0] - this.to[0]), fr(p[1] - this.to[1]), fr(p[2] - this.to[2])]);
   }
-  private arrived(p: number[], force = false): boolean {
-    const speed = Math.hypot(this.v[0], this.v[1], this.v[2]);
-    if (force || this.remaining <= speed) { this.remaining = 0; p[0] = this.to[0]; p[1] = this.to[1]; p[2] = this.to[2]; return true; }
-    return false;
+  /** FUN_0045eff9 (non-spline): accelerate until the phase reaches 1, then cruise; eye += step */
+  private accelerate(p: number[]) {
+    const fr = Math.fround;
+    if (this.phase < 1) {
+      this.phase = fr(this.phase + this.easeStep);
+      this.v = [fr(this.unit[0] * this.phase), fr(this.unit[1] * this.phase), fr(this.unit[2] * this.phase)];
+      this.travelled = fr(EasedMove.length(this.v) + this.travelled);
+    }
+    for (let k = 0; k < 3; k++) p[k] = fr(p[k] + this.v[k]);
+    this.remaining = this.toTarget(p);
+  }
+  /** FUN_0045f1bc: slow down by `easeStep` per step (never below one step), keep moving */
+  private slowDown(p: number[]) {
+    const fr = Math.fround;
+    if (0 < this.phase) {
+      const q = fr(this.phase - this.easeStep);
+      this.phase = this.easeStep <= q ? q : this.easeStep;
+    }
+    this.v = [fr(this.unit[0] * this.phase), fr(this.unit[1] * this.phase), fr(this.unit[2] * this.phase)];
+    for (let k = 0; k < 3; k++) p[k] = fr(p[k] + this.v[k]);
+    this.remaining = this.toTarget(p);
+  }
+  /** FUN_0045f2f4 for the eased kinds: one step; moves `p` (the camera eye or look-at); true when it has arrived. `last` = the caller's global (see `own`) */
+  step(p: number[], last: { v: number } = this.own): boolean {
+    if (this.travelled < this.remaining) { this.accelerate(p); return false; }
+    let check = true;
+    if (Math.fround(0.01) < this.remaining) {                    // _DAT_00892030
+      this.slowDown(p);
+      if (this.remaining !== last.v) { last.v = this.remaining; check = false; }
+      else last.v = 0;
+    }
+    if (check) this.remaining = 0;
+    const arrived = this.remaining <= EasedMove.length(this.v);
+    if (arrived) { this.remaining = 0; p[0] = this.to[0]; p[1] = this.to[1]; p[2] = this.to[2]; }
+    return arrived;
   }
 }
+
+/** FUN_0045f5b8: the ease constant is the command's word +0x26 times 0.02f, the largest step word +0x24 times 0.1f (float32 products of the integer words) */
+const speeds = (c: CutCommand) => ({ ease: Math.fround(Math.fround(c.speedB ?? 0) * Math.fround(0.02)), max: Math.fround(Math.fround(c.speedA ?? 0) * Math.fround(0.1)) });
 
 /** map slots of the waypoint system (src/game/walker.ts MAP_PATH / MAP_CSM) */
 const MAP_PATH = 1, MAP_CSM = 2;
@@ -391,6 +442,9 @@ export class CutsceneRunner {
   savedCamera: Float64Array | null = null;
   /** DAT_05d482f0: the FOV saved at the start */
   private savedFov = 1;
+  /** DAT_05d4dca8 / DAT_05d4dcac: the "last remaining distance" globals FUN_0045f2f4 keeps for the eye and the look-at (shared by every move, never reset by the original) */
+  private lastEye = { v: 0 };
+  private lastLook = { v: 0 };
   /** DAT_05d482f8 / fc / 300 / 304: camera ease constants (SETMOVESPEED / SETTARGETSPEED) */
   moveSpeed = { ease: CAM_EASE, max: CAM_MAX };
   targetSpeed = { ease: CAM_EASE, max: CAM_MAX };
@@ -592,7 +646,7 @@ export class CutsceneRunner {
   private actorFrame() {
     for (const e of this.actors) {
       const a = e.rec;
-      a.anim?.advance(1);
+      a.anim?.advance(1, this.dt());   // FUN_00459740: FUN_0043b76a(anim, 1.0) multiplies by DAT_008b1718
       if (a.ctrl && (a.ctrl.flags & 0x80) === 0) {
         if (e.spline === 0) this.groundSnap(a);
         else if (e.spline === 1) e.spline = 0;
@@ -603,10 +657,10 @@ export class CutsceneRunner {
   /** FUN_0045965d: probe down from 4 above the actor to the terrain (or 160 deep) against the other records; the actor stands on what it hits, else on the terrain */
   private groundSnap(a: GameRecord) {
     const col = this.env.world.col;
-    const from = [a.x, a.y + SNAP_UP, a.z];
+    const from = [a.x, Math.fround(a.y + SNAP_UP), a.z];
     const h = col.terrainHeight(from[0], from[1], from[2], SNAP_UP);
     const found = h > SNAP_NO_GROUND;
-    const dy = found ? h - from[1] : SNAP_DEPTH;
+    const dy = found ? Math.fround(h - from[1]) : SNAP_DEPTH;
     const hit = col.probe(a, from, [0, dy, 0], 3);
     if (!hit) { if (found) a.y = h; }
     else a.y = hit.point[1];
@@ -669,7 +723,8 @@ export class CutsceneRunner {
   private clipEnded(a: GameRecord): boolean {
     const an = a.anim;
     if (!an || !an.clipData) return true;
-    return an.frameCount < an.frame + CLIP_END_MARGIN * this.dt() + 1;
+    const fr = Math.fround;
+    return an.frameCount < fr(fr(fr(CLIP_END_MARGIN * this.dt()) + 1) + an.frame);   // `2.0 * DAT_008b1718 + 1.0 + frame`
   }
 
   /** FUN_0045cd23: instant yaw towards the target point; an actor target that is missing ends the command */
@@ -677,7 +732,8 @@ export class CutsceneRunner {
     let p: ArrayLike<number>;
     if (m.c.targetKind === 'actor') { if (!m.target) return 2; p = [m.target.x, m.target.y, m.target.z]; }
     else p = m.wpPos ?? [0, 0, 0];
-    a.ry = -Math.atan2(-(p[0] - a.x), p[2] - a.z);
+    const fr = Math.fround;
+    a.ry = -fr(Math.atan2(-fr(p[0] - a.x), fr(p[2] - a.z)));      // `-(float)atan2(-(tx - x), tz - z)`: float32 differences (FUN_0085d640 is the CRT atan2)
     a.setEuler(a.rx, a.ry, a.rz, a.x, a.y, a.z);
     return 2;
   }
@@ -747,7 +803,7 @@ export class CutsceneRunner {
         const s = m.actSpline;
         if (!s) return true;
         s.apply(m.t, a.m);
-        m.t = Math.fround(m.t + s.rate * this.dt());              // +0x40 is a float
+        m.t = Math.fround(Math.fround(s.rate * this.dt()) + m.t);   // +0x40 is a float: `rate * DAT_008b1718 + t`
         const done = 1 <= m.t;
         if (done) { const e = this.entry(a); if (e) e.spline = 1; }
         return done;
@@ -850,7 +906,7 @@ export class CutsceneRunner {
    */
   private sayText(m: Cmd, a: GameRecord): number {
     const env = this.env, c = m.c, id = c.textId ?? '';
-    const rnd = env.random ?? Math.random;
+    const draw = (x: number) => (env.random ? Math.fround(env.random() * x) : randF(x));   // FUN_004388ae(x)
     if (!m.started) {
       const t = env.text(id);
       m.timer = Math.fround(Math.fround(t.length + 20 + m.timer) / 20);
@@ -869,14 +925,17 @@ export class CutsceneRunner {
         if (!this.voiceStarted) { env.say(id); this.voiceStarted = true; }
         else talk = -1;
       }
+      // port: the voice's data is still on its way: the mouth and the line's timer wait for the audio (Shift still skips)
+      if (talk === 1 && this.voiceStarted && env.speechOn() && env.speechWaiting?.() && !this.skip()) return 1;
       if (talk === 1) {
         if ((m.x.mouthT as number) <= 0) {
-          const f = Math.trunc(rnd() * 10);
+          const f = Math.trunc(draw(10)) & 0xff;                            // `(byte)ftol(FUN_004388ae(10.0))`: 10 is possible (rand() = 32767)
           m.x.mouth = f;
-          m.x.mouthT = f < 6 ? 2 + rnd() * 4 : rnd() * 4 + 1;
+          // DAT_008b90c4 = 2.0, DAT_008b90c8 = 4.0: `(float)(FUN_004388ae(4.0) + 2.0)` / `(float)(FUN_004388ae(4.0) + 1.0)` (the draw comes first in both)
+          m.x.mouthT = Math.fround(draw(4) + (f < 6 ? 2 : 1));
         }
       } else { m.x.done = true; m.x.mouth = m.x.face; }
-      m.x.mouthT = (m.x.mouthT as number) - 1 * this.dt();
+      m.x.mouthT = Math.fround((m.x.mouthT as number) - Math.fround(1 * this.dt()));   // `+0x38 - 1.0 * DAT_008b1718`
       a.face = m.x.mouth as number;
     } else this.voiceStarted = false;
     if (this.skip()) { env.stopSpeech(); m.x.done = true; m.timer = 0; this.voiceStarted = false; }
@@ -902,7 +961,7 @@ export class CutsceneRunner {
         const t = this.camFollow;
         if (!t) return 2;
         const cam = w.camera.c;
-        cam[3] = t.x; cam[5] = t.z; cam[4] = t.y + ACTOR_LOOK_HEIGHT;
+        cam[3] = t.x; cam[5] = t.z; cam[4] = Math.fround(t.y + ACTOR_LOOK_HEIGHT);
         return 1;
       }
       case 8: {                                                      // FUN_0045f670: SETSWITCH (index resolved at load)
@@ -917,8 +976,8 @@ export class CutsceneRunner {
         return this.holdDone(m);
       }
       case 9: return 2;                                              // WAV / MIDI: a stub
-      case 10: { this.moveSpeed = { ease: (c.speedB ?? 0) * 0.02, max: (c.speedA ?? 0) * 0.1 }; return 2; }   // FUN_0045f5b8: +0x26 (b) * 0.02, +0x24 (a) * 0.1
-      case 11: { this.targetSpeed = { ease: (c.speedB ?? 0) * 0.02, max: (c.speedA ?? 0) * 0.1 }; return 2; }
+      case 10: { this.moveSpeed = speeds(c); return 2; }              // FUN_0045f5b8: +0x26 (b) * 0.02f, +0x24 (a) * 0.1f (float32 products)
+      case 11: { this.targetSpeed = speeds(c); return 2; }
       case 12: { this.env.setFov(c.fov ?? 1); return 2; }           // FUN_0045f64b
       default: return 2;
     }
@@ -930,7 +989,7 @@ export class CutsceneRunner {
     if (m.c.targetKind === 'actor') {
       const t = m.target;
       if (!t) { this.log.push(`camera SETTARGET ${m.c.target}: no record`); this.camFollow = null; return 2; }
-      cam[3] = t.x; cam[5] = t.z; cam[4] = t.y + ACTOR_LOOK_HEIGHT;
+      cam[3] = t.x; cam[5] = t.z; cam[4] = Math.fround(t.y + ACTOR_LOOK_HEIGHT);
     } else {
       const p = m.wpPos ?? [0, 0, 0];
       cam[3] = p[0]; cam[4] = p[1]; cam[5] = p[2];
@@ -970,7 +1029,7 @@ export class CutsceneRunner {
         if (look) {
           if (!m.target) return 2;
           const t = m.target, sp = this.targetSpeed;
-          m.x.move = new EasedMove([cam[3], cam[4], cam[5]], [t.x, t.y + ACTOR_LOOK_HEIGHT, t.z], sp.max, sp.ease);
+          m.x.move = new EasedMove([cam[3], cam[4], cam[5]], [t.x, Math.fround(t.y + ACTOR_LOOK_HEIGHT), t.z], sp.max, sp.ease);
         } else this.log.push('camera MOVEPOSITION to an actor: unsupported by the original (no script uses it)');
       } else if (c.targetKind === 'spline') m.t = 0;
       if (look) this.camFollow = null;
@@ -995,12 +1054,12 @@ export class CutsceneRunner {
       const s = m.camSpline;
       if (!s) return true;
       set(s.sample(m.t));
-      m.t = Math.fround(m.t + s.rate * this.dt());                  // +0x40 is a float
+      m.t = Math.fround(Math.fround(s.rate * this.dt()) + m.t);       // +0x40 is a float
       return 1 <= m.t;
     }
     if (!mv) return true;
     const p = [cam[o], cam[o + 1], cam[o + 2]];
-    const done = mv.step(p);
+    const done = mv.step(p, o === 3 ? this.lastLook : this.lastEye);
     set(p);
     return done;
   }

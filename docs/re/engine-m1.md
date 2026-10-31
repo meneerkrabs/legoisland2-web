@@ -14,12 +14,12 @@ house door instead of the skate park), `&era=N` (stored, unused), `&mute=1`. Deb
 
 | module | what | ported from (VA) |
 |---|---|---|
-| `world.ts` | `World` (records, vars, collision, input, camera, frame counter, `tick()`), `GameLoop` (fixed 30 Hz, dt = 1.0 per tick, render interpolation) | 1.3 / 1.4 frame skeleton; 8.5 |
+| `world.ts` | `World` (records, vars, collision, input, camera, frame counter, `tick()`), `GameLoop` (fixed 60 Hz, one step per drawn frame, `dt` = 1.0 for the first five frames then 0.5 by `nextDt` = FUN_00443e40, no render interpolation) | 1.3 / 1.4 frame skeleton; 8.5 |
 | `vars.ts` | game variable array, names read from the EXE (table 0x8a3228, 319 entries), gate | `FUN_00417575/97/5ca/61b/66c` |
 | `record.ts` | object record (0x68 bytes in the original): name, model, collision object, controller, animation instance, flags, matrix, Euler | 4.1 |
 | `controller.ts` | controllers, behaviour nodes with `(var & mask) == value` gating, return codes 0/1/2/3, the three passes, registry (`registerNode` / `createNode` / `attachNode`) | `FUN_0042226e`, `FUN_004225c5`, `FUN_0042271b`, `FUN_00423532`, `FUN_00423ad4` |
 | `collision.ts` | sweep, terrain ray, probe, polygon test, grid walk, box shape | `FUN_00441270`, `FUN_00441b10`, `FUN_004425f0`, `FUN_0043cd62`, `FUN_00441ac0`, `FUN_00440810`, `FUN_0043f810`, `FUN_0043f9b0`, `FUN_004405f0`, `FUN_00440f30`, `FUN_0043d5ec`, `FUN_004427e0/00442780/004428b0` |
-| `anim.ts` | animation instance: start / advance / seek / pose | `FUN_0043b4e2`, `FUN_0043b6a3`, `FUN_0043b76a`, `FUN_0043b64d`, `FUN_0043ba7a` |
+| `anim.ts` | animation instance: start / advance / seek / pose (advance and pose bit-exact against the emulated original at dt 1 and 0.5: `m7-pose-emu`) | `FUN_0043b4e2`, `FUN_0043b6a3`, `FUN_0043b76a`, `FUN_0043b874`, `FUN_0043b64d`, `FUN_0043ba7a` |
 | `input.ts` | key table of the EXE -> logical bits, edge detection, optional gamepad | `FUN_004376f9`, `FUN_00423170`, table 0x8aeb20 |
 | `walk.ts` | Pepper's walk (`SGwalk`): states, input -> velocity, ground following, ledges, walls, slopes, jump arc, footsteps, tilt | `FUN_0042d514`, `FUN_0042a88f`, `FUN_0042a654`, `FUN_0042a487`, `FUN_0042baf6`, `FUN_00429e00` |
 | `camera.ts` | chase camera, camera key ramps, view basis | `FUN_0042c227`, `FUN_0042b8e8`, `FUN_00422b50`, `FUN_0043cc5c` |
@@ -29,8 +29,8 @@ house door instead of the skate park), `&era=N` (stored, unused), `&mute=1`. Deb
 | `render.ts`, `play.ts` | WebGL drawing of a frame, dev entry, HUD, sound sink | (browser side) |
 | `walker.ts` | waypoint walker (see its header; written separately) | Common\WayPt |
 
-Everything simulates at a fixed 30 Hz (dt = 1.0 in the game's unit, architecture.md 8.5); drawing interpolates the matrices of the last two ticks,
-the camera and the animation frame.
+Everything simulates at a fixed 60 Hz, one step per drawn frame, `world.dt` = 1.0 for the first five frames and then 0.5 in the game's unit of 1/30 s (WP-TIME, architecture.md 8.5); the draw always shows the last step (the
+original does not interpolate).
 
 ## 2. What was ported, in detail
 
@@ -145,7 +145,7 @@ Single numbers are written into the code with the address in a comment where the
 * Sound: footsteps (surface and step pattern as in the original, variants from the sound table), jump, landing, skid, teeter, dive / out of water; no 3D positioning, no
   swim stroke loop. Music / ambience are started by the browser glue only if cheap.
 * The blob shadow follows `rendering.md` section 9 loosely (type 4, ray down from the player).
-* The simulation is deterministic at 30 Hz; the original ran with a variable step in the same unit, so very slow machines behaved slightly differently.
+* The simulation is deterministic: one step per drawn frame at a fixed 60 Hz with the original's `DAT_008b1718` rules (1.0 for the first five frames, then 0.5; WP-TIME, gaps.md T1); the original ran with the measured frame time, so a machine that misses 60 Hz behaved differently.
 
 ## 6. Tests
 

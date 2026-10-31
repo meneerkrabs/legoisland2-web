@@ -5,6 +5,7 @@
 //   * the hub's constructors (registerCtor by address): the goblets (goblet.ts), the rats (rat.ts) and Pepper's mode switch / the castle's control node, the castle's switch processor CSIFSM ...
 //   * the set-up calls the emulation only logged (emitters, render modes).
 // The Horse constructors (0x579178 / 0x579725 / 0x579948) are another worker's (./horse/**).
+import { startTickClock } from '../common/tickrand.ts';
 import { registerHub } from '../../hub/index.ts';
 import type { HubGame } from '../../hub/game.ts';
 import type { HubContext } from '../../hub/ctx.ts';
@@ -66,6 +67,7 @@ registerHub({
   bricks: true,   // FX_Bricks: the speedboat's look change morphs through the brick manager (looks.ts)
   afterSetup({ ictx, world, loaded }) { applyCsiSetup(ictx, world, loaded); },
   onCreate(h: HubGame) {
+    startTickClock();   // FUN_00435c81 in the wrapper FUN_00572780 (nothing in this zone reads FUN_00435c91, the base only matters for a later reader)
     const st = csiState(h.ictx);
     st.hud.init(h.ctx.hud);
     // the wrapper's FUN_00421bbe(1): the stored decor applied to the castle's records, and the roster's stored looks (FUN_004202ef): before the first frame

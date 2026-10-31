@@ -14,6 +14,8 @@ import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { B } from '../../game/input.ts';
+import { randF } from '../../game/crt.ts';
+import { msClock } from '../common/tickrand.ts';
 
 const f32 = Math.fround;
 
@@ -107,8 +109,10 @@ export function scoreOf(pct: number): number {
 }
 /** medal of a score: 3 gold (>= 9000), 2 silver (>= 8000), 1 bronze (>= 5000), 0 none */
 export function medalOfScore(score: number): 0 | 1 | 2 | 3 { return score >= WAB.GOLD ? 3 : score >= WAB.SILVER ? 2 : score >= WAB.BRONZE ? 1 : 0; }
-/** hits / (hits + misses) x 100, stored as a single (the division and the product run in the x87's extended precision, only the result is rounded); NaN without any bot */
-export function percentOf(hits: number, misses: number): number { return f32((hits / (hits + misses)) * 100); }
+/** _DAT_00892664: the gears' spin per unit of the percentage (0.009f) */
+const GEAR_SPIN = u32f(0x3c1374bc);
+/** hits / (hits + misses) x 100 stored as a single (24-bit x87: the quotient and the product each round to a float32); NaN without any bot */
+export function percentOf(hits: number, misses: number): number { return f32(f32(hits / (hits + misses)) * 100); }
 
 // ---------------------------------------------------------------------------------------------------- host
 
@@ -139,15 +143,13 @@ export interface WabFx {
   /** no bot is up: every emitter is switched off (gate 1, 1, 1) */
   clear(): void;
 }
-/** a host that does nothing (the default until the zone game binds the real one); `random` is a small seedable generator */
+/** the original's draw: `ftol(FUN_004388ae((float) FUN_00435c91())) % n` (`& 3` / `& 7` / `% 3` at the call sites): rand() of the shared C runtime generator (src/game/crt.ts) scaled by the REAL
+ *  milliseconds since the zone clock base (FUN_00435c81, src/zones/common/tickrand.ts); tests pin the generator with `setRandSource` and the clock with `setTickCountSource` */
+export const crtPick = (n: number): number => Math.trunc(randF(Math.fround(msClock()))) % n;
+/** a host that does nothing (the default until the zone game binds the real one); `random` is the exact draw above */
 export class NullHost implements WabHost {
-  private seed: number;
-  constructor(seed = 12345) { this.seed = seed >>> 0; }
   play() { /* silent */ } stop() { /* silent */ } play3d() { /* silent */ } say() { /* silent */ } setFrame() { /* none */ }
-  random(n: number): number {
-    this.seed = (Math.imul(this.seed, 1664525) + 1013904223) >>> 0;
-    return Math.floor((this.seed / 4294967296) * n);
-  }
+  random(n: number): number { return crtPick(n); }
 }
 
 /** state shared by the two nodes (the original's globals DAT_05d5885c / DAT_008f6c00 / DAT_05d58864 / DAT_05d58860) */
@@ -485,7 +487,7 @@ export class BotNode implements BehaviourNode {
       this.c164 = f32(this.c164 + f32(2.25 * dt));
       if (8 < this.c164) this.c164 = 0;
       for (const g of [this.rec(REC.G000), this.rec(REC.G001)]) {
-        g.rz = f32(g.rz + f32(f32(0.009 * pct) * dt));
+        g.rz = f32(f32(f32(GEAR_SPIN * pct) * dt) + g.rz);   // _DAT_00892664 * local_14 * DAT_008b1718 + rz
         g.setEuler(g.rx, g.ry, g.rz, g.x, g.y, g.z);
       }
     }

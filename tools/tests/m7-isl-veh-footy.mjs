@@ -1,13 +1,16 @@
 // WP-VERIFY M7 island gameplay nodes (fork B): Footy.c: the football BALL (FUN_0053955e ctor, FUN_00538e0b update with FUN_00538880 / 0053893d / 00538968 / 005389d9 / 00538c4d, ground probe FUN_00427139 flags 0x16),
 // the flowers FLR1 / FLR2 (FUN_005399d8 / FUN_005396af) and LOON (FUN_00539d44 / FUN_00539ae4). The original's node framework + these nodes run natively in the x86 emulation (tools/lib/m7-isl-veh-emu.mjs)
 // next to the port's nodes (src/island/pizza/footy.ts); same scripted kids (stand-ins for the NPC worker's Human1 / Turn2Pep: tools/lib/m7-isl-veh-footy.mjs), the same random stream (FUN_004388ae hosted =
-// a seeded generator, the port's Math.random replaced by the same sequence), same dt. Compared tick by tick: the ball / flower / loon records (matrix, Euler, flags), every node field, all game variables,
+// a seeded generator, the port's island source (setIslandRandom) fed the same sequence), same dt. Compared tick by tick: the ball / flower / loon records (matrix, Euler, flags), every node field, all game variables,
 // the sound calls (position, ids), the kids' variables.
 import { Duel, B, lcg } from '../lib/m7-isl-veh-emu.mjs';
 import { loadExe } from '../lib/engine-load.mjs';
 import { startPizzaNodes } from '../../src/island/pizza/index.ts';
 import { installKids, setFalling } from '../lib/m7-isl-veh-footy.mjs';
 import { withCdHeap } from '../lib/m8-save-pizza.mjs';
+import { cRand } from '../lib/c-rand.mjs';
+import { setIslandRandom } from '../../src/island/rng.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const MAXFAIL = 30;
 const BN = { from: 0x24, to: 0x28 };
@@ -20,14 +23,13 @@ const suite = {
     let checked = 0;
     const cover = { sessions: 0, ticks: 0, kicks: 0, astray: 0, passes: 0, arrivals: 0, rolls: 0, ready: 0, blockedKick: 0, falling: 0, fetchSkip: 0, flowers: 0, flowerCycles: 0, loonCycles: 0, sinceAstrayMax: 0, relocations: 0 };
     const devs = new Map(), unhooked = new Map();
-    const realRandom = Math.random;
     try {
       const session = (label, node, dt, syncMode, seed) => {
         const rngO = lcg(seed), rngP = lcg(seed);
         const d = new Duel(ctx, { node, keepKinds: ['Footy', 'Flower', 'Bob'], keepRecords: (n) => /^(BALL|FLR1|FLR2|LOON)$/.test(n), dt, maxFail: MAXFAIL, failures, draw: false, pepSwitc: false, seat: false,
-          rng: { range: (x) => rngO() * x }, tolFree: 1e-4 });
+          rng: { range: (x) => (x > 0 ? cRand(rngO(), x) : 0) }, tolFree: 1e-4 });
         d.label = label; cover.sessions++; d.syncMode = syncMode;
-        Math.random = rngP;
+        setIslandRandom(rngP);     // the port's source (src/island/rng.ts = FUN_004388ae on the shared CRT): the same stream, the original's FUN_004388ae is cRand on it
         // the Silence.wav ids 0 / 2 (the flowers' growing sounds, FUN_004433f0 with DAT_05d58148 / 188): inaudible, the port does not play them (docs wp5-pizza.md): dropped from the original's list, counted
         d.origDrop = (l) => /^p3 #[02] /.test(l);
         const W = d.P.world, mem = d.emu.cpu.mem;
@@ -164,11 +166,11 @@ const suite = {
         for (const [a, c] of d.emu.unhooked) unhooked.set(a, (unhooked.get(a) ?? 0) + c);
         for (const [id, e] of d.deviations) { const q = devs.get(id); if (q) q.count += e.count; else devs.set(id, { ...e }); }
       }
-    } finally { Math.random = realRandom; }
+    } finally { setIslandRandom(null); }
     for (const [id, e] of devs) notes.push(`KNOWN DEVIATION ${id}: ${e.count}x, first ${e.first}`);
     notes.push(`unhosted engine calls (returned 0): ${[...unhooked].map(([a, n]) => '0x' + a.toString(16) + ' x' + n).join(', ') || 'none'}`);
     notes.push(`coverage: ${JSON.stringify(cover)}`);
     return { checked, failures, notes };
   },
 };
-export default { ...suite, run: (ctx) => withCdHeap(() => suite.run(ctx)) };
+export default guarded({ ...suite, run: (ctx) => withCdHeap(() => suite.run(ctx)) });

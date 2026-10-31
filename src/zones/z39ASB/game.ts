@@ -10,7 +10,7 @@ import { MODE } from '../../shell/loopmachine.ts';
 import type { ZoneGame, ZoneGameCtx } from '../../shell/zonegame.ts';
 import type { Medal } from '../../shell/helpscreen.ts';
 import { GATE_ON, ZoneParticles } from '../../fx/particles/zone.ts';
-import { AsteroidBelt, MsvcRand, VAR, medalIndex } from './belt.ts';
+import { AsteroidBelt, BeltRng, VAR, medalIndex } from './belt.ts';
 import type { BeltEvent } from './belt.ts';
 import { Backdrop } from './backdrop.ts';
 import { BeltSound } from './sound.ts';
@@ -58,7 +58,7 @@ export async function createAsbGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
     sound.event(e);
     if (e.type === 'hit') ctx.say(SAY.HIT[e.voice]);
   };
-  const belt = new AsteroidBelt({ shut, hull, asteroids }, world.camera.c, new MsvcRand(), ctx.vars, onEvent);
+  const belt = new AsteroidBelt({ shut, hull, asteroids }, world.camera.c, new BeltRng(), ctx.vars, onEvent);
   world.camera.updateView();
   world.camera.savePrev();
   // FUN_007b780c (first call, DAT_008adc74 == -1): three `rocket01.par` on the SHUT record (record 1, 0x74) at (0, 4.08, 0) / (1.44, 1.65, 0) / (-1.44, 1.65, 0), no rotation, gate (2, 1, 1) = on
@@ -98,7 +98,8 @@ export async function createAsbGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
       sound.tick(belt.stateIn, belt.engine);
       return belt.result;
     },
-    beforeRender() { sound.frame(world.camera.c); },
+    // FUN_007b63f6 plays the loops and sets the listener once per loop pass (not per browser frame): once per sim step, in every loop mode
+    everyTick() { sound.frame(world.camera.c); },
     onBanner(result) {
       // FUN_007b63f6 case 2: stop the speech, then OGSGAB04 on failure or the line of the medal (var 0x102)
       ctx.stopSpeech();

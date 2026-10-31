@@ -5,6 +5,9 @@ import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { NO_GROUND } from '../../game/collision.ts';
 import { RUN } from './consts.ts';
+import { getTickCount } from '../../game/crt.ts';
+import { crtRand, randFrom, pickFrom } from '../common/crtrand.ts';
+import type { RandSource } from '../common/crtrand.ts';
 
 /** FUN_004435a0 / FUN_004433f0 / FUN_004435b0 / FUN_00443590: the zone's sound slots by sound-table id */
 export interface TrxSound {
@@ -29,14 +32,18 @@ export interface TrxRandom {
   int(n: number): number;
 }
 const fr = Math.fround;
-export function makeRandom(source: () => number = Math.random, clock: () => number = () => Math.floor(performance.now())): TrxRandom {
-  // RNG: the C runtime's rand(); the shared game RNG replaces `source` when WP-TIME lands
-  const next = () => Math.floor(source() * 32768);
+/**
+ * `source` = the C runtime's rand() (0 .. 32767: the shared generator src/game/crt.ts by default, tests inject a scripted one); `clock` = FUN_00435c91, the milliseconds since the zone's start
+ * (the real GetTickCount() - base; it only scales the random pick). The float32 evaluation order of FUN_004388ae is src/zones/common/crtrand.ts.
+ */
+export function makeRandom(source: RandSource = crtRand, clock: () => number = zoneClock()): TrxRandom {
   return {
-    float: (max) => (max <= 0 ? 0 : fr(fr(next() / 32767) * max)),
-    int: (n) => { const ms = Math.fround(clock()); const v = ms <= 0 ? 0 : Math.trunc((next() / 32767) * ms); return n <= 1 ? 0 : v % n; },
+    float: (max) => randFrom(source, max),
+    int: (n) => (n <= 1 ? 0 : pickFrom(source, clock(), n)),
   };
 }
+/** FUN_00435c91 with the clock base of the zone's start (FUN_00435c81) */
+function zoneClock(): () => number { const base = getTickCount(); return () => (getTickCount() - base) >>> 0; }
 
 /** the rex's `trexfeet` emitter (DAT_05d5d2b8, started by FUN_0076b070): the calls the rex node makes on it (FUN_00442a20 gate 2 / 1 / 1 = on and 1 / 1 / 1 = off, FUN_00442a00 = its parent matrix, FUN_0044ebd0 slot 0 = the force) */
 export interface TrxFx {

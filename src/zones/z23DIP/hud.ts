@@ -23,7 +23,7 @@ export function initDipHud(hud: Hud) {
 }
 
 /** FUN_00726610 (`dt` = DAT_008b1718) */
-export function updateDipHud(hud: Hud, vars: GameVars, st: DipHudState, dt = 1) {
+export function updateDipHud(hud: Hud, vars: GameVars, st: DipHudState, dt: number) {
   hud.centreText = fmt04d(vars.get(VAR.SCORE));
   let n = 0, bits = vars.get(VAR.GEMS) >>> 0;
   for (let i = 0; i < 10; i++) { if (bits & 1) n++; bits >>>= 1; }

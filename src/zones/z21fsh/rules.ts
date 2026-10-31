@@ -5,6 +5,8 @@
 //   FUN_006f5b50  the way-point follower of a shoal (move one segment, pause, next)                              -> `Follower`
 //   FUN_006f48c9 / FUN_006f49b3  the blinking message slots (32)                                                 -> `Popups`
 // The nodes (Fishing FSM, Bertha, shoal, rod, switch, fisherman) are in nodes.ts. The original keeps all state in node structs (offsets in the comments).
+import { rand as crtRand } from '../../game/crt.ts';
+import { msClock } from '../common/tickrand.ts';
 import type { GameRecord } from '../../game/record.ts';
 
 export const f32 = Math.fround;
@@ -115,7 +117,8 @@ export const CATCH_LINES = ['FSHMA', 'FSHMC', 'ADSGFI09', 'ADSGFI10', 'ADSGFI11'
 export const TWO_PI = f32(6.2831855), PI = f32(3.1415927);
 
 export interface Rng { next(): number }
-export const mathRng: Rng = { next: () => Math.random() };
+/** the default source: the shared C runtime generator (src/game/crt.ts), `rand() / 32767` (0..1 inclusive like the original) */
+export const crtRng: Rng = { next: () => crtRand() / 32767 };
 /** a deterministic generator for tests */
 export function seededRng(seed: number): Rng {
   let s = seed >>> 0;
@@ -126,6 +129,8 @@ export function seededRng(seed: number): Rng {
 export const randF = (r: Rng, max: number) => f32(f32(r.next()) * f32(max));
 /** `ftol(FUN_004388ae(max))` */
 export const randI = (r: Rng, max: number) => Math.trunc(f32(f32(r.next()) * f32(max)));
+/** `ftol(FUN_004388ae((float)FUN_00435c91())) % n` (the cast sound `% 5`, the catch line `% 7`: FUN_006f6e2b): rand() scaled by the real milliseconds since the zone's start (no draw while the clock reads 0) */
+export const randT = (r: Rng, n: number) => { const ms = msClock(); return ms > 0 ? randI(r, ms) % n : 0; };
 
 /**
  * FUN_0043cf57: length of v, v normalised in place with the executable's float32 stores (l = (float)(x x + y y + z z), len = (float)sqrt(l), k = (float)(1 / sqrt(l)), v[i] = (float)(k v[i]));

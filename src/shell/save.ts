@@ -17,6 +17,7 @@
 //
 // A "tag" is the first dword of an object record = its 4 character name (`PEPP`, ...). The reader finds records by that tag (FUN_00419a79).
 import type { GameVars } from '../game/vars.ts';
+import { time as crtTime } from '../game/crt.ts';
 
 export const SAVE_SIZE = 0x51c8c;
 export const SAVE_VERSION = 0xd;
@@ -354,7 +355,8 @@ export function newSaveFromGame(o: NewSaveOptions): SaveGame {
   const bricks: (Uint8Array | null)[] = [];
   for (let i = 0; i < BRICK_SLOTS; i++) bricks.push(o.bricks?.[i] ?? null);
   return {
-    length: 0, version: SAVE_VERSION, subgame: o.subgame | 0, time: (o.time ?? Math.floor(Date.now() / 1000)) >>> 0, fsmState: o.fsmState | 0, vars,
+    length: 0, version: SAVE_VERSION, subgame: o.subgame | 0, time: (o.time ?? crtTime()) >>> 0,   // time(NULL) of the shared C runtime (src/game/crt.ts)
+    fsmState: o.fsmState | 0, vars,
     walkers: o.walkers ?? new Uint8Array(WALKER_BYTES), walkerTags: o.walkerTags ?? new Uint32Array(WALKER_COUNT),
     camera: o.camera ?? new Uint8Array(CAMERA_BYTES), frameCounter: (o.frameCounter ?? 0) >>> 0,
     objects: o.objects ?? [], decor: o.decor ?? new Uint8Array(DECOR_BYTES), entities: o.entities ?? [], bricks,

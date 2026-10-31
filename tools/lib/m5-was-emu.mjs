@@ -30,7 +30,7 @@ export class WasEmu {
    * @param pe the executable
    * @param recs the records of the oracle's world ({ name, m, flags, rx, ry, rz })
    * @param anims Map(record index -> AnimInstance of the oracle's world)
-   * @param o { rand(): number }
+   * @param o { rand(): number (rand() 0..32767), clock(): number (FUN_00435c91) }
    */
   constructor(pe, recs, anims, o) {
     const cpu = (this.cpu = createGameCpu(pe));
@@ -61,10 +61,10 @@ export class WasEmu {
     const logf = (s) => this.log.push(s);
     const L = this;
     H.set(0x433d38, (c) => { const p = L.alloc(c.arg(0)); L.nodes[c.arg(0)] = p; c.eax = p; });
-    H.set(0x435c91, (c) => { c.eax = Math.trunc(L.ticks * 1000 / 30); });
-    // FUN_004388ae(range): rand() / 32767 * range. The tick-time calls (`ftol(rand(GetTickCount - start)) & 3` / `% 3`) take the scripted integer as it is (the port draws `value % n`);
-    // the call with the constant range 8.0 (Pepper's grunt: `ftol(rand(8.0))` compared with 0 / 1) returns a value below 8
-    H.set(0x4388ae, (c) => { const r = c.argf(0), v = L.rand(); c.fpush(r === 8 ? v % 8 : v); });
+    // FUN_00435c91 = GetTickCount() - DAT_009dab64: the shared clock (src/zones/common/tickrand.ts; the test pins the tick source of src/game/crt.ts)
+    H.set(0x435c91, (c) => { c.eax = o.clock(); });
+    // FUN_004388ae(range) = `range <= 0 ? 0 : (float)((float)rand() / 32767 * range)` (24-bit x87: every step a float32; `fst` keeps the rounded value in ST0), rand() scripted (the port draws the same 15 bit values)
+    H.set(0x4388ae, (c) => { const r = c.argf(0); c.fpush(r <= 0 ? 0 : Math.fround(Math.fround(L.rand() / 32767) * r)); });
     H.set(0x443580, (c) => { c.eax = c.arg(0) | 0x100000; });
     H.set(0x4433b0, (c) => { c.eax = c.arg(0) | 0x200000; });
     H.set(0x4435a0, (c) => { logf(`p ${c.arg(0) & 0xfffff}`); c.eax = 0; });
@@ -80,7 +80,7 @@ export class WasEmu {
     H.set(0x439c6f, (c) => { L.texts.push({ text: mem.cstr(c.arg(2)), x: c.arg(5), y: c.arg(6), wrap: c.arg(7) }); c.eax = 0; });
     const inst = (c) => L.anims.get(c.arg(0));
     H.set(0x43b6a3, (c) => { const a = inst(c); c.eax = a && a.start(c.arg(1) & 0xff, c.argf(2)) ? 1 : 0; });
-    H.set(0x43b76a, (c) => { const a = inst(c); c.eax = a ? a.advance(c.argf(1)) : 0; });
+    H.set(0x43b76a, (c) => { const a = inst(c); c.eax = a ? a.advance(c.argf(1), mem.f32(0x8b1718)) : 0; });   // steps by rate * DAT_008b1718
     H.set(0x43b73f, (c) => { const a = inst(c); c.fpush(a ? a.frame : 0); });
     H.set(0x43b753, (c) => { const a = inst(c); c.fpush(a ? a.frameCount : 0); });
     H.set(0x43b72b, (c) => { const a = inst(c); c.eax = a ? a.clip : 0; });

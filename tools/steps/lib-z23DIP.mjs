@@ -9,7 +9,7 @@ let opts_shot = true;
 export function dip({ page, wait, log, shot }) {
   const H = baseHub({ page, wait, log, shot }, 'z23DIP');
   /** Pepper: place, yaw, control, current clip */
-  H.pep = () => page.evaluate(() => { const z = window.__zone, p = z.loaded.pepper; return { x: p.x, y: p.y, z: p.z, ry: p.ry, ctrl: z.sh.vars.get(0x5e), clip: p.anim?.clip ?? -1, cs: !!z.game.debug().cutscene, node: z.sh.vars.get(0x58), tick: z.world.tickCount }; });
+  H.pep = () => page.evaluate(() => { const z = window.__zone, p = z.loaded.pepper; return { x: p.x, y: p.y, z: p.z, ry: p.ry, ctrl: z.sh.vars.get(0x5e), clip: p.anim?.clip ?? -1, cs: !!z.game.debug().cutscene, node: z.sh.vars.get(0x58), tick: z.world.tickCount / 2 }; });
   /** the sign of Right: +1 when holding Right increases the yaw */
   // measured (m5-z23DIP-dirtest): forward = (sin ry, cos ry); Right increases the yaw by about 0.2 rad per tick once the key ramp is up, Left decreases it
   const turnSign = 1;

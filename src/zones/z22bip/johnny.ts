@@ -7,6 +7,7 @@ import type { BehaviourNode } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import { bipRun, f32 } from './run.ts';
 import { mul4 } from './plane.ts';
+import { ad, sb, ml, dv } from '../common/f32.ts';
 
 const F = Math.fround;
 export const CTOR_JOHNNY = 0x70df00;
@@ -50,21 +51,21 @@ export class JohnnyNode implements BehaviourNode {
     const run = bipRun(w), dt = w.dt;
     if (this.waiting !== 0) {
       if (this.wait <= 0) this.waiting = 0;
-      else this.wait = F(this.wait - F(1 * dt));
+      else this.wait = sb(this.wait, ml(1, dt));
     }
-    if (this.waiting === 0) this.progress = F(F(this.step * dt) + this.progress);
+    if (this.waiting === 0) this.progress = ad(ml(this.step, dt), this.progress);
     if (1 < this.progress) this.progress = JOHNNY.END;
     const fr = run.spline.frame(this.progress);
     const m = fr.m, n = fr.normal;
-    this.bend = F(n[2] * m[2] + n[1] * m[1] + n[0] * m[0]);
-    if (this.waiting === 0) this.roll = F(F(F(this.bend - this.roll) / JOHNNY.BANK_EASE) * dt + this.roll);
+    this.bend = ad(ad(ml(n[0], m[0]), ml(n[1], m[1])), ml(n[2], m[2]));       // the asm adds x, y, z (0x70dd16 .. 0x70dd33)
+    if (this.waiting === 0) this.roll = ad(ml(dv(sb(this.bend, this.roll), JOHNNY.BANK_EASE), dt), this.roll);
     // FUN_0043af16: the roll about the forward axis (row 0 / 1 turned by the angle), applied first
-    const s = Math.sin(this.roll), c = Math.cos(this.roll);
+    const s = F(Math.sin(this.roll)), c = F(Math.cos(this.roll));
     const R = new Float32Array(16);
     R[0] = c; R[1] = -s; R[4] = s; R[5] = c; R[10] = 1; R[15] = 1;
     rec.m.set(mul4(R, m));
     run.sound.at('planeIdle', [rec.m[12], rec.m[13], rec.m[14]]);
-    rec.m[13] = F(rec.m[13] + JOHNNY.LIFT);
+    rec.m[13] = ad(rec.m[13], JOHNNY.LIFT);
     return NODE_STOP;
   }
 }

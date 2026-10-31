@@ -6,11 +6,12 @@
 import { PeppSwDuel, withCdAlloc, eraDiff, ERA_VARS } from '../lib/m8-save-hubs.mjs';
 import { compareBlocks, snapshotBlocks, restoreBlocks } from '../lib/m8-save.mjs';
 import { B } from '../lib/m5-z14OSD-duel.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 function stream(seed) { let s = seed >>> 0; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
 const pick = (r, l) => l[Math.floor(r() * l.length)];
 
-export default {
+const __test = {
   name: 'm8-save-pyadip',
   run(ctx) {
     const failures = [], notes = [];
@@ -76,3 +77,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

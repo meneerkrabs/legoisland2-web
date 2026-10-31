@@ -1,14 +1,16 @@
 // WP-VERIFY z10RGB: coverage test (docs/re/m6/z10RGB.md, "Differential test (WP-VERIFY): coverage").
+import { setRandSource } from '../../src/game/crt.ts';
 import { createHarness, createCoverage, NODE_FUNCS, fr } from '../lib/m7-z10RGB-emu.mjs';
 import { solveShot } from '../../src/zones/z10rgb/enemy.ts';
 import { REC, VAR, MODE, PHASE, K } from '../../src/zones/z10rgb/consts.ts';
 import { ROUTE, planShot, nextTarget, aimKeys } from '../../src/zones/z10rgb/bot.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 /** the tolerance of every float comparison: relative to max(1, |value|); the original runs the x87 in 24-bit precision, the port rounds the same operations, what is left is the matrix builder / collision noise (a few ulps) */
-const TOL = 1e-6, S_TOL_SAMPLES = 1e-5;
+const TOL = 0, S_TOL_SAMPLES = 0;
 const lcg = (seed) => { let s = seed >>> 0; const r = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296; r.int = (n) => Math.floor(r() * n); r.pick = (a) => a[Math.floor(r() * a.length)]; return r; };
 
-export default {
+const __test = {
   name: 'm7-z10RGB-cover',
   run(ctx) {
     const failures = [], notes = [];
@@ -277,6 +279,8 @@ export default {
     T.ok(rep.covered >= 350, `branch coverage fell: ${rep.covered} / ${rep.total} (350 expected)`);
     notes.push(`KNOWN DEVIATION (docs section 7): the original writes COMPLETE_SUB_GAME (0x53) = 1 at the phases 4 / 5, the port does not: seen ${knownTotal()} tick(s) of ${scenarios} scenarios`);
     notes.push(`tolerance: ${TOL} relative to max(1, |v|) on every float (all scenarios also pass at 2e-7: the 24-bit x87 is rounded per operation in the port; what is left is the matrix builder's 1 ulp); ground samples of the ball shadows ${S_TOL_SAMPLES} (the ground height at positions that differ by an ulp, slope amplified)`);
+    setRandSource(null);
     return { checked: T.checked, failures, notes };
   },
 };
+export default guarded(__test);

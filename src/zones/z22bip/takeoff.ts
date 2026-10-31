@@ -8,6 +8,7 @@ import type { BehaviourNode } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import { bipRun, f32, MODE, VAR_MODE } from './run.ts';
 import { transformPoint } from './plane.ts';
+import { ad, sb, ml } from '../common/f32.ts';
 
 const F = Math.fround;
 export const CTOR_TAKEOFF = 0x70c36b;
@@ -84,8 +85,8 @@ export class TakeoffNode implements BehaviourNode {
     c[3] = rec.m[12]; c[4] = F(rec.m[13] + TAKEOFF.LIFT); c[5] = rec.m[14];
     const p = transformPoint(rec.m, TAKEOFF.CAM_OFFSET);
     const k = TAKEOFF.CAM_LERP;
-    c[0] = F((p[0] - c[0]) * k + c[0]);
-    c[2] = F((p[2] - c[2]) * k + c[2]);
-    c[1] = F((p[1] - c[1]) * k + c[1]);
+    c[0] = ad(ml(sb(p[0], c[0]), k), c[0]);
+    c[2] = ad(ml(sb(p[2], c[2]), k), c[2]);
+    c[1] = ad(ml(sb(p[1], c[1]), k), c[1]);
   }
 }

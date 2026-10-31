@@ -25,10 +25,8 @@ export { CTOR };
 
 /** the state the nodes share in one run (the original's globals); a new one is made by the `rgbgame` constructor, i.e. every time the zone starts */
 export let state = new RgbState();
-/** tests replace the random source before the zone is set up */
-export const options: { rng?: () => number } = {};
 registerCtor(CTOR.RGBGAME, () => {
-  state = new RgbState(options.rng ? { next: options.rng } : undefined);
+  state = new RgbState();
   return new RgbGameNode(state);
 });
 registerCtor(CTOR.PEPSWITC, () => new PepSwitcNode(state));
@@ -145,10 +143,10 @@ registerZoneGame('z10RGB', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
       st.saidBanner = true;
     },
     bannerTick() { updateBalls(st); listen(); },
-    draw2d(ui: Ui2D, dt: number, mode: number) {
+    draw2d(ui: Ui2D, _dt: number, mode: number) {
       // the barrel first, the HUD (gauge, score) over it, like the original's order (FUN_005f40f4 before FUN_0046055f)
       if (barrel && world.vars.get(VAR.MODE) === MODE.CANNON) ui.sprite(barrel, 0, [0, 0, 640, 480], 0xffffffff);
-      if (mode === LOOP.PLAY) { hud.visible = true; hud.draw(ui, dt * 30); hud.visible = false; }
+      if (mode === LOOP.PLAY) { hud.visible = true; hud.draw(ui, world.dt); hud.visible = false; }
     },
     drawBanner(ui: Ui2D) {
       if (st.phase === PHASE.WON) {

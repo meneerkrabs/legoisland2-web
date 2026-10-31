@@ -8,16 +8,21 @@
 import type { BrickLibrary, BrickModelData } from '../../formats/bricks.ts';
 import type { GameRecord } from '../../game/record.ts';
 import { RF_ENABLED } from '../../game/record.ts';
-import { Brick, ACT, addDelay, addSpin, addUnspin, addFlyOut, addFlyHome, addSwap, addFloatAway, runActions, mulInto } from './sim.ts';
+import { Brick, ACT, ActionPool, addDelay, addSpin, addUnspin, addFlyOut, addFlyHome, addSwap, addFloatAway, freeActions, runActions, mulInto } from './sim.ts';
+import { ad, ml, sb, dv, sq } from '../../zones/common/f32.ts';
 import type { SimEnv, Vec3 } from './sim.ts';
 
 export const MAX_SLOTS = 0x40, MAX_MODELS = 0x10;
 /** FUN_00449ec0's "no slot" (0xbabababa) */
 export const NO_SLOT = -0x45454546;
+/** a float32 constant of the executable by its bits */
+const F32 = (bits: number) => new Float32Array(new Uint32Array([bits]).buffer)[0];
 /** DAT_008922bc: the wait after a morph runs down 0.03333 per tick */
-const WAIT_STEP = Math.fround(0.03333);
+const WAIT_STEP = F32(0x3d08850a);
 /** DAT_00892030 / DAT_008922c0: the stagger of the morph (from / to bricks) */
-const STAGGER_FROM = Math.fround(0.01), STAGGER_TO = Math.fround(0.02);
+const STAGGER_FROM = F32(0x3c23d70a), STAGGER_TO = F32(0x3ca3d70a);
+/** DAT_008920cc: the extra lift of callback 8 (0.1) */
+const LIFT_EXTRA = F32(0x3dcccccd);
 /** DAT_008922c8 / DAT_008922c4: LOD distances squared (FUN_0044d420) */
 export const LOD1_D2 = 1280, LOD2_D2 = 7200;
 /** sound handle globals the stage callbacks play at the record: id 4 / 5 DAT_05d582ec (stopped first), id 8 DAT_05d58130, id 7 one of DAT_05d582dc / e4 / e8 / e0 in turn (DAT_05d37020) */
@@ -149,7 +154,7 @@ export class BrickFxManager {
   constructor(lib: BrickLibrary, env: BrickFxEnv) {
     this.lib = lib; this.env = env;
     const self = this;
-    this.sim = { rand: (m) => env.rand(m), sound: (h, p) => { self.log.push(`sound ${h.toString(16)}`); env.sound(h, p); }, dt: 1, clicks: 0 };
+    this.sim = { rand: (m) => env.rand(m), sound: (h, p) => { self.log.push(`sound ${h.toString(16)}`); env.sound(h, p); }, dt: 1, clicks: 0, pool: new ActionPool() };
   }
 
   // ---------------------------------------------------------------------------------------- set-up
@@ -198,6 +203,9 @@ export class BrickFxManager {
    * brick at dt 1/10, the time counting up again by (1 / 10) * dt per step. `sim.dt` stays 1/10 like DAT_008b1718 (the next update sets it again).
    */
   restoreSlot(i: number, rec: GameRecord, img: SlotImage): BrickFxSlot {
+    // (FUN_0044c280 on the slot's old models first: their action lists go back to the pool; an unused image clears the byte only: the old models of that slot stay allocated)
+    const old = this.slots[i];
+    if (old) for (const m of old.models) for (const b of m.bricks) freeActions(this.sim, b);
     const s = new BrickFxSlot(i, rec, img.v, 0);
     s.sound = 0;
     s.desc.set(img.desc);
@@ -303,25 +311,25 @@ export class BrickFxManager {
       default: for (const b of M.tail()) { b.visible = true; b.active = true; }   // FUN_0044cd30 (3, 6, 9 and the rest)
     }
   }
-  private stepOf(M: BrickModel, P: Float32Array, div: number) { return P[0] > 0 ? Math.fround(P[0] / div) : P[1]; }
+  private stepOf(M: BrickModel, P: Float32Array, div: number) { return P[0] > 0 ? dv(P[0], div) : P[1]; }
   /** FUN_0044c4c0 (0): the bricks appear one after another (file order) */
   private cbAppear(M: BrickModel, P: Float32Array) {
     const step = this.stepOf(M, P, M.count);
     let d = 0;
-    for (const b of M.tail()) { b.visible = false; b.active = true; addDelay(b, d, 1, 1); d = Math.fround(step + d); }
+    for (const b of M.tail()) { b.visible = false; b.active = true; addDelay(this.sim, b, d, 1, 1); d = ad(step, d); }
   }
   /** FUN_0044c550 (1): they disappear one after another (list order) */
   private cbVanish(M: BrickModel, P: Float32Array) {
     const step = this.stepOf(M, P, M.count);
     let d = 0;
-    for (const b of M.bricks) { b.visible = true; b.active = true; addDelay(b, d, 0, 1); d = Math.fround(step + d); }
+    for (const b of M.bricks) { b.visible = true; b.active = true; addDelay(this.sim, b, d, 0, 1); d = ad(step, d); }
   }
   /** LAB_0044c5e0 (2): this stage's bricks disappear, then the next stage's appear */
   private cbSwap(M: BrickModel, N: BrickModel | undefined, P: Float32Array) {
     const step = this.stepOf(M, P, M.count);
     let d = 0;
-    for (const b of M.bricks) { b.visible = true; b.active = true; addDelay(b, d, 0, 1); d = Math.fround(step + d); }
-    if (N) for (const b of N.tail()) { b.visible = false; b.active = true; addDelay(b, d, 1, 1); d = Math.fround(step + d); }
+    for (const b of M.bricks) { b.visible = true; b.active = true; addDelay(this.sim, b, d, 0, 1); d = ad(step, d); }
+    if (N) for (const b of N.tail()) { b.visible = false; b.active = true; addDelay(this.sim, b, d, 1, 1); d = ad(step, d); }
   }
   /** LAB_0044cbe0 (4) / LAB_0044cd60 (5): layer by layer from the top the bricks spin and float away (sound DAT_05d582ec at the record) */
   private cbBlow(s: BrickFxSlot, M: BrickModel, P: Float32Array, spinB: boolean) {
@@ -331,10 +339,10 @@ export class BrickFxManager {
       const r = this.env.rand(step);
       b.offset[0] = 0; b.offset[1] = 0; b.offset[2] = 0;
       for (let k = 0; k < 3; k++) { b.rotA[k] = 0; b.rateA[k] = 0; b.rotB[k] = 0; }
-      const delay = Math.fround(Math.fround((M.layers - b.layer) * step) + r);
+      const delay = ad(ml(M.layers - b.layer, step), r);
       addSpin(b, delay, P.subarray(2), this.sim, ACT.SPIN_A);
-      if (spinB) { addSpin(b, delay, P.subarray(11), this.sim, ACT.SPIN_B); addFloatAway(b, delay, P.subarray(20), 40000); }
-      else addFloatAway(b, delay, P.subarray(11), P[14]);
+      if (spinB) { addSpin(b, delay, P.subarray(11), this.sim, ACT.SPIN_B); addFloatAway(this.sim, b, delay, P.subarray(20), 40000); }
+      else addFloatAway(this.sim, b, delay, P.subarray(11), P[14]);
     }
     s.sound = SOUND_BLOW;
     this.env.sound(SOUND_BLOW, null, true);
@@ -343,10 +351,10 @@ export class BrickFxManager {
   }
   /** LAB_0044ced0 (7): every brick starts p[4] higher and falls home in file order, p[0] seconds for all, at p[2] + rand(p[3]) per tick */
   private cbDrop(s: BrickFxSlot, M: BrickModel, P: Float32Array) {
-    for (const b of M.bricks) { b.active = true; b.visible = true; b.dirty = true; b.offset[1] = Math.fround(P[4] + b.offset[1]); b.rebuild(); }
+    for (const b of M.bricks) { b.active = true; b.visible = true; b.dirty = true; b.offset[1] = ad(P[4], b.offset[1]); b.rebuild(); }
     const step = this.stepOf(M, P, M.count);
     let d = step;
-    for (const b of M.tail()) { addFlyHome(b, d, Math.fround(this.env.rand(P[3]) + P[2])); d = Math.fround(step + d); }
+    for (const b of M.tail()) { addFlyHome(this.sim, b, d, ad(this.env.rand(P[3]), P[2])); d = ad(step, d); }
     this.drops++;
     const h = SOUNDS_DROP[this.drops & 3];
     s.sound = h;
@@ -355,18 +363,18 @@ export class BrickFxManager {
   }
   /** LAB_0044d010 (8): bricks p[5] .. p[6] (file order; p[6] < 0 = to the end, written back) fall in from p[4] + 0.1 above; earlier ones stand, later ones are hidden */
   private cbDropRange(s: BrickFxSlot, M: BrickModel, P: Float32Array, I: Int32Array) {
-    const lift = Math.fround(P[4] + Math.fround(0.1));   // DAT_008920cc
+    const lift = ad(P[4], LIFT_EXTRA);   // DAT_008920cc
     if (I[6] < 0) I[6] = M.count;
     const first = I[5], last = I[6];
-    const step = P[0] > 0 ? Math.fround(P[0] / (last - first)) : P[1];
+    const step = P[0] > 0 ? dv(P[0], last - first) : P[1];
     let d = step, i = 0;
     for (const b of M.tail()) {
       b.active = true;
       if (i < first) { b.visible = true; b.offset[0] = 0; b.offset[1] = 0; b.offset[2] = 0; }
       else if (i < last) {
         b.visible = true;
-        addFlyHome(b, d, Math.fround(this.env.rand(P[3]) + P[2]));
-        d = Math.fround(d + step);
+        addFlyHome(this.sim, b, d, ad(this.env.rand(P[3]), P[2]));
+        d = ad(d, step);
         b.offset[0] = 0; b.offset[2] = 0; b.offset[1] = lift;
         b.dirty = true;
         b.rebuild();
@@ -385,18 +393,18 @@ export class BrickFxManager {
       b.visible = true; b.active = true;
       const dd = fn === 13 ? 0 : d;
       if (fn === 11) addSpin(b, dd, P.subarray(11), this.sim, ACT.SPIN_B); else addSpin(b, dd, P.subarray(2), this.sim, ACT.SPIN_A);
-      addFlyOut(b, dd, P);
-      if ((fn === 10 || fn === 11) && !b.partner) addDelay(b, dd, 0, 1);
-      if (fn !== 13) d = Math.fround(d + STAGGER_FROM);
+      addFlyOut(this.sim, b, dd, P);
+      if ((fn === 10 || fn === 11) && !b.partner) addDelay(this.sim, b, dd, 0, 1);
+      if (fn !== 13) d = ad(d, STAGGER_FROM);
     }
     d = 0;
     for (const b of N.tail()) {
       b.visible = false; b.active = false;
-      addUnspin(b, 0, fn === 11 ? ACT.UNSPIN_B : ACT.UNSPIN_A);
+      addUnspin(this.sim, b, 0, fn === 11 ? ACT.UNSPIN_B : ACT.UNSPIN_A);
       const dd = fn === 13 ? 0 : d;
-      addSwap(b, dd, b.partner);
-      addFlyHome(b, dd, P[0]);
-      if (fn !== 13) d = Math.fround(d + STAGGER_TO);
+      addSwap(this.sim, b, dd, b.partner);
+      addFlyHome(this.sim, b, dd, P[0]);
+      if (fn !== 13) d = ad(d, STAGGER_TO);
     }
   }
 
@@ -415,12 +423,13 @@ export class BrickFxManager {
       if (s.state < r) continue;
       s.state = r;
     }
-    if (s.state === 2 && s.wait > 0) { s.wait = Math.fround(s.wait - Math.fround(this.sim.dt * WAIT_STEP)); return 3; }
+    if (s.state === 2 && s.wait > 0) { s.wait = sb(s.wait, ml(this.sim.dt, WAIT_STEP)); return 3; }
     return s.state;
   }
 
   /** FUN_0044a180 (+ FUN_0044c2c0 / FUN_0044dae0: the draw pass rebuilds and places the visible bricks). Call once per tick. */
   update(dt = 1) {
+    dt = Math.fround(dt);                           // DAT_008b1718 is a float32 global
     this.sim.dt = dt;
     const renderOnly = this.env.vars.get(VAR_RENDER_ONLY);
     for (const s of this.slots) {
@@ -441,7 +450,7 @@ export class BrickFxManager {
       }
       if (renderOnly === 0) {
         const st = this.step(s);
-        s.time = Math.fround(dt + s.time);
+        s.time = ad(this.sim.dt, s.time);
         s.state = st;
         if (st === 2) {
           const vis = s.vis[t], r = s.record;
@@ -452,8 +461,8 @@ export class BrickFxManager {
           s.state = 0;
           if (!s.oneShot) s.stage = (s.stage + 1) % n; else s.oneShot = false;
           // FUN_0044c3f0: free the action lists of the (new) current stage and the one after it
-          for (const b of s.models[s.stage].bricks) b.actions = [];
-          for (const b of s.models[(s.stage + 1) % n].bricks) b.actions = [];
+          for (const b of s.models[s.stage].bricks) freeActions(this.sim, b);
+          for (const b of s.models[(s.stage + 1) % n].bricks) freeActions(this.sim, b);
           s.started = false; s.running = false; s.swapped = false;
           if (s.sound !== NO_SLOT) { this.env.sound(s.sound, null, true); s.sound = NO_SLOT; }
         }
@@ -465,15 +474,16 @@ export class BrickFxManager {
   /** FUN_0044c2c0 -> FUN_0044dae0: rebuild the visible bricks, world matrix = local . parent, LOD by the squared distance to the eye (FUN_0044d420) */
   private draw(s: BrickFxSlot) {
     s.drawn = true;
-    const eye = this.env.eye();
+    const e = this.env.eye(), eye: Vec3 = [Math.fround(e[0]), Math.fround(e[1]), Math.fround(e[2])];   // (the camera globals are float32)
     for (const m of s.models) {
       if (!m.parent) continue;
       for (const b of m.bricks) {
         if (!b.visible) continue;
         b.rebuild();
         mulInto(b.world, b.local, m.parent);
-        const dx = eye[0] - b.world[12], dy = eye[1] - b.world[13], dz = eye[2] - b.world[14];
-        const d2 = dx * dx + dy * dy + dz * dz;
+        // FUN_0044d420: the squared distance to the camera (DAT_009da5e8..f0), the squares add up z, y, x (instruction order), every operation a float32
+        const dx = sb(eye[0], b.world[12]), dy = sb(eye[1], b.world[13]), dz = sb(eye[2], b.world[14]);
+        const d2 = ad(ad(ml(dz, dz), ml(dy, dy)), ml(dx, dx));
         b.lod = d2 < LOD1_D2 ? 0 : d2 < LOD2_D2 ? 1 : 2;
       }
     }
@@ -490,39 +500,47 @@ export class BrickFxManager {
 
 const recPos = (r: GameRecord): Vec3 => [r.m[12], r.m[13], r.m[14]];
 
-/** FUN_0044e410 + FUN_0044e5a0 + FUN_0044e660 + FUN_0044e6e0: which brick of `from` each brick of `to` morphs out of (and back) */
+/** DAT_008922cc: the AUTO pairing's reach (0.005) */
+const AUTO_NEAR = F32(0x3ba3d70a);
+/**
+ * FUN_0044e410 + FUN_0044e5a0 + FUN_0044e660 + FUN_0044e6e0: which brick of `from` each brick of `to` morphs out of (and back).
+ * The compares are the x87's (`fcom; fnstsw; test ah, 0x41 / 1; je`): an UNORDERED result (a NaN) sets C0 and C3 too, so `<=` is `!(a > b)` and `<` is `!(a >= b)`. It matters: a model
+ * LOADED from a save game has no normalised places and no extent (FUN_0044d570 alone, FUN_0044dba0 does not run), the extent ratio of FUN_0044e5a0 is 0 / 0 = NaN, and every brick
+ * then takes the first candidate of its group.
+ */
 export function pairBricks(from: BrickModel, to: BrickModel) {
-  const nd = (a: Brick, b: Brick) => { const x = a.norm[0] - b.norm[0], y = a.norm[1] - b.norm[1], z = a.norm[2] - b.norm[2]; return x * x + y * y + z * z; };
+  // the squared distance of the normalised places: every difference and product a float32, the squares add up z, y, x (the instruction order of all four loops)
+  const nd = (a: Brick, b: Brick) => { const x = sb(a.norm[0], b.norm[0]), y = sb(a.norm[1], b.norm[1]), z = sb(a.norm[2], b.norm[2]); return ad(ad(ml(z, z), ml(y, y)), ml(x, x)); };
   // PART groups (and the unnamed ones, 255): the nearest brick of the same group
   for (const t of to.bricks) {
     t.dist = 65536; t.partner = null;
     if (t.group > 9) for (const f of from.bricks) {
       if (f.group !== t.group) continue;
-      const d = Math.sqrt(nd(f, t));
-      if (d <= t.dist) { t.dist = d; t.partner = f; }
+      const d = sq(nd(f, t));
+      if (!(d > t.dist)) { t.dist = d; t.partner = f; }
     }
   }
   // AUTO groups: the same brick at the same place (within 0.005) and turned the same way
   for (const t of to.bricks) {
     if (t.group >= 10) continue;
-    t.dist = Math.fround(0.005);
+    t.dist = AUTO_NEAR;
     for (const f of from.bricks) {
       if (f.group !== t.group || f.rotC[1] !== t.rotC[1] || f.typeIndex !== t.typeIndex) continue;
-      const d = Math.sqrt(nd(f, t));
-      if (d <= 0.005 && d <= t.dist) { t.dist = d; t.partner = f; }
+      const d = sq(nd(f, t));
+      if (!(d > AUTO_NEAR) && !(d > t.dist)) { t.dist = d; t.partner = f; }
     }
   }
-  // the rest of the AUTO groups: the nearest of the group within the ratio of the models' extents
-  const ratio = Math.fround(to.data.invExtentSq / from.data.invExtentSq);
+  // the rest of the AUTO groups: the nearest of the group within the ratio of the models' extents (the squared distance, no root)
+  const ratio = dv(to.data.invExtentSq, from.data.invExtentSq);
   for (const t of to.bricks) {
     if (t.partner || t.group >= 10) continue;
     t.dist = ratio;
-    for (const f of from.bricks) { if (f.group !== t.group) continue; const d = nd(f, t); if (d < t.dist) { t.dist = d; t.partner = f; } }
+    for (const f of from.bricks) { if (f.group !== t.group) continue; const d = nd(f, t); if (!(d >= t.dist)) { t.dist = d; t.partner = f; } }
   }
   // still alone: the nearest brick of any group within what is left of the distance
   for (const t of to.bricks) {
     if (t.partner) continue;
-    for (const f of from.bricks) { const d = nd(f, t); if (d < t.dist) { t.dist = d; t.partner = f; } }
+    for (const f of from.bricks) { const d = nd(f, t); if (!(d >= t.dist)) { t.dist = d; t.partner = f; } }
   }
   // and back: each `from` brick points at the last `to` brick that chose it
   for (const f of from.bricks) {

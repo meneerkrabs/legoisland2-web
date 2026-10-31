@@ -14,7 +14,7 @@ jump; used only to resume), `STOP_AFTER=<id>`, `CHECKPOINT=<file>` (default `/tm
 `LIST=1`. The log prints a time stamp per chapter, every chapter's `steps ok` / `STEP FAILURES` and whether the game `arrived` at the next chapter's zone and node; the story ends with
 `FULL STORY: all chapters played` (exit code 0) or `FULL STORY FAILED: ...` (1). The window is 800x600: the software GL of a headless browser costs time per pixel and a run at 1280x800
 takes twice as long on a busy machine. `&hold=1` keeps browse.mjs from tapping the hubs' mode 1 for the bot (the chapter bots take the frozen first frame with their own key).
-A whole game takes about an hour (58.9 min, 25 chapters, no retry, no failed step, on a machine with a load average above 20). Resuming (`RESUME=...`) uses the original's chapter jump
+A whole game takes about an hour (58.9 min, 25 chapters, no retry, no failed step, on a machine with a load average above 20; after WP-TIME, at the fixed 60 Hz step: 59.9 min, all chapters played, one retry: the z10RGB bot loses its first run in the chain, see below). Resuming (`RESUME=...`) uses the original's chapter jump
 (URL `?zone=&node=`, the vars of the skipped nodes are forced to their node values), so a resumed chapter starts in a slightly different state than the played one; the checkpoint is the
 chapter id, not a save game (the in-game save is exercised by `era1`, which saves, quits and loads in the middle of the story and plays on).
 
@@ -46,7 +46,7 @@ chapter id, not a save game (the in-game save is exercised by `era1`, which save
 
 ## Reliability rules (what changed, and why)
 
-* **Wait in game ticks, not wall time.** A loaded page (two bots, other jobs) runs 10 .. 25 ticks a second instead of 30; `THROTTLE=4` (browse.mjs) simulates the live site. Waits are
+* **Wait in game ticks, not wall time.** The simulation steps 60 times a second (WP-TIME: one step per drawn frame, dt 0.5); the bot libs count GAME ticks of 1/30 s (`world.tickCount / 2`: two steps each), so every wait below keeps its meaning. A loaded page (two bots, other jobs) runs far fewer steps a second than 60; `THROTTLE=4` (browse.mjs) simulates the live site. Waits are
   `S.untilTicks(...)` (which also gives up after 12 s of wall time without a tick: a paused game must not hang a bot), `S.until(fn, ms)` (now `ms` of GAME time, wall-clock ceiling 12 x),
   the sail / flight helpers of the castle and Adventure Island (ticks), and ceilings only otherwise. In-page waits end when the zone changed or the game stood still for 20 s
   (`lib-pya.mjs` `H.keys` hung for ever on the old world when the story moved on while a leg was being walked: a hand-over to z18MMP in the middle of the Pyramid route).
@@ -76,4 +76,5 @@ failed under load. A bot that is slow in wall time but exact in game time is a b
   the story goes on, so a step that waits for something that never comes cannot hang the run), **headless pointer lock** (the game asks for the pointer lock every few seconds for the
   chase camera and turns an unlock into the pause key, src/game/input.ts `onLockChange`: a headless run has no pointer, so the request is refused like a browser would without user activation;
   the first events are logged `[le2-ev]`).
-* Retries: a lost mini-game run takes "Opnieuw"; the end of the log lists the mini-games that needed it (z10RGB: Pepper can be hit on the bridge before she reaches a cannon).
+* Retries: a lost mini-game run takes "Opnieuw"; the end of the log lists the mini-games that needed it (z10RGB: Pepper can be hit on the bridge before she reaches a cannon; at the 60 Hz step the scripted player of `m6-z10RGB.mjs` (decisions polled from node, taps of 70 ms) loses the first run in the chain, 3 of 3 runs, and wins the retry; the node tests win at dt 1 and 0.5, so this is the bot's margin, not the game).
+* Taps: `browse.mjs` `key()` now holds a key until the shell's input mapper has sampled it 3 times (`InputMapper.updates`, capped at 3 s): on a loaded page both the keydown and the keyup of a 70 ms tap can fall between two samples (the original does not see such a tap either).

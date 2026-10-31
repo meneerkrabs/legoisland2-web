@@ -105,7 +105,7 @@ export class InputMapper {
   getPads: () => ArrayLike<Gamepad | null> = () => { try { return typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []; } catch { return []; } };   // (a permissions policy may forbid it)
   /**
    * TEST-ONLY switch: a key / button that was pressed and released between two ticks still counts for one tick. Off by default: like the original's poll (FUN_00437411, DirectInput
-   * state read once per frame) the state is sampled once per tick and a tap shorter than that is not seen. Bots that tap must hold the key for at least 3 ticks (100 ms).
+   * state read once per frame) the state is sampled once per tick and a tap shorter than that is not seen. Bots that tap must hold the key for at least 5 ticks of the fixed 60 Hz step (70 ms or more).
    */
   latchTaps = false;
   /** the cheat-code detector (FUN_004375a8): polled once per tick with FUN_00437fdf's result */
@@ -304,8 +304,12 @@ export class InputMapper {
     return blocked.includes(k) ? 0 : k;
   }
 
+  /** number of samples taken (`update` calls: one per loop pass of the shell); only read by the browser bots (tools/browse.mjs `key`) to hold a tap until the game has seen it */
+  updates = 0;
+
   /** FUN_004376f9 + FUN_00423170: sample the devices once per simulation tick */
   update() {
+    this.updates++;
     const s = this.takeSample();
     this.lastSample = s;
     this.latched.clear(); this.mouseLatched.clear();

@@ -55,12 +55,12 @@ export default {
         ground: (i) => { const p = rec(i); const pts = shadowPoints(w, p, run.recs.land, 2.0, 0.4, shTmp); return pts ? [pts[3], pts[4] - f32(f32(0.4) * 8), pts[5]] : null; },
         box: (i, a, b, op, on) => segmentHitsRecordBox(rec(i), a, b, op, on),
       };
-      const emu = new ParEmu(pe, recs, new Map([[pepp.index, R2[pepp.index].anim]]), { rand: (range) => (Math.floor(oracleFrac() * 32768) / 32767) * range, col });
+      const emu = new ParEmu(pe, recs, new Map([[pepp.index, R2[pepp.index].anim]]), { randInt: () => Math.floor(oracleFrac() * 32768), col });
       emu.construct(pepp.index);
       const mem = emu.cpu.mem, N = emu.node;
       const nf = (o) => mem.f32(N + o), ni = (o) => mem.r32(N + o);
       const worst = {};
-      const num = (tick, name, orig, port, tol = 2e-5) => { checked++; const d = Math.abs(orig - port); worst[name] = Math.max(worst[name] ?? 0, d); if (!(d <= tol * Math.max(1, Math.abs(orig)))) bad(`${label}: tick ${tick} ${name}: original ${orig} port ${port}`); };
+      const num = (tick, name, orig, port) => { checked++; const d = Math.abs(orig - port); worst[name] = Math.max(worst[name] ?? 0, d); if (!(d === 0 || orig === port)) bad(`${label}: tick ${tick} ${name}: original ${orig} port ${port}`); };
       const eq = (tick, name, orig, port) => { checked++; if (JSON.stringify(orig) !== JSON.stringify(port)) bad(`${label}: tick ${tick} ${name}: original ${JSON.stringify(orig)} port ${JSON.stringify(port)}`); };
       // the oracle's camera starts where the port's does (FUN_00422b50 / the loop's set-up are not run here)
       for (let k = 0; k < 9; k++) mem.wf32(0x9da5e8 + 4 * k, w.camera.c[k]);
@@ -107,15 +107,13 @@ export default {
         const orgSpeech = orgAll.filter((e) => e.startsWith('say ')), orgEv = orgAll.filter((e) => !e.startsWith('say '));
         eq(t, 'speech', orgSpeech, spoken);          // (the port logs speech apart from the sounds: their relative order is not compared)
         // the order of the calls inside one tick is the same; speech lines are queued at the same places
-        // (positions / pitches are compared with a tolerance: the original keeps float32 locals, the port computes in double and rounds on store)
-        const evKey = (e) => e.replace(/-?\d+\.\d+/g, 'N').replace(/^r (\d+) \d+$/, 'r $1 N');
+                const evKey = (e) => e.replace(/-?\d+\.\d+/g, 'N').replace(/^r (\d+) \d+$/, 'r $1 N');
         checked++;
         if (JSON.stringify(orgEv.map(evKey)) !== JSON.stringify(portEv.map(evKey))) bad(`${label}: tick ${t} sounds / speech: original ${JSON.stringify(orgEv)} port ${JSON.stringify(portEv)}`);
         else for (let i = 0; i < orgEv.length; i++) {
-          const a = orgEv[i].match(/-?\d+(\.\d+)?/g).map(Number), b = portEv[i].match(/-?\d+(\.\d+)?/g).map(Number);
-          const tol = orgEv[i].startsWith('r ') ? 2 : 0.06;
+          // positions (two decimals) and pitches are compared as the strings of the logs: the port's float32 arithmetic equals the original's
           checked++;
-          if (a.some((v, k) => Math.abs(v - b[k]) > tol)) bad(`${label}: tick ${t} sound args: original ${orgEv[i]} port ${portEv[i]}`);
+          if (orgEv[i] !== portEv[i]) bad(`${label}: tick ${t} sound args: original ${orgEv[i]} port ${portEv[i]}`);
         }
         stats.sounds += orgEv.length;
         // node
@@ -151,7 +149,7 @@ export default {
         if (failures.length > f0) break;
         // the HUD feed after the update: the original's FUN_00466f50 (native) against ParHud (the port)
         emu.hud();
-        const fr = hud.update(run, pepp.ry);
+        const fr = hud.update(run, pepp.ry, w.dt);
         const t = tickNo;
         eq(t, 'HUD chuteOk', mem.r32(0x5d57d10) !== 0, run.chuteOk); num(t, 'HUD refAlt', mem.f32(0x5d57d00), run.refAlt);
         eq(t, 'HUD text', mem.cstr(0x5d4dd60), fr.text); eq(t, 'HUD compass', mem.r32(0x5d4dd14), fr.compass);

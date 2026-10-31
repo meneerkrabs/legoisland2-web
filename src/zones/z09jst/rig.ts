@@ -12,7 +12,7 @@ import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
 import { CAM, END_ROWS_VA, HIDDEN_SOLDIERS, NAMES, REC, RIG_OF, SPECTATORS, START_CLIPS, TABLE_ENEMY_VA, TABLE_PLAYER_VA, hexf, readClipTable } from './consts.ts';
-import { JoustDuel, MsvcRng } from './duel.ts';
+import { JoustDuel, crtRng } from './duel.ts';
 import type { DuelHost, DuelRng, DuelSound } from './duel.ts';
 
 /** the records the zone needs, checked against the names the builder gave them */
@@ -117,7 +117,7 @@ export function makeHost(env: DuelEnv): DuelHost {
     gear: (rec, slot, on) => env.gear?.set(rec, slot, on),
     tables: { player: tables.player, enemy: tables.enemy, end: tables.end },
     spline: tables.spline,
-    rng: env.rng ?? new MsvcRng(),
+    rng: env.rng ?? crtRng,
   };
 }
 
@@ -193,6 +193,7 @@ export function startDuel(env: Omit<DuelEnv, 'gear'> & { archive: Archive; onGea
   const gear = new Gear(world.records, env.onGear ?? (() => {}));
   const host = makeHost({ ...env, gear });
   const duel = new JoustDuel(host);
+  duel.dt = world.dt;                                          // DAT_008b1718; the JSTGame node refreshes it every tick
   const node = world.records[REC.LAND].ctrl?.find<JstGameNode>('JSTGame') ?? null;
   if (node) node.duel = duel;
   for (const i of SPECTATORS) { const a = world.records[i].ctrl?.find<AnimsNode>('Anims'); if (a) a.duel = () => duel; }

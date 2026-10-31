@@ -216,7 +216,9 @@ export function proxyBase(): string {
 
 /** Files every start needs (EXE, shared archives, front end, the island = first zone of a new game); fetched ahead on the range route. */
 const WARM_PATHS = ['LEGO eiland 2.exe', ...['Bricks', 'BrickMorph', 'Fonts', 'GENERICBITS', 'menu', 'messages', 'Overlays', 'SwapText', 'Shadow', 'z60FRE', 'z02LGI']
-  .flatMap((n) => [`_data/${n}.bod`, `_data/${n}.bob`])];
+  .flatMap((n) => [`_data/${n}.bod`, `_data/${n}.bob`]),
+  // the voices of a new game's first cutscene (the island's intro, speech lines LECSIN01..): its first line is said the moment the zone starts, and over the relay one read of that block takes seconds (src/audio/speech.ts)
+  ...['LECSIN01', 'LECSIN02', 'LECSIN03'].map((n) => `_data/sounds/speech/Data/${n}.mp3`)];
 
 const ISO_SIZES: Record<string, number> = { legoeiland2dutch: 450813952, legoeiland2: 448049152 };
 

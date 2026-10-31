@@ -7,7 +7,7 @@ import { REC, VAR, WINCH, BRONTY, HAT_SOUNDS, K, HatShared, findRecords, medalOf
 import { prepareHat, hatSounds, hatSnapshot, hatUpdate, hatGlobals, RIGS } from '../../src/zones/z28hat/game.ts';
 import { DINO, fx } from '../../src/zones/z28hat/nodes.ts';
 import { shadowPoints } from '../../src/zones/z28hat/shadow.ts';
-import { setRandomSource } from '../../src/zones/parachute/util.ts';
+import { setHatRandSource } from '../../src/zones/z28hat/nodes.ts';
 import { makePlan, hatBotStep, KEY } from '../lib/hat-bot.mjs';
 import { createHatHarness, snapshotWorld, restoreWorld, quantize, SPEC, KIND_OF_PORT, f32 } from '../lib/m7-z28HAT-emu.mjs';
 
@@ -68,7 +68,7 @@ export default {
       if (o.prepare !== false) {
         // the constructors' random draws come one after the other (sequential mode), the tick's by (tick, record, draw)
         rk.seq = true; rk.s = (seed * 2654435761) >>> 0;
-        setRandomSource(() => (rk.draw() + 0.5) / 32768);
+        setHatRandSource(() => rk.draw());
         fx.rumble = 0; fx.fireball.length = 0;
         const sound = hatSounds(null);
         sound.play = (n) => events.push(['2d', HAT_SOUNDS[n].id]);
@@ -104,7 +104,7 @@ export default {
       const rig = (n) => { if (!rigs.has(n)) { const e = arch.find(`anim/${n}.blk`); rigs.set(n, e ? parseBlk(arch.read(e)) : null); } return rigs.get(n); };
       for (const { rec, rig: name } of RIGS) { const r = rs[rec], blk = rig(name); if (r && blk) { if (!r.anim) r.anim = new AnimInstance(blk); r.anim.start(1, 0); } }
       A.mut = rs.filter((r) => true);
-      setRandomSource(() => (A.rk.draw() + 0.5) / 32768);
+      setHatRandSource(() => A.rk.draw());
       A.rk.seq = true; A.rk.s = (1 * 2654435761) >>> 0;
       const HA = createHatHarness(ctx, A);
       let init = null;
@@ -496,7 +496,7 @@ export default {
       HO.readBack({ recs: O.w.records.map(HO.readRec) });
       O.rk.seq = false;
       // the port's constructors drew from its own sequential source; its keyed source is back in place (make() restores it); the original's world now takes the keyed one
-      setRandomSource(() => (P.G.rk.draw() + 0.5) / 32768);
+      setHatRandSource(() => P.G.rk.draw());
       const plan = makePlan();
       const evP = {}, evO = {}, DRIFT = 0.25;
       const drift = { max: 0, at: '' };

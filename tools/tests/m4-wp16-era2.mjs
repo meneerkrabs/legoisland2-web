@@ -46,7 +46,7 @@ export default {
       ok(!!n, 'node 31: POLB has its StartCSM');
       // stand on the trigger's first waypoint
       const p = I.pepper, at = n ? nodeXYZ(n.a.map, n.a.waypoints[0]) : null;
-      if (at) { p.x = at[0]; p.y = at[1]; p.z = at[2]; p.savePrev(); }
+      if (at) { p.x = at[0]; p.y = at[1]; p.z = at[2]; }
       tick(I, 3);
       ok(I.ictx.cutscenes.some((c) => c.slot === 3), `node 31: POLB -> slot 3 (${JSON.stringify(I.ictx.cutscenes)})`);
       tick(I, 15);
@@ -62,7 +62,7 @@ export default {
       let fired = false;
       for (let k = 0; k < 90 && !fired; k++) {
         const d = 60 - k;   // approach from the west at the portal's height
-        for (const r of [phel, I.pepper]) { r.x = pora.x - d; r.y = pora.y; r.z = pora.z; r.savePrev(); }
+        for (const r of [phel, I.pepper]) { r.x = pora.x - d; r.y = pora.y; r.z = pora.z; }
         tick(I, 1);
         fired = I.vars.get(5) === 10;
       }

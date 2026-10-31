@@ -18,7 +18,7 @@ export default {
     const failures = [], notes = [];
     let checked = 0;
     const ok = (c, m) => { checked++; if (!c) failures.push(m); };
-    const stand = (I, at) => { const p = I.pepper; p.x = at[0]; p.y = at[1]; p.z = at[2]; p.savePrev(); };
+    const stand = (I, at) => { const p = I.pepper; p.x = at[0]; p.y = at[1]; p.z = at[2]; };
 
     // --- node 52: the era intro (HSE2, no waypoint, gate 0x54 & 4 == 0) fires at once, slot 0 (LGIBR08), then var 0x54 = 4
     {
@@ -73,7 +73,7 @@ export default {
       ok(!!music && !!hit, 'node 56: BBY0 has BOTMUSIC and BotHit');
       // Pepper far away: the radio is on but the bot does not dance, BOTMUSIC returns 0 (did not run) and the bot's walker nodes move it
       const p = I.pepper;
-      p.x = bot.x + 200; p.z = bot.z; p.savePrev();
+      p.x = bot.x + 200; p.z = bot.z;
       tick(I, 3);
       ok(I.vars.get(0x22) === 1, `node 56: the ghetto blaster switches the radio on (var 0x22 = ${I.vars.get(0x22)})`);
       const r0 = music ? music.update(I.world, bot, bot.ctrl) : -1;
@@ -82,7 +82,7 @@ export default {
       tick(I, 150);
       ok(Math.hypot(bot.x - x0, bot.z - z0) > 1, `node 56: the bot walks while Pepper is away (moved ${Math.hypot(bot.x - x0, bot.z - z0).toFixed(2)})`);
       // Pepper next to it: it dances (clip 0xfa, var bits 1 | 0x4000000), the timer starts at 0, and after 600 ticks it is danced out and falls over
-      const stay = () => { p.x = bot.x + 5; p.y = bot.y; p.z = bot.z; p.savePrev(); };
+      const stay = () => { p.x = bot.x + 5; p.y = bot.y; p.z = bot.z; };
       stay(); tick(I, 2);
       const vb = I.vars.get(music?.var ?? 0);
       ok((vb & 0x4000001) === 0x4000001 && bot.anim?.clip === 0xfa && music?.timer < 5, `node 56: the bot dances (var ${vb.toString(16)}, clip ${bot.anim?.clip}, timer ${music?.timer})`);
@@ -91,7 +91,7 @@ export default {
       ok(out > 560 && out < 640, `node 56: danced out and down after ~600 ticks (${out})`);
       // walk into it: collected (COLORED_BOTHEADS |= 1 for the yellow bot)
       const h0 = I.vars.get(0x8e);
-      p.x = bot.x + 0.5; p.z = bot.z; p.savePrev();
+      p.x = bot.x + 0.5; p.z = bot.z;
       tick(I, 3);
       ok((I.vars.get(0x8e) & 1) === 1 && (h0 & 1) === 0, `node 56: BBY0's head collected (COLORED_BOTHEADS ${h0} -> ${I.vars.get(0x8e)})`);
     }

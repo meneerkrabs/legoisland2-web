@@ -86,7 +86,7 @@ One tick of `FUN_00569f50` (`BotNode.update`):
 8. the UV scroll `FUN_0043ebe0(LAND model, 0x1642, 23.0, 0.0003)` (section 4).
 
 Randomness: `FUN_00435c91` returns `GetTickCount() - base`; `FUN_004388ae(x)` = `rand() / 32767 * x`; `ftol(...) & 3` / `& 7` / `% 3`: a uniform pick. The port uses a host
-`random(n)` (the zone game: `Math.random`; the tests: scripted).
+`random(n)`: the zone game binds `crtPick(n)` = `ftol(FUN_004388ae((float) FUN_00435c91())) % n` exactly (WP-TIME: `randF` of `src/game/crt.ts` = the float32 `rand() / 32767 * x`, scaled by the REAL milliseconds since the zone clock base `startTickClock()` = FUN_00435c81; the seed is `srand(time())` at the zone's first start, FUN_00569ca6, the clock base again at every restart as the loop prologue does); the tests pin the generator (`setRandSource`) and the tick clock (`setTickCountSource`) and the oracle replays the same values.
 
 ## 3. The pepwab node (`PepNode`, node struct 0x1c bytes on PEPP)
 
@@ -145,14 +145,14 @@ mesh group 23 (text022.tga, the printer paper) per call, **once per group of the
 * The percentage line is drawn from `draw2d` every frame instead of being queued by the update; the time strings lag one tick behind the counters exactly like the original's.
 * Pepper's shadow (blob shadow of `GameRenderer`) is drawn as in the other zones; nothing in the original code of this zone suggests otherwise, but it was not compared.
 * `FUN_00460a3d(0x16, 0x14, 0)` (the prompt panel of modes 0 and 4) is the runner's `drawIntroScreen` / `drawBannerScreen`.
-* Random numbers: `tickPick(msClock(world), n)` = `ftol(FUN_004388ae(FUN_00435c91())) % n` (`// RNG:` in game.ts; GetTickCount is wall-clock, so the sequence itself is not reproducible).
+* Random numbers: `crtPick(n)` (wab.ts) = `ftol(FUN_004388ae((float) FUN_00435c91())) % n` on the shared C runtime generator and the real zone clock (WP-TIME; the sequence is not reproducible by design: time seed and wall clock, as in the original).
 * The hiscore / trophy are written in the first banner frame, the tick after the mode switch, like the original.
 * The first 15 ticks (start-up lock) and the first bot at tick 12 mean a bot that comes first is whackable only at the end of its rise, as in the original.
 
 ## 8. Review
 
 A Codex review of `wab.ts` against the decompile (FUN_00569f50, 56bb20, 56c6a5, 56c8f1, 56c950, the two constructors, the loop's thresholds, the camera functions) found no behavioural differences in
-bot state timing, hole / record mapping, hit animation, lids, TV, Pepper's input, camera or the score / medal thresholds; its two remarks (uniform instead of tick-count based random numbers,
+bot state timing, hole / record mapping, hit animation, lids, TV, Pepper's input, camera or the score / medal thresholds; its two remarks (uniform instead of tick-count based random numbers: exact since WP-TIME,
 the variables written one frame earlier) are listed in section 7.
 
 ## 9. Tests and how to run

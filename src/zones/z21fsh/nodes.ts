@@ -23,7 +23,7 @@ import type { Attach } from '../../formats/zonesetup.ts';
 import type { Pe } from '../../formats/exe.ts';
 import { restoreHooks } from '../../restore/flag.ts';
 import {
-  CTOR, REC, TABLE, SND, BTN, CLIP, ST, CAST, K, MSG, CATCH_LINES, PI, TWO_PI, Fish, Follower, Popups, fishStep, pickBite, newPick, mathRng, randF, randI, normalize,
+  CTOR, REC, TABLE, SND, BTN, CLIP, ST, CAST, K, MSG, CATCH_LINES, PI, TWO_PI, Fish, Follower, Popups, fishStep, pickBite, newPick, crtRng, randF, randI, randT, normalize,
 } from './rules.ts';
 import type { Rng, BitePick, FishingView, FishEnv } from './rules.ts';
 
@@ -65,7 +65,7 @@ export function readTables(pe: Pe): Tables {
 /** the zone's globals (DAT_05d5c3d0, DAT_05d5ca60, DAT_05d5cae0.., DAT_05d5cb34 ...) */
 export class FshShared {
   env: FshEnv = silentEnv;
-  rng: Rng = mathRng;
+  rng: Rng = crtRng;
   tables: Tables | null = null;
   /** _DAT_05d4e144: the HUD icon column's slot 0 texture the hook writes (not drawn here), null until the hook ran */
   column0: number | null = null;
@@ -297,7 +297,7 @@ export class FishingNode extends FshNode implements FishingView {
         if (K.POWER_MAX < this.power || (w.input.pressed & BTN.CAST) !== 0) {
           env.stop2D(SND.CAST_STRENGTH);
           this.sub = CAST.THROW;
-          env.play2D(randI(S.rng, 5) < 3 ? SND.CAST1 : SND.CAST2);
+          env.play2D(randT(S.rng, 5) < 3 ? SND.CAST1 : SND.CAST2);
           this.casts -= 1;
         }
         break;
@@ -508,7 +508,7 @@ export class FishingNode extends FshNode implements FishingView {
       env.play2D(SND.CATCH_FISH);
       this.state = ST.READY;
       anim?.start(CLIP.STAND, 0);
-      env.say(CATCH_LINES[randI(S.rng, 7)]);
+      env.say(CATCH_LINES[randT(S.rng, 7)]);
     } else {
       this.state = ST.SCORE;
       anim?.start(CLIP.HOLD_UP, 0);

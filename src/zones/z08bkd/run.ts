@@ -18,6 +18,7 @@ import type { Env, SoundName } from './env.ts';
 import { WaypointGraph } from './graph.ts';
 import { HurtZones } from './hurt.ts';
 import { Rng, ZoneClock } from './math.ts';
+import { srand } from '../../game/crt.ts';
 import { BkdState } from './state.ts';
 
 /** the record names the code relies on (the builder FUN_005c2940's order); checked at set-up */
@@ -74,7 +75,7 @@ export function snapshot(run: BkdRun) {
     /** the cannon balls in flight: [x, y, velocity x, velocity y (units / s)] */
     balls: flying.map((i) => [R[i].x, R[i].y, env.nodeOf<import('./bodies.ts').BallNode>(R[i]).b.vx, env.nodeOf<import('./bodies.ts').BallNode>(R[i]).b.vy] as [number, number, number, number]),
     /** the creatures that hurt: [x, y, velocity x, velocity y (units / s), radius of the anchor sphere, category]; the pirates only once the last brick is taken */
-    hazards: env.hurt.entries.filter((e) => e.category !== 4 || env.nodeOf<import('./bodies.ts').PirateNode>(e.rec).alerted).map((e) => [e.rec.x, e.rec.y, (e.rec.m[12] - e.rec.prev[12]) * 30, (e.rec.m[13] - e.rec.prev[13]) * 30, e.tpl.anchorRadius, e.category] as [number, number, number, number, number, number]),
+    hazards: env.hurt.entries.filter((e) => e.category !== 4 || env.nodeOf<import('./bodies.ts').PirateNode>(e.rec).alerted).map((e) => [e.rec.x, e.rec.y, (e.rec.m[12] - e.rec.prev[12]) * 30 / env.world.dt, (e.rec.m[13] - e.rec.prev[13]) * 30 / env.world.dt, e.tpl.anchorRadius, e.category] as [number, number, number, number, number, number]),
   };
 }
 
@@ -85,6 +86,7 @@ export interface PrepareOptions {
   speak?: (id: string) => void;
   /** FUN_0043e930 / FUN_0043e970 at run time (the renderer's `setAttach`) */
   attach?: Env['setAttach'];
+  /** tests: `srand(seed)` when the run is prepared (the shell seeds the shared generator with the clock) */
   seed?: number;
 }
 
@@ -119,7 +121,8 @@ export function prepareBkd(world: World, archive: Archive, scene: ZoneScene, o: 
   state.records = records;
   state.speak = o.speak ?? (() => { /* silent */ });
   const clock = new ZoneClock();
-  const rng = new Rng(o.seed ?? 20011);
+  const rng = new Rng();
+  if (o.seed !== undefined) srand(o.seed);                 // tests: a reproducible sequence (the shell seeds the shared generator with the clock)
   const sound = new SoundBank<SoundName>(SOUND_DEFS, o.backend ?? null);
   void sound.load();
   const bank = scene.models.filter((m: Model) => m.array === 'g983838+44').sort((a, b) => a.index - b.index);

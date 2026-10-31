@@ -20,14 +20,12 @@ const F32 = new Float32Array(1);
 export const f32 = (v) => { F32[0] = v; return F32[0]; };
 
 const UPDATE = { Pepper: 0x816562, Papa: 0x812399, mama: 0x815f30, Topping: 0x815576, citizen: 0x8140cc, Slug: 0x814f6e };
-/** GetTickCount call sites: the modulus of the random draw that follows (FUN_00812399 case 2 `& 1`, case 6 `% 5`, FUN_00815576 `% 3`, FUN_0081638c `& 3` and `& 1`) */
-const TICK_MOD = { 0x81261c: 2, 0x812b57: 5, 0x815a19: 3, 0x8163bf: 4, 0x81643e: 2 };
 export const DRAW_OFFSET_ADDR = 0x955e70;   // CIT4's draw offset (FUN_008146ea): three floats
 
-/** a seeded random source whose state can be copied */
+/** a scripted rand() (FUN_0085daf0's LCG, 0 .. 32767) whose state can be copied */
 export function makeRng(seed) {
   const g = { s: seed >>> 0, n: 0 };
-  g.next = () => { g.s = (Math.imul(g.s, 1664525) + 1013904223) >>> 0; g.n++; return g.s / 4294967296; };
+  g.next = () => { g.s = (Math.imul(g.s, 0x343fd) + 0x269ec3) >>> 0; g.n++; return (g.s >>> 16) & 0x7fff; };
   return g;
 }
 
@@ -75,10 +73,12 @@ export function createHarness(ctx, w, S, opts = {}) {
   const vget = (i) => (H.vars.has(i) ? H.vars.get(i) : w.vars.get(i));
   hook(0x417575, (c) => { c.eax = vget(c.arg(0)); });
   hook(0x417597, (c) => { H.vars.set(c.arg(0), c.arg(1) | 0); push(['var', c.arg(0), c.arg(1) | 0]); });
-  // random numbers: FUN_004388ae(x) = rand / 32767 * x, from the port's own seeded source (its state is copied in before the pass)
+  // random numbers: FUN_004388ae(x) = (float) rand / 32767.0f * x runs natively; its rand() (FUN_0085daf0) draws from the port's own scripted source (its state is copied in before the pass);
+  // FUN_00435c91 (GetTickCount - base) is the scripted `H.msv`, the same value the port's `env.ms()` returns
   H.rng = makeRng(1);
-  hook(0x4388ae, (c) => { H.randCalls++; c.fpush(f32(H.rng.next() * c.argf(0))); });
-  hook(0x435c91, (c) => { const m = TICK_MOD[c.callAt]; if (m === undefined) throw new Error(`GetTickCount from an unknown call site 0x${c.callAt.toString(16)}`); c.eax = m; });
+  H.msv = 1000;
+  hook(0x85daf0, () => { H.randCalls++; cpu.eax = H.rng.next(); });
+  hook(0x435c91, () => { cpu.eax = H.msv; });
   hook(0x85d640, (c) => { const sp = c.esp; c.fpush(Math.atan2(mem.f64(sp + 4), mem.f64(sp + 12))); });
 
   // ---- animation instances: shadow state at AB + index * 0x40 (+0x0c clip, +0x10 frame), clip table from the port's rig
@@ -158,7 +158,7 @@ export function createHarness(ctx, w, S, opts = {}) {
   hook(0x43bc22, (c) => { c.eax = PB + animIdx(c.arg(0)) * PSTRIDE; });
   hook(0x43bc58, (c) => { c.eax = PB + animIdx(c.arg(0)) * PSTRIDE + c.arg(1) * 0x40; });
 
-  cpu.exec = [[0x811000, 0x820000], [0x858d30, 0x873e00], [0x43a4a1, 0x43b000], [0x43cec0, 0x43cf30], [0x4239d9, 0x4239ec]];
+  cpu.exec = [[0x811000, 0x820000], [0x4388ae, 0x4388e7], [0x858d30, 0x873e00], [0x43a4a1, 0x43b000], [0x43cec0, 0x43cf30], [0x4239d9, 0x4239ec]];
   cpu.fallback = (a) => { H.unhooked.add(a); throw new Error(`z41MAP emu: unhooked call to 0x${a.toString(16)} from 0x${cpu.callAt.toString(16)}`); };
   cpu.invalidate();
   H.reset = () => { cpu.regs[4] = 0x7ff00000 - 0x100; cpu.top = 0; cpu.frames.length = 0; cpu.invalidate(); };

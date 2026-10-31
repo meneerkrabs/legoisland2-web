@@ -1,4 +1,5 @@
 import { BallNode } from '../../src/zones/z08bkd/bodies.ts';
+import { setRandSource } from '../../src/game/crt.ts';
 import { mirrorIn, callFn, F, scratch, bitsOf, createHarness, bootBkd, buildOriginal, indexNodes, emuFrame, emuState, portState, snapHosted, restoreHosted, f32, RB } from '../lib/m7-z08BKD-emu.mjs';
 import { REC, SND, DIVER, C, FLOAT_ADDRS, HURT_TEMPLATES, HURT_REGISTRATIONS } from '../../src/zones/z08bkd/consts.ts';
 import { BRICK_SHAPE, BALL_SHAPE, ClamNode } from '../../src/zones/z08bkd/bodies.ts';
@@ -13,12 +14,13 @@ import { VAR } from '../../src/zones/z08bkd/consts.ts';
 import { loadExe } from '../lib/engine-load.mjs';
 import { buildGrid, Bot, recordHazards } from '../lib/bkd-bot.mjs';
 import { snapshot } from '../../src/zones/z08bkd/run.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // z08BKD differential test (WP-VERIFY, docs/re/m6/z08BKD.md "Differential test"): the original's builder FUN_005b9430 (all constructors, the waypoint graph, the hurt zones) and the
 // frame of the zone loop (clock, hurt zones, the real update pass FUN_0042226e over the 12 node kinds, plants, HUD) run in the x86 emulation (tools/lib/m7-z08BKD-emu.mjs) next to
 // the port; records, node fields, zone globals, camera, hurt zones, animation clip / frame, sound / speech / model-attach calls and random draws are compared tick by tick.
 
-export default {
+const __test = {
   name: 'm7-z08BKD-emu',
   run(ctx) {
     const failures = [], notes = [];
@@ -676,6 +678,8 @@ export default {
       'snd:BREATHE', 'snd:FLIPPER_LEFT', 'snd:FLIPPER_RIGHT', 'say', 'attach', 'bricks', 'page', 'dol', 'pir', 'balls', 'brickAct', 'stun', 'view', 'shape', 'held', 'near', 'blocked', 'clam', 'y'];
     for (const k of need) ok((stats.ev[k] ?? 0) > 0, `coverage: no compared tick with the event ${k}`);
     notes.push(`dolphin route: (port route length : original +0xb0) pairs seen ${[...routeCounts].slice(0, 12).join(' ')}`);
+    setRandSource(null);
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

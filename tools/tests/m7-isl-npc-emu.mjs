@@ -1,5 +1,6 @@
 import { loadIsland } from '../lib/island-load.mjs';
 import { createPair, runPair, newStats, placePepper, pepperAt, sgOf, setVar, setObjective, CTORS, hex } from '../lib/m7-isl-npc-emu.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // WP-VERIFY M7: the island's NPC nodes (SGMFIG 0x426151, Human1 0x4bec00 / 0x4bf329, Turn2Pep A / B / C, MeetPepp) against the ORIGINAL code in the x86 emulation (tools/lib/m7-isl-npc-emu.mjs):
 // the original's constructors, node passes (FUN_0042226e / 00427233 / 004225c5 / 0042271b), SGGen interaction code, walker, animation and collision functions run natively next to
@@ -7,7 +8,7 @@ import { createPair, runPair, newStats, placePepper, pepperAt, sgOf, setVar, set
 // the NPC globals, camera, speech / sound / cutscene calls and random draws are compared bit for bit (tolerance 0) at 24-bit x87 precision. This file: free walking at dt 1 and 0.5, the talk scenarios.
 const MINE = new Set([CTORS.SGMFIG, CTORS.Human1, CTORS.Launch, CTORS.T2PA, CTORS.T2PB, CTORS.T2PC, CTORS.MeetPepp]);
 
-export default {
+const __test = {
   name: 'm7-isl-npc-emu',
   run(ctx) {
     const notes = [];
@@ -52,3 +53,4 @@ export default {
     return { checked: st.checked, failures: st.fail, notes };
   },
 };
+export default guarded(__test);

@@ -33,7 +33,7 @@ export function hub({ page, wait, log = () => {}, shot = async () => {} }, archi
     const z = window.__zone; if (!z) return null;
     const p = z.loaded.pepper, v = z.sh.vars;
     const dbg = z.game?.debug?.() ?? {};
-    return { arch: z.info.archive, mode: z.machine.mode, tick: z.world.tickCount, pos: [p.x, p.y, p.z].map((x) => +x.toFixed(1)), yaw: +p.ry.toFixed(2), node: v.get(0x58), ctrl: v.get(0x5e), cs: !!dbg.cutscene,
+    return { arch: z.info.archive, mode: z.machine.mode, tick: z.world.tickCount / 2, pos: [p.x, p.y, p.z].map((x) => +x.toFixed(1)), yaw: +p.ry.toFixed(2), node: v.get(0x58), ctrl: v.get(0x5e), cs: !!dbg.cutscene,
       sub: v.get(0x59), next: v.get(5), prev: v.get(0xa3), cur: v.get(0x5a), pizzas: v.get(0xb0), bricks: v.get(0x4f) };
   });
   /**
@@ -51,7 +51,7 @@ export function hub({ page, wait, log = () => {}, shot = async () => {} }, archi
     return false;
   };
   /** the zone's simulation tick counter (game time: the bots wait in ticks so that a slow page does not make them miss things) */
-  S.ticks = () => page.evaluate(() => window.__zone?.world.tickCount ?? -1);
+  S.ticks = () => page.evaluate(() => (window.__zone ? window.__zone.world.tickCount / 2 : -1));   // game ticks of 1/30 s: the 60 Hz step counts two of its ticks for one
   /** poll `fn` until it is true or `maxTicks` simulation ticks passed (30 per second of game time) */
   S.untilTicks = async (fn, maxTicks, poll = 40) => {
     // (a stalled tick counter must not hang the bot: a paused game (menu open), a hidden page or a frozen zone stops the ticks, so the wait ends after 12 s of wall time without a tick)

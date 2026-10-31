@@ -20,15 +20,15 @@ export default {
     for (const dt of [1, 0.5]) R.scenario({ name: 'ledge: slow pad approach, long', zone: 'z02LGI', dt, held: new Array(dt === 1 ? 260 : 330).fill(0), inject: pad(1000), ...place(l1) });
     // every requestable state standing at the edge
     const injectAt = (tick, state, extra) => (t, w, walk, rec) => { walk.padY = t < 60 ? -48 : 0; if (t === tick) { w.pep.mailbox = state; extra?.(w, walk, rec); } };
-    for (const [st, tick] of [[ST.KNOCKBACK, 14], [ST.OFFBOARD, 14], [ST.LANDING, 14], [ST.SLIDE, 14], [ST.JUMPSTART, 14], [ST.JUMP2, 14], [ST.CRASH, 14], [ST.THROW, 14]]) {
-      R.scenario({ name: `ledge: state 0x${st.toString(16)} at the edge`, zone: 'z02LGI', dt: 1, held: new Array(70).fill(0), inject: injectAt(tick, st, (w, walk) => { if (st === ST.JUMP2) { walk.t = Math.fround(0.1); walk.v0 = 17.5; walk.y0 = 0; } }), ...place(l2) });
+    for (const dt of [1, 0.5]) for (const [st, tick] of [[ST.KNOCKBACK, 14], [ST.OFFBOARD, 14], [ST.LANDING, 14], [ST.SLIDE, 14], [ST.JUMPSTART, 14], [ST.JUMP2, 14], [ST.CRASH, 14], [ST.THROW, 14]]) {
+      R.scenario({ name: `ledge: state 0x${st.toString(16)} at the edge`, zone: 'z02LGI', dt, held: new Array(dt === 1 ? 70 : 100).fill(0), inject: injectAt(tick, st, (w, walk) => { if (st === ST.JUMP2) { walk.t = Math.fround(0.1); walk.v0 = 17.5; walk.y0 = 0; } }), ...place(l2) });
     }
     // Alt at the edge, run off the edge and land, the double jump over the gap
-    R.scenario({ name: 'ledge: Alt taps at the edge', zone: 'z02LGI', dt: 1, held: constScript([[B.UP, 12], [B.UP | B.ALT, 1], [B.UP, 8], [B.ALT, 1], [B.UP, 40], [0, 20]]), ...place(ledges[8]) });
+    for (const dt of [1, 0.5]) R.scenario({ name: 'ledge: Alt taps at the edge', zone: 'z02LGI', dt, held: constScript([[B.UP, 12], [B.UP | B.ALT, 1], [B.UP, 8], [B.ALT, 1], [B.UP, 40], [0, 20]]), ...place(ledges[8]) });
     // props named PAG*: walk into them from several sides
     for (const [i, r] of pag.slice(0, 3).entries()) {
       const c = r.toWorld(r.colObj.col.center), yaw = (i * 2.1) % 6.28, d = r.colObj.radius + 6;
-      R.scenario({ name: `PAG prop ${r.name} ${c[0].toFixed(0)},${c[2].toFixed(0)}`, zone: 'z02LGI', dt: 1, held: constScript([[B.UP, 80], [0, 10]]), pos: [c[0] - Math.sin(yaw) * d, c[1] + 20, c[2] - Math.cos(yaw) * d], yaw });
+      for (const dt of [1, 0.5]) R.scenario({ name: `PAG prop ${r.name} ${c[0].toFixed(0)},${c[2].toFixed(0)}`, zone: 'z02LGI', dt, held: constScript([[B.UP, dt === 1 ? 80 : 110], [0, 10]]), pos: [c[0] - Math.sin(yaw) * d, c[1] + 20, c[2] - Math.cos(yaw) * d], yaw });
     }
     return { checked: R.checked, failures: R.failures, notes: [...R.summary(), `PAG records on the island: ${pag.length}; ledge places found: ${ledges.length}`] };
   },

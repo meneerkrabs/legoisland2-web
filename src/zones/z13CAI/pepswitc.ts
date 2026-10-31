@@ -70,7 +70,7 @@ export class CaiPepSwitch implements BehaviourNode {
     if ((w.vars.get(this.var) & 1) !== 0) w.vars.set(VAR_NEXT_SUBGAME, ZONE_OASIS);
     c?.sfxAt(soundId(w, 'VOLCANO'), VOLCANO_POS);
     c?.sfx(soundId(w, 'LOOP'));
-    const n = Math.trunc(rand(100.0));                     // RNG: FUN_004388ae(100.0) -> __ftol
+    const n = Math.trunc(rand(100.0));                     // FUN_004388ae(100.0) -> __ftol
     const gull = w.records[GULL_RECORD];
     if (gull) {
       const pos: [number, number, number] = [gull.x, gull.y, gull.z];

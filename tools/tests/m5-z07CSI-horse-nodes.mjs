@@ -37,6 +37,18 @@ export default {
       void G;
     }
 
+    // ---- (1b) dt 0.5 (the 60 Hz step after the first frames): the same walk takes twice the ticks and covers the same ground (the trot moves `speed * dt` per update)
+    {
+      const H = loadCsi(ctx, { node: 24, vars: { 0xa3: 8 } });
+      const W = H.world, hp = W.records[HORS];
+      W.dt = 0.5;
+      tick(H, 8);
+      const x0 = hp.x, z0 = hp.z;
+      hold(H, ['ArrowUp'], 60);
+      const d1 = Math.hypot(hp.x - x0, hp.z - z0);
+      ok(d1 > 6 && d1 < 11 && hp.anim.clip === 2, `dt 0.5, Up for 60 ticks: the horse trots ${d1.toFixed(1)} units (clip ${hp.anim.clip})`);
+    }
+
     // ---- (2) the arrival after the joust (previous zone 8, node 24): Pepper rides at once, the jockey kit shows, the horse is the vehicle
     {
       const H = loadCsi(ctx, { node: 24, vars: { 0xa3: 8 } });

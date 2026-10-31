@@ -77,7 +77,8 @@ function scene(name: string) {
   } else if (name === 'fade') {
     ui.sprite(mo, 2, [100, 100, 228, 228]);
     ui.text(1, 'fade 0.5 + letterbox 1', 320, 240, { align: 'centre', colour: YELLOW });
-    for (let i = 0; i < 12; i++) ui.letterbox(1, 1);
+    for (let i = 0; i < 14; i++) ui.letterboxStep(1, 1);
+    ui.letterboxDraw();
     ui.fade(+(params.get('a') ?? 0.5));
     ui.text(0, 'tekst blijft boven de fade', 320, 300, { align: 'centre', colour: WHITE });
   } else if (name === 'card') {
@@ -112,7 +113,7 @@ function checkState(): string[] {
   });
   const before = snap();
   ui.begin(canvas.width, canvas.height);
-  ui.sprite(mo, 2, [10, 10, 60, 60]); ui.text(0, 'state', 100, 100); ui.fade(0.5); ui.letterbox(2, 1);
+  ui.sprite(mo, 2, [10, 10, 60, 60]); ui.text(0, 'state', 100, 100); ui.fade(0.5); ui.letterboxStep(2, 1); ui.letterboxStep(2, 1); ui.letterboxDraw();
   ui.flush();
   const after = snap();
   const bad: string[] = (Object.keys(before) as (keyof typeof before)[]).filter((k) => before[k] !== after[k]);

@@ -29,6 +29,8 @@ import type { SaveHeader, SaveGame, NewSaveOptions } from './save.ts';
 import { decodeSave, readSaveHeader, slotFileName, newSaveFromGame, applySaveVars, SAVE_SIZE, encodeSave, SLOT_DEFAULT } from './save.ts';
 import { captureWorld } from './saveworld.ts';
 import type { World } from '../game/world.ts';
+import { TICK_MS } from '../game/world.ts';
+import { seedFromTime } from '../game/crt.ts';
 import { AudioHost } from './audiohost.ts';
 import { resetDecor, decorStore } from '../island/decor.ts';
 import { stopLoading } from './loading.ts';
@@ -128,6 +130,9 @@ export class Shell {
     this.input = new InputMapper(this.keyTable);
     this.styleEl = document.createElement('style');
   }
+
+  /** DAT_008b1718 between loops: a zone's node constructors see the previous loop's last step time (1.0 at the very start), the loop's first pass runs with it */
+  dt = 1;
 
   static async create(root: HTMLElement, files: GameFiles, params: ShellParams, status?: (m: string) => void): Promise<Shell> {
     const data = new GameData(files);
@@ -414,6 +419,7 @@ export class Shell {
 
   /** FUN_00404dc9: run zones until one returns <= -2 */
   async run(): Promise<void> {
+    seedFromTime();   // FUN_00402bac: srand(time(NULL)) at start-up (src/game/crt.ts)
     if (this.params.zone) {
       const z = this.zoneByName(this.params.zone);
       if (z) {
@@ -447,10 +453,14 @@ export class Shell {
 
   // ---------------------------------------------------------------------------------------------------------------------- frame loop
 
-  /** a fixed 30 Hz loop: `tick()` returns true to end, `render(alpha, dtSeconds)` draws a frame */
-  runLoop(tick: () => boolean, render: (alpha: number, dt: number) => void): Promise<void> {
+  /**
+   * A fixed 60 Hz loop (one simulation step per drawn frame like the original; no interpolation, a faster display draws the last frame again): `tick()` returns true
+   * to end, `render(1, dtSeconds)` draws a frame. The step time of the world (`DAT_008b1718`) follows by the original's rules after every step (`World.advanceDt`).
+   */
+  runLoop(tick: () => boolean, render: (alpha: number, dt: number) => void, world?: { advanceDt(elapsed?: number): void }, limit30 = false): Promise<void> {
     return new Promise((resolve) => {
-      const STEP = 1000 / 30;
+      // limit30: the loop of z03PPH (FUN_0053dfda) ends every pass with a QueryPerformanceCounter busy-wait until QPF / 30 has passed: 30 passes per second on any display, frame time 1.0
+      const STEP = limit30 ? 1000 / 30 : TICK_MS, MAX = 10, ELAPSED = limit30 ? 1 : undefined;
       let last = performance.now(), acc = 0, done = false;
       const frame = (now: number) => {
         if (done) return;
@@ -458,9 +468,9 @@ export class Shell {
         const dt = (now - last) / 1000;
         last = now;
         let n = 0;
-        while (acc >= STEP && n < 5 && !done) { if (tick()) done = true; acc -= STEP; n++; }
-        if (n === 5) acc = 0;
-        render(Math.min(1, acc / STEP), dt);
+        while (acc >= STEP && n < MAX && !done) { if (tick()) done = true; world?.advanceDt(ELAPSED); acc -= STEP; n++; }
+        if (n === MAX) acc = 0;
+        render(1, dt);
         if (done) { resolve(); return; }
         requestAnimationFrame(frame);
       };

@@ -89,7 +89,7 @@ export const section: SectionDef = {
       bar(lodCk.el, lodSel, lodAll.el, origin('origineel')),
       note('Het origineel dwingt met DAT_05d37024 het LOD van het SKELET af (FUN_0044d420, dat anders op kwadraatafstand 1280 / 7200 kiest). De port skinnt met zijn modeldelen: er wordt het deel (mesh-LOD) van geskinde records op dezelfde index gezet; dat die twee hetzelfde zijn is onzeker.'),
       bar('Adaptieve detail (DAT_009e56b8):', adSel, origin('origineel')),
-      note('FUN_00443d10 / FUN_00443f90 zijn exact overgenomen (functies getest tegen de exe in de emulator): na 11 beelden achter elkaar buiten de marge gaat het niveau DAT_009e56bc (0 .. 4) en de zichtafstand DAT_0089df34 (+-50, 240 .. 390) een stap. De beeldtijd (FUN_00443e40) komt uit performance.now() per getekend beeld met een aangenomen teller van 1 MHz: bij benadering. Pepper (PEPP) houdt altijd het volle detail.'),
+      note('FUN_00443d10 / FUN_00443f90 zijn exact overgenomen (functies getest tegen de exe in de emulator): na 11 beelden achter elkaar buiten de marge gaat het niveau DAT_009e56bc (0 .. 4) en de zichtafstand DAT_0089df34 (+-50, 240 .. 390) een stap. De beeldtijd (FUN_00443e40) komt uit performance.now() per simulatiestap (= per beeld van het origineel, 60 Hz; niet per rAF-aanroep) met een aangenomen teller van 1 MHz: bij benadering. Pepper (PEPP) houdt altijd het volle detail.'),
       lodLive);
 
     // ------------------------------------------------------------------------------------------------------------ 4. F8 autoplay

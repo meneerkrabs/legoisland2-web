@@ -7,7 +7,7 @@ import { B } from '../../src/game/input.ts';
 // The collision data is loaded by the original's own loader FUN_0043f370 from the zone's .col files; the player's animation runs on the original's anim functions. Hosted: game variables,
 // sounds (compared by id), keyboard / pad / mouse readers (the keys come from the scenario). "sync": the original starts every tick from exactly the port's state (record, node, camera, the
 // collision state of the hit cache ...), so a difference is attributable to that tick. Tolerances (tools/lib/m7-walk-run.mjs): the walk node, the record and the collision results are
-// float32-exact in the port; the comparison still allows 1e-5 (relative) for floats and 1e-4 for the tilt's rotation elements; the camera is compared with 1e-5 (see m7-camera-patch.mjs).
+// float32-exact in the port, and EVERYTHING (node, record, collision, tilt rotation, camera) is compared with tolerance 0, bit for bit (TOL in tools/lib/m7-walk-run.mjs).
 // This file: the small room zones (z03PPH house, z50LTC cave, z18MMP pyramid, z17WAS) at dt = 1 and 0.5, and the states a room reaches (idle gag turn, skid, slow walking, walls).
 // The island is m7-walk-island, injected states m7-walk-states, free runs m7-walk-free, the swim / mode switch m7-walk-swim.
 export default {
@@ -22,6 +22,8 @@ export default {
     for (let seed = 11; seed <= 13; seed++) S(`z03PPH subgame 0 seed ${seed}`, 'z03PPH', seed === 13 ? 0.5 : 1, makeScript(seed, 300, { jump: 0.04 }), { subgame: 0 });
     // standing still for more than 1000 ticks after the first movement: the idle gag (state 3, turning to the camera), both turn directions through the camera orbit keys
     S('z03PPH idle gag', 'z03PPH', 1, [...constScript([[B.UP, 6], [0, 1060]]), ...constScript([[B.Z, 8], [0, 60]])], { noCoverage: false });
+    // the same at dt = 0.5 (the idle counter is the original's own: whatever it does with a half step, the port must do the same; 2300 ticks cover a counter that advances by dt)
+    S('z03PPH idle gag', 'z03PPH', 0.5, [...constScript([[B.UP, 6], [0, 2230]]), ...constScript([[B.Z, 8], [0, 60]])], { noCoverage: false });
     // 230 ticks of running (the run timer reaches 200), then letting go: the skid (state 0x30) and the sneak / walk / run speeds on the way back
     S('z03PPH skid', 'z03PPH', 1, constScript([[B.UP, 230], [0, 40], [B.UP, 6], [0, 20], [B.UP | B.LEFT, 12], [0, 20]]));
     // slow walking: short taps keep the speed factor between 0.01 and 0.4 (sneak, walk) and the stick ramp inside its dead zone

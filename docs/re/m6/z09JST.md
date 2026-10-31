@@ -14,7 +14,7 @@ where that mattered was checked against `LE2.asm.txt` (see 6).
 | file | what |
 |---|---|
 | `src/zones/z09JST.ts` | registration: `registerCtor` for the four constructors (`JSTGame` 0x5d1f64, `Flag` 0x5d3e7c, `Anims` 0x5d3cc1, `Drkk` 0x5d3ad4) + `registerZoneGame('z09JST', createJstGame)` |
-| `src/zones/z09jst/duel.ts` | **the simulation** (pure TS, no DOM): `JoustDuel` = the constructor FUN_005d1f64 + update FUN_005ce506 (36 states) + the camera FUN_005f2f0b + helpers; `bspline`, `MsvcRng`, `ST` |
+| `src/zones/z09jst/duel.ts` | **the simulation** (pure TS, no DOM): `JoustDuel` = the constructor FUN_005d1f64 + update FUN_005ce506 (36 states) + the camera FUN_005f2f0b + helpers; `bspline` (the path object 0x446fd0, float32), `crtRng`, `ST` |
 | `src/zones/z09jst/mfig.ts` | `MfigMan`: "mfigman" (FUN_005f3a90 .. FUN_005f3f1b), a horse + saddle + cloak + knight acting as one rider |
 | `src/zones/z09jst/rig.ts` | zone set-up beyond the generic extraction: `giveAnimations` (the builder's anim instances), `readTables`, `Gear` (lance / shield attachments), `makeHost` / `startDuel`, the four node classes |
 | `src/zones/z09jst/consts.ts` | record numbers, rigs, start clips, sound ids, the named floats (address in the comments), `readClipTable` |
@@ -129,7 +129,7 @@ The marker is drawn around the shield of the dark knight (the projection of bone
 * **Marker position**: `FUN_005d2814` projects the local point (0, 0, 0) with the D3D world matrix that the *last drawn object* of `FUN_00444480` left, i.e. the last attachment of the dark knight, the shield (slot 9, bone 16). The port takes bone 16 of his pose (record matrix applied); the shield mesh's own origin offset is ignored.
 * **Camera modes 5 and 10** read `FUN_0043bc58(anim, 0)`: bone 0 of the pose buffer that the draw (`FUN_004440f0`, identity root `PTR_DAT_008b5830` = `DAT_008b57f0`) left, i.e. in model space; the code writes world x + 64 / 200 over its x, doubles y and uses the matrix translation as the target, so z is the pelvis' model-space z (about 0), not a world coordinate. Reproduced as it is (the camera looks along +z at the flying knight's height); the oracle confirms the arithmetic, the space of the buffer follows from the identity root.
 * **Stick**: the analogue stick path of the ride (`DAT_0098384c / 50`, dead zone +-20, `stick / 128 * aimStep`, no dt, read only while no key is held) is ported in `JoustDuel.update(held, pressed, stickX, stickY)` and compared with the original by the coverage test (section 10); the input mapper has no stick, so the `JSTGame` node's `stick` stays (0, 0) (nothing else to do for keyboard play: gaps.md says the stick variables only see the digital +-0x7f).
-* **Random numbers**: the original uses C `rand()` (MSVC LCG at `0x85daf0`) through `FUN_004388ae(range)`; the port's `MsvcRng.range` is **bit-identical** to it for the same seed (9000 draws of the native original, section 10); only the seed differs (time seeded). The reaction variant is `ftol(rand * GetTickCount-since-start) & 3`: the port uses its tick count x 1000 x dt / 30 (ms of simulated time) instead of the wall clock.
+* **Random numbers**: the original uses C `rand()` (MSVC LCG at `0x85daf0`) through `FUN_004388ae(range)`; the port draws from the shared generator (`crt.ts` `randF`, `duel.rng` = `crtRng`), **bit-identical** to it for the same seed (9000 draws of the native original, section 10) and seeded with the clock like the original. The reaction variant is `ftol(FUN_004388ae((float) FUN_00435c91())) & 3` with the REAL milliseconds since the zone's `FUN_00435c81` (WP-TIME: `startTickClock()` in `createJstGame`, `msClock()` of `common/tickrand.ts`; before: the tick count x 1000 x dt / 30). The oracles pin the clock to the emulator's `ticks * 1000 * dt / 30` through `setTickCountSource`.
 * **Subtitles / speech**: speech lines are started with `ctx.say` (ignored while another line is still speaking, like `FUN_00435a11`); lines that arrive while the end popup is up overlap it as in the original.
 * The HUD is drawn after the popup panel (the original draws it last): while a popup is up the zone game draws the HUD itself on top.
 * The unreachable states 0xd, 0x15, 0x1c, 0x1d are ported and are reached by the coverage test (section 10) by writing the state into both nodes.
@@ -147,9 +147,9 @@ The marker is drawn around the shield of the dark knight (the projection of bone
 `node tools/test-formats.mjs --only m6-z09JST-emu` (13.5 million checks, about 10 s) is the oracle: `JstEmu` runs the original's `FUN_005d24b0` (sounds), the constructor `FUN_005d1f64` (two mfig managers, the first round `FUN_005d4860`, the camera set-up),
 the update `FUN_005ce506` (all 36 states, mfigman `FUN_005f3b61 .. 005f3f1b`, the camera `FUN_005f2f0b` with the B-spline path object `0x446fd0`, the spectators `FUN_005ce3a0`, `FUN_005d1b41`, `FUN_005d1d1c`, `FUN_005d4698`, ...), the `Flag` / `Anims` node updates and
 the panel code `FUN_005d4070` / `FUN_005d4467` natively in the user's executable; the engine (animation instances = the port's `AnimInstance`, sounds, speech, variables, particles, the gear calls, allocation, `rand()`) is a host table that logs its calls.
-Both sides get the same buttons (the port's input mapper) and the same random numbers (two `MsvcRng` with one seed; the original's `FUN_004388ae` is hosted with it, `GetTickCount` with the tick count). Every tick the test compares 60 fields of the node (state, counters, positions, rates, the aim point, bonus values, the helper vectors of the camera),
+Both sides get the same buttons (the port's input mapper) and the same random numbers (two seeded per-side generators `tools/lib/msvc-rng.mjs` with one seed; the original's `FUN_004388ae` is hosted with it, `GetTickCount` with the tick count, the port's clock pinned to the same stand-in). Every tick the test compares 60 fields of the node (state, counters, positions, rates, the aim point, bonus values, the helper vectors of the camera),
 the camera globals, all 30 records' matrices, flags, clips and frames, the two groups' modes and clips, the gauge / result, **every sound / speech / gear call (strict order)**, the particle effect events and **the text lines the original draws in the popups and in the end panel** (id, table, y, wrap, the printed numbers).
-Scenarios: two wins (charge 40 / 30), a loss, SPACE too early, random key mashing, a deterministic glance run, four more win / loss seeds each: all 30 reachable states are visited (not the unreachable 0xd, 0x15, 0x1c, 0x1d), 0 differences, the worst float difference 1.5e-5 (camera x of the spline phase).
+Scenarios: two wins (charge 40 / 30), a loss, SPACE too early, random key mashing, a deterministic glance run, four more win / loss seeds each: all 30 reachable states are visited (not the unreachable 0xd, 0x15, 0x1c, 0x1d), 0 differences; since WP-TIME every float compares bit for bit (tolerance 0; before: the worst difference was 1.5e-5, the camera's spline phase).
 
 ## 8. How to run
 
@@ -167,8 +167,7 @@ The zone is entered from the castle (z07CSI) at story node 23 and leaves with `s
 
 `node tools/test-formats.mjs --only m7-z09JST-cover` (about 80 scenarios, 54 000 ticks, 34.5 million checks, about 20 s). It reuses the oracle of section 7 (`JstEmu`, extended in `tools/lib/m7-z09JST-cover.mjs`: `JstCoverEmu`, `runScenario`,
 `buildOracle`) and compares the original's code with the port **every tick**: node fields, aim point, camera, all 30 records' matrices / flags / clips / frames, both managers' modes and clips, every sound / speech / gear / effect call, every variable
-write, the popup / end panel texts and how many panels the original draws. Tolerance 1e-5 relative to max(1, |value|) for floats (ints, flags, clips, calls exactly); worst difference seen 4.8e-7 (the spectators' facing matrices, `Record.setEuler` against the
-engine's matrix builder, 4 ulp), 99.4 % of the float compares bit-identical.
+write, the popup / end panel texts and how many panels the original draws. Tolerance 0 since WP-TIME: floats, ints, flags, clips and calls all compare exactly (before: 1e-5 relative, worst 4.8e-7 = the spectators' facing: FUN_005ce3a0 stores atan2 into a float before adding pi, the port added in double; 99.4 % bit-identical). The remaining double-precision spots (the spline, the camera chains, the wobble, the stick path, `toWorld`) are float32 per operation now.
 
 ### What the first oracle test did not cover (the gaps) and how they are closed
 
@@ -208,7 +207,7 @@ them with `ctx.attempt`; `destroy()` stores them). The test restarts the origina
 ### Documentation statements that were wrong or stale
 
 * section 6 "Stick: not ported": ported now (`update(.., stickX, stickY)`); the keyboard never produces a stick value without a key.
-* section 6 "same distributions, not the same sequence": the generator is bit-identical (`MsvcRng` = `0x85daf0` + `FUN_004388ae`), only the seed (time) and the clock of the variant roll differ.
+* section 6 "same distributions, not the same sequence": the generator is bit-identical (crt.ts = `0x85daf0` + `FUN_004388ae`) and the variant roll reads the real zone clock (WP-TIME).
 * section 6 "the unreachable states are ported but no test reaches them": tested (injection).
 * section 3.1: states 0xd 0x15 0x1c 0x1d: confirmed unreachable (list of all stores above).
 * the port's `dt` was fixed to 1 everywhere (the 60 Hz step of the engine would have run this zone at half speed per tick in some places and not in others): now dt-correct, verified at dt 0.5.

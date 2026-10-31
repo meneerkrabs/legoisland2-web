@@ -1,6 +1,8 @@
 // The per-zone loop template of the original (docs/re/architecture.md 2.3, verified on FUN_00465d39, FUN_00470ac3, FUN_004afaf7): every zone loop has a
 // `mode` and an `exit state`. This is that state machine without any drawing or simulation, so a zone only supplies its hooks. Pure, one call per loop pass
-// (the game tick): a fade steps `f += 0.0625 * dt` per pass like the original (`_DAT_008923cc * DAT_008b1718`), i.e. 16 passes at dt = 1 and 32 at dt = 0.5; everything else
+// (the game tick): a fade steps `f += 0.0625 * dt` per pass like the original (`_DAT_008923cc * DAT_008b1718`, float32), i.e. 16 steps at dt = 1 and 32 at dt = 0.5; the mode
+// case first hands the CURRENT level to FUN_0043ec80, then tests it (`1.0 <= f` / `f <= 0.0`) and only then steps it, so a fade takes one pass more than it has steps
+// (17 passes at dt = 1; the pass that sees the end level also changes the mode; all zone loops of the original have this order, FUN_00465d39 case 7 / 8 and its copies); everything else
 // (mode changes, button waits) is per pass, as in the original's loops.
 //
 // modes: 7 fade in, 0 init, 1 intro (one-line brief, wait for a button), 9 controls help, 2 play, 3 pause menu (FUN_0041bd3d), 4 end banner,
@@ -59,8 +61,10 @@ export interface LoopInput {
 export class LoopMachine {
   mode: number = MODE.FADE_IN;
   exit: number = EXIT.RUNNING;
-  /** scene visibility 0..1 (FUN_0043ec80) */
+  /** scene visibility 0..1 as handed to FUN_0043ec80 by the last pass (the level BEFORE that pass's step: the draw of the next frame shows it) */
   fade = 0;
+  /** the original's local fade variable (stepped after the hand-over); the front end keeps its own */
+  level = 0;
   /** DAT_009da630: the mode to return to after the pause */
   saved: number = MODE.PLAY;
   /** exit state to take when the fade out ends (the original's local_14) */
@@ -98,8 +102,9 @@ export class LoopMachine {
     this.pauseTrigger(inp.pressed);
     switch (this.mode) {
       case MODE.FADE_IN:
-        this.fade += FADE_STEP * (inp.dt ?? 1);
-        if (this.fade >= 1) { this.fade = 1; this.set(this.cfg.intro ? MODE.INIT : MODE.INIT); }
+        this.fade = this.level;
+        if (this.level >= 1) { this.level = 1; this.set(MODE.INIT); }
+        else this.level = Math.fround(Math.fround(FADE_STEP * Math.fround(inp.dt ?? 1)) + this.level);
         break;
       case MODE.INIT:
         this.set(this.cfg.intro ? MODE.INTRO : this.cfg.help ? MODE.HELP : MODE.PLAY);
@@ -140,8 +145,9 @@ export class LoopMachine {
         break;
       }
       case MODE.FADE_OUT:
-        this.fade -= FADE_STEP * (inp.dt ?? 1);
-        if (this.fade <= 0) { this.fade = 0; this.exit = this.pending; this.done = true; }
+        this.fade = this.level;
+        if (this.level <= 0) { this.level = 0; this.exit = this.pending; this.done = true; }
+        else this.level = Math.fround(this.level - Math.fround(FADE_STEP * Math.fround(inp.dt ?? 1)));
         break;
     }
   }

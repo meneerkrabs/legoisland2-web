@@ -1,7 +1,7 @@
 import { IfcRoom, SND, ST, CLIP, CAM, DOOR, PIN, PEPPER_PLACE, MODEL_OFFSET, CAPTION, CHAR_PAGE0, EXIT_PAGE } from '../../src/zones/z04IFC/ifc.ts';
 import { readIfcPages, infoLines, labelId, IFC_PAGE_COUNT } from '../../src/zones/z04IFC/pages.ts';
 import { dialogRows, dialogY0, TEXT_X, TEXT_WIDTH } from '../../src/zones/z04IFC/dialog.ts';
-import { IFC_CTOR, IFC_RECORDS } from '../../src/zones/z04IFC.ts';
+import { IFC_CTOR, IFC_RECORDS, ifcNodesForTest } from '../../src/zones/z04IFC.ts';
 import { MessageTable, MenuStrings, loadMessages, MENU_FILES, IFC_FILES } from '../../src/ui/strings.ts';
 import { readExeSoundTable } from '../../src/formats/sound.ts';
 import { B } from '../../src/game/input.ts';
@@ -23,8 +23,8 @@ function makeHost(msgs) {
     play: (id) => { log.play.push(id); log.all.push(id); },
     restart: (id) => log.restart.push(id),
     pepperClip: (c) => log.clips.push(c),
-    ms() { return this.clock; },
-    rand() { return this.r; },
+    // the scripted draw: the room asks for `ftol(rand * clock) % n` (the game's: crt.ts rand() scaled by the zone clock)
+    pick(n) { return Math.trunc(this.r * this.clock) % n; },
     text: (id) => msgs.label('!' + id),
     menuSound: (k) => log.menu.push(k),
     setVar: (i, v) => log.vars.set(i, v),
@@ -225,7 +225,7 @@ export default {
     room.setSelected(47);
     tick(B.SHIFT);
     ok(room.state === ST.MENU && room.menu.page === 3, 'Shift opens the menu as well, at page 3');
-    host.rand = () => 0.5;
+    host.r = 0.5;
     room.menu.item = 1;
     host.log.all.length = 0;
     menuPress(B.ENTER);                                  // goto: item 1 = Infomaniak -> page 18
@@ -368,6 +368,16 @@ export default {
       ok(kinds[30].includes('IfcDoor') && w.records[30].name === 'DOOR', 'the door record 30 has the door node');
       const pinPages = w.records.slice(32, 49).map((r) => r.ctrl.nodes.find((n) => n.kind === 'IfcPin').page);
       ok(JSON.stringify(pinPages) === JSON.stringify(PIN_PAGES), `pin pages by record: ${pinPages}`);
+      // FUN_0054c90b / FUN_0054c00d: `FUN_0043b76a(anim, 1.0)` which steps by 1.0 * DAT_008b1718: the node passes the rate 1.0 AND the world's dt (at dt 0.5 too: the 60 Hz step)
+      for (const dt of [1, 0.5]) {
+        const calls = [], rec = { anim: { advance: (rate, d) => calls.push([rate, d]) } };
+        const stubW = { dt, camera: { c: new Float32Array(18), updateView() { /* not compared */ } } };
+        const charNode = w.records[1].ctrl.nodes.find((n) => n.kind === 'IfcChar');
+        charNode.update(stubW, rec);
+        const room = new IfcRoom(pages, makeHost(msgs));
+        ifcNodesForTest.controller(room).prerender(stubW, rec);
+        ok(calls.length === 2 && calls.every(([r, d]) => r === 1 && d === dt), `the figure node and the controller's pre-render advance the animation by (1.0, dt ${dt}): ${JSON.stringify(calls)}`);
+      }
       // record names: the figure of page 17 + k is record 1 + k and carries the name of the page title
       for (let k = 0; k < 29; k++) ok(`!IFC${w.records[k + 1].name}` === pages[CHAR_PAGE0 + k].items[0].label, `record ${k + 1} (${w.records[k + 1].name}) is the figure of page ${CHAR_PAGE0 + k} (${pages[CHAR_PAGE0 + k].items[0].label})`);
       for (let i = 1; i <= 29; i++) if (i !== 7) ok((w.records[i].flags & 2) === 0, `figure record ${i} starts hidden`);

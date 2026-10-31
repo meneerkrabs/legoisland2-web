@@ -93,7 +93,16 @@ const helpers = {
     const { box, lw, lh } = await canvasBox();
     await page.mouse.move(box.x + ((x + 0.5) * box.width) / lw, box.y + ((y + 0.5) * box.height) / lh);
   },
-  key: (k) => page.keyboard.press(k, { delay: 70 }),
+  // a key tap: down, 70 ms, up; on a loaded page one frame can take far longer than that and both events would be handled between two samples of the input mapper (the original polls the
+  // keyboard once per loop pass and does not see such a tap), so the key stays down until the shell's mapper has sampled it 3 times (the loop passes of the 60 Hz step; capped at 3 s;
+  // without a shell, or when no loop runs (a movie), it is the plain 70 ms)
+  async key(k) {
+    const n0 = await page.evaluate(() => window.__shell?.input?.updates ?? -1).catch(() => -1);
+    await page.keyboard.down(k);
+    await page.waitForTimeout(70);
+    if (n0 >= 0) await page.waitForFunction((n) => (window.__shell?.input?.updates ?? 0) >= n + 3, n0, { timeout: 3000 }).catch(() => {});
+    await page.keyboard.up(k);
+  },
   wait: (ms) => page.waitForTimeout(ms),
   evaluate: (fn, arg) => page.evaluate(fn, arg),
   log: (...a) => console.log(...a),

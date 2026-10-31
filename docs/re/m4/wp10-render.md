@@ -58,7 +58,7 @@ PHSE's doors could not be seen at node 2: PHSE has flags 0x20 (hidden) until the
 * **SeaAmin** (`FUN_004b109e`): `FUN_0043ebe0(model, 0, &0, &v)` -> `FUN_0087dd20` -> `FUN_0088350d` mode 0 ADDS (du, dv) to the UVs of every vertex of the
   part-0 mesh every drawn frame (it is not an absolute offset): with v = sin(phase) * 0.003 and the phase stepping 0.0524 on the positive half and 0.0175 on
   the negative half the foam texture drifts (net about -0.19 V per 200 ticks) with a back-and-forth. New optional `IslandCtx.uvScroll(rec, du, dv)`; the
-  node calls it from its pre-render (per tick, the original per drawn frame); `IslandContext.uvScroll` forwards to `GameRenderer.scrollGroup` for every
+  node calls it from its pre-render (once per sim step = once per drawn frame of the 60 Hz loop, no dt, like the original); `IslandContext.uvScroll` forwards to `GameRenderer.scrollGroup` for every
   group of the record.
 
 ## 5. Emulator: FUN_0043cec0 native
@@ -93,5 +93,5 @@ Island NPCs have controller flags 0x13 (shadow), buildings 0x83, animals / props
 `m4-wp10-render` (54 checks): face set-ups of the builder (INFO, PAPA, MAMA, NICK, BILL, BBT0, NUBB, HOLO, PEPP, swifts / bunnies), the scaled face UVs of
 every LOD of INFO / PAPA / PEPP and their 16-frame sheets, `clipPlanes` / `sphereVisible` (ahead, behind, far, crossing far, left / right, near with
 radius), `IslandContext.inFrustum` rules (in view, behind, no collision object, disabled, before the first frame), the `partMatrices` binding, SeaAmin's
-`uvScroll` calls (per tick, |dv| <= 0.003, net negative drift), and the skinned-lighting equivalence. `m4-wp8-island` extended (vehicle arrival = emulated).
+`uvScroll` calls (per sim step, |dv| <= 0.003, net negative drift), and the skinned-lighting equivalence. `m4-wp8-island` extended (vehicle arrival = emulated).
 Browser: private dev server 5495, bots in /tmp/wp10 (close-up camera by wrapping `gr.render`).

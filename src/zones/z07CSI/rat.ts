@@ -59,7 +59,7 @@ export class RatNode implements BehaviourNode {
     if (a) {
       a.start(4, 0);                                              // FUN_0043b6a3(rec + 8, 4, 0)
       const n = a.frameCount;                                     // FUN_0043b753
-      a.seek(rand32(f32(n - 2.0)));                               // FUN_0043b64d(anim, rand(n - 2)): RNG: FUN_004388ae
+      a.seek(rand32(f32(n - 2.0)));                               // FUN_0043b64d(anim, rand(n - 2))
     }
     this.loops = Math.trunc(rand32(10.0));                        // __ftol(rand(10))
   }
@@ -76,7 +76,7 @@ export class RatNode implements BehaviourNode {
       const m = this.mode;
       if (m === 0 || m === 1 || m === 2) again = true;             // (asm 0x575ecc: modes 0 / 2 fall through the loop-count tests into the always-true case 1)
       if (again) {
-        do { this.mode = Math.trunc(rand32(3.0)); } while (this.mode >= 3);   // RNG
+        do { this.mode = Math.trunc(rand32(3.0)); } while (this.mode >= 3);
         if (this.mode === MODE_SLOW) { this.loops = Math.trunc(rand32(10.0)); anim?.start(4, 0); }
         else if (this.mode === MODE_SIT) { this.loops = 0; anim?.start(1, 0); }
         else if (this.mode === MODE_SCURRY) { this.loops = Math.trunc(rand32(20.0)); anim?.start(4, 0); }
@@ -98,7 +98,7 @@ export class RatNode implements BehaviourNode {
         else rec.ry = bearing;
       } else {
         if (this.keep < this.timer) {
-          this.turn = f32(rand32(TURN_STEP) - f32(TURN_STEP * HALF));   // RNG
+          this.turn = f32(rand32(TURN_STEP) - f32(TURN_STEP * HALF));
           this.keep = f32(rand32(50.0) + TWENTY);
           this.timer = rand32(TWENTY);
         } else if (this.timer < TWENTY) {

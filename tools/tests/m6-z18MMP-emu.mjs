@@ -1,9 +1,12 @@
+import { setTickCountSource } from '../../src/game/crt.ts';
+import { startTickClock, msClock } from '../../src/zones/common/tickrand.ts';
 import { bootWorld, snapshotFromZone, Z18Bot, KEY } from '../lib/m6-z18MMP-bot.mjs';
 import { createHarness, snapshotWorld, restoreWorld, f32 } from '../lib/m6-z18MMP-emu.mjs';
 import { REC, VAR, PS } from '../../src/zones/z18mmp/consts.ts';
 import { B } from '../../src/game/input.ts';
 import { startMmpEmitters } from '../../src/zones/z18mmp/setup.ts';
 import { loadExe } from '../lib/engine-load.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // z18MMP, differential test (docs/re/m6/z18MMP.md): the ORIGINAL update functions of the 12 node kinds (FUN_006a4fd0 Pepper, 006aadf6 the symbols, 006aa600 the mummies, 006aa070 key,
 // 006a9cc0 page, 006a9930 boulder, 006a95d5 pillars, 006a9280 stones, 006a8cf0 torches, 006a8a40 spiders, 006a8350 rats, the camera hook 006ac844) run in the x86 emulation over one
@@ -17,16 +20,16 @@ const bitsOf = (keys) => keys.reduce((a, k) => a | KEYBITS[k], 0);
 function makeRng(seed) {
   const g = { s: seed >>> 0 };
   const next = () => { g.s = (Math.imul(g.s, 1664525) + 1013904223) >>> 0; return g.s / 4294967296; };
-  g.float = (x) => next() * x; g.int = (n) => Math.trunc(next() * n);
+  g.float = (x) => (x <= 0 ? 0 : Math.fround(Math.fround(next()) * Math.fround(x))); g.int = (n) => Math.trunc(g.float(msClock())) % n;      // the port's pick over the pinned clock (the harness answers FUN_00435c91 with 3)
   return g;
 }
 
-export default {
+const __test = {
   name: 'm6-z18MMP-emu',
   run(ctx) {
     const failures = [], notes = [];
     let checked = 0;
-    const MAXFAIL = 40;
+    const MAXFAIL = +(process.env.Z18_MAXFAIL ?? 40);
     const stats = { ticks: 0, calls: {}, msBy: 0 };
     const bad = (msg) => { if (failures.length < MAXFAIL) failures.push(msg); else if (failures.length === MAXFAIL) failures.push('... more failures'); };
     const ok = (c, msg) => { checked++; if (!c) bad(msg); };
@@ -37,6 +40,7 @@ export default {
     const make = (seed, o = {}) => {
       const G = bootWorld(ctx, seed);
       G.sh.rng = makeRng(seed * 7919 + 13);
+      setTickCountSource(() => 100); startTickClock(); setTickCountSource(() => 103);
       const log = [];
       G.sh.sounds = {
         play2D: (id) => log.push(['2d', id]), stop2D: (id) => log.push(['stop2d', id]),
@@ -107,12 +111,12 @@ export default {
       const ga = mine.globals, gb = orig.globals;
       for (const k of Object.keys(gb)) {
         if (Array.isArray(gb[k])) eqv(ga[k], gb[k], `${label}: global ${k}`);
-        else num(ga[k], gb[k], 2e-4, `${label}: global ${k}`);
+        else num(ga[k], gb[k], 0, `${label}: global ${k}`);
       }
       // variables
       for (let i = 0xf0; i < 0x100; i++) { checked++; if ((w.vars.a[i] | 0) !== (origVars[i] | 0)) bad(`${label}: variable ${i.toString(16)}: port ${w.vars.a[i].toString(16)}, original ${origVars[i].toString(16)}`); }
       // the camera: eye and target
-      for (let i = 0; i < 6; i++) num(mine.camera[i], orig.camera[i], 2e-4, `${label}: camera[${i}]`);
+      for (let i = 0; i < 6; i++) num(mine.camera[i], orig.camera[i], 0, `${label}: camera[${i}]`);
       // sounds + particle calls (gate / matrix of every emitter, with the handles of the start order): every call of the pass, in order
       const o2 = orig.log.slice();
       const mineLog = G.log.slice();
@@ -135,7 +139,7 @@ export default {
         const keys = bot.step(snap);
         if (keys === null) break;
         // the loop's part before the update pass (danger decay, clock), the update pass (compared or just run), the game-over check
-        G.run.beforeTick();
+        G.run.beforeTick(G.w.dt);
         if (i % every === 0 || window(G)) step(S, keys, `${label} t${i}`);
         else { for (const k of Object.values(KEY)) G.w.input.setKey(k, keys.includes(k)); G.w.tick(); }
         G.run.afterTick(G.w.vars);
@@ -195,7 +199,7 @@ export default {
         for (let i = 0; i < 1500; i++) {
           if (i % 150 === 0) { const [x, z] = room[(i / 150) % room.length]; const p = G.rs[REC.PEPPER]; p.x = x; p.z = z; p.y = 9; p.rebuildYaw(); p.savePrev(); G.nodes.pepper.state = PS.FREE; }
           if (i % 7 === 0) { keys = []; for (const k of [KEY.U, KEY.D, KEY.L, KEY.R]) if (rnd() < 0.35) keys.push(k); if (rnd() < 0.12) keys.push(KEY.SHIFT); }
-          G.run.beforeTick();
+          G.run.beforeTick(G.w.dt);
           if (!step(S, keys, `fuzz t${i}`)) break;
           G.run.afterTick(G.w.vars);
           if (G.run.result) break;
@@ -209,7 +213,7 @@ export default {
         const g = G.rs[REC.GUARD[0]];
         G.p = G.rs[REC.PEPPER];
         G.p.x = g.x + 1.5; G.p.y = g.y; G.p.z = g.z; G.p.rebuildYaw();
-        for (let i = 0; i < 120; i++) { G.run.beforeTick(); step(S, i < 60 ? [KEY.U] : [], `contact t${i}`); G.run.afterTick(G.w.vars); }
+        for (let i = 0; i < 120; i++) { G.run.beforeTick(G.w.dt); step(S, i < 60 ? [KEY.U] : [], `contact t${i}`); G.run.afterTick(G.w.vars); }
         ok(G.sh.danger > 0 || true, 'danger');
       }
       // ---- 3. staged: the chase (page taken), the boulder squashes Pepper, the restart, the gate and the win
@@ -218,12 +222,12 @@ export default {
         const p = G.rs[REC.PEPPER];
         G.w.vars.set(VAR.OPEN, 0x4000); G.w.vars.set(VAR.MATCHED, 0x1fff); G.w.vars.set(VAR.READY, 0x10db);
         G.rs[REC.PAGE].flags &= ~2; G.rs[REC.TRAP].y = 42.2;
-        p.x = 0; p.y = 18; p.z = 198.6; p.ry = Math.PI; p.rebuildYaw(); p.savePrev();
+        p.x = 0; p.y = 18; p.z = 198.6; p.ry = Math.fround(Math.PI); p.rebuildYaw(); p.savePrev();
         G.nodes.pepper.state = PS.CHASE;
         for (let i = 0; i < 700; i++) {
           const keys = i % 40 < 8 ? [KEY.R] : i % 40 < 16 ? [KEY.L] : [];
           if (i === 0) { G.p = p; }
-          G.run.beforeTick();
+          G.run.beforeTick(G.w.dt);
           if (!step(S, keys, `chase t${i}`)) break;
           G.run.afterTick(G.w.vars);
           if (G.run.result) break;
@@ -236,12 +240,12 @@ export default {
         const p = G.rs[REC.PEPPER];
         G.w.vars.set(VAR.OPEN, 0x4000); G.w.vars.set(VAR.MATCHED, 0x1fff); G.w.vars.set(VAR.READY, 0x10db);
         G.rs[REC.PAGE].flags &= ~2; G.rs[REC.TRAP].y = 42.2;
-        p.x = 0; p.y = 14; p.z = 190; p.ry = Math.PI; p.rebuildYaw(); p.savePrev();
+        p.x = 0; p.y = 14; p.z = 190; p.ry = Math.fround(Math.PI); p.rebuildYaw(); p.savePrev();
         G.nodes.pepper.state = PS.CHASE;
         const seen = new Set();
         for (let i = 0; i < 520; i++) {
           // runs a few ticks, then stops (no keys: Pepper keeps running by himself: the boulder is faster than his stops): force a stand-still by putting him back
-          G.run.beforeTick();
+          G.run.beforeTick(G.w.dt);
           if (!step(S, i > 20 && i < 90 && G.nodes.pepper.state === PS.CHASE ? [KEY.R] : [], `squash t${i}`)) break;
           G.run.afterTick(G.w.vars);
           seen.add(G.nodes.pepper.state);
@@ -256,14 +260,16 @@ export default {
         const p = G.rs[REC.PEPPER];
         G.w.vars.set(VAR.MATCHED, 0x1fff); G.w.vars.set(VAR.READY, 0x10db);
         p.x = 0; p.y = 13.6; p.z = 201.9; p.rebuildYaw(); p.savePrev();
-        for (let i = 0; i < 260; i++) { G.run.beforeTick(); if (!step(S, [], `page t${i}`)) break; G.run.afterTick(G.w.vars); }
+        for (let i = 0; i < 260; i++) { G.run.beforeTick(G.w.dt); if (!step(S, [], `page t${i}`)) break; G.run.afterTick(G.w.vars); }
         const T = make(6, { noGuards: true }), g2 = T.G;
         g2.w.vars.set(VAR.MATCHED, 0xfff);
-        for (let i = 0; i < 200; i++) { g2.run.beforeTick(); if (!step(T, [], `key t${i}`)) break; g2.run.afterTick(g2.w.vars); if (i === 40) { const k = g2.rs[REC.KEY]; g2.rs[REC.PEPPER].x = k.x; g2.rs[REC.PEPPER].z = k.z - 1; } }
+        for (let i = 0; i < 200; i++) { g2.run.beforeTick(g2.w.dt); if (!step(T, [], `key t${i}`)) break; g2.run.afterTick(g2.w.vars); if (i === 40) { const k = g2.rs[REC.KEY]; g2.rs[REC.PEPPER].x = k.x; g2.rs[REC.PEPPER].z = k.z - 1; } }
       }
     } catch (e) {
       bad(`test crashed: ${e.stack || e}`);
     }
+    setTickCountSource(null);
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

@@ -68,7 +68,7 @@ export class GullNode implements BehaviourNode {
   construct(w: World, rec: GameRecord): void {
     if (this.built) return;
     this.built = true;
-    rec.ry = fr(rand(HEADING_RANGE) - HEADING_BASE);                         // RNG: FUN_004388ae via island/ambient/common.ts
+    rec.ry = fr(rand(HEADING_RANGE) - HEADING_BASE);                         // FUN_004388ae(3.14158..) via island/rng.ts (float32, the shared crt.ts rand)
     this.state = 2;
     if (rand(10.0) <= 5.0) { this.state |= FLAP_SINK; rec.rx = fr(PITCH_SINK); } else { this.state |= FLAP_CLIMB; rec.rx = fr(PITCH_CLIMB); }
     setRot(rec.m, rec.rx, rec.ry, rec.rz);                                    // FUN_0043a4a1

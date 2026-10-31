@@ -8,11 +8,12 @@ import { trigDuel, trigTick, lcg } from '../lib/m7-isl-veh-trig.mjs';
 import { m8Hook, m8Note } from '../lib/m8-d.mjs';
 import { compareBlocks, snapshotBlocks, restoreBlocks, nativeNodes, portNodes } from '../lib/m8-save.mjs';
 import { RECORDS_BASE, REC } from '../lib/m7-isl-veh-emu.mjs';
+import { guarded } from '../lib/inject-guard.mjs';
 
 const CTOR = 0x534b89;
 const FLAGS = [0x27, 0x127, 0x0f, 0x08, 0x01, 0x02, 0x04, 0x10, 0x20, 0x40, 0x70, 0x117, 0x147, 0x03, 0x2c, 0x100, 0x28];
 
-export default {
+const __test = {
   name: 'm8-save-popin',
   async run(ctx) {
     const failures = [], notes = [], m8Stats = [];
@@ -84,3 +85,4 @@ export default {
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

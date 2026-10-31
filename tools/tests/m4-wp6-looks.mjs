@@ -159,7 +159,7 @@ export default {
     // ---------------------------------------------------------------- Enter next to the dinghy (11 looks, var 0xd7)
     const din = I.rec('DNGY'), fx = islandBrickFx(W);
     const gD = readLookGroup(pe, 8);
-    P.x = din.x + 3; P.y = din.y; P.z = din.z; P.savePrev();
+    P.x = din.x + 3; P.y = din.y; P.z = din.z;
     ok(nearestLookRecord(W, P) === din.index, `the nearest record with a variant word is the dinghy (${nearestLookRecord(W, P)} / ${din.index})`);
     const snd0 = I.ictx.sounds.length;
     press(I, 'Enter');
@@ -184,13 +184,13 @@ export default {
     ok(W.vars.get(0xd7) === 0 && L.textures(din, 0) === null, `after 11 looks the original paint is back (var ${W.vars.get(0xd7)})`);
 
     // ---------------------------------------------------------------- out of range
-    P.x = din.x + 40; P.z = din.z + 40; P.savePrev();
+    P.x = din.x + 40; P.z = din.z + 40;
     const before = W.vars.get(0xd7);
     press(I, 'Enter');
     ok(W.vars.get(0xd7) === before, 'farther than sqrt(800) (28.3): nothing happens');
     // the nearest wins: Pepper between the dinghy and the jet ski stands next to the jet ski
     const ski = I.rec('JSKI');
-    P.x = (din.x + ski.x) / 2 + (ski.x - din.x) * 0.1; P.y = din.y; P.z = (din.z + ski.z) / 2 + (ski.z - din.z) * 0.1; P.savePrev();
+    P.x = (din.x + ski.x) / 2 + (ski.x - din.x) * 0.1; P.y = din.y; P.z = (din.z + ski.z) / 2 + (ski.z - din.z) * 0.1;
     const dDin = Math.hypot(P.x - din.x, P.z - din.z), dSki = Math.hypot(P.x - ski.x, P.z - ski.z);
     ok(dDin > 28.3 || nearestLookRecord(W, P) === (dSki < dDin ? ski.index : din.index) || dSki > 28.3, 'the nearer of two vehicles is chosen');
     notes.push(`morph ${done} ticks`);

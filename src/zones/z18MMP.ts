@@ -17,6 +17,7 @@ import type { MmpSounds, P3 } from './z18mmp/shared.ts';
 import { PepperNode } from './z18mmp/pepper.ts';
 import { CameraNode, MummyNode, KeyNode, PageNode, RockNode, PillarNode, DebrisNode, TorchNode, SpiderNode, RatNode } from './z18mmp/props.ts';
 import { prepareMmp, startMmpEmitters } from './z18mmp/setup.ts';
+import { startTickClock } from './common/tickrand.ts';
 import { MmpRun, clockText, applyResult, resultLines, scoreOf } from './z18mmp/run.ts';
 
 /** the state the nodes share in one run (the original's globals); a new one is made by every Pepper constructor, i.e. every time the zone starts */
@@ -66,6 +67,7 @@ registerZoneGame('z18MMP', async (ctx) => {
   const sharedNow = shared;
   const rig = (n: string): Blk | null => { const e = archive.find(`anim/${n}.blk`); return e ? parseBlk(archive.read(e)) : null; };
   const nodes = prepareMmp(world, sharedNow, { MFIG: loaded.rigs.get('MFIG') ?? rig('MFIG'), SPID: rig('SPID'), RATT: rig('RATT') });
+  startTickClock();                    // FUN_006a489a calls FUN_00435c81 after FUN_006a3861 (the symbol shuffle ran on the previous zone's clock base)
   const run = new MmpRun(sharedNow);
   // FUN_006a489a: FUN_00442900("Z18MMP"); the emitters start in the order of FUN_006a3861's attach calls: the 12 coffins (symtwin, 2 x mummy02), the key (symtwin), the page (twinkle01), the 12 torches (mmpfire)
   const fx = await ZoneParticles.create(ctx);

@@ -7,8 +7,8 @@ import type { GameRecord } from '../../game/record.ts';
 import type { BehaviourNode } from '../../game/controller.ts';
 import { NODE_STOP, NODE_CONTINUE } from '../../game/controller.ts';
 import { bipRun, f32, MODE, VAR_MODE } from './run.ts';
-import { buildMatrix } from '../../formats/matrix.ts';
-import { mul4 } from './plane.ts';
+import { eulerMatrix, matThen } from '../common/matrix.ts';
+import { ad, ml } from '../common/f32.ts';
 import type { SrcPoints } from './takeoff.ts';
 
 const F = Math.fround;
@@ -56,7 +56,7 @@ export class JerryCanNode implements BehaviourNode {
   angle = 0;
   update(_w: World, rec: GameRecord): number {
     const x = rec.m[12], y = rec.m[13], z = rec.m[14];
-    const r = buildMatrix(0, this.angle, 0, 0, 0, 0);
+    const r = eulerMatrix(0, this.angle, 0, 0, 0, 0);
     rec.m.set(r); rec.m[12] = x; rec.m[13] = y; rec.m[14] = z;
     this.angle = F(this.angle + CAN_TURN);
     return NODE_STOP;
@@ -78,9 +78,9 @@ export class PropsNode implements BehaviourNode {
   update(w: World): number {
     for (let i = 0; i < this.owners.length; i++) {
       const o = this.offsets[i];
-      const loc = buildMatrix(0, 0, this.angles[i], o[0], o[1], o[2]);
+      const loc = eulerMatrix(0, 0, this.angles[i], o[0], o[1], o[2]);      // FUN_0043a5e4
       const owner = w.records[this.owners[i]];
-      this.matrices[i] = mul4(loc, owner.m, this.matrices[i] ?? new Float32Array(16));
+      this.matrices[i] = matThen(loc, owner.m);                              // FUN_0043a9e5
       this.angles[i] = F(this.angles[i] + PROPS.SPIN);
     }
     return NODE_STOP;
@@ -150,11 +150,11 @@ export class RopeSlideNode implements BehaviourNode {
     return NODE_STOP;
   }
 }
-/** FUN_0043ae1e: turn the matrix's columns 1 and 2 about the x axis by `a` */
+/** FUN_0043ae1e: turn the matrix's columns 1 and 2 about the x axis by `a` (cos / sin are float32 locals, every product and sum a float32 result) */
 function turnX(m: Float32Array, a: number) {
-  const c = Math.cos(a), s = Math.sin(a);
+  const c = F(Math.cos(a)), s = F(Math.sin(a));
   const o1 = [m[1], m[5], m[9]];
-  m[1] = F(s * m[2] + c * m[1]); m[5] = F(s * m[6] + c * m[5]); m[9] = F(s * m[10] + c * m[9]);
-  m[2] = F(c * m[2] - s * o1[0]); m[6] = F(c * m[6] - s * o1[1]); m[10] = F(c * m[10] - s * o1[2]);
+  m[1] = ad(ml(s, m[2]), ml(c, m[1])); m[5] = ad(ml(s, m[6]), ml(c, m[5])); m[9] = ad(ml(s, m[10]), ml(c, m[9]));
+  m[2] = ad(ml(c, m[2]), ml(-s, o1[0])); m[6] = ad(ml(c, m[6]), ml(-s, o1[1])); m[10] = ad(ml(c, m[10]), ml(-s, o1[2]));
 }
 void MODE; void VAR_MODE;

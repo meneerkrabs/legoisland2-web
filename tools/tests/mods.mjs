@@ -165,7 +165,7 @@ export default {
     const skies = p('4399FE;FFDD7F\n326E81;FFDD7F\n308517;FFDD7F\n307567;FFDD7F\n2BF958;FFDD7F\n2BE49E;FFDD7F\n22979B;FFDD7F\n21BAC3;FFDD7F\n21AAC9;FFDD7F\n13E013;FFDD7F\nB6B47;FFDD7F');
     ok(skies.every((x) => em.classify(x).effect === 'works' && /kleur/.test(em.classify(x).note)), 'effects: all 11 sky patches hit the zone fog / sky colour');
     const fuel = em.classify(p('00531EF8;00F69F46')[0]), skate = em.classify(p('90DC2;3333933F;0000403F')[0]);
-    ok(fuel.effect === 'ignored' && /30 Hz/.test(fuel.note), 'effects: the bi-plane fuel fix is ignored (fixed 30 Hz)');
+    ok(fuel.effect === 'ignored' && /60 Hz/.test(fuel.note), 'effects: the bi-plane fuel fix is ignored (fixed 60 Hz)');
     ok(skate.effect === 'ignored', 'effects: the skateboard speed is a constant of the port');
     ok(em.classify(p('4A7834;0100000011;0400000002')[0]).effect === 'works', 'effects: a menu item of the page table counts');
 

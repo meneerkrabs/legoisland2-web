@@ -23,6 +23,7 @@ import {
   CTOR_PSWITCH, CTOR_SEABED, CTOR_RIVER, CTOR_JERRYCAN, CTOR_PROP3, CTOR_ANIM_CROC, CTOR_ANIM_PARROT,
 } from './z22bip/props.ts';
 import { prepareBip } from './z22bip/setup.ts';
+import { startTickClock } from './common/tickrand.ts';
 import { bipMedal, bipFinish, bipResultLines, BIP_VARS } from './z22bip/rules.ts';
 
 registerCtor(CTOR_PSWITCH, () => new PSwitchNode());
@@ -53,6 +54,7 @@ registerZoneGame('z22BIP', async (ctx: ZoneGameCtx) => {
     scrollRiver: (rec, dv) => { const n = gr.groupCount(rec); for (let g = 0; g < n; g++) gr.scrollGroup(rec, g, 0, dv); },
   });
   const { run: R, plane, walk, takeoff, johnnyNode: jn } = S;
+  startTickClock();                    // FUN_00706bee calls FUN_00435c81 before its loop: the monkeys' chatter / hit sound picks scale rand() by the ms since here
   gr.refreshViews();
 
   // ---- particles (FUN_00707800: FUN_00442900("Z22BIP"), Leaffall on record 74 (rotation 0, pi, 0), Spray01 on the ten waterfall records (rotation 0, -pi/2, 0, gate ON); no FUN_0044e8d0 here)

@@ -25,7 +25,7 @@ export function csi(h) {
   S.veh = () => page.evaluate(() => {
     const z = window.__zone; if (!z) return null;
     const g = z.world.ext.get('island.vehicles'), c = g?.current, v = z.sh.vars, p = z.loaded.pepper;
-    return { name: c ? c.name : null, x: c ? c.x : p.x, y: c ? c.y : p.y, z: c ? c.z : p.z, ry: c ? c.ry : p.ry, ctrl: v.get(0x5e), tick: z.world.tickCount, next: v.get(5), node: v.get(0x58), arch: z.info.archive, cs: z.game?.debug?.().cutscene ?? false,
+    return { name: c ? c.name : null, x: c ? c.x : p.x, y: c ? c.y : p.y, z: c ? c.z : p.z, ry: c ? c.ry : p.ry, ctrl: v.get(0x5e), tick: z.world.tickCount / 2, next: v.get(5), node: v.get(0x58), arch: z.info.archive, cs: z.game?.debug?.().cutscene ?? false,
       px: p.x, py: p.y, pz: p.z, pry: p.ry, stage: v.get(0x56), icons: v.get(0xc) };
   });
   /** a record's position / flags */
@@ -69,7 +69,7 @@ export function csi(h) {
     return s;
   };
   /** Pepper: place, yaw, control, current clip, cutscene */
-  S.pep = () => page.evaluate(() => { const z = window.__zone, p = z.loaded.pepper; return { x: p.x, y: p.y, z: p.z, ry: p.ry, ctrl: z.sh.vars.get(0x5e), clip: p.anim?.clip ?? -1, cs: !!z.game?.debug?.().cutscene, node: z.sh.vars.get(0x58), tick: z.world.tickCount, arch: z.info.archive }; });
+  S.pep = () => page.evaluate(() => { const z = window.__zone, p = z.loaded.pepper; return { x: p.x, y: p.y, z: p.z, ry: p.ry, ctrl: z.sh.vars.get(0x5e), clip: p.anim?.clip ?? -1, cs: !!z.game?.debug?.().cutscene, node: z.sh.vars.get(0x58), tick: z.world.tickCount / 2, arch: z.info.archive }; });
   /**
    * walk to (x, z) with the arrow keys: Up held, Left / Right pressed while the heading is off by more than `tolAng` (forward = (sin ry, cos ry), Right increases the yaw); stops within `tol` units
    * or after `maxTicks` game ticks. Returns { ok, d, ticks }. `stop(p)` is polled (a cutscene / node change ends it early).

@@ -9,7 +9,7 @@ import { persisted, PC_TALK } from '../../src/zones/z50LTC/people.ts';
 import { AnimInstance } from '../../src/game/anim.ts';
 import { B } from '../../src/game/input.ts';
 
-const TOL = 2e-5;
+const TOL = 0;
 export default {
   name: 'm5-audit-z50LTC-emu',
   run(ctx) {

@@ -1,7 +1,7 @@
-// Browser-side drawing of one game frame: interpolated chase camera, records in record order (LOD, textures, sky / sea specials), CPU-skinned
+// Browser-side drawing of one game frame: the chase camera as the last step left it (no interpolation: one sim step = one drawn frame of the original), records in record order (LOD, textures, sky / sea specials), CPU-skinned
 // animated characters with their attachments, and Pepper's blob shadow (docs/re/rendering.md sections 3, 7, 9). Reads the world, never changes it
-// (the only exception: the camera's wall push is evaluated on the interpolated camera by temporarily writing it into `world.camera.c`).
-import { Renderer, SkyState, SeaState, GAME_TICK, SKY_MODE, SEA_MODE, SEABED_MODE, SEA_EDGE_MODE, DEFAULT_FOV, cameraFromFog, defaultLights, projection, selectLod } from '../render/index.ts';
+// The state the original updates in its draw pass is stepped per sim step (`World.advanceDt` logs the passes, `render` replays the ones it has not drawn yet): see `takePasses`.
+import { Renderer, SkyState, SeaState, SKY_MODE, SEA_MODE, SEABED_MODE, SEA_EDGE_MODE, DEFAULT_FOV, cameraFromFog, defaultLights, projection, selectLod } from '../render/index.ts';
 import type { MeshGpu, TexGpu, CameraSetup, LightSet, DrawOpts, BatchGpu } from '../render/index.ts';
 import { viewPlaneMesh, viewPlaneTexturedMesh, VIEWPLANE_TEX_PRESET, VIEWPLANE_TEX_STEP } from '../render/viewplane.ts';
 import { lookDirLH, mul, mulGame, transformPoint } from '../render/math.ts';
@@ -15,6 +15,7 @@ import type { Loaded } from './setup.ts';
 import type { GameRecord } from './record.ts';
 import { RF_ENABLED, RF_NO_DRAW } from './record.ts';
 import { V } from './vars.ts';
+import { PASS_LOG } from './world.ts';
 import { pickFogCall } from './fogphases.ts';
 import { runDrawHooks } from './controller.ts';
 import { blobShadowPoints, markerPoints, markerVisible, shadowGate, SHADOW_HANDLED, SHADOW_RAY_LENGTH, SHADOW_RAY_MASK, SHADOW_RAY_RADIUS } from './shadow.ts';
@@ -66,6 +67,8 @@ export interface FrameInfo { eye: [number, number, number]; target: [number, num
 
 /** the motion-blur copies of z36CNT (FUN_007b1a1b: FUN_0043f180(model, 0, 7), draw mode 7 = state preset 26, modulated colour + alpha, blended, WITHOUT z test: modePreset(7)); M5 audit */
 const GHOST_PRESET = 26;
+/** DAT_009e5868, see `GameRenderer.markerTick` */
+let markerTickGlobal = 0;
 
 export class GameRenderer {
   readonly renderer: Renderer;
@@ -82,7 +85,7 @@ export class GameRenderer {
   poseRange = POSE_RANGE;
   /** near plane override of the zone code (DAT_0089df30 is written by the camera code of some zones, e.g. z41MAP FUN_00816220); null = the zone's fog set-up (`cameraFromFog`) */
   near: number | null = null;
-  /** a zone's own background drawn right after the frame starts, before the records (z39ASB: the star field quad of FUN_007b7c24 / FUN_0088002d); gets the interpolated eye and the forward vector */
+  /** a zone's own background drawn right after the frame starts, before the records (z39ASB: the star field quad of FUN_007b7c24 / FUN_0088002d); gets the eye and the forward vector */
   backdrop: ((r: Renderer, eye: [number, number, number], fwd: [number, number, number]) => void) | null = null;
   /** the effects pass after the records (FUN_00442930: the brick batches of FX_Bricks, then the particles): the island draws its brick effects here (src/fx/bricks/draw.ts) */
   effects: ((r: Renderer, eye: [number, number, number]) => void) | null = null;
@@ -430,47 +433,73 @@ export class GameRenderer {
 
   // ---------------------------------------------------------------- frame
 
-  /** record matrix between the previous and the current tick (a jump of more than 40 units is a teleport: no smearing) */
-  private interp(r: GameRecord, alpha: number): Float32Array {
-    const a = r.prev, b = r.m, o = this.mat;
-    const dx = b[12] - a[12], dy = b[13] - a[13], dz = b[14] - a[14];
-    if (alpha >= 1 || dx * dx + dy * dy + dz * dz > 1600) { o.set(b); return o; }
-    for (let i = 0; i < 16; i++) o[i] = a[i] + (b[i] - a[i]) * alpha;
-    return o;
-  }
-
-  /** draw one frame. alpha = interpolation factor between the previous and the current simulation tick */
-  render(alpha: number, dt: number) {
-    const { world } = this.loaded;
-    const r = this.renderer;
-    r.resize();
-    r.setMipmaps(false);
-    r.updateTextures(dt); this.sky.update(dt); this.sea.update(dt);
-
-    // camera: interpolated eye / target; hub zones push the eye in front of walls (the sweep wants the interpolated values, so write them into the camera for the call)
-    const cam = world.camera, c = cam.c, p = cam.prev;
-    const eye: [number, number, number] = [0, 0, 0], tgt: [number, number, number] = [0, 0, 0];
-    for (let i = 0; i < 3; i++) { eye[i] = p[i] + (c[i] - p[i]) * alpha; tgt[i] = p[3 + i] + (c[3 + i] - p[3 + i]) * alpha; }
-    if (world.hub) {
-      const save = [c[0], c[1], c[2], c[3], c[4], c[5]];
-      c[0] = eye[0]; c[1] = eye[1]; c[2] = eye[2]; c[3] = tgt[0]; c[4] = tgt[1]; c[5] = tgt[2];
-      const e = cam.viewEye(world);
-      for (let i = 0; i < 6; i++) c[i] = save[i];
-      eye[0] = e[0]; eye[1] = e[1]; eye[2] = e[2];
+  /**
+   * The draw passes of the original (FUN_00442930, once per loop pass) that happened since the last drawn frame: `World.advanceDt` logs each pass's dt and camera. The loop runs one sim step per
+   * pass at a fixed 60 Hz, the browser draws at the display's rate: a rAF call between two steps replays nothing (the last frame is drawn again), one after n steps replays n passes. State the
+   * original changes in its draw pass (.wib textures, sky / sea hooks, flowing water, view plane phases, the marker blink) advances by exactly those passes, never by rAF calls and never scaled by the wall time.
+   */
+  private takePasses(): { dt: number; eye: [number, number, number] }[] {
+    const w = this.loaded.world;
+    const n = Math.min(w.passes - this.seenPass, PASS_LOG);
+    this.seenPass = w.passes;
+    const out: { dt: number; eye: [number, number, number] }[] = [];
+    for (let j = 0; j < n; j++) {
+      const i = (w.passes - n + j) & (PASS_LOG - 1);
+      out.push({ dt: w.passDt[i], eye: [w.passEye[i * 3], w.passEye[i * 3 + 1], w.passEye[i * 3 + 2]] });
     }
+    return out;
+  }
+  /** the number of `world.passes` the last drawn frame had replayed */
+  private seenPass = 0;
+  /** the passes of the frame being drawn (`takePasses`) */
+  private passes: { dt: number; eye: [number, number, number] }[] = [];
+
+  /** the view of the last sim step: eye / target (hub zones push the eye in front of walls), the camera setup (fog / fov / near / far) and the view-projection matrix */
+  private viewSetup() {
+    const { world } = this.loaded;
+    const cam = world.camera, c = cam.c;
+    let eye: [number, number, number] = [c[0], c[1], c[2]];
+    const tgt: [number, number, number] = [c[3], c[4], c[5]];
+    if (world.hub) { const e = cam.viewEye(world); eye = [e[0], e[1], e[2]]; }
     let fx = tgt[0] - eye[0], fy = tgt[1] - eye[1], fz = tgt[2] - eye[2];
     const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
-
     const fog0 = this.currentFog();
     const setup: CameraSetup = fog0 ? cameraFromFog(fog0, this.slider, this.fov) : { fov: this.fov, near: 0.5, far: 2000, fog: { enabled: false, color: [0.45, 0.62, 0.85], start: 0, end: 1e6 }, clear: [0.45, 0.62, 0.85] };
     if (this.near !== null) setup.near = this.near;
     if (this.farHook) setup.far = this.farHook(setup.far);   // Ontwikkelaarshoek: adaptive detail (FUN_00443d10), null = off
+    const view = lookDirLH(eye, [fx, fy, fz]);
+    const viewProj = mul(view, projection(setup, this.renderer.aspect));
+    return { eye, tgt, fx, fy, fz, fog0, setup, view, viewProj };
+  }
+
+  /**
+   * The frustum planes of this loop pass (FUN_00444370 / FUN_00416590 run in the original's draw pass, once per pass; the nodes of the next pass read the flags it left). The loops call this at
+   * the end of every sim step, so the flags follow the sim and not the browser's drawing rate: a page that draws one frame for several steps (a loaded machine) would otherwise let the nodes see
+   * the view of a frame long gone (a bot head walked into while the view was stale was not collected). `render` computes the same planes again from the same camera.
+   */
+  stepView(): void { this.planes = clipPlanes(this.viewSetup().viewProj, this.planes ?? new Float32Array(24)); }
+
+  /**
+   * draw one frame: the state of the last sim step. The arguments are not used any more (the loops pass `alpha` = 1: the original does not interpolate, and the step time is `world.dt`);
+   * they stay so that hosts that wrap `render` keep working.
+   */
+  render(_alpha = 1, _dt = 0) {
+    const { world } = this.loaded;
+    const r = this.renderer;
+    r.resize();
+    r.setMipmaps(false);
+    const passes = this.passes = this.takePasses();
+    this.markerPending = true;
+    for (const p of passes) { r.stepTextures(p.dt); this.sky.update(p.dt); this.sea.update(p.dt); }
+    r.flushTextures();
+
+    // camera: the chase camera of the last step; hub zones push the eye in front of walls
+    const { eye, tgt, fx, fy, fz, fog0, setup, view, viewProj } = this.viewSetup();
+    this.eye = eye;
     r.fog = setup.fog; r.lights = fog0 ? this.lights : defaultLights();
     r.eye = [eye[0], eye[1], eye[2]];   // DAT_00986e18..20: the specular lighting of shiny meshes looks from here
     r.cull = 1; r.cwFront = true;
     const aspect = r.aspect;
-    const view = lookDirLH(eye, [fx, fy, fz]);
-    const viewProj = mul(view, projection(setup, aspect));
     r.begin(setup.clear, viewProj);
     this.planes = clipPlanes(viewProj, this.planes ?? new Float32Array(24));
     this.lastViewProj = viewProj;
@@ -481,33 +510,34 @@ export class GameRenderer {
 
     // the view planes of records whose draw hook calls FUN_00444500 (z10RGB's LAND before the record, z22BIP's SEAB after it); an 'after' plane is drawn at the next record's turn
     // records without a model have no default draw, but the draw pass still calls their hooks
-    for (const rec of world.records) if (rec.ctrl && !this.viewOf(rec.index)) this.drawHooks(rec, alpha, eye, dt);
+    for (const rec of world.records) if (rec.ctrl && !this.viewOf(rec.index)) this.drawHooks(rec);
     let planeAfter: number | null = null;   // the level of an 'after' view plane that is still to be drawn
-    const ticks = dt * GAME_TICK;   // the length of this drawn frame in the original's frames (1/30 s)
-    const viewPlane = (level: number) => this.drawViewPlane(eye, tgt, view, setup, aspect, ticks, level);
+    // the textured view plane's phases: one 0.01 step per pass of the original's draw (FUN_0087f01e), not scaled by the frame time; the passes of this frame but the last are skipped draws
+    const planePasses = passes.length;
+    const viewPlane = (level: number) => this.drawViewPlane(eye, tgt, view, setup, aspect, planePasses, level);
     for (const { rv, forced: hooked } of this.drawOrder()) {
       if (planeAfter !== null) { viewPlane(planeAfter); planeAfter = null; }
       const vp = this.viewPlanes.get(rv.rec.index);
       if (vp) { if (vp.after) planeAfter = vp.y; else viewPlane(vp.y); }
       const rec = rv.rec;
       // the flowing-water node's draw hook (constructor 0x426f55, z13CAI's LAVA / FALL; FUN_00426e9a): every frame it adds (du, dv) to the texture coordinates of part 0's mesh and draws that
-      // mesh in mode 0 at the record's matrix, without the visibility flags and without LOD selection (per DRAWN FRAME, not scaled by the frame time)
+      // mesh in mode 0 at the record's matrix, without the visibility flags and without LOD selection (per DRAWN FRAME = once per pass of the loop, NOT scaled by the frame time)
       const flow = this.flow.get(rec.index);
       let flowing = false;
       if (flow && this.loaded.world.vars.gate(flow.var, flow.mask, flow.value)) {
         flowing = true;
         const m0 = rv.parts[0] ? this.partMesh(rv.parts[0]) : null;
-        if (m0) for (let g = 0; g < m0.groups.length; g++) this.scrollGroup(rec, g, flow.du * ticks, flow.dv * ticks);
+        if (m0) for (let k = 0; k < passes.length; k++) for (let g = 0; g < m0.groups.length; g++) this.scrollGroup(rec, g, flow.du, flow.dv);
       }
       // the node draw pass (FUN_0042271b): the draw hooks of the nodes that ran run whatever the record's own draw flags say (the blob shadow hook FUN_004bd41a draws a hidden record's shadow);
       // a hook that reports "handled" (non-zero) replaces the record's default draw (FUN_00444480)
       // the sky dome node of z40OGL (PeppSwit.c STAR, FUN_007e62da): its draw hook scales the record to the far plane, centres it on the camera and draws it with the fog off
       const dome = rec.ctrl?.nodes.find((n) => n.kind === 'PeppStar') as { place(rec: GameRecord, eye: ArrayLike<number>, far: number, fogOn: boolean): unknown } | undefined;
       const domeOn = !!dome && world.vars.gate(2, 1, 1);
-      if (domeOn) { dome!.place(rec, eye, setup.far, setup.fog.enabled); rec.prev.set(rec.m); }
-      if (this.drawHooks(rec, alpha, eye, dt)) continue;
+      if (domeOn) dome!.place(rec, eye, setup.far, setup.fog.enabled);
+      if (this.drawHooks(rec)) continue;
       if (!flowing && (((rec.flags & RF_ENABLED) === 0 && !hooked) || (rec.flags & RF_NO_DRAW) !== 0)) continue;
-      const mat = this.interp(rec, alpha);
+      const mat = this.mat; mat.set(rec.m);
       const dist = Math.hypot(mat[12] - eye[0], mat[13] - eye[1], mat[14] - eye[2]);
       const first = rv.parts[0] ? this.partMesh(rv.parts[0]) : null;
       if (first && rv.localCenter === undefined) { rv.localCenter = first.center; rv.radius = first.radius; }
@@ -522,9 +552,14 @@ export class GameRenderer {
       if (!m) continue;
       let world_: Float32Array = mat;
       // the sky dome / sea plane of the zone carry the original's scene nodes (src/island/ambient/seabed.ts: FUN_004267d2 / FUN_00426a43): they own the state the save game holds and move their record
-      // with the CURRENT camera; the matrix drawn is the one for this frame's interpolated eye. A record without such a node (the viewer's models) keeps the renderer's own placement.
+      // with the CURRENT camera, once per pass of the loop. A record without such a node (the viewer's models) keeps the renderer's own placement.
       const sceneNode = rv.kind ? rec.ctrl?.nodes.find((n) => n.kind === 'Sky' || n.kind === 'Sea') as SceneNodeApi | undefined : undefined;
-      if (sceneNode) world_ = sceneNode.place(rec, c, eye, { far: setup.far, fogOn: setup.fog.enabled, fogEnd: Math.trunc(setup.fog.end), domeBase: range, seaLevel, dt: dt * GAME_TICK });
+      if (sceneNode) {
+        // the draw hook of every pass of this frame (each with its own dt and camera position, the hook advances the node's state); a frame without a new pass shows the record as the last hook left it
+        const v = { far: setup.far, fogOn: setup.fog.enabled, fogEnd: Math.trunc(setup.fog.end), domeBase: range, seaLevel, dt: 0 };
+        world_ = mat.slice();
+        for (const p of passes) { v.dt = p.dt; world_ = sceneNode.place(rec, p.eye, p.eye, v); }
+      }
       else if (rv.kind === 'sky') world_ = this.sky.matrix(eye, range, mat[13]);
       else if (rv.kind === 'sea') world_ = this.sea.matrix(eye, range, seaLevel);
       else world_ = mat.slice();   // keep: mat is scratch and attachments are drawn after
@@ -532,7 +567,7 @@ export class GameRenderer {
       // skinning: pose live near the camera (animated records), bind pose otherwise
       let bones: Float32Array | null = null;
       const animated = !!rec.anim && dist < this.poseRange && !rv.kind;
-      if (animated) bones = rec.anim!.pose(alpha);
+      if (animated) bones = rec.anim!.pose(1);
       let drawMesh = m;
       if (m.msh.svwl) {
         let live: MeshGpu | null = null;
@@ -593,10 +628,10 @@ export class GameRenderer {
       };
       drawAttach(world_);
       // FUN_004440f0 ends with FUN_00444940(record): the blob shadow of records with a skeleton (rec + 8), right after the model and its attachments
-      if (rec.anim && !rv.kind) this.drawBlobShadow(rec, mat, world_, bones, eye, dt);
+      if (rec.anim && !rv.kind) this.drawBlobShadow(rec, mat, world_, bones, eye);
     }
     if (planeAfter !== null) viewPlane(planeAfter);
-    for (const d of this.meshDraws?.() ?? []) this.drawLiveMesh(d.rec, d.verts, alpha);
+    for (const d of this.meshDraws?.() ?? []) this.drawLiveMesh(d.rec, d.verts);
     this.effects?.(r, eye);
     this.particles?.(r, viewProj);
     this.debugDraw?.(r, eye, viewProj);
@@ -620,7 +655,7 @@ export class GameRenderer {
   }
 
   /** a record's part-0 mesh with the vertices `verts` (3 floats each, world space), drawn at the record's matrix with the part's mode (`meshDraws`) */
-  private drawLiveMesh(rec: GameRecord, verts: Float32Array, alpha: number, noZ = false) {
+  private drawLiveMesh(rec: GameRecord, verts: Float32Array, noZ = false) {
     const rv = this.viewOf(rec.index);
     const part = rv?.parts[0];
     const m = part ? this.partMesh(part) : null;
@@ -629,7 +664,7 @@ export class GameRenderer {
     if (!g) { g = this.renderer.uploadMesh({ ...m.msh }); this.liveVerts.set(m, g); }
     this.renderer.updateMeshVertices(g, verts, m.msh.normals as Float32Array);
     if (g.shiny !== m.shiny) this.renderer.setShiny(g, m.shiny);
-    this.renderer.drawMesh(g, this.interp(rec, alpha).slice(), (q) => this.texFor(part, q), { mode: part.mode, skinned: false, noZ });
+    this.renderer.drawMesh(g, rec.m.slice(), (q) => this.texFor(part, q), { mode: part.mode, skinned: false, noZ });
   }
 
   /**
@@ -642,7 +677,7 @@ export class GameRenderer {
   lastViewProj: Float32Array = new Float32Array(16);
 
   /** a draw hook's direct draw of a record with live vertices (FUN_0043ebe0(model, 2, points, 0) + FUN_00444480(rec)), optionally with the z test off (FUN_0040cc4d(0)): z28HAT's balloon shadow */
-  drawRecordLive(rec: GameRecord, verts: Float32Array, noZ: boolean) { this.drawLiveMesh(rec, verts, 1, noZ); }
+  drawRecordLive(rec: GameRecord, verts: Float32Array, noZ: boolean) { this.drawLiveMesh(rec, verts, noZ); }
 
   // ---------------------------------------------------------------- faces, live part matrices, visibility
 
@@ -724,14 +759,17 @@ export class GameRenderer {
    */
   viewPlaneTextured = false;
   viewPlaneTexture: number | null = null;
-  /** DAT_05d5fad4 / DAT_05d5fad8: the phases of the textured pass (0 at start, + 0.01 per 1/30 s) */
+  /** DAT_05d5fad4 / DAT_05d5fad8: the phases of the textured pass (0 at start, + 0.01 per drawn pass of the original) */
   private planeT1 = 0;
   private planeT2 = 0;
+  /** the phases the last drawn pass used */
+  private planeDraw1 = 0;
+  private planeDraw2 = 0;
   /**
    * FUN_0087f01e: the textured pass (only with the debug option, see above) and the coloured polygon of the view plane, with the far plane at 2000 and no depth test. The coloured one only shows
-   * for a camera below y = -200, see viewplane.ts. `ticks` = the length of this drawn frame in 1/30 s: the textured pass' phases grow by 0.01 per drawn frame of the original (30 per second).
+   * for a camera below y = -200, see viewplane.ts. `passes` = the passes of the original's loop this frame replays: the textured pass' phases grow by 0.01 per drawn frame of the original (not scaled by the frame time).
    */
-  private drawViewPlane(eye: ArrayLike<number>, tgt: ArrayLike<number>, view: Float32Array, setup: CameraSetup, aspect: number, ticks: number, level: number) {
+  private drawViewPlane(eye: ArrayLike<number>, tgt: ArrayLike<number>, view: Float32Array, setup: CameraSetup, aspect: number, passes: number, level: number) {
     const r = this.renderer;
     // widescreen: the original's quad covers a 4:3 view; a wider canvas gets a proportionally wider quad
     const inp = { eye, fwd: [view[2], view[6], view[10]], up: [0, 1, 0], target: tgt, level, widen: Math.max(1, aspect / (4 / 3)) };
@@ -739,27 +777,33 @@ export class GameRenderer {
     this.planeBatch ??= r.createBatch(8, 24);
     if (this.viewPlaneTextured) {
       const tex = this.viewPlaneTexture ?? VIEWPLANE_TEXTURE_DEFAULT[this.loaded.profile.zone] ?? 0;
-      const tm = viewPlaneTexturedMesh(inp, this.planeT1, this.planeT2);
+      // the passes of this frame but the last are draws nobody saw: the phases still step for them; a frame without a new pass draws the last phases again
+      if (passes > 0) { this.planeDraw1 = this.planeT1; this.planeDraw2 = this.planeT2; for (let k = 1; k < passes; k++) { this.planeDraw1 = Math.fround(this.planeDraw1 + VIEWPLANE_TEX_STEP); this.planeDraw2 = Math.fround(this.planeDraw2 + VIEWPLANE_TEX_STEP); } this.planeT1 = Math.fround(this.planeDraw1 + VIEWPLANE_TEX_STEP); this.planeT2 = Math.fround(this.planeDraw2 + VIEWPLANE_TEX_STEP); }
+      const tm = viewPlaneTexturedMesh(inp, this.planeDraw1, this.planeDraw2);
       if (tm) r.drawBatch(this.planeBatch, tm.count, tm.indices.length, tm.positions, tm.uvs, tm.colors, null, tm.indices, r.texture(this.archive, tex, 'textures'), VIEWPLANE_TEX_PRESET, opts);
-      this.planeT1 = Math.fround(this.planeT1 + VIEWPLANE_TEX_STEP * ticks); this.planeT2 = Math.fround(this.planeT2 + VIEWPLANE_TEX_STEP * ticks);
     }
     const mesh = viewPlaneMesh(inp);
     if (!mesh) return;
     r.drawBatch(this.planeBatch, mesh.count, mesh.indices.length, mesh.positions, null, mesh.colors, null, mesh.indices, null, 0x1d, opts);
   }
 
-  /** `_DAT_009e5868`: the tick counter of Pepper's marker (FUN_00444ef0 adds DAT_008b1718 = the frame's length in 1/30 s ticks at every call) */
-  private markerTick = 0;
+  /** `_DAT_009e5868`: the tick counter of Pepper's marker (a float32 engine global, never reset, so it carries over from zone to zone; FUN_00444ef0 adds DAT_008b1718 at every call = once per drawn pass: 32 passes per blink period at dt 0.5) */
+  private get markerTick() { return markerTickGlobal; }
+  private set markerTick(v: number) { markerTickGlobal = v; }
+  /** the frame's passes have not been added to `markerTick` yet (the marker is drawn at most once per frame) */
+  private markerPending = false;
+  /** the eye of the frame being drawn (the blob shadow hooks of records without a model need it) */
+  private eye: ArrayLike<number> = [0, 0, 0];
 
   /**
    * FUN_0042271b's hooks for one record (controller.ts `runDrawHooks`): a node whose hook is the blob shadow (FUN_004bd41a = FUN_00444940) draws the shadow and reports what that function
    * leaves in eax; any other node's `draw` runs as it is. True = the default draw of the record is skipped.
    */
-  private drawHooks(rec: GameRecord, alpha: number, eye: ArrayLike<number>, dt: number): boolean {
+  private drawHooks(rec: GameRecord): boolean {
     const w = this.loaded.world;
     if (!rec.ctrl) return false;
     return runDrawHooks(w, rec, (n) => {
-      if (n.blobShadow) { const hm = this.interp(rec, alpha); return this.drawBlobShadow(rec, hm, hm.slice(), null, eye, dt); }
+      if (n.blobShadow) return this.drawBlobShadow(rec, rec.m, rec.m.slice(), null, this.eye);
       return n.draw?.(w, rec, rec.ctrl!);
     });
   }
@@ -771,11 +815,11 @@ export class GameRenderer {
    *   * PEPP: type = var 0xc5 (-1 = none) and, while var 0xc6 is set, the flashing marker at bone 10 (FUN_00444ef0); every other record needs a controller whose flags have bit 0x10 or 0x40
    *     and a squared distance to the camera of at most 6400, and gets type 4;
    *   * the shadow sits under the hips (bone 0 times the record matrix) of a posed record unless var 0xa9 (PEPP_IN_VEHICLE) is set, else under the record's translation.
-   * `mat` = the record's matrix, `world` = the matrix it is drawn with, `bones` = the pose of this frame (null when the record is not posed), `dt` in seconds.
+   * `mat` = the record's matrix, `world` = the matrix it is drawn with, `bones` = the pose of this frame (null when the record is not posed).
    * Returns what the original leaves in eax, which is what a node draw hook made of it reports to the draw pass (checked on the emulator, tools/tests/render-shadow.mjs): 0 when the zone has
    * no shadow system / no registered terrain or the record's controller lacks flags 0x10 / 0x40, else a non-zero, non-1 value (a stack pointer, -1 or the FPU status word's top bits): "handled".
    */
-  drawBlobShadow(rec: GameRecord, mat: ArrayLike<number>, world: Float32Array, bones: Float32Array | null, eye: ArrayLike<number>, dt: number): number {
+  drawBlobShadow(rec: GameRecord, mat: ArrayLike<number>, world: Float32Array, bones: Float32Array | null, eye: ArrayLike<number>): number {
     const ss = this.loaded.setup?.shadow;
     if (!ss || !ss.records.length || !this.shadowMesh || !this.shadowArchive) return 0;
     const w = this.loaded.world;
@@ -783,7 +827,10 @@ export class GameRenderer {
     let type = 4;
     if (pepp) {
       if (w.vars.get(VAR_PEPP_MARKER) !== 0 && bones && bones.length >= 176) {
-        this.markerTick += dt * GAME_TICK;
+        if (this.markerPending) {   // FUN_00444ef0 adds DAT_008b1718 at every call = once per pass of the loop that drew the marker: the passes of this frame
+          this.markerPending = false;
+          for (const p of this.passes) this.markerTick = Math.fround(this.markerTick + p.dt);
+        }
         if (markerVisible(this.markerTick)) this.drawShadowPoints(markerPoints(mulGame(bones.subarray(160, 176), world), eye), 7, 2);
       }
       type = w.vars.get(V.PEPPERSSHADOW);

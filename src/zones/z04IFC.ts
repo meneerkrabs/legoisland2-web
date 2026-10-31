@@ -21,7 +21,8 @@ import { CAPTION, CHAR_PAGE0, DOOR, EXIT_PAGE, IfcRoom, MODEL_OFFSET, PEPPER_PLA
 import type { IfcHost } from './z04IFC/ifc.ts';
 import { readIfcPages, labelId } from './z04IFC/pages.ts';
 import { drawDialog } from './z04IFC/dialog.ts';
-import { gameRandom } from './common/tickrand.ts';
+import { msClock, startTickClock } from './common/tickrand.ts';
+import { randF } from '../game/crt.ts';
 import { euler24 } from './common/x87.ts';
 
 /** constructor addresses of the room's four behaviours (the `Map.c` functions the set-up code attaches: FUN_0054ce86) */
@@ -60,7 +61,7 @@ class ControllerNode implements BehaviourNode {
     const c = w.camera.c;
     for (let i = 0; i < 3; i++) { c[i] = room.eye[i]; c[3 + i] = room.target[i]; }
     w.camera.updateView();
-    rec.anim?.advance(1);
+    rec.anim?.advance(1.0, w.dt);     // FUN_0043b76a(anim, 1.0): steps by 1.0 * DAT_008b1718
   }
 }
 
@@ -85,8 +86,14 @@ class CharacterNode implements BehaviourNode {
   readonly kind = 'IfcChar';
   var = 0; mask = 0; value = 0; stamp = 0xfffffffe;
   /** FUN_0054c90b: the figure's animation runs on, shown or not */
-  update(_w: World, rec: GameRecord): number { if (escTick.on) return NODE_NONE; rec.anim?.advance(1); return NODE_CONTINUE; }
+  update(w: World, rec: GameRecord): number { if (escTick.on) return NODE_NONE; rec.anim?.advance(1.0, w.dt); return NODE_CONTINUE; }
 }
+
+/** test access (tools/tests/m5-audit-z04IFC-emu.mjs, m3-z04IFC.mjs): the controller's pre-render FUN_0054c00d and the figure node FUN_0054c90b on a room, so the oracle runs the node code itself (`advance(1.0, w.dt)`) */
+export const ifcNodesForTest = {
+  controller: (room: IfcRoom) => new ControllerNode({ room, pagesOfPin: new Map() }),
+  character: () => new CharacterNode(),
+};
 
 class DoorNode implements BehaviourNode {
   readonly kind = 'IfcDoor';
@@ -115,13 +122,12 @@ export function createIfcGame(ctx: ZoneGameCtx): ZoneGame {
   const records = world.records;
   const pages = readIfcPages(sh.pe);
   const msg = (id: string) => sh.msgs.label('!' + id);
-  const rand = (): number => gameRandom();     // RNG: the C runtime generator (src/zones/common/tickrand.ts)
+  startTickClock();     // FUN_00435c81 in the zone's loop prologue (FUN_0054996a); no srand in this zone
   const host: IfcHost = {
     play: (id) => world.playSound(id),
     restart: (id) => sh.audio.restart(id),
     pepperClip: (clip) => { loaded.pepper.anim?.start(clip, 0); },
-    ms: () => Math.trunc(performance.now()),
-    rand,
+    pick: (n) => Math.trunc(randF(Math.fround(msClock()))) % n,     // ftol(FUN_004388ae((float) FUN_00435c91())) % n
     text: msg,
     menuSound: (k) => sh.audio.menu(k),
     setVar: (i, v) => ctx.vars.set(i, v),
@@ -157,9 +163,10 @@ export function createIfcGame(ctx: ZoneGameCtx): ZoneGame {
     const m = rec.m, c = world.camera.c;
     // FUN_0041cbac: identity rotation, position = target - right * 2.8 - up * 2.16 (view basis of the camera of this tick)
     m.fill(0); m[0] = m[5] = m[10] = m[15] = 1;
-    m[12] = c[3] - c[9] * MODEL_OFFSET.RIGHT - c[12] * MODEL_OFFSET.UP;
-    m[13] = c[4] - c[10] * MODEL_OFFSET.RIGHT - c[13] * MODEL_OFFSET.UP;
-    m[14] = c[5] - c[11] * MODEL_OFFSET.RIGHT - c[14] * MODEL_OFFSET.UP;
+    const f = Math.fround;     // (target - right * 2.8) - up * 2.16, float32 per operation (24-bit x87)
+    m[12] = f(f(c[3] - f(c[9] * MODEL_OFFSET.RIGHT)) - f(c[12] * MODEL_OFFSET.UP));
+    m[13] = f(f(c[4] - f(c[10] * MODEL_OFFSET.RIGHT)) - f(c[13] * MODEL_OFFSET.UP));
+    m[14] = f(f(c[5] - f(c[11] * MODEL_OFFSET.RIGHT)) - f(c[14] * MODEL_OFFSET.UP));
     rec.prev.set(m);
     rec.flags |= RF_ENABLED;
   };

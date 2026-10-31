@@ -2,7 +2,8 @@
 //   start()   = FUN_0043b6a3 (clip, start frame)    advance() = FUN_0043b76a (returns 1 on a loop wrap, 2 when a one-shot ends)
 //   clip / frame = FUN_0043b72b / FUN_0043b73f      seek() = FUN_0043b64d
 // There is no cross-fade: starting a clip jumps to its first frame. The pose is evaluated like FUN_0043ba7a: between two frames the
-// bones are slerped only when the fractional frame is >= 0.1 (constant 0x8920cc), otherwise the exact frame is shown.
+// bones are slerped only when the fractional frame is >= 0.1 (constant 0x8920cc), otherwise the exact frame is shown. `advance` / `advanceTo` and the pose (formats/anim.ts `sampleBlk`) are
+// bit-exact against the emulated original at dt 1 and 0.5 (tools/tests/m7-pose-emu.mjs). Every `advance` adds `rate * DAT_008b1718` (FUN_0043b76a multiplies by the global itself): pass `w.dt`.
 import { sampleBlk } from '../formats/anim.ts';
 import type { Blk, BlkClip } from '../formats/anim.ts';
 
@@ -20,7 +21,7 @@ export class AnimInstance {
   frame = 0;
   /** instance flag 2: no interpolation between frames */
   noInterp = false;
-  /** frame at the previous simulation tick (render interpolation), and the clip it belonged to */
+  /** (clip, frame) at the start of this simulation step / before the last advance: what the last draw posed (readers of the draw's bone buffer, FUN_0043bc58: z28HAT `poseOfLastDraw`); the render no longer interpolates */
   prevFrame = 0; prevClip = 0;
   private bones: Float32Array;
 
@@ -97,18 +98,14 @@ export class AnimInstance {
   /** remember the state at the start of a tick (call before the simulation changes it) */
   beginTick() { this.prevFrame = this.frame; this.prevClip = this.clip; }
 
-  /** bone matrices (column-major, WebGL ready, see sampleBlk) of the current pose; `alpha` interpolates between the previous tick and now */
-  pose(alpha = 1): Float32Array | null {
+  /**
+   * bone matrices of the current pose (the game's row-major matrices, which read as column-major WebGL matrices are their transpose: `sampleBlk`). The original draws the pose of the
+   * current (clip, frame) and does not interpolate between steps; `_alpha` is only kept for the callers that still pass the loop's factor (always 1).
+   */
+  pose(_alpha = 1): Float32Array | null {
     const sk = this.rig.skeleton;
     const c = this.clipData;
     if (!sk || !c || c.boneCount !== sk.boneCount) return null;
-    let f = this.frame;
-    if (alpha < 1 && this.prevClip === this.clip && c.frameCount > 1) {
-      // between ticks: move along the clip by the same fraction (handles the wrap of looping clips)
-      let d = this.frame - this.prevFrame;
-      if (d < 0) d += (c.flags & CLIP_LOOP) ? c.frameCount : c.frameCount - 1;
-      f = this.prevFrame + d * alpha;
-    }
-    return sampleBlk(sk, c, f, (c.flags & CLIP_LOOP) !== 0, this.bones, this.noInterp ? 1e9 : POSE_SNAP);
+    return sampleBlk(sk, c, this.frame, (c.flags & CLIP_LOOP) !== 0, this.bones, this.noInterp ? 1e9 : POSE_SNAP);
   }
 }

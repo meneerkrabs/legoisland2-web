@@ -163,7 +163,6 @@ export class CameraHook implements RunHook {
       if (mode === 'origineel') S.free.reset(); else S.free.takeOver([c[0], c[1], c[2]], [c[3], c[4], c[5]]);
     } else if (this.saved) {
       for (let i = 0; i < 18; i++) c[i] = this.saved[i];
-      this.cam.savePrev();
       this.saved = null;
     }
     this.c.status('camera.free', on ? 'vrije camera aan (pijlen)' : '');
@@ -186,7 +185,6 @@ export class CameraHook implements RunHook {
   private applyFree() {
     const c = this.cam.c;
     for (let i = 0; i < 18; i++) c[i] = this.freeC[i];
-    this.cam.savePrev();
   }
 
   // ------------------------------------------------------------------------------------------------------------------ RunHook
@@ -216,7 +214,6 @@ export class CameraHook implements RunHook {
       this.lastPad = this.pad;
       S.free.step(this.pad, this.run.world.dt, this.cam.c);    // FUN_00890000 -> FUN_0088fd70(view, &DAT_009da5e8): overwrites the camera after the zone's own update
       this.freeC.set(this.cam.c); this.freeValid = true;
-      this.cam.savePrev();                                      // no interpolation smear between the zone's camera and ours
     }
   }
 
@@ -229,19 +226,25 @@ export class CameraHook implements RunHook {
     return r;
   }
 
+  private lastStep = -1;
   draw3d(r: Renderer, _eye: [number, number, number]) {
     const S = this.S;
     void _eye;
-    this.frame++;
-    if (S.adaptive !== 0) {
-      const now = performance.now();
-      if (this.lastFrameAt) {
-        const k = S.detail.k, ticksPerMs = S.qpcHz / 1000;
-        S.detail.frameTime((now - this.lastFrameAt) * ticksPerMs, S.qpcHz * k.period, 10000, this.frame);
-        this.farDelta = S.detail.far - this.farBase;
-      }
-      this.lastFrameAt = now;
-    } else this.lastFrameAt = 0;
+    // FUN_00443e40 runs once per loop pass = once per sim step, the render hook runs at the display rate: the frame time (wall clock, like the original's QueryPerformanceCounter) is taken once per sim step
+    const step = this.run.world.tickCount;
+    if (step !== this.lastStep) {
+      this.lastStep = step;
+      this.frame++;
+      if (S.adaptive !== 0) {
+        const now = performance.now();
+        if (this.lastFrameAt) {
+          const k = S.detail.k, ticksPerMs = S.qpcHz / 1000;
+          S.detail.frameTime((now - this.lastFrameAt) * ticksPerMs, S.qpcHz * k.period, 10000, this.frame);
+          this.farDelta = S.detail.far - this.farBase;
+        }
+        this.lastFrameAt = now;
+      } else this.lastFrameAt = 0;
+    }
     const q = this.q;
     this.stats.lines = q.lines.length; this.stats.shapes = q.shapes.length;
     this.stats.total = q.total; this.stats.overflows = q.overflows;

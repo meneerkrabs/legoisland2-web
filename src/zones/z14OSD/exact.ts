@@ -44,7 +44,7 @@ export function nameIs4(w: World, rec: GameRecord, va: number): boolean {
 
 /**
  * FUN_004388ae(max) as the original's x87 code returns it (24-bit precision, `fild r; fdiv 32767.0f; fmul max; fst`): rand() / 32767 is rounded to float32, the product with the float32 `max`
- * is rounded again. The shared `rand(max)` (island/ambient/common.ts) computes `r / 32767 * max` in doubles (it is `rand(1)` = r / 32767 exactly there), one rounding later: up to 1 ulp apart.
+ * is rounded again (the shared `rand(max)` of island/rng.ts does the same two float32 roundings on the shared crt.ts generator; this keeps the argument's float32 test of the original).
  */
 export function rand32(max: number): number {
   if (max <= 0) return 0;

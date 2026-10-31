@@ -1,6 +1,6 @@
 import { readExeSoundTable } from '../../src/formats/sound.ts';
 import { loadExe, loadZone } from '../lib/engine-load.mjs';
-import { prepareWorld, lcg, snapshot, CTOR, MODEL_RECORDS } from '../../src/zones/z41MAP/nodes.ts';
+import { prepareWorld, lcg, snapshot, drawPlanet, CTOR, MODEL_RECORDS } from '../../src/zones/z41MAP/nodes.ts';
 import { registeredCtors } from '../../src/game/setup.ts';
 import {
   SND, readTables, SLOT_POS, CITIZEN_CLIPS, CAM_LOOK, CAM_EYE, TOPPINGS_PER_ROUND, ROUNDS, medalOfScore, finishScore, VAR_TROPHY_MAP, VAR_HISCORE_MAP,
@@ -97,6 +97,7 @@ export default {
       for (const [k, x] of Object.entries(vars)) L.world.vars.set(+k, x);
       const S = prepareWorld(L.world, L.archive);
       S.env.rng = lcg(seed);
+      S.env.ms = () => 1001;               // FUN_00435c91 (the picks scale rand() by it): odd, so a rand() of 32767 gives an odd pick
       L.world.externalInput = true;
       return { L, w: L.world, S };
     };
@@ -164,7 +165,7 @@ export default {
       ok(P.gauge === GAUGE_START && P.layers === 0 && P.thrown === 0, 'a round starts with the gauge at 12');
       ok(P.count === TOPPINGS_PER_ROUND[0] && P.target.slice(0, 2).every((t) => [1, 2, 4, 8].includes(t)) && P.target[2] === -1, `round 1 wants 2 toppings: ${P.target}`);
       ok(S.hudIcons.slice(0, 2).every((t, i) => 1 << t === P.target[i]) && S.hudIcons[2] === -1, `HUD icons are the bit positions of the targets: ${S.hudIcons}`);
-      S.env.rng = () => 0.99;               // never wiggle (parity odd)
+      S.env.rng = () => 32767;               // never wiggle (parity odd)
       const a0 = P.angle, g0 = P.gauge;
       for (let i = 0; i < 100; i++) tick(w);
       ok(near(P.angle, a0 + 100 * 0.015, 1e-3) && P.state === 2, `the swing advances 0.015 per tick (${P.angle - a0})`);
@@ -182,6 +183,26 @@ export default {
       tick(w);
       ok(near(P.angle, 0.1 + 4 * 0.015, 1e-4) && near(P.x, 0.75 * Math.sin(0.1), 1e-4) && x1 !== P.x, `wiggle: 4 substeps (${P.angle}), x ${P.x}`);
       void ang;
+    }
+
+    // ---------------------------------------------------------------- dt = 0.5 (the 60 Hz step): dt-scaled floats halve per tick, the per-frame code (planet, pulse phase) and the per-update constants do not
+    {
+      const { w, S } = fresh(3);
+      w.dt = 0.5;
+      while (S.papa.state !== 2) tick(w);
+      const P = S.papa;
+      S.env.rng = () => 32767;
+      const a0 = P.angle, g0 = P.gauge, pl0 = S.planetAngle;
+      for (let i = 0; i < 100; i++) tick(w);
+      ok(near(P.angle, a0 + 100 * 0.0075, 1e-3) && P.state === 2, `dt 0.5: the swing advances 0.0075 per tick (${P.angle - a0})`);
+      ok(near(P.gauge, g0 - 100 * GAUGE_DECAY * 0.5, 1e-3), `dt 0.5: the gauge falls 0.0025 per tick (${g0 - P.gauge})`);
+      ok(near(S.planetAngle - pl0, 100 * 0.005, 1e-5), `dt 0.5: the planet (draw hook, once per drawn frame) still turns 0.005 per tick (${S.planetAngle - pl0})`);
+      // the draw hook alone (the zone game's everyTick in the modes without an update pass): one step of 0.005, never scaled by dt
+      const p1 = S.planetAngle;
+      drawPlanet(w);
+      ok(near(S.planetAngle - p1, 0.005, 1e-7), 'drawPlanet: one step of 0.005 at dt 0.5');
+      w.dt = 1; drawPlanet(w);
+      ok(near(S.planetAngle - p1, 0.01, 1e-7), 'drawPlanet: the same step at dt 1');
     }
 
     // ---------------------------------------------------------------- the queue of citizens
@@ -205,7 +226,7 @@ export default {
     {
       const { w, S } = fresh(5);
       while (!(S.papa.state === 2 && S.pepper.state === 2)) tick(w);
-      S.env.rng = () => 0.99;
+      S.env.rng = () => 32767;
       const want = S.papa.target[0];
       const key = { 1: KEY.RIGHT, 2: KEY.LEFT, 4: KEY.UP, 8: KEY.DOWN }[want];
       tick(w, key);
@@ -390,7 +411,7 @@ export default {
       // the model-holder records and helper-less world: the zone keeps running in the banner (Papa dances: clip 10 loops)
       for (let i = 0; i < 100; i++) tick(g.w);
       ok(g.S.papa.state === 10 && g.w.records.find((r) => r.name === 'PAPA').anim.clip === 10, 'Papa dances after the result (state 10)');
-      notes.push(`WIN seed 1: ${g.t} ticks (${(g.t / 30).toFixed(0)} s), score ${P.score}, medal ${P.medal}, throws ${g.bot.throws}`);
+      notes.push(`WIN seed 1: ${g.t} ticks (${(g.t / 30).toFixed(0)} s of game time at dt = 1), score ${P.score}, medal ${P.medal}, throws ${g.bot.throws}`);
       const g2 = play('win', 3);
       ok(g2.S.result === 1 && g2.S.papa.medal >= 1, `a second WIN (seed 3): score ${g2.S.papa.score}, medal ${g2.S.papa.medal}`);
       notes.push(`WIN seed 3: score ${g2.S.papa.score}, medal ${g2.S.papa.medal}`);

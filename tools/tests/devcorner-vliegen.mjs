@@ -1,4 +1,5 @@
 import { loadIsland, tick } from '../lib/island-load.mjs';
+import { setIslandRandom, getIslandRandom } from '../../src/island/rng.ts';
 import { loadIslandWalkMaps, startIslandNpcs } from '../../src/island/npc/index.ts';
 import { startPizzaNodes, SupeNode, SUPE, ST } from '../../src/island/pizza/index.ts';
 import { MANUAL } from '../../src/island/pizza/supe.ts';
@@ -7,16 +8,17 @@ import { registerCtor } from '../../src/game/setup.ts';
 import { CTOR_SUPE } from '../../src/island/pizza/supe.ts';
 import { waypoints } from '../../src/game/walker.ts';
 import { findSupe, setFlight, toggleFlight, flightOn, FlightProbe, NOT_AVAILABLE, STATE_NAMES, FLY_KEY } from '../../src/devcorner/vliegen-core.ts';
+import { guarded } from '../lib/inject-guard.mjs';
 
 // Developer corner section 11 "Vliegen" (port extension, docs/re/unused.md 5.3): the station master flies by hand with Pepper in his hand.
 // 1. zone without a SUPE record: the switch does nothing ("niet beschikbaar in deze zone"). 2. the forced pick-up (swoop, lift) ends in ST.MANUAL with PEPPER_CONTROL 0x80.
 // 3. 600 ticks of scripted input (turn, pitch, climb, dive, boost): no NaN, Pepper stays at his hand (1.41), speeds, camera, no vehicle. 4. the exit (the switch / Ctrl): the
 // original's 0xc..0xf states put Pepper down at the nearest helipad exit node, PEPPER_CONTROL 1, board record 9 hidden, flag cleared. 5. with the flag off nothing differs:
-// a normal rail rescue (seeded Math.random) gives the same trace hash with the frozen copy of supe.ts from before the hook (tools/tests/fixtures/supe-orig.ts).
+// a normal rail rescue (seeded island random source) gives the same trace hash with the frozen copy of supe.ts from before the hook (tools/tests/fixtures/supe-orig.ts).
 
 function seeded(seed) { let s = seed >>> 0; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
 
-export default {
+const __test = {
   name: 'devcorner-vliegen',
   async run(ctx) {
     const failures = [], notes = [];
@@ -25,9 +27,9 @@ export default {
     const f1 = (v) => v.toFixed(1);
     const hex = (n) => '0x' + (n >>> 0).toString(16);
     const finite = (...vs) => vs.every((v) => Number.isFinite(v));
-    const realRandom = Math.random;
+    const realRandom = getIslandRandom();
     const start = (node) => {
-      Math.random = seeded(12345);
+      setIslandRandom(seeded(12345));
       const I = loadIsland(ctx, { node });
       loadIslandWalkMaps(I.archive, I.profile.island);
       startPizzaNodes(I.world);
@@ -177,7 +179,8 @@ export default {
       }
 
       ok(MANUAL.BOOST === 3.2 && MANUAL.VERT === SUPE.VY, 'constants');
-    } finally { Math.random = realRandom; }
+    } finally { setIslandRandom(realRandom); }
     return { checked, failures, notes };
   },
 };
+export default guarded(__test);

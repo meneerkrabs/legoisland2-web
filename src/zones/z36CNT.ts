@@ -21,7 +21,7 @@ import { layoutFrom, blurCopies, armShadows, SHADOW_TYPE } from './z36cnt/pose.t
 import type { BlurCopy } from './z36cnt/pose.ts';
 import { euler24 } from './common/x87.ts';
 import { f32 } from './z36cnt/util.ts';
-import { gameRandom } from './common/tickrand.ts';
+import { randF } from '../game/crt.ts';
 
 /** constructors the zone's set-up attaches (FUN_007afbc0): the machine on TRAI (record 18), Bob on TBOB (record 0) */
 export const CTOR_TRAI = 0x7b20a8, CTOR_TBOB = 0x7b2836;
@@ -111,16 +111,16 @@ registerZoneGame('z36CNT', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
     play: (id) => snd.play(id), stop: (id) => snd.stop(id), rate: (id, hz) => snd.rate(id, hz),
     say: (id) => { ctx.say(id); },
     getVar: (i) => world.vars.get(i), setVar: (i, v) => world.vars.set(i, v),
-    rand: () => gameRandom(),     // RNG: the C runtime generator (src/zones/common/tickrand.ts)
+    rand: (x) => randF(x),     // FUN_004388ae on the shared C runtime generator (src/game/crt.ts)
     visor: (a) => { visorMatrix.set(euler24(a, 0, 0, VISOR_POS[0], VISOR_POS[1], VISOR_POS[2])); },   // FUN_0043a5e4 (24-bit x87)
   };
   const sim = new CentrifugeSim(host, readFrameTable((va) => sh.pe.u32(va)));
 
   const traiNode = trai.ctrl?.find<CntNode>('TRAI');
   const bobNode = bobRec.ctrl?.find<CntNode>('TBOB');
-  if (traiNode) { traiNode.run = (_w, pressed) => { sim.step(pressed); placeParts(); }; traiNode.onDestroy = () => sim.destroy(); }
+  if (traiNode) { traiNode.run = (w, pressed) => { sim.step(pressed, w.dt); placeParts(); }; traiNode.onDestroy = () => sim.destroy(); }
   else console.warn('z36CNT: the TRAI controller was not attached');
-  if (bobNode) bobNode.run = () => sim.bobStep();
+  if (bobNode) bobNode.run = (w) => sim.bobStep(w.dt);
   else console.warn('z36CNT: the Bob controller was not attached');
 
   // the monitor texture (FLOR's list entry 6): the frames of the .wib are picked by the sim
@@ -164,6 +164,7 @@ registerZoneGame('z36CNT', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
 
   const medalOf = () => (!sim.medalOk ? 0 : sim.shownScore < MEDAL_GOLD ? (sim.shownScore < MEDAL_SILVER ? 1 : 2) : 3);
 
+  let passMode = 0;   // the loop mode the current pass started in (see `everyTick`)
   const game: ZoneGame = {
     introId: 'LESGCE01',
     helpControls: 4,
@@ -180,19 +181,28 @@ registerZoneGame('z36CNT', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
       else if (m === 2) ctx.say('LESGCE04');
       else ctx.say('LESGCE02', 'LESGCE03');
     },
-    draw2d(ui: Ui2D, dt: number, mode: number) {
-      if (mode === 0 || mode === 1) setMonitor(MONITOR_IDLE_FRAME);
-      if (mode === 2) {
-        // FUN_007aef49: the timer (seconds, right), the score (centre), the gauge, the klaxon at full power
+    /**
+     * FUN_007aef49 (mode 2: after the pass's draw, once per loop pass): the monitor frame (FUN_00443120), the HUD texts / gauge, the klaxon (FUN_004435a0 / FUN_004435b0 at full power).
+     * It is state of the pass, not of the browser's rAF calls, so it runs here (once per sim step) and `draw2d` only draws. `mode` is the mode after the runner's transition: the pass
+     * itself ran in `passMode` (the mode the previous step ended in), like the original's `switch (local_8)` before its transition.
+     */
+    everyTick(mode: number) {
+      const m = passMode; passMode = mode;
+      if (m === 3) return;   // the pause menu: the pass does not run the zone's code
+      if (m === 0 || m === 1) setMonitor(MONITOR_IDLE_FRAME);
+      if (m === 2) {
         setMonitor(sim.hudFrame);
         hud.rightText = String(Math.trunc(Math.trunc(sim.hudTime) / 30));
         hud.centreText = String(sim.shownScore);
         hud.gauge!.value = sim.hudPower;
-        hudOn(true); hud.draw(ui, dt * 30); hudOn(false);
         if (sim.hudPower === 1) snd.play(SND.KLAXON); else snd.stop(SND.KLAXON);
       } else {
         snd.stop(SND.KLAXON);
       }
+    },
+    /** FUN_0046055f: pure drawing of the values `everyTick` left in the HUD */
+    draw2d(ui: Ui2D, dt: number, mode: number) {
+      if (mode === 2) { hudOn(true); hud.draw(ui, dt * 30); hudOn(false); }
     },
     drawBanner(ui: Ui2D) {
       // FUN_007b0085 on the panel of FUN_00460a3d(0x16, 0x14, 0): the score at y = 100, the medal (STD.str) at 150, the lines (wrap 30) at 200 / 320 (no medal),
