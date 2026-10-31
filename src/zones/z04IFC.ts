@@ -116,6 +116,20 @@ registerCtor(IFC_CTOR.PIN, (a) => { const page = (a.argWords?.[0] ?? 0) | 0; ret
 registerCtor(IFC_CTOR.CHARACTER, () => new CharacterNode());
 registerCtor(IFC_CTOR.DOOR, () => new DoorNode(link));
 
+/**
+ * FUN_0041cbac, its end (0x41d650 .. 0x41d73b): the matrix of the character figure of the open page. Identity rotation, position = (target - v0 * 2.8) - v4 * 2.16 per component, with v the
+ * view matrix FUN_0043cc5c builds this tick (D3D layout, columns hold the basis): x uses m[0] / m[4], y uses m[1] / m[5], z uses m[2] / m[6] (NOT the "right / up" vectors component by
+ * component: m[4] is right.y, m[1] is up.x ...; the two readings agree only while right.y = up.x = 0, as for the map camera). In the camera's 18 floats m[0], m[4] = c[9], c[10], m[1], m[5] =
+ * c[12], c[13], m[2], m[6] = c[15], c[16]. Every operation a float32 (24-bit x87). The elements the original does not write (3, 7, 11, 15) are left as they are (the scene's 0, 0, 0, 1).
+ */
+export function placeFigure(m: Float32Array, c: ArrayLike<number>) {
+  const f = Math.fround;
+  m[0] = 1; m[1] = 0; m[2] = 0; m[4] = 0; m[5] = 1; m[6] = 0; m[8] = 0; m[9] = 0; m[10] = 1;
+  m[12] = f(f(c[3] - f(c[9] * MODEL_OFFSET.RIGHT)) - f(c[10] * MODEL_OFFSET.UP));
+  m[13] = f(f(c[4] - f(c[12] * MODEL_OFFSET.RIGHT)) - f(c[13] * MODEL_OFFSET.UP));
+  m[14] = f(f(c[5] - f(c[15] * MODEL_OFFSET.RIGHT)) - f(c[16] * MODEL_OFFSET.UP));
+}
+
 /** the zone game of z04IFC */
 export function createIfcGame(ctx: ZoneGameCtx): ZoneGame {
   const { sh, world, loaded } = ctx;
@@ -160,14 +174,8 @@ export function createIfcGame(ctx: ZoneGameCtx): ZoneGame {
   // ---- records: pins are drawn only when selected (FUN_0054bb49), the room mesh is hidden while the menu is open (FUN_0054996a, mode 2), the figure of the open page is shown
   let shown = -1;
   const place = (rec: GameRecord) => {
-    const m = rec.m, c = world.camera.c;
-    // FUN_0041cbac: identity rotation, position = target - right * 2.8 - up * 2.16 (view basis of the camera of this tick)
-    m.fill(0); m[0] = m[5] = m[10] = m[15] = 1;
-    const f = Math.fround;     // (target - right * 2.8) - up * 2.16, float32 per operation (24-bit x87)
-    m[12] = f(f(c[3] - f(c[9] * MODEL_OFFSET.RIGHT)) - f(c[12] * MODEL_OFFSET.UP));
-    m[13] = f(f(c[4] - f(c[10] * MODEL_OFFSET.RIGHT)) - f(c[13] * MODEL_OFFSET.UP));
-    m[14] = f(f(c[5] - f(c[11] * MODEL_OFFSET.RIGHT)) - f(c[14] * MODEL_OFFSET.UP));
-    rec.prev.set(m);
+    placeFigure(rec.m, world.camera.c);
+    rec.prev.set(rec.m);
     rec.flags |= RF_ENABLED;
   };
   const syncRecords = () => {

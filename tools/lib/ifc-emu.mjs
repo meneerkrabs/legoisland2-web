@@ -7,7 +7,7 @@ import { createCpu } from '../../src/formats/x86emu.ts';
 export const RECORDS_BASE = 0x10000000, HEAP_BASE = 0x20000000;
 const REC = 0x68;
 const CRT = [0x858d30, 0x873e00];
-const NATIVE = [0x43a340, 0x43a4a1, 0x43a5e4, 0x43a9e5, 0x43ab72, 0x43abe6, 0x43af16, 0x43ae1e, 0x43cec0];
+const NATIVE = [0x41d65c, 0x43a340, 0x43a4a1, 0x43a5e4, 0x43a9e5, 0x43ab72, 0x43abe6, 0x43af16, 0x43ae1e, 0x43cec0];
 /** globals the room keeps (DAT_ addresses of the zone's code) */
 export const G = { MENU_OPEN: 0x5d587c8, PINS_OFF: 0x5d587d0, EXIT_ASK: 0x5d587cc, DOOR_WANTED: 0x5d587d4, CAPTION: 0x5d4dd7c, CAM: 0x9da5e8, KEYS: 0x983840 };
 
@@ -54,12 +54,13 @@ export class IfcEmu {
     H.set(0x4435b0, (c) => { logf(`s ${c.arg(0)}`); c.eax = 0; });
     H.set(0x43b6a3, (c) => { logf(`clip ${c.arg(1)}`); c.eax = 1; });
     H.set(0x43b76a, (c) => { logf(`adv ${c.argf(1)} ${mem.f32(0x8b1718)}`); c.eax = 0; });   // FUN_0043b76a steps by rate * DAT_008b1718
-    H.set(0x43cc5c, (c) => { c.eax = 0; });                            // view basis
+    // FUN_0043cc5c (the view matrix: FUN_004165a5's look-at) runs natively; FUN_00416961 only hands the matrix to the D3D device (SetTransform): hosted as a no-op
+    H.set(0x416961, (c) => { c.eax = 0; });
     H.set(0x4201aa, (c) => { c.eax = 0; });
     // FUN_00439788(table, id) returns the text (here: the id itself); FUN_0085ac00(dest, text) copies it (the caption)
     H.set(0x439788, (c) => { c.eax = c.arg(1); });
     H.set(0x85ac00, (c) => { const s = mem.cstr(c.arg(1)); for (let i = 0; i < s.length; i++) mem.w8(c.arg(0) + i, s.charCodeAt(i)); mem.w8(c.arg(0) + s.length, 0); c.eax = s.length; });
-    cpu.exec = [[0x54916a, 0x568fe1], CRT];
+    cpu.exec = [[0x54916a, 0x568fe1], CRT, [0x43cc5c, 0x43cccc], [0x40c000, 0x40d000], [0x415000, 0x418000]];
     for (const a of NATIVE) cpu.native.add(a);
     cpu.fallback = (addr) => (c) => { logf(`unhooked_${addr.toString(16)}`); c.eax = 0; };
   }
@@ -79,6 +80,19 @@ export class IfcEmu {
     const n = this.cpu.call(0x54bc04, [this.recPtr(rec), blk, 0, 0, 2, 1]);
     (this.pins ??= new Map()).set(rec, n);
     return n;
+  }
+  /**
+   * FUN_0041cbac's end (0x41d65c .. 0x41d73b): the figure record `rec` is placed from the camera at DAT_009da5e8 (the view matrix is computed natively by FUN_0043cc5c): the code runs from the
+   * push of the camera to the return with the frame `[ebp - 0x44] = record` (the stack frame of the menu drawing is not modelled)
+   */
+  placeFigure(rec) {
+    const cpu = this.cpu, mem = cpu.mem;
+    const ebp = cpu.esp - 0x4000;
+    mem.w32(ebp - 0x44, this.recPtr(rec));
+    cpu.hooks.set(0x41d73e, () => 0);
+    const ebp0 = cpu.regs[5]; cpu.regs[5] = ebp;
+    cpu.call(0x41d65c, []);
+    cpu.regs[5] = ebp0;
   }
   select(rec) { this.vars.set(0xfa, this.recPtr(rec)); }
   /** one tick in the order of the passes (records in index order): update pass (Pepper's controller 7, the door 30, the pins), then the pre-render of the controller */

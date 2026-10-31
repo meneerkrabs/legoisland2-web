@@ -42,7 +42,7 @@ export function prepareSsh(world: World, _loaded: Loaded, archive: Archive, scen
   const cart = R[REC.CART];
   const node = cart.ctrl?.find<CartNode>('Walk');
   if (!node) throw new Error('z15SSH: the buggy node is not attached (constructor 0x659d94 not registered)');
-  // the zone has its own player node: the stub chain (StubGuard, SGwalk, ...) of the generic set-up is dropped
+  // the zone has its own player node: the M1 chain (SGwalk, ...) of the generic set-up is dropped
   cart.ctrl!.nodes = [node];
   cart.ctrl!.exclusive = null;
   const parts = new PartStore(archive, scene);

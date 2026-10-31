@@ -109,12 +109,10 @@ The oracle machine is `tools/lib/m5-z07CSI-emu.mjs` (`makeCsiDuel`): the origina
 
 ## 7. What is not exact and why
 
-* **Frustum flag**: the original reads record flag 1 (set by the draw pass of the tick before); the port asks `ctx.inFrustum(rec)` at update time (the hub context's sphere test). The idle timer / "go home" (300 ticks out
-  of sight) can differ by a tick in when it starts counting. The oracle test feeds the same flag to both.
-* **Saved games**: the node save blocks (HORS: 0x44 bytes at +0x18 + the value of var 0x112 on save / load by FUN_0057900b / FUN_005790c9; rider 1 byte at +0x15; saddle 1 byte at +0x1c) are not written to the
-  save file (the shell has no node save; the castle's other nodes are the same): a load restores the variables and the nodes start from them (the horse starts idle: var 0x112 & 1 decides).
-* Uninitialised heap fields of the node (see section 3) are 0.
-* The collision engine (sweeps, terrain) is shared with the other zones and not re-verified here; only the horse's use of it is.
+* **Frustum flag**: the original reads record flag 1, which the draw pass of the tick before set (FUN_00444370); the port asks `ctx.inFrustum(rec)` (the hub context: the record's collision sphere against the planes of the LAST DRAWN frame, GameRenderer.sphereVisible), the same one-frame lag at one simulation step per drawn frame. The sphere test is `visibleFlags` (`src/fx/particles/sprites.ts`): FUN_00416590 only wraps `IDirect3DDevice7::ComputeSphereVisibility`, a system DLL that is not in the executable, so the oracle cannot run it; the port does it in float32 per operation, the way Wine's ddraw does (native-measured result layout, see the function). The planes are built from the matrix of the last drawn frame (`clipPlanes`). What cannot be settled is only whether Microsoft's runtime rounds exactly like Wine's reimplementation on a sphere exactly on a plane (inherent: no reference binary of d3dim.dll). The oracle test feeds the same flag to both sides.
+* **Saved games**: exact since WP-SAVE (docs/re/save.md): the horse's 0x44 bytes at +0x18 (+ var 0x112), the rider's byte at +0x15 and the saddle's at +0x1c are written and read like FUN_0057900b / FUN_005790c9 etc. (`m8-save-csi`, `m8-save-nodes`).
+* Uninitialised heap fields of the node (see section 3): the debug heap's 0xCD fill, kept by the port until the game writes them (`src/game/heapfill.ts`).
+* The collision engine (sweeps, terrain) is shared with the other zones (oracle tests `m7-walk-col`, `m4-s5-colshapes`); the horse's own use of it is in `m5-z07CSI-horse-emu`.
 
 ## 8. Bot, particles, sounds
 

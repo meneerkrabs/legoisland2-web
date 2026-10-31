@@ -67,7 +67,7 @@ export function startApoRun(world: World, archive: Archive | null): ApoRun {
   const rec = run.recs.pepp;
   const pilot = rec.ctrl?.find<ApoPilot>('ApoPilot');
   if (!pilot) throw new Error('z40aPO: the pilot node is not attached');
-  // the zone has its own player node (FUN_007d53af is the only behaviour of PEPP): the stub chain of the generic set-up (StubGuard, M1 walk / switch / swim) is dropped
+  // the zone has its own player node (FUN_007d53af is the only behaviour of PEPP): the M1 chain of the generic set-up (walk / switch / swim) is dropped
   if (rec.ctrl) rec.ctrl.nodes = rec.ctrl.nodes.filter((n) => n.kind === 'ApoPilot');
   pilot.init(world, rec);
   // PARA keeps the scene's flags 2 like the original: its collision object is header-only (z38PAR: PARA_Chute.col via FUN_0043f700, found by `headerOnlyColSlots`; z40aPO: solaarwing.col is an
@@ -112,7 +112,10 @@ async function apoGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   const pep = run.recs.pepp;
   // FUN_0043ebe0(SHAD model, 2, DAT_05d5f290, 0): the five vertices of the shadow patch are the points FUN_00442a70 computed (ApoPilot.ground)
   const shad = run.recs.shad;
-  if (shad) ctx.gr.vertexOverride = (rec) => (rec === shad ? run.shadow : undefined);
+  if (shad) {
+    const wing = run.recs.para?.ctrl?.find<ApoWing>('ApoWing');
+    if (wing) wing.drawShadow = (rec, verts) => ctx.gr.drawRecordLive(rec, verts, true);   // FUN_007d2cf0: the patch is drawn inside the wing's draw hook, z test off
+  }
   // FUN_0043ea60(model of SHTL, 1 / 2 / 3): the live matrices of the shuttle's doors and hatch (the pilot turns them in states 0 and 1, the renderer draws their groups with them)
   const shtl = run.recs.shtl;
   const pilotNode = pep.ctrl?.find<ApoPilot>('ApoPilot');
@@ -124,6 +127,7 @@ async function apoGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   }
   let result = 0;
   let wasOver = false;
+  let passMode: number = MODE.INIT;   // the loop mode the current pass started in (see `everyTick`)
 
   // the intro: FUN_0045c366("z40OGL", "og") + FUN_0045c397(0, "ogl02", "apo01"), started at the top of the loop (FUN_0045c40c(0)); the loop's mode 1 runs the script
   // FUN_0042207d(PEPP) at the top of the loop: Pepper's walker on PATH (no node) with the NPC tuning; the cutscene registers it (walker paused while the script runs) and its end
@@ -176,6 +180,16 @@ async function apoGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
       for (let i = 0; i < 3; i++) c[i] = r(r(r(eye[i] - c[i]) * r(0.85)) + c[i]);
       world.camera.updateView(); world.camera.savePrev();
       pep.x = 0; pep.y = 2000; pep.z = 0; pep.savePrev();
+    },
+    /**
+     * FUN_007d2dd8 (the wing) is a DRAW hook: it runs in the draw pass of EVERY loop pass, also where the update pass does not (pause, intro, help, result menu: only the modes 2 and 4 update).
+     * Its scale step (DAT_05d5ee64: 1 opening, 2 closing) therefore goes on behind the pause menu. `everyTick` gets the mode after the transition: the mode the pass started in is kept.
+     */
+    everyTick(mode: number) {
+      const start = passMode; passMode = mode;
+      if (start === MODE.PLAY || start === MODE.BANNER) return;
+      const wing = run.recs.para;
+      wing?.ctrl?.find<ApoWing>('ApoWing')?.update(world, wing);
     },
     onStart() { ctx.hud.visible = true; run.sound.play('boxOpen'); },
     update() {

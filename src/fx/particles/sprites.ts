@@ -5,7 +5,7 @@
 //
 // Everything the original does on the CPU is a literal port and differentially tested against the original code in the x86 interpreter
 // (tools/lib/particle-draw-oracle.mjs): the quad build (`buildQuad`), the polygon clip (`clipPolygon`) and the sort (`sortSprites`). The two Direct3D calls the original
-// makes (ComputeSphereVisibility and ProcessVertices) are re-implemented from their documented behaviour (`visibleFlags`, `projectPoint`).
+// makes (ComputeSphereVisibility and ProcessVertices) are re-implemented (`visibleFlags` = Wine's native-measured ddraw implementation, `projectPoint`).
 import { AP, MV } from './layout.ts';
 import { ftol, type PState } from './core.ts';
 import type { Particle } from './pool.ts';
@@ -176,34 +176,51 @@ export function sortSprites(pts: Float32Array, idx: Int32Array, lo: number, hi: 
 // ---------------------------------------------------------------------------------------------------------------------------
 // the two Direct3D 7 calls
 
-/** the six view frustum planes (a, b, c, d) with unit normals from a row-vector view-projection matrix (GL clip space z in -w .. w): left, right, bottom, top, near, far */
-export function frustumPlanes(vp: ArrayLike<number>, out: Float32Array = new Float32Array(24)): Float32Array {
-  const col = (c: number) => [vp[c], vp[4 + c], vp[8 + c], vp[12 + c]];
-  const c0 = col(0), c1 = col(1), c2 = col(2), c3 = col(3);
-  const set = (i: number, s: number, a: number[]) => {
-    const p = [c3[0] + s * a[0], c3[1] + s * a[1], c3[2] + s * a[2], c3[3] + s * a[3]];
-    const l = Math.hypot(p[0], p[1], p[2]) || 1;
-    out[i * 4] = p[0] / l; out[i * 4 + 1] = p[1] / l; out[i * 4 + 2] = p[2] / l; out[i * 4 + 3] = p[3] / l;
-  };
-  set(0, 1, c0); set(1, -1, c0); set(2, 1, c1); set(3, -1, c1); set(4, 1, c2); set(5, -1, c2);
+/**
+ * The six clip planes IDirect3DDevice7::ComputeSphereVisibility builds from the combined `world * view * projection` matrix (D3D row-vector convention, clip z in 0 .. w): rows of
+ * the combined matrix as Wine's ddraw `prepare_clip_space_planes` has them (Wine's tests `test_compute_sphere_visibility` are measured on native Windows): plane order left (m14 + m11),
+ * right (m14 - m11), top (m14 - m12), bottom (m14 + m12), front (m13), back (m14 - m13); (a, b, c, d) NOT normalised (the call normalises per sphere).
+ * `m` is the 4x4 row-major combined matrix in D3D clip space.
+ */
+export function planesFromD3d(m: ArrayLike<number>, out: Float32Array = new Float32Array(24)): Float32Array {
+  const c = (r: number, k: number) => m[r * 4 + k];   // m_{r+1,k+1}
+  const set = (i: number, f: (r: number) => number) => { for (let r = 0; r < 4; r++) out[i * 4 + r] = f(r); };
+  set(0, (r) => c(r, 3) + c(r, 0));
+  set(1, (r) => c(r, 3) - c(r, 0));
+  set(2, (r) => c(r, 3) - c(r, 1));
+  set(3, (r) => c(r, 3) + c(r, 1));
+  set(4, (r) => c(r, 2));
+  set(5, (r) => c(r, 3) - c(r, 2));
   return out;
 }
 
+/** the planes of a GL-clip-space (z in -w .. w) row-vector view-projection matrix: the D3D matrix has the column z' = (z + w) / 2 (identical planes up to a positive scale) */
+export function frustumPlanes(vp: ArrayLike<number>, out: Float32Array = new Float32Array(24)): Float32Array {
+  const d = new Float32Array(16);
+  for (let r = 0; r < 4; r++) { d[r * 4] = vp[r * 4]; d[r * 4 + 1] = vp[r * 4 + 1]; d[r * 4 + 2] = (vp[r * 4 + 2] + vp[r * 4 + 3]) / 2; d[r * 4 + 3] = vp[r * 4 + 3]; }
+  return planesFromD3d(d, out);
+}
+
+const fr = Math.fround;
+
 /**
- * IDirect3DDevice7::ComputeSphereVisibility, as far as the particle code looks at it: the result flags are `frustum (0 inside / 1 intersect / 2 outside)` in bits 0..1 and
- * per plane (left 2, right 4, top 6, bottom 8, near 10, far 12) `0 inside / 1 intersect / 2 outside` in two bits. The engine keeps a sprite when `(flags & 0xf) == flags`:
- * only the overall state and the LEFT plane may be anything, the right / top / bottom / near / far planes must have the sphere completely inside.
+ * IDirect3DDevice7::ComputeSphereVisibility for one sphere, with the result layout the Direct3D 7 runtime really returns (NOT the documented `D3DVIS_*` values: Wine's native-measured test
+ * has 0x103d for a sphere left of the frustum): per plane (left 0, right 1, top 2, bottom 3, front 4, back 5) the union bit `1 << i` when `|distance| < radius` (the plane cuts the sphere)
+ * and union + intersection bit (`0x1000 << i`) when `distance < -radius` (completely outside that plane); 0 = completely inside. The distance is float arithmetic of a normalised plane
+ * (`in_plane` of Wine's ddraw). The engine keeps a sprite when `(flags & 0xf) == flags`: no plane has it completely outside, and it does not cross the front / back plane (it may cross
+ * left / right / top / bottom: the clipper of the engine trims it).
  */
 export function visibleFlags(planes: Float32Array, x: number, y: number, z: number, r: number): number {
-  // plane order of `frustumPlanes`: 0 left, 1 right, 2 bottom, 3 top, 4 near, 5 far; bit position of each plane's 2 bit state
-  const BIT = [2, 4, 8, 6, 10, 12];
-  let flags = 0, outside = false, intersect = false;
+  let flags = 0;
+  const radius = fr(r);
   for (let k = 0; k < 6; k++) {
-    const d = planes[k * 4] * x + planes[k * 4 + 1] * y + planes[k * 4 + 2] * z + planes[k * 4 + 3];
-    if (d < -r) { flags |= 2 << BIT[k]; outside = true; }
-    else if (d < r) { flags |= 1 << BIT[k]; intersect = true; }
+    const a = planes[k * 4], b = planes[k * 4 + 1], c = planes[k * 4 + 2], d = planes[k * 4 + 3];
+    const norm = fr(Math.sqrt(fr(fr(fr(a * a) + fr(b * b)) + fr(c * c))));
+    const dist = fr(fr(fr(fr(fr(fr(a * fr(x)) + fr(b * fr(y))) + fr(c * fr(z))) + d)) / norm);
+    if (Math.abs(dist) < radius) flags |= 1 << k;
+    else if (dist < -radius) flags |= (1 | 0x1000) << k;   // (the first test failing means |dist| >= radius: only the outside case is left)
   }
-  return flags | (outside ? 2 : intersect ? 1 : 0);
+  return flags;
 }
 
 /** ProcessVertices with the identity world matrix: `p * view * proj` to a point on the surface (x, y in pixels, z 0..1, rhw = 1 / w) */

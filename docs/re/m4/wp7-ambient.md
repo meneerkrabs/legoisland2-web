@@ -33,8 +33,7 @@ island (only referenced from z13CAI / z14OSD code, 0x61b0f5, 0x61ba98, 0x629052)
   33a-358 (the cue sounds) 132 36e 36f 383 385 384`, plus the Ptera's 0x302 / 0x303 (FUN_00443580 in its constructor).
 * `rand(max)` = `FUN_004388ae` (`rand()/32767*max`), replaceable for tests (`setAmbientRandom`).
 * Frustum flag (record flag 1, `FUN_00444370`): `IslandCtx.inFrustum` when the zone game has it, else every record counts as in view.
-* `groundSnap`: the controller probe `FUN_00427014(ctrl, (0,8,0), (0,-16,0), 3, 0x50)` (flags 0x1053, run by the probe pass `FUN_00427233`, not ported as a pass)
-  approximated by the ground record's ray from pos + 8, taken when the hit lies within the 16-unit segment.
+* `groundSnap`: [historic, closed] the controller probe `FUN_00427014(ctrl, (0,8,0), (0,-16,0), 3, 0x50)` (flags 0x1053) is armed through `armControllerProbe` (`src/island/npc/globals.ts`) and run by the shared probe pass `FUN_00427233` (`src/game/probe.ts`, `islandProbePass`); the ray approximation described in the first version is gone.
 
 ## Animals
 
@@ -149,3 +148,10 @@ evaluation on |p| ~ 300) except the KNOWN DEVIATIONS below.**
   `geto-hidden-prerender` (16 k ticks) / `geto-stale-dance-flag`.
 * Documentation: "Music ... `FUN_004432c0(0)`: nothing" is right (`if (param_1 != 0)` in the decompile of 0x4432c0); the SOUND players differ: `FUN_004435a0(0)` plays slot 0 (see the skateboard section of wp6-vehicles.md).
 * Not reachable on the island and so not run: the bats' mode 1 of the swift leader (perch, `FUN_0043b874` end-of-clip), `Spin` field +0x16 (never set), Brikimal kind 2 (the swimmer, not attached).
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* `groundSnap` (ground record's ray) is gone: the bunny's hop (0x50 probe, FUN_004b1fb3) and every other snap use the controller probe through the shared probe pass (`probeSet`, `src/island/npc/globals.ts`; pass = `src/game/probe.ts`, oracle-tested).
+* Ptera is ported (`src/island/vehicles/ptera.ts`, `m7-isl-veh-ptera`; save / load block of 0x70 bytes included). A landing with no free pad cannot happen (state 1 starts only after the same search found a free pad, and a pad is only taken by the single flying vehicle): the original's index -1 read is unreachable.
+* BOTMUSIC now also does FUN_00427000(ctrl) (controller near bit 0x10) at 0x536b25, on the dancing path (`misc.ts`); no consumer in the shipped game (SGMFIG sets the bit itself before its falling probe), kept for state identity.
+* SEAE's flag 0x10 is the island set-up's (FUN_004b4907 record flags, covered by the emulated set-up) and `SeaAminNode` for zones that attach 0x4b1212 later (z08BKD sets it at the set-up now, `prepareBkd`).

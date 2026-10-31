@@ -16,6 +16,7 @@ import { ArgView } from '../args.ts';
 import { BlockIn, BlockOut, CD, CD16, keepRaw } from '../blockio.ts';
 import { CD_F } from '../npc/cd.ts';
 import { tryCtx } from '../ctx.ts';
+import { ctrlExtra } from '../npc/globals.ts';
 import { FX_NONE, GATE_OFF, GATE_ON, boneWorld, fxGate, fxMatrix, fxParam, fxStart, registerFxStart } from '../emitters.ts';
 import { wrapPi, ftol, setRot, ensureAnim } from './common.ts';
 
@@ -77,6 +78,13 @@ export class SeaAminNode extends Node {
     void w;
     return 1;
   }
+  /**
+   * FUN_004b109e is the foam's DRAW hook (table 0x8d91a0): the draw pass calls it for every pass the node ran (no visibility / frustum / flag test: those belong to the record's default draw
+   * FUN_00444480, which the hook replaces); it ends `mov eax, 1` = handled. The hook itself draws part 0's mesh with draw mode 3 (`FUN_0043f1a0(mesh, record + 0xc, entry + 0xc, 3)`: the mode
+   * the call passes, not the part's mode 2 that FUN_004b4907 set for the default draw), after the UV step below. The renderer does the drawing (`GameRenderer.drawHooks`); the UV step stays in
+   * the pre-render, which runs on the same ran bit once per pass.
+   */
+  draw(): number { return 1; }
   prerender(w?: World, rec?: GameRecord) {
     const s = Math.sin(this.phase);
     this.vOffset = fr(s * SEA_WOBBLE);      // (the double sin times the float 0.003 at 0x892414, rounded once)
@@ -163,6 +171,7 @@ export class BotMusicNode extends Node {
     let near = c.distSq <= 576;
     if (!near) { this.timer = sb(this.timer, ml(5, fr(w.dt))); near = 0 < this.timer; }
     if (near) {
+      ctrlExtra(c).f14 |= 0x10;    // FUN_00427000(ctrl) at 0x536b25: the controller's probe may run (flag 0x2000 gates)
       w.ext.set(DANCE_KEY, true);
       const anim = rec.anim ?? ensureAnim(w, rec);
       if (w.frame !== this.stamp) {

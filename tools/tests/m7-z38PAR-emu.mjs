@@ -10,6 +10,7 @@ import { ParWorldEmu, RECORDS_BASE } from '../lib/m7-z38PAR-emu.mjs';
 import { parBotStep, steerBits, pitchBits } from '../lib/par-bot.mjs';
 import { startParRun, parSnapshot, parFinish, parResultSpeech } from '../../src/zones/z38PAR.ts';
 import { ParHud } from '../../src/zones/parachute/par-hud.ts';
+import { parRun } from '../../src/zones/parachute/par-run.ts';
 import { shadowPoints } from '../../src/zones/parachute/apo-pilot.ts';
 import { giveAnimations } from '../../src/zones/parachute/rigs.ts';
 import { setRandomSource, segmentHitsRecordBox } from '../../src/zones/parachute/util.ts';
@@ -141,7 +142,13 @@ export default {
         for (let i = 0; i < N; i++) {
           if (!all && !chg.has(i)) continue;
           const a = RECORDS_BASE + i * REC, r = W.records[i], nm = r.name;
-          if (nm === 'SHAD') { eq('SHAD visible (= DAT_05d57de4)', (mem.r32(0x5d57de4) | 0) !== 0, (r.flags & 2) !== 0); continue; }   // the original shows it only inside the canopy's draw hook, the port keeps a flat quad (known, render only)
+          if (nm === 'SHAD') {   // port: the canopy's draw hook draws the record (live vertices, z test off) exactly while DAT_05d57de4 is set; the record itself stays disabled
+            let drawn = 0; canopy.drawShadow = (rec, verts) => { if (rec === r && verts === parRun(W).shadow) drawn++; };
+            canopy.draw(W, W.records[nodeRecords.canopy]);
+            eq('SHAD drawn by the hook (= DAT_05d57de4)', (mem.r32(0x5d57de4) | 0) !== 0, drawn === 1);
+            eq('SHAD record disabled between draws', false, (r.flags & 2) !== 0);
+            continue;
+          }   // the original shows it only inside the canopy's draw hook, the port keeps a flat quad (known, render only)
           for (let k = 0; k < 16; k++) cmp(nm + ' m', mem.f32(a + 0xc + 4 * k), r.m[k], 0, `[${k}] #${i}`);
           if (watched.test(nm)) {
             cmp(nm + ' rx', mem.f32(a + 0x4c), r.rx); cmp(nm + ' ry', mem.f32(a + 0x50), r.ry); cmp(nm + ' rz', mem.f32(a + 0x54), r.rz);

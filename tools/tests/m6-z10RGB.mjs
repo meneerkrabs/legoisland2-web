@@ -202,7 +202,7 @@ const __test = {
         const eye = R[REC.PEPP].toWorld([0, 6.4 + 8 / 1, -16]);
         ok(near(c[0], R[REC.PEPP].toWorld([0, 6.4, -16])[0], 1e-2) && near(c[1], R[REC.PEPP].y + 6.4 + 8, 1e-2), `the camera eye is 8 higher than the walk's default (${c[1].toFixed(2)})`);
         void eye;
-        ok(R[REC.PEPP].ctrl.nodes.map((n) => n.kind).join() === 'StubGuard,PepSwitc,SGwalk,PeppHit', `Pepper's chain: ${R[REC.PEPP].ctrl.nodes.map((n) => n.kind)}`);
+        ok(R[REC.PEPP].ctrl.nodes.map((n) => n.kind).join() === 'PepSwitc,SGwalk,PeppHit', `Pepper's chain: ${R[REC.PEPP].ctrl.nodes.map((n) => n.kind)}`);
         ok(R[REC.LAND].ctrl.nodes[0].kind === 'rgbgame' && R[REC.CEDR].ctrl.nodes[0].kind === 'cedric' && REC.CC.every((i) => R[i].ctrl.nodes[0].kind === 'cannon'), 'rgbgame on LAND, cedric on CEDR, cannon on the nine cannons');
         ok(st.fov === 1 && st.savedFov === 1, 'zoom 1.0');
       }

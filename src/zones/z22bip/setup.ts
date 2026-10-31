@@ -69,7 +69,7 @@ export function prepareBip(world: World, archive: Archive, pe: Pe, opts: { scrol
 
   // ---- the player record: the biplane. The scene's stub walk chain (SGwalk / swim / guard) is not wanted; the plane is solid for the stones
   const ctrl = plane.ctrl as Controller;
-  ctrl.nodes = ctrl.nodes.filter((n) => !['StubGuard', 'SGwalk', 'sgswim', 'PepSwitc'].includes(n.kind));
+  ctrl.nodes = ctrl.nodes.filter((n) => !['SGwalk', 'sgswim', 'PepSwitc'].includes(n.kind));
   ctrl.flags = 0xb;                          // FUN_004238b7(PEPP controller, 0xb)
   plane.flags &= ~RF_NO_COLLIDE;
   world.vars.set(V.PEPPERSSHADOW, -1);       // no blob shadow of the walking player

@@ -90,22 +90,22 @@ Float precision: the game computes in x87 extended and stores float32 at the sam
 * **Order** inside `flush()`: layer 0 immediate sprites / rectangles / fade / letterbox in call order (the original draws sprites at once), layer 1 deferred sprites (`sprite(..., deferred = true)`, the `FUN_0043c645` queue flushed by `FUN_0043c70f`),
   layer 2 text (`FUN_00439f51`, so text is never covered by the fade). Batching only merges consecutive quads with the same texture and block.
 * **Sprite** `FUN_0043c267`: TL V = 1 (V runs up the picture, rows as stored), hand clip with UV adjust (reproduced), tint = vertex colour (`0xffffffff` unchanged), z = 1e-6. No texture -> `fillRect` (block 0x1d).
-* **Fade** `ui.fade(a)`: black quad, alpha `trunc(255 - 255 a)`, over the **whole canvas** (the original quad is `(0,0)-(W-1,H-1)`; see section 5); nothing when a >= 1. The "scene is black while a == 0" rule is the caller's.
+* **Fade** `ui.fade(a)`: black quad, alpha `trunc(255 - 255 a)`, over the canvas **except its last pixel row / column** (the original quad is `(0,0)-(W-1,H-1)`; see section 5); nothing when a >= 1. The "scene is black while a == 0" rule is the caller's.
 * **Letterbox** `ui.letterbox(mode, dt)`: 0 off, 1 top + bottom, 2 bottom only; height `h += (H / 30) * dt` (`dt` in 1/30 s ticks), stops at `0.4375 * H * 0.5` (= 0.21875 H) when `trunc(h) >= max`; top bar `(0,0)-(W, trunc h)`,
   bottom bar `(0, trunc H - trunc h)-(W, trunc H)`; changing the mode restarts from 0 (`FUN_0045f7a8`). Black, full canvas width (H = canvas height).
 * **Textures**: `UiTextureSet.load(gl, archive, dir)` = `<dir>/text.opt` count + `TextNNN.tga` (or `.wib`, first frame), `ui.loadSet(archive, dir)`; single images `ui.loadImage(archive, path)`.
   All CLAMP, bilinear, full size, no mip maps. Sets: `menu/mOverlays` (72), `menu/loading` (1: `text000.wib`, **64x64 x 30 frames**, first frame uploaded; **new**: it is a 64x64 animation, not a 640x480 screen),
   `Overlays/<ZONE>` (e.g. `Z02LGI`), `Overlays/HUDFX`, `GENERICBITS`: `Backdrop/loadingscreen.tga` (black 16x16, the fade texture), `Backdrop/CD.tga`, `Backdrop/Pizza.tga`.
 
-## 5. Approximated / unresolved
+## 5. State of the former approximations (all closed 2026-10-31)
 
-* **Loading card** (`FUN_0040d1be`): done by WP-SHELL, see gaps.md U1: `src/ui/loadingcard.ts` (checked against the original in the x86 interpreter, `m8-shell-loadcard`), drawn by `Ui2D.fade()` with every fade below 1.0; the UVs are the full-screen quad's reused (0,1) (1,1) (1,0) (0,0), the face is the CD when the turned normal has z > 0.
-* The fade quad's last pixel row / column (`W - 1`, `H - 1`) is not reproduced (the whole canvas is covered; the original leaves a one pixel strip unfaded, an open question in rendering.md).
-* The letterbox bars use the canvas height (not the 4:3 area) so they match the full-canvas 3D scene.
-* Text containing `%` goes through `vsprintf` in the original (the text is the format string); not reproduced: no text of the data contains a `%` (gaps.md U5, scanned).
-* A string with no space inside `maxChars` is cut hard (the original reads out of bounds).
-* `Pause` label (section 1) and the `FileM*` placeholders are the original's behaviour as read from the code, not verified on a running game.
-* Colour 10 (`0x3f000000`) draws opaque black like colour 8 (block 0x12 ignores the vertex alpha).
+* **Loading card** (`FUN_0040d1be`): `src/ui/loadingcard.ts`, checked against the original in the x86 interpreter (`m8-shell-loadcard`), drawn by `Ui2D.fade()` with every fade below 1.0; the UVs are the full-screen quad's reused (0,1) (1,1) (1,0) (0,0), the face is the CD when the turned normal has z > 0 (gaps.md U1).
+* **Fade quad**: `(0,0)-(W-1,H-1)` of the actual drawing buffer like the original (`Ui2D.fade`, renderer2d.ts): the last pixel row / column stays unfaded. (The 800x600 grid assumption of the first version is gone.)
+* **Letterbox bars** use the canvas height: in the default 4:3 mode that is the 4:3 area; in the port's widescreen option the bars cover the full canvas width (a deliberate extension).
+* **Text containing `%`** goes through `vsprintf` in the original (the text is the format string): none of the 165 message files, 30 menu pages and 225 credit lines contains a `%`, so no text reaches that path (`m8-shell-ui` scans it).
+* **A string with no space inside `maxChars`**: the original scans backwards without a bound (reads garbage), the port cuts hard at `maxChars`. No text of the game reaches that path: all 166 `.str` files were scanned for words longer than 27 characters (the line breaker looks back from index `maxChars` of the rest of the line; every call site uses 28..40): the only words of 27 / 28 characters are `Rikketikketikketikketiktik.` (BKD, a whole line of 27) and `ieniemini-pizzabezorgklusje.` (LGI01, in the middle of a sentence, a space lies within reach). Not reproducible anyway (the garbage is stack / heap content).
+* **`Pause` label (section 1) and the `FileM*` placeholders**: the page set-up functions `FUN_0041ae6e` / `FUN_0041aef3` overwrite the `FileM1` / `FileM2` placeholders with the slot captions; run natively by the `m7-shell-menu` oracle (274 scenarios, the 7 save slots). The `Pause` title id that is in no file shows the id itself (the case-sensitive binary search `FUN_004396a0`, `ui-strings`).
+* **Colour 10 (`0x3f000000`)** draws opaque black like colour 8 (block 0x12 ignores the vertex alpha): that is what the original does.
 
 ## 6. Screenshots / test page
 

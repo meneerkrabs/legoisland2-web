@@ -10,12 +10,26 @@ import { NODE_STOP } from '../../game/controller.ts';
 import { B } from '../../game/input.ts';
 import { eulerMatrix, rotateVector, transformPoint, matThen } from '../common/matrix.ts';
 import { eulerRotation } from '../exact.ts';
-import { ad, sb, ml } from '../common/f32.ts';
+import { ad, sb, ml, adx, sbx } from '../common/f32.ts';
 import { bipRun, f32, msClock, NAME, MODE, VAR_MODE } from './run.ts';
 import { randF } from '../../game/crt.ts';
 import type { BipRun } from './run.ts';
 
 const F = Math.fround;
+/**
+ * 0x70af94 .. 0x70afa0: la = atan2 result + headCorr. FUN_0085d640 leaves its result as a full double on the x87 stack (`fst dword` stores a copy, the stack keeps the double), so
+ * `fadd dword [headCorr]` adds a float to a DOUBLE and rounds the exact sum once to 24 bits (the double sum rounded to float32 would round twice on a tie): adx.
+ */
+export const courseHeading = (a: number, headCorr: number): number => F(adx(a, headCorr));
+/**
+ * 0x70b066 .. 0x70b0c2: the heading stays within +-0.9 rad of the course heading `la`. `fcomp qword` / `fadd qword` / `fsub qword` take the band as a DOUBLE: the compare is exact and the
+ * new heading is the exact float + double sum rounded ONCE to 24 bits (adx / sbx), then stored as a float32.
+ */
+export function clampHeading(la: number, heading: number): number {
+  if (sb(la, heading) < -PLANE.HEADING_BAND) heading = F(adx(la, PLANE.HEADING_BAND));
+  if (PLANE.HEADING_BAND < sb(la, heading)) heading = F(sbx(la, PLANE.HEADING_BAND));
+  return heading;
+}
 
 /** constructor address of the node (FUN_00423532's second argument) */
 export const CTOR_WALK = 0x70b7b2;
@@ -317,15 +331,14 @@ export class PlaneNode implements BehaviourNode {
     rec.x = nx; rec.y = ny; rec.z = nz;
     if (!this.rolling) {
       // the heading follows the course: the course's heading is tracked through the wrap-around and the plane may stay within 0.9 rad of it
-      const a = Math.atan2(fwdX, fwdZ);             // FUN_0085d640 leaves the double on the x87 stack: the sum below rounds once
-      let la = ad(a, this.headCorr);
+      const a = Math.atan2(fwdX, fwdZ);             // FUN_0085d640 leaves the double on the x87 stack: the sum below rounds once (exactly, courseHeading)
+      let la = courseHeading(a, this.headCorr);
       if (PLANE.WRAP_LIMIT < Math.abs(sb(la, this.headRef))) {
         if (this.headRef <= la) { this.headCorr = sb(this.headCorr, PLANE.TWO_PI); la = sb(la, PLANE.TWO_PI); }
         else { this.headCorr = ad(this.headCorr, PLANE.TWO_PI); la = ad(la, PLANE.TWO_PI); }
       }
       this.headRef = la;
-      if (sb(la, this.heading) < -PLANE.HEADING_BAND) this.heading = ad(la, PLANE.HEADING_BAND);
-      if (PLANE.HEADING_BAND < sb(la, this.heading)) this.heading = sb(la, PLANE.HEADING_BAND);
+      this.heading = clampHeading(la, this.heading);
     }
     if (this.score < 0) this.score = 0;
 

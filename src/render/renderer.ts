@@ -15,6 +15,8 @@ import type { Preset } from './states.ts';
 import { defaultLights } from './lighting.ts';
 import type { LightSet } from './lighting.ts';
 import { prepareLights, lightStatic, lightSkinned, lightShiny } from './meshlight.ts';
+import { scrollUvs } from './uvscroll.ts';
+import { partitionMesh as partitionCells, cellIndexOrder } from './partition.ts';
 
 const VS = `#version 300 es
 layout(location=0) in vec3 aPos;
@@ -97,6 +99,12 @@ export interface MeshGpu {
   shiny: boolean; spec: Uint8Array | null; specBuf: WebGLBuffer | null;
   /** the vertex data of the last `updateMeshVertices` (skinned meshes): what the lighting reads */
   curNormals?: Float32Array; curPositions?: Float32Array;
+  /** `msh.uvs` is this mesh's own copy (`scrollMeshUV` made it before the first in-place scroll: the parsed arrays can be shared with the archive's cache) */
+  uvOwned?: boolean;
+  /** the CPU UVs changed (`scrollMeshUV`) and are not in the vertex buffer yet: `drawMesh` uploads them first */
+  uvDirty?: boolean;
+  /** `FUN_00444530` was applied (`partitionMesh`): the index buffer holds the cells' triangles, group-major / cell-minor, and `drawMesh` draws the groups in file order without passes or group matrices (`FUN_0088b1e5`) */
+  partitioned?: boolean;
 }
 export interface TexAnim {
   /** RGBA frames */
@@ -114,9 +122,14 @@ export interface TexAnim {
   /** the sequence entry the GPU texture should show at the next draw (`stepTextures` moves it, `flushTextures` uploads it) */
   want: number;
 }
-function newAnim(frames: Uint8Array[], sequence: Uint32Array, mode: number, loadDt: number): TexAnim {
-  // FUN_004112ac: mode 0, timer 0, then one FUN_00410ff8 pass (shows entry 0, timer += 1.0 * dt)
-  return { frames, sequence, timer: mode === 2 ? 0 : Math.fround(loadDt), current: sequence[0], mode, last: mode === 2 ? -1 : 0, want: sequence[0] };
+/**
+ * FUN_004112ac ends the load of a `.wib` with one playback pass (FUN_00410ff8) on the fresh struct (mode 0, timer 0, last -1): it shows entry 0 and adds `1.0 * DAT_008b1718` to the timer (a float32; the
+ * emulator oracle tools/tests/wp-time-wib-load.mjs runs the original loader), and restarts at 0 when the sequence is not longer than that (`loadDt` = DAT_008b1718 at the load).
+ */
+export function newAnim(frames: Uint8Array[], sequence: Uint32Array, mode: number, loadDt: number): TexAnim {
+  let timer = mode === 2 ? 0 : Math.fround(1.0 * loadDt + 0);
+  if (mode === 0 && sequence.length <= timer) timer = 0;
+  return { frames, sequence, timer, current: sequence[0], mode, last: mode === 2 ? -1 : 0, want: sequence[0] };
 }
 export interface TexGpu { tex: WebGLTexture; soft: boolean; cutout: boolean; w: number; h: number; frames: number; anim?: TexAnim; mips: boolean; /** the texture's address modes (text.txl): true = wraps, false = clamps */ wrapU?: boolean; wrapV?: boolean; /** a mod's picture larger than the original: always mip-mapped */ hd?: boolean }
 
@@ -296,6 +309,36 @@ export class Renderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, m.buffers[0]);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, vb, 0, n * 8);
     m.curPositions = positions; m.curNormals = normals;
+  }
+
+  /**
+   * The original's in-place UV scroll of a vertex buffer (FUN_0088350d mode 0, `scrollUvs`): the CPU copy of the UVs (`m.msh.uvs`) takes u += du, v += dv per vertex in float32 (the whole buffer, or
+   * the vertices `first` .. `first + count` of one group) and the buffer is uploaded again before the mesh is drawn next. Every record that draws this mesh sees the result (the original's vertex
+   * buffer is shared).
+   */
+  scrollMeshUV(m: MeshGpu, du: number, dv: number, first = 0, count = m.msh.vertexCount - first) {
+    if (!m.uvOwned) { m.msh = { ...m.msh, uvs: Float32Array.from(m.msh.uvs) }; m.uvOwned = true; }
+    scrollUvs(m.msh.uvs.subarray(first * 2, (first + count) * 2), du, dv);
+    m.uvDirty = true;
+  }
+
+  /**
+   * FUN_00444530(mesh, nx, ny, nz) (the Graph library's mesh partition, src/render/partition.ts, docs/re/rendering.md 4.2a): the mesh is drawn from then on through its cells: the index buffer is
+   * rebuilt group by group (file order) with the triangles of cell 0, cell 1 ... per group (duplicates included), the groups lose their passes and their MATL matrices. The vertices (and the
+   * lighting of them) stay the mesh's own: the original's cells hold copies of the same vertex data and light themselves at the same moments.
+   */
+  partitionMesh(m: MeshGpu, nx: number, ny: number, nz: number): void {
+    if (m.partitioned) return;
+    const src = { positions: m.msh.positions, vertexCount: m.msh.vertexCount, indices: m.msh.indices, groups: m.msh.groups };
+    const order = cellIndexOrder(src, partitionCells(src, nx, ny, nz));
+    const gl = this.gl;
+    gl.bindVertexArray(m.vao);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.buffers[1]);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, order.indices, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    m.groups = m.groups.map((g, i) => ({ ...g, first: order.groups[i].first, count: order.groups[i].count, mat: null }));
+    m.triangles = order.indices.length / 3;
+    m.partitioned = true;
   }
 
   private upload(msh: Msh): MeshGpu {
@@ -526,8 +569,8 @@ export class Renderer {
   /** one pass of the original's texture step and its upload (the viewer's loop) */
   updateTextures(dt: number) { this.stepTextures(dt); this.flushTextures(); }
   /**
-   * `DAT_008b1718` at the time a texture is loaded: FUN_004112ac ends with one FUN_00410ff8 pass, which adds the frame time to the fresh timer. The zone's textures are loaded at its set-up, whose
-   * last loop pass (the previous zone / the front end at a steady 60 Hz) left dt = 0.5.
+   * `DAT_008b1718` at the time a texture is loaded: FUN_004112ac ends with one FUN_00410ff8 pass, which adds the frame time to the fresh timer (`newAnim`). The game's renderer sets it to the dt the
+   * zone is loaded with (the previous loop's last value: 0.5 at a steady 60 Hz, 1.0 at boot; `GameRenderer`'s constructor); the viewers keep 0.5.
    */
   loadDt = 0.5;
 
@@ -584,12 +627,13 @@ export class Renderer {
    */
   drawMesh(m: MeshGpu, world: Mat4, texOf: (g: number) => TexGpu | null | undefined, o: DrawOpts = {}) {
     const gl = this.gl;
+    if (m.uvDirty) { m.uvDirty = false; this.updateMeshVertices(m, m.curPositions ?? m.msh.positions, m.curNormals ?? m.msh.normals); }
     const mode = o.mode ?? 0;
     const preset = PRESETS[o.preset ?? modePreset(mode)];
     this.applyPreset(preset);
     if (o.noZ) { gl.disable(gl.DEPTH_TEST); gl.depthMask(false); }
     // FUN_0088aca2: modes 0 and 4 light the mesh at its first draw only, mode 1 at every draw; the others keep the colours the vertex buffer has
-    const lit = o.lit ?? (o.preset !== undefined ? 'never' : mode === 0 || mode === 4 ? 'once' : mode === 1 ? 'always' : 'never');
+    const lit = o.lit ?? (o.preset !== undefined ? 'never' : mode === 0 || (mode === 4 && !m.partitioned) ? 'once' : mode === 1 ? 'always' : 'never');   // (FUN_0088b1e5, the cell draw: mode 4 selects its block without lighting)
     if (lit === 'always' || (lit === 'once' && (!m.lit || m.litFor !== this.lights))) this.lightMesh(m, world, !!o.skinned);
     gl.uniform1f(this.u.uSpecOn, m.shiny ? 1 : 0);
     gl.uniform1f(this.u.uAttrColor, 0);
@@ -600,15 +644,16 @@ export class Renderer {
     gl.uniform2f(this.u.uUvScale, 1, 1);
     const mvp = new Float32Array(16), w2 = new Float32Array(16), viewProj = this.viewProj;
     gl.bindVertexArray(m.vao);
-    const passes: (0 | 1 | 2)[] = o.pass === undefined || o.pass === 'all' ? [0, 1, 2] : [o.pass];
+    // a partitioned mesh (FUN_0088b1e5) draws every group in file order, once: no passes
+    const passes: (0 | 1 | 2)[] = m.partitioned ? [0] : o.pass === undefined || o.pass === 'all' ? [0, 1, 2] : [o.pass];
     for (const pass of passes) {
       let lastMat: Mat4 | null | undefined;
       for (let g = 0; g < m.groups.length; g++) {
         const grp = m.groups[g];
         if (!grp.count) continue;
         const gpass = grp.flags >= 2 ? 2 : grp.flags;
-        if (gpass !== pass) continue;
-        const gmat = o.groupMatrix?.(g) ?? grp.mat;
+        if (!m.partitioned && gpass !== pass) continue;
+        const gmat = m.partitioned ? null : o.groupMatrix?.(g) ?? grp.mat;
         if (lastMat === undefined || lastMat !== gmat) {
           lastMat = gmat;
           const wm = gmat ? mul4(gmat, world, w2) : world;

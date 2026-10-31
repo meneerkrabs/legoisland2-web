@@ -22,6 +22,7 @@ import type { Badge, CutRow, ManInfo, ManRow } from './scenes-data.ts';
 import { Stage } from './scenes-stage.ts';
 import { defaultMode, FlyHook, makeFlyPath, makeFlyState, viewAt } from './scenes-fly.ts';
 import type { FlyMode, FlyState } from './scenes-fly.ts';
+import { FrameClock } from '../game/world.ts';
 
 const flyState = (c: DevCorner) => c.store<FlyState>('scenes.fly', makeFlyState);
 const holder = (c: DevCorner) => c.store<{ cur: FlyHook | null }>('scenes.hook', () => ({ cur: null }));
@@ -278,8 +279,11 @@ function build(c: DevCorner): SectionView {
       const draw = () => drawPlot(plot, st);
       const run = () => {
         if (stageTimer) clearInterval(stageTimer);
+        // the stage's pass pacing is the loops' (`FrameClock`): the timer's own frame time feeds the step time; the fast-forward steps (x4, x16) are nominal 60 Hz passes
+        const clock = new FrameClock(performance.now());
         stageTimer = window.setInterval(() => {
-          for (let i = 0; i < Number(speed.value); i++) st.step();
+          const els = clock.take(performance.now());
+          for (const el of els) { st.step(el); for (let i = 1; i < Number(speed.value); i++) st.step(); }
           draw();
           const rep = st.report(), sub = st.host.runner.subtitle;
           stat.textContent = `${st.active ? 'loopt' : st.finished ? 'klaar' : 'gestopt'}   tick ${rep.ticks} (${rep.seconds.toFixed(1)} s)   commando's klaar ${rep.finished} / ${rep.total}${rep.dead ? `, nooit gestart ${rep.dead}` : ''}${sub ? `\nondertitel: ${sub.text}` : ''}`;

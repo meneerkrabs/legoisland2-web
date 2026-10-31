@@ -103,9 +103,11 @@ export default async (h) => {
     expect(`${label}: the loop left the castle for ${arch}`, z.arch === arch, JSON.stringify(z));
     // the full-story bot (tools/steps/full-story.mjs) plays the mini-game itself (its own win bot, real keys) instead of the node skip below
     if (globalThis.LE2_MINIGAME) {
-      await globalThis.LE2_MINIGAME(arch);
-      await page.waitForFunction(() => window.__zone && window.__zone.info.archive === 'z07CSI', null, { timeout: 120000 }).catch(() => {});
-      return;
+      const played = await globalThis.LE2_MINIGAME(arch);
+      if (played !== 'skip') {     // (MINI_ONLY in full-story.mjs: the other mini-games are skipped with the node skip below, to test one mini-game in the chain context quickly)
+        await page.waitForFunction(() => window.__zone && window.__zone.info.archive === 'z07CSI', null, { timeout: 120000 }).catch(() => {});
+        return;
+      }
     }
     await wait(1500);
     await S.shot(`csi-${arch}-mini-game`);

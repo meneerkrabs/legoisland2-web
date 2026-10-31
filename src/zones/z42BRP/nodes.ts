@@ -461,17 +461,23 @@ export class ZoneBrpNode extends BrpNode {
     REC.SLIDERS.forEach((i, k) => setPos(rec(w, i), ...this.start[k]));
   }
 
+  /** FUN_008260e5's BRI5 part: the platform at the arc's start angle (x / z from the angle and the radius, y the start height) */
+  placeArc(w: World) {
+    const bri5 = rec(w, REC.BRI5);
+    const v: number[] = [0, bri5.y, 0];
+    polar(v, this.arcHi, this.arcR);
+    setPos(bri5, v[0], this.arcY, v[2]);
+  }
+
   /** FUN_008260e5: the side run restarted: everything back where it was */
   reset(w: World) {
-    const bri2 = rec(w, REC.BRI2), bri3 = rec(w, REC.BRI3), bri7 = rec(w, REC.BRI7), bri5 = rec(w, REC.BRI5), bri8 = rec(w, REC.BRI8);
+    const bri2 = rec(w, REC.BRI2), bri3 = rec(w, REC.BRI3), bri7 = rec(w, REC.BRI7), bri8 = rec(w, REC.BRI8);
     bri2.y = this.y2 + PARTS.BRI2_RAISE;
     bri7.y = this.y7;
     bri7.flags |= 2; bri7.flags |= 1;
     this.fallSpeed = PARTS.BRI7_START;
     this.arcNow = this.arcY; this.arcAngle = this.arcHi;
-    const v: number[] = [0, bri5.y, 0];
-    polar(v, this.arcAngle, this.arcR);
-    setPos(bri5, v[0], this.arcY, v[2]);
+    this.placeArc(w);
     bri3.y = this.y3 + PARTS.BRI3_RAISE;
     bri8.y = this.y8;
     REC.SLIDERS.forEach((i, k) => setPos(rec(w, i), ...this.start[k]));
@@ -1122,7 +1128,7 @@ export function checkRecords(w: World): string[] {
  * Prepare a freshly set-up zone world for the nodes: the game variable of the phase (FUN_00820f4e: `FUN_00417597(0xfa, 1)`), rig instances, the stub chain of the engine removed
  * from Pepper (the zone has its own player nodes), the nodes' constructor work (they run lazily before their first update otherwise).
  */
-export function prepareWorld(w: World, archive: Archive): BrpState {
+export function prepareWorld(w: World, archive: Archive, restarted = false): BrpState {
   const S = stateOf(w);
   bindRigs(w, archive);
   w.vars.set(VAR.PHASE, 1);
@@ -1133,6 +1139,9 @@ export function prepareWorld(w: World, archive: Archive): BrpState {
     const r = w.records[i];
     for (const node of r?.ctrl?.nodes ?? []) (node as unknown as { ensureInit?(w: World, r: GameRecord): void }).ensureInit?.(w, r);
   }
+  // a restart (pause menu, FUN_00821428 = FUN_00820f4e(0)): the original runs the constructors' re-init branches on the existing nodes, FUN_008260e5 puts BRI5 where the arc's start angle
+  // and radius give it (sin / cos of the float32 angle times the radius), NOT where the scene had it (1 ulp apart); the first construction keeps the scene's value
+  if (restarted) S.zonebrp?.placeArc(w);
   // FUN_00820f4e ends with `FUN_0043b6a3(Pepper's animation, 1, 0)` after the attaches: Pepper shows clip 1 until the first update starts the idle clip
   w.records[REC.PEPP]?.anim?.start(1, 0);
   for (const r of w.records) r.savePrev();

@@ -96,7 +96,7 @@ registerZoneGame('z41MAP', (ctx: ZoneGameCtx): ZoneGame => {
       if (!ga || !slot3d || loading) return;
       try { if (pos) ga.sfx.play3D(slot3d, { x: pos[0], y: pos[1], z: pos[2] }); else ga.sfx.stop(slot3d); } catch { /* silent */ }
     },
-    puff: () => { /* the "eatpizza" particle burst (FUN_008153c0) is not ported: no particle runtime yet */ },
+    puff: () => { /* the original draws nothing: FUN_008153c0 starts "eatpizza" on the handle at Papa + 0x88, which is never written (debug-heap 0xCD fill, rejected by FUN_0044ea60), docs/re/m3/z41MAP.md section 8 */ },
   };
   ctx.gr.refreshViews();
   let phase = 0;
@@ -143,7 +143,11 @@ registerZoneGame('z41MAP', (ctx: ZoneGameCtx): ZoneGame => {
     },
     bannerTick() { sync(); },
     // the planet's draw hook (FUN_00814964) runs in every pass of the original's loop; the update modes (2, 4) run it in the PLAN node
-    everyTick(mode: number) { if (mode !== MODE.PLAY && mode !== MODE.BANNER) drawPlanet(w); },
+    everyTick(mode: number) {
+      hud.visible = mode === 2;   // the HUD (icons, counters) only exists in mode 2 (FUN_0081167c): pass state, not a browser rAF call's
+      hudMode = mode;
+      if (mode !== MODE.PLAY && mode !== MODE.BANNER) drawPlanet(w);
+    },
     beforeRender() { ctx.gr.near = S.near; },
     onBanner() {
       // FUN_00811790: the speech of the medal (or the two sentences of the failure)
@@ -157,8 +161,6 @@ registerZoneGame('z41MAP', (ctx: ZoneGameCtx): ZoneGame => {
     },
     draw2d(ui: Ui2D, _dt: number, mode: number) {
       // the HUD (icons, counters) only exists in mode 2 (FUN_0081167c)
-      hud.visible = mode === 2;
-      hudMode = mode;
       if (mode !== 2) return;
       drawMeter(ui, ctx.hud.set, S.gauge);
     },

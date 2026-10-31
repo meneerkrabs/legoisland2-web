@@ -214,3 +214,7 @@ Result: **no deviation in any node, constant table, return code, text slot or ca
 ## WP-PART-WIRE (2026-10-29): particles
 
 The original's code does start effects here (`FUN_005357cb`: `notes01.par`, `FUN_00536e16`: `music01.par`, `FUN_0053284a` / `FUN_0053287f`: `Explode01.par` / `swirl01.swl`, `FUN_005352f6` / `0053532e`: `TWINKLE01.par` / `TWINKLE02.par`, `FUN_0053d915`: `trainsmoke01.par`: the island's era code that this region carries as copies), but the zone's engine is `FUN_00442900("z03pph")` (0x53fb36) and `_data/z03PPH/Particle/` holds only `text.opt` + `Text000.tga`: no effect record exists, every start returns the invalid handle and every gate / matrix / parameter call on it is ignored. Nothing is drawn in the original either (z03PPH does not use the `GENERICBITS` fallback of the hubs). The port starts nothing. Closed.
+
+## Closure 2026-10-31 (fork C)
+
+Section 8 re-read: ClimLadr (closed, dead code of the ladder climb confirmed), sound-test labels (settled), the display camera (removed, the differential test shows the original has none), the 30 fps QPC limiter (implemented: `Shell.runLoop(..., limit30)`, gaps.md T3), the fps text (dead). The 'computer menu step in the draw pass' difference of audit-rooms.md is the same frame: no visible difference (the menu step reads only input and variables the world tick does not change). Nothing open.

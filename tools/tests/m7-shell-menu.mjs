@@ -9,6 +9,8 @@ import { MenuEngine } from '../../src/shell/menu.ts';
 import { toEnginePages } from '../../src/shell/menuui.ts';
 import { readMenuPages } from '../../src/shell/tables.ts';
 import { B } from '../../src/game/input.ts';
+import { uiOffsets } from '../../src/shell/uioffsets.ts';
+import { portDraw, compareDraw } from '../lib/m9-menu-draw.mjs';
 
 const SND = { select: 101, onoff: 102, back: 103, move: [111, 112, 113, 114] };
 const KEYSETS = [
@@ -31,7 +33,9 @@ export default {
 
     const run = (page, seed, steps, o = {}) => {
       const rng = makeRng(seed * 2654435761 + page);
-      const E = new MenuEmu(pe);
+      const E = new MenuEmu(pe, { record: true });
+      const offs = rng.pick([[14, -4], [0x12, -2]]);       // DAT_008a9918 / DAT_008a991c before / after the first FUN_004201aa
+      E.mem.w32(0x8a9918, offs[0]); E.mem.w32(0x8a991c, offs[1]); uiOffsets.titleDy = offs[0]; uiOffsets.itemDy = offs[1];
       E.mem.w32(0x5d582c0, SND.select); E.mem.w32(0x5d5816c, SND.onoff); E.mem.w32(0x5d580d8, SND.back);
       [0x5d581a8, 0x5d581ac, 0x5d581b0, 0x5d581b4].forEach((a, i) => E.mem.w32(a, SND.move[i]));
       E.mem.w32(0x5d58208, 0);
@@ -58,10 +62,17 @@ export default {
       const keys = rng.pick(KEYSETS);
       const sync = (mask) => {
         // the original's renderer patches the items of the current page at the start of every step: run it natively, give the port the result
+        E.clearDraw();
         E.prepare(mask);
         const cur = port.page, info = E.pageInfo(cur);
         port.cur.items.forEach((it, i) => { const n = E.item(cur, i); it.label = n.label; it.type = n.type; it.disable = n.disable; });
         void info;
+        if (port.cur.kind === 1) port.refreshList();    // (the port keeps its list entries between steps; the original's renderer rebuilds them at every draw)
+        // the page renderer's drawing: the sprite rectangles / textures / colours and the text queue entries of the original against `drawMenu`
+        const diffs = compareDraw(E.draw, portDraw(port, E, pe, mask));
+        stats.draws = (stats.draws ?? 0) + 1; stats.tiles = (stats.tiles ?? 0) + E.draw.tiles.length; stats.texts = (stats.texts ?? 0) + E.draw.texts.length;
+        if (diffs.length) { bad(`${label}: draw (offsets ${offs}) ${diffs.join(' | ')}`); if (process.env.MENU_DUMP && !stats.dumped) { stats.dumped = 1; console.log(JSON.stringify({ elist: E.list().map((x) => [x.r, x.label, x.type]), plist: port.list.map((x) => x && [x.label, x.type]), items: port.cur.items.map((i) => [i.label, i.type, i.value, i.disable]), kind: port.cur.kind, item: port.item, theme: port.cur.theme, orig: E.draw.tiles.slice(225, 260), mine: portDraw(port, E, pe, mask).tiles.slice(225, 260) })); } }
+        checked += 1 + E.draw.tiles.length + E.draw.texts.length;
       };
       stats.scen++;
       for (let s = 0; s < steps; s++) {
@@ -123,9 +134,10 @@ export default {
     };
 
     const t0 = Date.now();
-    for (let page = 0; page < 30; page++) for (let seed = 1; seed <= 7; seed++) run(page, seed, 180);
+    const only = process.env.MENU_PAGES ? process.env.MENU_PAGES.split(',').map(Number) : null;   // debugging: MENU_PAGES=9,10
+    for (let page = 0; page < 30; page++) for (let seed = 1; seed <= 7; seed++) if (!only || only.includes(page)) run(page, seed, 180);
     // pause menus with cutscene state / story states (the set-up functions read them)
-    for (const page of [5, 2, 3, 8, 7, 22, 26, 24]) for (const [tag, vars, cut] of [['node3', { 0x58: 3 }, 0], ['node30', { 0x58: 30 }, 0], ['node50', { 0x58: 50 }, 1], ['node70', { 0x58: 70 }, 0]]) for (let seed = 1; seed <= 2; seed++) run(page, seed + 100, 160, { vars, cutscene: cut, tag });
+    for (const page of [5, 2, 3, 8, 7, 22, 26, 24].filter((pg) => !only || only.includes(pg))) for (const [tag, vars, cut] of [['node3', { 0x58: 3 }, 0], ['node30', { 0x58: 30 }, 0], ['node50', { 0x58: 50 }, 1], ['node70', { 0x58: 70 }, 0]]) for (let seed = 1; seed <= 2; seed++) run(page, seed + 100, 160, { vars, cutscene: cut, tag });
 
     notes.push(`scenarios ${stats.scen}, engine steps ${stats.steps} in ${Date.now() - t0} ms; events ${JSON.stringify(stats.ev)}; pages reached ${[...stats.pages].sort((a, b) => a - b).join(',')}; max stack depth ${stats.maxDepth}; scroll changes ${stats.scrolls}; steps in key capture ${stats.caps}, keys bound ${stats.ev[8] ?? 0}`);
     for (const [k, v] of known) notes.push(`DEVIATION ${k}: ${v.count} scenarios; first: ${v.first}`);

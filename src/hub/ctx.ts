@@ -15,6 +15,7 @@ import { loadMessages } from '../ui/strings.ts';
 import type { MessageTable } from '../ui/strings.ts';
 import type { ZoneGameCtx, SubtitleMode } from '../shell/zonegame.ts';
 import type { AudioHost } from '../shell/audiohost.ts';
+import type { SoundLoad } from '../audio/zonesounds.ts';
 import { Objective } from '../zones/z02LGI/objective.ts';
 import { messagePath } from '../zones/z02LGI/ctx.ts';
 import { brickMorph, brickBurst } from '../fx/bricks/island.ts';
@@ -72,6 +73,23 @@ export class HubContext implements IslandCtx {
   bind(zg: ZoneGameCtx, messages: Archive | null) {
     this.zg = zg; this.audio = zg.sh.audio; this.messages = messages;
     zg.gr.partMatrices = (rec) => partOverrides(this.world, rec);
+    this.loadObjectSounds();
+  }
+  /**
+   * What the constructors of the placed objects load beyond the zone's sound list (the island does the same: IslandContext.loadObjectSounds): Sound3d (FUN_00538779) the 3D sound of its first
+   * argument, SGMFIG (FUN_00426151) the 2D sound of its argument block. Loaded before the first frame (`AudioHost.loadExtra`; `ready()` waits for it).
+   */
+  private loadObjectSounds() {
+    const a = this.audio;
+    if (!a?.ga) return;
+    const loads: SoundLoad[] = [];
+    for (const r of this.world.records) {
+      for (const n of r.ctrl?.nodes ?? []) {
+        if (n.kind === 'Sound3d') loads.push(['3d', (n as unknown as { soundId: number }).soundId]);
+        else if (n.kind === 'SGMFIG') { const s = (n as unknown as { args?: { sound?: number } }).args?.sound; if (typeof s === 'number' && s > 0) loads.push(['2d', s]); }
+      }
+    }
+    if (loads.length) a.loadExtra(loads);
   }
   /** the runner's ZoneGameCtx after `bind` (null before) */
   get zoneCtx(): ZoneGameCtx | null { return this.zg; }

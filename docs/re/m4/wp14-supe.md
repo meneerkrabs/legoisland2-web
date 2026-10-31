@@ -105,3 +105,7 @@ during take-off / swoop and at the arrival (-> state 3), height window, the loco
 * Float noise only otherwise: ~3e-5 in matrices, 1e-4 in the camera / carried Pepper at dt 0.5 free-running; two knife-edge turns (the pitch rate `cos(b) / (sin(b) * 15)` with a tiny `b` amplifies float32 noise ~1e-4)
   are re-synced and counted (`grazes`).
 Doc statements corrected: "a random node 0..4" (it is the table above); "Random numbers: Math.random" is fine (the original: `FUN_004388ae(5.0)` truncated, index into the table).
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* The save block (`FUN_0053c2fe` / `FUN_0053c2d9`) is ported (`supe.ts` `saveBlock` / `loadBlock`), randoms are CRT draws, the OTH random table {14, 15, 21, 41, 46} and the dt-scaled animation advance are fixed (`randomNode`, `anim.advance(rate, dt)`; every deviation of the duel section below is closed, see gaps.md "Deviations FIXED by WP-ISLAND-FIX").

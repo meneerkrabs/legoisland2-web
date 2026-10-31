@@ -26,6 +26,8 @@ export interface MenuPage {
   theme: number;
   /** address of the page's set-up function (0 = none) */
   setupAt: number;
+  /** type words of the first 8 item slots as the original's panel-width loop reads them (see `RawPage.slotTypes` in tables.ts); absent: the entries' own types */
+  slotTypes?: number[];
   items: MenuItem[];
 }
 

@@ -112,6 +112,11 @@ export interface MenuPage {
   /** page style (0 plain, 1 list, 2 dialog) */
   type: number;
   items: MenuItem[];
+  /**
+   * The type words of the first 8 item slots of the page's item array, read as the original's page renderer reads them: its panel-width loop over the 8 list entries takes the TYPE of the entry from
+   * item slot j of the page (`piVar2[2] + 0x40 + j * 0x4c`), not from the entry; slots beyond the page's own items read whatever lies behind the array in `.data` (the next page's items).
+   */
+  slotTypes: number[];
 }
 
 export function readMenuPages(pe: Pe): MenuPage[] {
@@ -126,7 +131,8 @@ export function readMenuPages(pe: Pe): MenuPage[] {
       const it = itemsAt + j * MENU_ITEM_SIZE;
       items.push({ label: pe.cstr(it, 0x40), type: pe.u32(it + 0x40), id: pe.u32(it + 0x44) | 0, mask: pe.u32(it + 0x48) | 0 });
     }
-    out.push({ index: i, kind, nitems, itemsAt, setupFn, type, items });
+    const slotTypes = Array.from({ length: 8 }, (_, j) => pe.u32(itemsAt + j * MENU_ITEM_SIZE + 0x40) | 0);
+    out.push({ index: i, kind, nitems, itemsAt, setupFn, type, items, slotTypes });
   }
   return out;
 }

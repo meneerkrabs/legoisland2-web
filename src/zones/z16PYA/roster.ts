@@ -2,7 +2,7 @@
 //   FUN_00698963: every record's variant word (+0x64) := 0; the 15 records of the list 0x925a30 (PN00 .. TRBR, the decor models' templates: records 0x58 .. 0x66) get render mode 1
 //   (FUN_00444550(rec, 0xff, 1)) and `flags &= ~2` (hidden); FUN_00420837(3): the decor group 3 of the decor tables (48 records: the 24 PM palms / pyramids models, 9 BS bushes,
 //   10 OBL obelisks, 2 JAK, and the minifigs JTHN / MPRD / DRKL) gets the variant word set << 8 | 1 | variant << 16 (type 1 = Enter swaps the outfit / decor model: FUN_00420bb7 +
-//   FUN_00420dc4, NOT ported: the island's own open item, gaps.md S2); FUN_00698940: FUN_00420674 (the decor sets' era table) + FUN_004202ef(roster 0x925a00) (the roster
+//   FUN_00420dc4: `DecorState`, wired by `ensurePyaLooks`); FUN_00698940: FUN_00420674 (the decor sets' era table) + FUN_004202ef(roster 0x925a00) (the roster
 //   `{ record 0x70 (SPED, the Speedster), SwapText set 0x37, game variable 0x24, brick effect }`: variant word 2 = Enter changes its look: sound 0x2c0, the SwapText cycler, the brick
 //   morph speedster00..08.txt); then FX_Bricks: FUN_00447d20(SPED, var 0x24) + nine models + nine stages.
 // The set-up emulation does not run constructors: `constructRoster` runs FUN_00698963 in the emulated machine after the set-up (the FX_Bricks registrations become part of
@@ -14,7 +14,7 @@ import { tryCtx } from '../../island/ctx.ts';
 import { islandBrickFx } from '../../fx/bricks/island.ts';
 import { NO_SLOT } from '../../fx/bricks/manager.ts';
 import { readDecorTables, decorGroupOfZone } from '../../shell/tables.ts';
-import { VehicleLooks, LOOKS_KEY, ROSTER_STRIDE, VARIANT_VEHICLE, applyDecorSets, looksOf, lookKey, tickLooks } from '../../island/vehicles/looks.ts';
+import { VehicleLooks, LOOKS_KEY, ROSTER_STRIDE, VARIANT_VEHICLE, applyDecorSets, looksOf, lookKey, tickLooks, startZoneDecor } from '../../island/vehicles/looks.ts';
 import type { RosterHooks } from './peppsw.ts';
 
 /** FUN_00698963 and the tables it reads */
@@ -61,6 +61,7 @@ export function ensurePyaLooks(w: World): VehicleLooks | null {
     return s === undefined ? NO_SLOT : s;
   }, ROSTER_VA);
   w.ext.set(LOOKS_KEY, looks);
+  startZoneDecor(w, c.pe, ZONE_INDEX);   // FUN_00420837(3) resolved against the zone's models + the wrapper's FUN_00421bbe(3): the stored decor applied
   return looks;
 }
 

@@ -29,7 +29,7 @@ import type { SaveHeader, SaveGame, NewSaveOptions } from './save.ts';
 import { decodeSave, readSaveHeader, slotFileName, newSaveFromGame, applySaveVars, SAVE_SIZE, encodeSave, SLOT_DEFAULT } from './save.ts';
 import { captureWorld } from './saveworld.ts';
 import type { World } from '../game/world.ts';
-import { TICK_MS } from '../game/world.ts';
+import { FrameClock } from '../game/world.ts';
 import { seedFromTime } from '../game/crt.ts';
 import { AudioHost } from './audiohost.ts';
 import { resetDecor, decorStore } from '../island/decor.ts';
@@ -343,6 +343,9 @@ export class Shell {
       eraseSlot: (s) => this.eraseSlot(s),
       newGame: () => { resetDecor(null, this.pe); this.loop.newGame(); return true; },   // FUN_0041a8f9: FUN_00421fa0(1) (the stored decor back to the defaults) + the new game's defaults
       keysChanged: () => this.applyKeys(),
+      bindKey: (i, code) => this.input.bindKey(i, code),
+      cancelKeys: () => this.input.cancelKeyBinds(),
+      keyOf: (i) => this.input.bindings[i]?.code ?? 0,
       captureKey: (own) => this.input.captureKey(own),
       optionChanged: (i) => this.optionChanged(i),
       measure: (font, s) => this.ui.measure(font === 0 ? 1 : 0, s).w,
@@ -460,16 +463,14 @@ export class Shell {
   runLoop(tick: () => boolean, render: (alpha: number, dt: number) => void, world?: { advanceDt(elapsed?: number): void }, limit30 = false): Promise<void> {
     return new Promise((resolve) => {
       // limit30: the loop of z03PPH (FUN_0053dfda) ends every pass with a QueryPerformanceCounter busy-wait until QPF / 30 has passed: 30 passes per second on any display, frame time 1.0
-      const STEP = limit30 ? 1000 / 30 : TICK_MS, MAX = 10, ELAPSED = limit30 ? 1 : undefined;
-      let last = performance.now(), acc = 0, done = false;
+      // the frame time is the nominal one (0.5, or 1 at 30 Hz) while the display keeps up, the measured one when it is late (`FrameClock`); one pass per drawn frame at most, like the original
+      let last = performance.now(), done = false;
+      const clock = limit30 ? new FrameClock(last, 1000 / 30, 1) : new FrameClock(last);
       const frame = (now: number) => {
         if (done) return;
-        acc += Math.min(1000, now - last);
         const dt = (now - last) / 1000;
         last = now;
-        let n = 0;
-        while (acc >= STEP && n < MAX && !done) { if (tick()) done = true; world?.advanceDt(ELAPSED); acc -= STEP; n++; }
-        if (n === MAX) acc = 0;
+        for (const elapsed of clock.take(now)) { if (tick()) done = true; world?.advanceDt(elapsed); if (done) break; }
         render(1, dt);
         if (done) { resolve(); return; }
         requestAnimationFrame(frame);

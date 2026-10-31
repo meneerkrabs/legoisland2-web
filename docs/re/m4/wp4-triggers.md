@@ -160,3 +160,8 @@ All run the original's constructors (`FUN_00423532` attach with the set-up's own
   d2 20.000 -> 0.5, port d2 0.00000 -> 0.3 (5,302 ticks over the test). The test forces the port's `prevPep` so both take the original's branch. (2) `holo-say-while-speech-off`: with var 9 (speech) == 0 the original
   makes no `FUN_00435a11` voice call (0x88db12: it only copies the text and shows the subtitle when var 0 != 0); the port calls `ctx.say(table, id)` (41 times): the shell's `sayFrom` must skip the voice itself
   (UNCERTAIN: not checked here). Not covered: the speech-queue path (`queued`: the hint is delayed while another line plays) never occurred in the scripts.
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* The emitters listed as "not ported" are wired: TWINKLE01 / 02 (pages, `building.ts`), notes01.par (music house), the LGI_FSM particle switches 0x109 / 0xff incl. twinkle03 (`lgifsm.ts`); switch 0xfe (finish brick effect n, FUN_00447ef0) and `FUN_00444550` (render mode 2 of record 370 via `ctx.partMode`) are ported; the hologram shimmer (state 3) is ported (gaps S6); hOLO and the pages draw from the shared generator (no `Math.random`).
+* FUN_00534b89 (the dead pop-in node) stays unreachable: its gate var 1 & 0 == 1 never holds. The port carries it as `PopInNode` (state, save block, update / pre-render, `m8-save-popin`); its draw hook FUN_00534918 for a node with a speed variable >= 2 is not ported because no attach of the game gives such a node (argument +0xc = -1 everywhere): unreachable, not a deviation.

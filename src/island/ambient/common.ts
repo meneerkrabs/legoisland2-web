@@ -2,7 +2,7 @@
 //   - FUN_004388ae (rand) with a replaceable source for tests,
 //   - the animation instances the island loader gives records 9..66 (FUN_004f645b @0x519c09; the port's setupZone only gives PEPP one),
 //   - the island's sound handles (FUN_004b037e: global handle -> sound id), read from the executable's code at run time,
-//   - the frustum flag (IslandCtx.inFrustum, FUN_00444370), sounds through the island context, the terrain snap of the controller probe.
+//   - the frustum flag (IslandCtx.inFrustum, FUN_00444370), sounds through the island context (the terrain snap is the shared controller probe pass: probeSet in ../npc/globals.ts).
 import { buildMatrix } from '../../formats/matrix.ts';
 import { parseBlk } from '../../formats/anim.ts';
 import type { Blk } from '../../formats/anim.ts';
@@ -11,7 +11,6 @@ import { AnimInstance } from '../../game/anim.ts';
 import { RF_FRUSTUM } from '../../game/record.ts';
 import type { GameRecord } from '../../game/record.ts';
 import type { World } from '../../game/world.ts';
-import { NO_GROUND } from '../../game/collision.ts';
 import { tryCtx } from '../ctx.ts';
 import { rand, setIslandRandom } from '../rng.ts';
 
@@ -174,18 +173,4 @@ export function setRot(m: Float32Array, rx: number, ry: number, rz: number) { m.
 /** FUN_0043a742(m, rx, ry, rz, x, y, z, sx, sy, sz) */
 export function setScaled(m: Float32Array, rx: number, ry: number, rz: number, x: number, y: number, z: number, sx: number, sy: number, sz: number) {
   m.set(buildMatrix(rx, ry, rz, x, y, z, sx, sy, sz));
-}
-
-// ------------------------------------------------------------------------------------------------ the controller probe (terrain snap)
-
-/**
- * FUN_00427014(ctrl, offset, delta, mask 3, 0x50) as the ambient nodes use it: the probe pass FUN_00427233 (not ported as a pass) puts the record on the
- * ground found by a ray from pos + offset along delta (flags 0x1053: y only, written back). Approximation: the ground record's ray (FUN_004425f0) from
- * pos + offset; the hit is taken when it lies within the segment.
- */
-export function groundSnap(w: World, rec: GameRecord, up: number, down: number) {
-  const top = rec.y + up;
-  const h = w.col.groundRay(rec.x, top, rec.z);
-  if (h === NO_GROUND) return;
-  if (h <= top && h >= top + down) rec.y = h;
 }

@@ -115,6 +115,16 @@ export class ParPlane extends PropNode {
 /** FUN_004684ec / FUN_00468338: the canopy opens (scale 0 -> 0.55, +0.05 per tick) when the pilot opens the chute and closes again after the landing; it sits at the pilot's pack */
 export class ParCanopy extends PropNode {
   readonly kind = 'ParCanopy';
+  /**
+   * FUN_00468250 (called by the canopy's draw hook FUN_00468338): while DAT_05d57de4 the SHAD record is drawn with the live vertices `run.shadow` and the z test OFF (FUN_0040cc4d(0) around
+   * FUN_00444480, flag 2 set only for that draw). The zone game installs the draw call (`GameRenderer.drawRecordLive`); 0 = the default draw of the canopy goes on.
+   */
+  drawShadow: ((rec: GameRecord, verts: Float32Array) => void) | null = null;
+  draw(w: World, _rec: GameRecord): number {
+    const run = parRun(w);
+    if (run.shadowOn && run.recs.shad) this.drawShadow?.(run.recs.shad, run.shadow);
+    return 0;
+  }
   /** +0x18: scale */
   scale = 0;
   update(w: World, rec: GameRecord): number {
@@ -134,7 +144,7 @@ export class ParCanopy extends PropNode {
     // the shadow patch of the canopy (FUN_00468250, only while DAT_05d57de4): the SHAD record (identity matrix, position zeroed by the pilot's constructor) is drawn with its five vertices
     // set to the points of FUN_00442a70 (`run.shadow`, GameRenderer.vertexOverride): a patch that follows the terrain
     const sh = R.shad;
-    if (sh) { if (run.shadowOn) { sh.m.set(IDENTITY); sh.show(); } else sh.hide(); }
+    if (sh) { if (run.shadowOn) sh.m.set(IDENTITY); sh.hide(); }   // drawn by `draw` (flag 2 only for that draw)
     return NODE_STOP;
   }
 }

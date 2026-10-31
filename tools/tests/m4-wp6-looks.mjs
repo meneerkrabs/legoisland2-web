@@ -103,7 +103,7 @@ export default {
       // the port side: the same roster, brick states from the same table
       const W2 = { vars: new Map(), recs: new Map() };
       const fakeRec = (idx) => { let r = W2.recs.get(idx); if (!r) { r = { index: idx, flags: 2 }; W2.recs.set(idx, r); } return r; };
-      const looks = Object.assign(Object.create(VehicleLooks.prototype), { entries: [], busy: new Array(8).fill(-1), unportedNearest: 0 });
+      const looks = Object.assign(Object.create(VehicleLooks.prototype), { entries: [], busy: new Array(8).fill(-1) });
       for (let c = 0; c < N; c++) { const e = ROSTER_VA + c * 0x18, set = pe.u32(e + 12); looks.entries.push({ rec: pe.u32(e), set, varIdx: pe.u32(e + 0x10) | 0, looks: readLookGroup(pe, set), part: 0, variant: 0, slot: 100 + c }); fakeRec(pe.u32(e)); }
       const script = [];
       let seed = 7; const rnd = (n) => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return (seed >>> 8) % n; };

@@ -62,9 +62,10 @@ export default async ({ page, shot, wait, log }) => {
   // Esc leaves the page with "cancel": the old keys return
   await page.evaluate(() => { __shell.menu.engine.item = 3; }); await wait(200);
   await down('Enter'); await wait(500);
+  // FUN_00437f6e restores the live key table only: the Settings array (the file) keeps the keys that were bound
   const back = [await opt(0), await opt(1)];
-  expect('cancelled: the old keys are back', back[0].dik === 0xc8 && back[0].device === 1 && back[1].dik === 0xd0 && back[1].device === 1, JSON.stringify(back));
-  expect('and the mapper too', await page.evaluate(() => __shell.input.bindings[0].code === 0x100c8 && __shell.input.bindings[0].defaultActive === false));
+  expect('cancelled: the Settings keep the bound keys (the original restores only the key table)', back[0].dik === 0x17 && back[0].device === 1 && back[1].dik === 2 && back[1].device === 0, JSON.stringify(back));
+  expect('the mapper (the live key table) has the old keys back', await page.evaluate(() => __shell.input.bindings[0].code === 0x100c8 && __shell.input.bindings[0].defaultActive === false && __shell.input.bindings[1].code === 0x100d0));
 
   // ---- cheat codes (last: the letters wander through the menu): the first key re-arms the rows, then SDREAMS
   for (const k of 'XSDREAMS') await down('Key' + k);

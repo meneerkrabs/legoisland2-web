@@ -94,3 +94,7 @@ Deviations found (port-owned `src/island/**`, not edited; neutralised in the har
 
 Wrong statements of this doc: the hit node's gate ("`MOVE & 0x1000` in eras 1 / 2, always in era 3" in the table above and in the follower text): the original always runs it (BB1). Everything else that was checkable
 (follower types in attach order incl. BBB0's int 0x40800000, the dead spin state 3, hit / collect rules, `0x53229e` outside the hit test, how = 1 / 2 / 3 / -1, botPConly) matches the original tick by tick.
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* Save / load hooks are ported (`brickbot.ts` `saveBlock` / `loadBlock`, `m8-save-npc*`); random numbers use the shared CRT generator, not `Math.random`; `FUN_00427000` is called at the places the original calls it (`f14 |= 0x10`).

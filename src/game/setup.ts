@@ -14,9 +14,9 @@ import { GameRecord, RF_NO_COLLIDE, RF_SOLID_HIDDEN, RF_NPC } from './record.ts'
 import { buildRecords } from './zone.ts';
 import { CollisionWorld, NO_GROUND } from './collision.ts';
 import type { ZoneData } from './zone.ts';
-import { World, TICK_HZ } from './world.ts';
+import { World } from './world.ts';
 import { AnimInstance } from './anim.ts';
-import { Controller, createNode, NODE_CONTINUE } from './controller.ts';
+import { Controller, createNode } from './controller.ts';
 import type { BehaviourNode } from './controller.ts';
 import './nodes.ts';
 import { extractZoneSetup, activeEntries, hiddenRecords, nameOfEntry, nameMatches, readZoneTable, ZONE_ARCHIVES, RF } from '../formats/zonesetup.ts';
@@ -263,50 +263,6 @@ export function applySetup(setup: ZoneSetup, records: GameRecord[], world: World
   }
 }
 
-/**
- * Safety net of the stub zones (the player walks around a scene whose own gameplay is not ported): the original keeps the player inside by invisible
- * walls, mode switches and the zone's own code. Without them a walk off the edge of a platform, or into a sea the zone has no swim switch for, falls for
- * ever. This node puts the player back to where it stood about a second ago when it sinks well below everything solid in the zone (a port extension: the position is sampled once per second of the fixed 60 Hz step).
- */
-class StubGuard implements BehaviourNode {
-  readonly kind = 'StubGuard';
-  var: number = V.NS_ON; mask = 0; value = 0;
-  stamp = 0xfffffffe;
-  /** respawns so far (diagnostics) */
-  respawns = 0;
-  private safe: [number, number, number] | null = null;
-  private tick = 0;
-  private floor: number;
-  private walk: WalkNode;
-  constructor(floor: number, walk: WalkNode) { this.floor = floor; this.walk = walk; }
-  update(w: World, rec: GameRecord): number {
-    if (!(rec.y >= this.floor)) {
-      if (this.safe) {
-        [rec.x, rec.y, rec.z] = this.safe;
-        this.walk.t = 0; this.walk.vy = 0; this.walk.speed = 0; this.walk.state = ST.IDLE;
-        w.pep.mailbox = ST.IDLE;
-        rec.anim?.start(ST.IDLE, 0);
-        w.camera.init(rec);
-        this.respawns++;
-      }
-      return NODE_CONTINUE;
-    }
-    if (this.tick++ % TICK_HZ === 0 && this.walk.t === 0 && (w.vars.get(V.PEPPER_CONTROL) & 0xfff) === 1) this.safe = [rec.x, rec.y, rec.z];
-    return NODE_CONTINUE;
-  }
-}
-/** y below which a falling player is put back: 60 below the lowest solid thing of the zone (and below the sea) */
-function fallFloor(records: GameRecord[], sea: number, startY: number): number {
-  let lo = Infinity;
-  for (const r of records) {
-    const o = r.colObj;
-    if (!o || (r.flags & RF_NO_COLLIDE)) continue;
-    lo = Math.min(lo, r.y + (o.col.center[1] - o.col.halfExtents[1]) * (r.scale[1] || 1));
-  }
-  if (!Number.isFinite(lo)) lo = startY - 100;
-  return Math.min(lo, sea, startY) - 60;
-}
-
 export interface SetupOptions {
   pos?: [number, number, number];
   yaw?: number;
@@ -439,7 +395,6 @@ export function setupZone(scene: ZoneScene, archive: Archive, profile: ZoneProfi
         notes.push('mode switch: M1 PepSwitc added (the zone has its own copy)');
       }
     }
-    pepper.ctrl!.nodes.unshift(new StubGuard(fallFloor(records, profile.seaLevel, pepper.y), walk));
     if ((opts.subgame ?? profile.subgame) === 9) notes.push('sub-game 9: the walk node does not move the camera (the zone has its own camera, not ported)');
   }
   const swimNode = (pepper.ctrl as Controller | null)?.find<SwimNode>('sgswim');

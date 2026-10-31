@@ -35,7 +35,7 @@ Z-test switch (FUN_0040cc4d(0)); the wing's matrix is built in the update (the o
 
 ## z39ASB (follow-up: oracle built, see "Follow-up" below)
 * The original's single pre-loop update of the shuttle node (`FUN_0042226e(records + 0x68, 1)`) is now ported (`createAsbGame`). Banner mode 4 runs no update pass (port the same).
-  F9 / F10 aids are gated by the debug option. Particles (rocket01 x3), rumble, music start: pending packages.
+  F9 / F10 aids are gated by the debug option. Particles (rocket01 x3), music start: pending packages (rumble is an empty function in the original: nothing to do).
 
 ## z41MAP (reading only)
 * `.man` material animations: refuted. The EXE has no `PLAN_Planet.man` / `GALA_Galaxy.man` string (only z02LGI / z15SSH / z20DSP / z22BIP / z28HAT matanim paths); the nine
@@ -96,3 +96,7 @@ before the first camera call) lies inside the building's footprint (x -19..9.5, 
 nothing visible (near 1 / 3 / 5 screenshots look the same). The builder / loop never move or hide PIZZ (no write to its record fields in the z41MAP code). Nothing in the decompile suggests the original draws it differently
 (culling, part mode, texture swap, face binding: the only `FUN_0043f1d0` calls of the loader are the nine face set-ups, none for PIZZ), so no change was made. If a reference screenshot of the original disagrees, the first suspects
 would be back-face culling of the building's inner faces (the port culls with the clockwise-front rule of the other zones) and the camera table 0x9560c0 / 0x9560a8, not the textures.
+
+## Closure 2026-10-31 (fork C)
+
+'Not exact' of z40aPO is closed: particles wired (WP-PART-WIRE); RNG / music by WP-TIME / A1; Pepper's blob shadow: the zone never initialises the shadow system, so the original draws none (gaps.md R5), the port's var 0xc5 = -1 matches; the SHAD patch is drawn by the wing's draw hook with `FUN_0040cc4d(0)` (z test off, `GameRenderer.drawRecordLive(.., noZ)`) and the record stays disabled (z40aPO.md 'Closure 2026-10-31'); the wing's matrix / scale step runs in every loop pass, also behind the pause menu (`apoGame.everyTick`). z39ASB: the 'not independent' sound picks are exact since WP-TIME and the HUD globals (tints included) are compared at tolerance 0 by `m7-z39ASB-emu`; how the HUD draw `FUN_0043c267` blends an alpha-0 tint is the shared sprite path of every HUD (R15, WP-RENDER), not zone code. Nothing open.

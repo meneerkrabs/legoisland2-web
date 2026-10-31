@@ -43,6 +43,8 @@ export const REC_NAMES: Record<number, string> = {
 export const VAR = {
   /** 0xfa: the cannons fire while this is 1 (rgbgame ctor: 1; the end of the game: 0) */
   GAME_ON: 0xfa,
+  /** COMPLETE_SUB_GAME: set to 1 by the update at the phases 4 and 5 (FUN_005f72c0) */
+  COMPLETE_SUB_GAME: 0x53,
   /** 0xfb: the player's mode: 1 walk, 2 hit (PeppHit), 4 in a cannon, 8 out of lives, 0x10 unused (the zone's own PEPPER_CONTROL, gates SGwalk / PeppHit) */
   MODE: 0xfb,
   /** 0xfc: Cedric's gate (1 while the game runs, 0 when the last cannon is gone) */

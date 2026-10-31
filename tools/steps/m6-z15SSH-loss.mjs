@@ -28,6 +28,11 @@ export default async ({ page, shot, wait, log, key }) => {
   expect('pause menu page 18', (await mode()) === 3 && (await menu()).page === 18, JSON.stringify(await menu()));
   const p1 = await dbg(); await wait(800); const p2 = await dbg();
   expect('the ride stands still in the pause menu', p1.ticks === p2.ticks && p1.cart[2] === p2.cart[2], `${p1.ticks} / ${p2.ticks}`);
+  // the crosshair is a draw hook of the buggy in the original (FUN_0065817c): drawn under the pause menu too
+  await page.evaluate(() => { const g = __zone.game, o = g.draw2d.bind(g); window.__xhairCalls = 0; window.__xhairOrig = g.draw2d; g.draw2d = (...a) => { window.__xhairCalls++; return o(...a); }; });
+  await wait(700);
+  expect('the crosshair is drawn in the pause menu', (await page.evaluate(() => window.__xhairCalls)) > 0);
+  await page.evaluate(() => { __zone.game.draw2d = window.__xhairOrig; });
   await shot('l1-pause');
   await key('Escape'); await wait(700);
   expect('Esc resumes the game', (await mode()) === 2 && (await dbg()).ticks >= p2.ticks);

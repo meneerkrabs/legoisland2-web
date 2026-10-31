@@ -17,11 +17,14 @@ export default async ({ page, shot, wait, log, key }) => {
 
   // ---- the scripted player (decisions in the page, key presses from here)
   await page.evaluate(() => {
-    const closure = { wi: 0, arrived: false, target: null, plan: null, failed: new Map(), lastBall: -1, fired: 0 };
+    const closure = { wi: 0, arrived: false, target: null, plan: null, failed: new Map(), lastBall: -1, fired: 0, events: [], prevBall: {} };
     window.__rgbBot = () => {
       const z = __zone, a = z.game.assist, st = a.state, w = z.world;
       const mode = w.vars.get(0xfb);
       const out = { hold: 0, tap: 0, mode, phase: st.phase, result: st.resultMode, tick: w.tickCount };
+      // shot diary (task 9): a ball that reached its splash (state 3) = where it came down, whom it hit; the fires are noted by __rgbBotNoteFire
+      st.balls.forEach((b) => { if (b.state === 3 && closure.prevBall[b.idx] !== 3) closure.events.push({ land: b.idx, hit: b.hit ? b.hit.name : null, at: [+b.rec.x.toFixed(1), +b.rec.y.toFixed(1), +b.rec.z.toFixed(1)], t: b.t }); closure.prevBall[b.idx] = b.state; });
+      if (closure.events.length) { out.events = closure.events; closure.events = []; }
       if (st.resultMode) return out;
       if (mode === 1) {
         const arrive = () => { const t = a.route[a.route.length - 1]; return Math.hypot(t[0] - st.pepper.x, t[1] - st.pepper.z) < 5 && st.phase >= 3; };
@@ -31,6 +34,12 @@ export default async ({ page, shot, wait, log, key }) => {
           if (Math.hypot(dx, dz) < 4 && closure.wi < a.route.length - 1) closure.wi++;
           if (closure.wi === a.route.length - 1 && arrive()) closure.arrived = true;
           out.hold = a.steer(dx, dz);
+          // unstick (a player would): pinned for 25 polls (a corner of the fence G091) -> back off for 15 polls: Down + Left (8 | 1) = east and towards -z of the fixed camera (the bridge lane is north of the wall tip)
+          const mv = closure.last ? Math.hypot(st.pepper.x - closure.last[0], st.pepper.z - closure.last[1]) : 9;
+          closure.last = [st.pepper.x, st.pepper.z];
+          closure.still = mv < 0.05 ? closure.still + 1 : 0;
+          if (closure.still >= 25 && !closure.unstick) { closure.unstick = 15; closure.still = 0; closure.unsticks = (closure.unsticks ?? 0) + 1; out.events = [...(out.events ?? []), { unstick: closure.unsticks, at: [+st.pepper.x.toFixed(1), +st.pepper.z.toFixed(1)] }]; }
+          if (closure.unstick) { closure.unstick--; out.hold = 9; }
         } else {
           let bk = -1, bd = 1e9;
           st.cannons.forEach((c, k) => { if (!(c.rec.flags & 2)) return; const d = Math.hypot(c.rec.x - st.pepper.x, c.rec.z - st.pepper.z); if (d < bd) { bd = d; bk = k; } });
@@ -65,7 +74,7 @@ export default async ({ page, shot, wait, log, key }) => {
       }
       return out;
     };
-    window.__rgbBotNoteFire = () => { const st = __zone.game.assist.state; closure.lastBall = st.curBall; closure.fired++; };
+    window.__rgbBotNoteFire = () => { const st = __zone.game.assist.state, c = st.cannons[st.pepperCannon]; closure.lastBall = st.curBall; closure.fired++; closure.events.push({ fire: closure.fired, target: closure.target, plan: closure.plan && { rx: +closure.plan.rx.toFixed(4), ry: +closure.plan.ry.toFixed(4), land: closure.plan.land.map((v) => +v.toFixed(1)), miss: +closure.plan.miss.toFixed(2), time: +closure.plan.time.toFixed(1) }, cannon: c && { rx: +c.rec.rx.toFixed(4), ry: +c.rec.ry.toFixed(4), k: st.pepperCannon }, scale: __zone.game.assist.shotScale(), left: st.cannonsLeft }); };
     window.__rgbBotInfo = () => ({ target: closure.target, failed: [...closure.failed], fired: closure.fired });
   });
 
@@ -93,6 +102,7 @@ export default async ({ page, shot, wait, log, key }) => {
       if (tick0 < 0) tick0 = o.tick;
       if (o.tick - tick0 > maxTicks) break;
       if (process.env.DBG && o.mode === 4 && (++dbgN % 10 === 0)) { const d = await page.evaluate(() => { const st = __zone.game.assist.state, c = st.cannons[st.pepperCannon]; return c ? { rx: +c.rec.rx.toFixed(4), ry: +c.rec.ry.toFixed(4), timer: c.timer, ball: st.curBall >= 0 ? st.balls[st.curBall].state : -1, ticks: st.ticks, left: st.cannonsLeft } : null; }); log('dbg', JSON.stringify({ hold: o.hold, tap: o.tap, err: o.err && o.err.map((v) => +v.toFixed(4)), on: o.onTarget, wait: o.waiting }), JSON.stringify(d)); }
+      if (o.events) for (const e of o.events) log('SHOT', JSON.stringify(e));
       if (until && until(o)) { await setHeld(0); return o; }
       if (onStep) await onStep(o);
       if (o.mode === 4 && o.err) {
@@ -122,17 +132,35 @@ export default async ({ page, shot, wait, log, key }) => {
   await key('Enter'); await wait(500);
   expect('play (mode 2), phase 1', (await mode()) === 2 && (await dbg()).phase === 1);
   await wait(800); await shot('3-bridge-start');
+  const pace = () => page.evaluate(() => ({ dt: __zone.world.dt, tick: __zone.world.tickCount, t: performance.now(), lives: __zone.game.assist.state.lives, phase: __zone.game.assist.state.phase }));
+  const p0 = await pace();
+  log('START-STATE', JSON.stringify(await page.evaluate(() => ({ keysDown: [...(__zone.sh.input.down ?? [])], shellDt: __zone.sh.dt, worldDt: __zone.world.dt, frame: __zone.world.frame, shotScale: __zone.game.assist.shotScale(), det: new URLSearchParams(location.search).get('det'), webdriver: navigator.webdriver, fps: __zone.sh.fps }))));
 
   // ------------------------------------------------------------------ the bridge
   let n = 0;
-  const r1 = await play(60000, (o) => o.phase >= 3, async (o) => { if (++n % 80 === 0) await shot(`4-bridge-${n / 80}`); });
+  let stallAt = null, stallN = 0, lastPos = null;
+  const r1 = await play(120000, (o) => o.phase >= 3, async (o) => {
+    if (++n % 80 === 0) await shot(`4-bridge-${n / 80}`);
+    // diagnostic: no progress for 60 polls while the bot asks for keys -> dump the input / camera / control state once (the first run of the z10RGB chain bot stalls on the bridge)
+    if (n % 20 === 0) {
+      const d = await page.evaluate(() => { const z = __zone, st = z.game.assist.state; return { x: st.pepper.x, z: st.pepper.z, ry: st.pepper.ry, y: st.pepper.y, cam: Array.from(z.world.camera.c).slice(0, 6).map((v) => +v.toFixed(1)), tick: z.world.tickCount, walk: (() => { const wk = st.pepper.ctrl?.find('SGwalk'); return wk ? { state: wk.state, speed: wk.speed, rx: wk.rampX, ry: wk.rampY, v: [wk.vx, wk.vy, wk.vz], t: wk.t, slide: wk.slideFlag } : null; })() }; });
+      if (process.env.TRACE_BRIDGE || stallN >= 2) log('TRACE', JSON.stringify({ n, hold: o.hold, ...d }));
+      if (lastPos && Math.hypot(d.x - lastPos.x, d.z - lastPos.z) < 0.3) stallN++; else stallN = 0;
+      lastPos = d;
+      if (stallN === 3 && !stallAt) {
+        stallAt = n;
+        log('STALL', JSON.stringify({ bot: o, heldByBot: held, state: await page.evaluate(() => { const z = __zone, w = z.world, st = z.game.assist.state; return { inputHeld: w.input.held, inputPressed: w.input.pressed, down: [...(z.sh.input.down ?? [])], cam: Array.from(w.camera.c).slice(0, 18).map((v) => +v.toFixed(3)), pepper: [st.pepper.x, st.pepper.y, st.pepper.z, st.pepper.ry], v: { fb: w.vars.get(0xfb), c5e: w.vars.get(0x5e), fa: w.vars.get(0xfa), fc: w.vars.get(0xfc) }, mode: z.machine.mode, vuln: st.vulnerable, blink: st.blink, lives: st.lives, flags: st.pepper.flags, dt: w.dt }; }) }));
+      }
+    }
+  });
   s = await dbg();
+  { const p1 = await pace(); log('PACE bridge: dt', p0.dt, '->', p1.dt, 'ticks', p1.tick - p0.tick, 'in', ((p1.t - p0.t) / 1000).toFixed(1), 's =', ((p1.tick - p0.tick) * 1000 / (p1.t - p0.t)).toFixed(1), 'ticks/s; lives', p1.lives, 'phase', p1.phase); }
   expect('crossed the bridge: phase 3 (cannons)', s.phase === 3, JSON.stringify(s));
   log('after the bridge: score', s.score, 'pepper', s.pepper.map((v) => v.toFixed(0)).join(','));
   await shot('5-after-bridge');
 
   // ------------------------------------------------------------------ into the cannon
-  await play(40000, (o) => o.mode === 4);
+  await play(120000, (o) => o.mode === 4);
   s = await dbg();
   expect('inside a cannon (mode 4), the zoom is 0.21', s.mode === 4 && s.inCannon >= 0 && Math.abs(s.fov - 0.21) < 1e-6, JSON.stringify(s));
   await wait(400); await shot('6-in-cannon');
@@ -150,6 +178,7 @@ export default async ({ page, shot, wait, log, key }) => {
   });
   s = await dbg();
   log('game over:', JSON.stringify(s));
+  { const p2 = await pace(); log('PACE end: dt', p2.dt, 'ticks', p2.tick - p0.tick, 'in', ((p2.t - p0.t) / 1000).toFixed(1), 's; lives', p2.lives, 'phase', p2.phase, 'shotScale', await page.evaluate(() => __zone.game.assist.shotScale?.())); }
   await wait(600);
   expect('the game ended in a win (phase 4, result 1)', s.phase === 4 && s.resultMode === 1, JSON.stringify(s));
   await wait(500);

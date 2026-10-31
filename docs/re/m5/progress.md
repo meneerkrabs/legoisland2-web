@@ -1,5 +1,8 @@
 # M5 progress log
 
+> **Historical log.** The "Open" / "not ported" remarks below are the state of the day they were written; the particle runtime, music start, RNG, gamepad (analogue values are always 0 in the original), rumble (empty function), saves of node state, the decor / outfit swap of the hubs and the other items were closed later: `docs/re/gaps.md` and the zone docs carry the current state.
+
+
 ## Foundation (worker F)
 
 * Step 1 (emulation for any zone) and step 2 (hub framework) usable, see `foundation.md`. Interim note published.
@@ -12,7 +15,7 @@
 
 * Status: DONE. Zones audited with oracle tests in the x86 interpreter: front end, z03PPH, z04IFC, z50LTC, z05WAB, z17WAS, z36CNT, z38PAR, z39ASB, z40aPO; z41MAP by reading (no node oracle).
 * Real bugs found and fixed: z04IFC door turn constant, z17WAS spawn pause, z38PAR ring threshold, z03PPH trophy browser, z40aPO HUD / wing / float32, front-end stage (speeds, gags, outfits, train, Brickster, butterflies, credits).
-* Details: `audit.md` (index) and `audit-fe.md`, `audit-rooms.md`, `audit-minigames-a.md`, `audit-minigames-b.md`. Open: particles, music start, RNG, gamepad (other packages); z41MAP node oracle.
+* Details: `audit.md` (index) and `audit-fe.md`, `audit-rooms.md`, `audit-minigames-a.md`, `audit-minigames-b.md`. Open then (closed since: particles, music start, RNG; gamepad / rumble are not gaps): z41MAP node oracle.
 
 ## z14OSD, the Oasis (hub worker OSD) - status DONE (2026-10-29)
 
@@ -47,7 +50,7 @@
 * Done: HUD (FUN_007e2a80 / 007e2ad0), krystals (Overlay 0x7e31fc, 9 attaches), outfit restore, particle engine wired for the zone (TWINKLE01), doc `z40OGL.md`, tests `m5-z40OGL` (97) + `m5-z40OGL-emu` (~74k checks, oracle: HUD, krystal duel, lights.lgt loader), harness `tools/lib/m5-z40OGL-emu.mjs`.
 * Finding: the "black" look is the original's (ambient 0.0171, sun only, point lights reach 1.0, black fog / clear colour, no sky): doc section 4.
 * Story: node 64 ends at PATH node 63 (var 256), node 66 at PATH node 3 (var 257), both via shared StartCSM; verified in the node test.
-* Bot `tools/steps/m5-z40OGL.mjs` played both nodes to the hand-over (64 -> z41MAP, 66 -> z42BRP, krystals picked, falls handled). I added `import './peppswit/index.ts';` to src/zones/z40OGL/index.ts (ogl-peppswit's line). Open: look at the TWINKLE particles in a screenshot.
+* Bot `tools/steps/m5-z40OGL.mjs` played both nodes to the hand-over (64 -> z41MAP, 66 -> z42BRP, krystals picked, falls handled). I added `import './peppswit/index.ts';` to src/zones/z40OGL/index.ts (ogl-peppswit's line). 
 
 ## z07CSI Castle (hub worker csi; started 2026-10-29)
 
@@ -62,7 +65,7 @@
 * Ported (`src/zones/z07CSI/horse/`, doc `docs/re/m5/z07CSI-horse.md`; `import './horse/index.ts'` added to src/zones/z07CSI/index.ts): HORS 0x579178 (update FUN_005769a8: idle / mount / gait / jump / ground probes / wall sweeps / camera / hooves, pre-render FUN_00578f2d, destroy FUN_00579328), the riders 0x579725 (PEPP @5 + JKIT: FUN_00579379 / FUN_005793c1), the saddles 0x579948 (RSAD / GSAD / CLOK: FUN_005797cf), + the emulated set-up's visibility / placement of the family at the first update (`setup.ts`, finding 10 of the doc).
 * Verified against the ORIGINAL in the x86 emulator, bit for bit (float32): `m5-z07CSI-horse-emu` (19.3 M checks, 4 sessions x 8000 ticks, 105 branches reached), `m5-z07CSI-horse-ride` (Control + horse + riders, 18.1 M), `m5-z07CSI-horse-math` (60000), `m5-z07CSI-horse-nodes` (114, port alone with real keys). Bot `tools/steps/m5-z07CSI-horse.mjs` ALL OK (screenshots looked at).
 * Shared / foreign-file edits (additive): `src/zones/z07CSI/index.ts` (+1 import), `tools/lib/m5-z07CSI-emu.mjs` (NATIVE_CTORS +3, `extraExec`, `beforeAttach`, `rngCount` / `reseed`, chain order), `tools/lib/m7-isl-veh-emu.mjs` (`axisX` / `axisY` injection, default 0).
-* Open: the csi worker's `tools/tests/m5-z07CSI-setup.mjs` expects walking after the joust (3 failures: see Requests); the horse's save blocks are not written (shell has no node save); the frustum flag is the context's sphere test (doc section 7).
+* Open: the csi worker's `tools/tests/m5-z07CSI-setup.mjs` expects walking after the joust (3 failures: see Requests); the frustum flag is the context's sphere test (doc section 7).
 
 ## z40OGL PeppSwit (worker ogl-peppswit; 2026-10-29) - status DONE
 
@@ -78,5 +81,5 @@
 * Code `src/zones/z16PYA/` (`index.ts` registerHub: PeppSw ctor, arrival with the emulated yaw, HUD, ambience, FX_Bricks tick, overlay z14OSD; `peppsw.ts` PeppSw 0x677350; `roster.ts` FUN_00698963 roster + Speedster looks; `hud.ts` FUN_006760d0). Doc: `docs/re/m5/z16PYA.md`.
 * Tests: `m5-z16PYA-emu` (833 checks: PeppSw pre-render / update and the HUD against the ORIGINAL's code in the emulated machine), `m5-z16PYA-node` (147 checks: set-up per node 36 / 38 / 40, chain, roster, gems, scorpion, the three triggers, story hand-over). Bot `tools/steps/m5-z16PYA.mjs` (+ `lib-pya.mjs`, PATH-route steering with real keys).
 * Shared-file edit: `src/formats/emusetup.ts` `HUB_SPECS.z16pya.exec` (native range 0x698940..0x698e80).
-* Status: see the report; open: decor / outfit swap (type 1 variants, the island's S2), Tumblewd sounds (globals not loaded by the Pyramid's loader), node state in saves.
+* Status: see the report; open then, closed since: decor / outfit swap (2026-10-31), node state in saves; Tumblewd sounds (globals not loaded by the Pyramid's loader) see z16PYA.md section 6.
 * **pya -> osd (answer)**: the Pyramid's attach sites match what your Gems / scorpion / Tumblewd read (Gems gate var 0xde & (1 << n) == 0, no argument blocks for the others); the Pyramid's loader fills the scorpion handle globals with the same ids as yours, but NOT the Tumblewd ones (0x5d5bca0..cb8): those sounds are silent in the Pyramid. Nothing to change on your side.

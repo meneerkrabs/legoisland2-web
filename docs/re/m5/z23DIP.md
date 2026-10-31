@@ -78,8 +78,8 @@ The zone's own code starts none. `FUN_007272ee` loads the set `GENERICBITS` (`FU
 
 ## 8. Not exact / open
 
-* **Enter near a decor figure** (`FUN_00765281` -> `FUN_00420bb7` / `FUN_00420dc4`, the outfit swap of JOHN / PIPP / DOCK / CGOG / TRI1..3 ...): not ported (same open half as the island's S2); `DecorHooks` (`pepsw.ts`, `setDecorHooks`) is where it plugs in. The roster of vehicles is empty in this zone (table 0x93d578 starts with -1).
-* PeppSw save / load handlers (`0x727e21` / `0x727e46`: node +0x18, 0x18 bytes) are not wired (V1 save content is open for all node families).
+* **Enter near a decor figure** (`FUN_00765281` -> `FUN_00420bb7` / `FUN_00420dc4`, the outfit swap of JOHN / PIPP / DOCK / CGOG / TRI1..3 ...): wired since 2026-10-31 (`src/zones/z23DIP/decor.ts`: `dipDecorHooks` through `setDecorHooks`, the island's `VehicleLooks` / `DecorState` with decor group 4 and the empty roster 0x93d578; `FUN_00765180` = `applyDecorSets` + the roster is now part of `applyDecorRecords`; `m9-hub-decor` swaps a figure through Enter).
+* PeppSw save / load handlers (`0x727e21` / `0x727e46`: node +0x18, 0x18 bytes) are ported (`saveBlock` / `loadBlock`, `m8-save-hubs`, `m8-save-pyadip`).
 * The three Rex poses are frozen like in the original; the original's cutscene host advances them only during a cutscene.
 * `rand` draws from the shared C runtime generator (WP-TIME); the oracle scripts it with `setRandSource`. All comparisons are tolerance 0 at dt 1 and 0.5.
 * Shared-file edits: `src/hub/game.ts` (+ `HubSpec.overlay`, + `UiTextureSet` import), re-read before the edit; nothing else outside `src/zones/z23DIP/`, tests, bots, docs.

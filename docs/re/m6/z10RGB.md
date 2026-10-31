@@ -76,7 +76,7 @@ player's `ROUTE`).
 **Entering a cannon** (phase 3, Ctrl pressed): the nearest of the four cannons that is still shown within squared distance 72 (3D) is taken, the camera is saved, the mode word becomes 4. **Aiming** (`FUN_005f56d9`): zoom 0.21, the cannon lifted to
 y = 16, the first time the pitch jumps to rx = -0.3; keys: Left / Right `ry += / -= 0.0025` per tick, Up / Down `rx += / -= 0.0025` (limits 0.3 / -0.5); the matrix is built from `(-rx, -ry, 0)`; the camera sits in the barrel (eye (0, 3.878, 0),
 target (0, 5.17, 3.209) in the cannon's frame); the HUD gauge shows the reload (0 .. 100), icon 4 while reloading, 7 / 5 blinking (bit 4 of the tick counter) when ready; loops: tilt, swivel, clock, bell when ready. Analog stick values of
-`DAT_00983848 .. 50` (a gamepad axis) are not read (the engine maps the pad to the button bits).
+`DAT_00983848 .. 50` (a gamepad axis) are always 0 in the original (the pad reader maps the stick to the button bits and zeroes them).
 **Firing** (Space): needs `timer == 0` and a free ball: the ball starts at the muzzle `(0, 4.8, 11.2)` with the launch vector `scale * (fx, 1, fz)` (`scale` 8 for the first shot of the program run, 6 afterwards: `DAT_0090bb84`, never reset) and the launch
 angle `2.5 * rx + 0.8`; the reload is 100 ticks; Space while reloading plays the dry-fire click. Only the LAST ball the player fired is looked at: when it has hit one of the nine cannons (and that is still there) the cannon is hidden, the cannons left
 -1, score +500, var 0xfe = 1 << k, the ball is given back at once. A second ball fired before the first has landed means the first one can no longer destroy anything (the original's behaviour; the lobs needed for the castle fly ~190 .. 270 ticks).
@@ -105,8 +105,7 @@ step against all mask-2 polygons (cannons, castle ...) hides the ball and rememb
 
 Won (phase 4): the score (positive), the medal word `SGBRONZE` / `SGSILVER` / `SGGOLD` (STD.str) at y 150, silver from 4001, gold from 7001 (the code compares `> 4000` / `> 7000`), the lines `CASGRB01` (gold), `CASGRB02` + `CASGRB03` (silver, at y 200 and 320), `CASGRB04`
 (bronze) at y 200, wrap 30; the score at y 100. Variables (only raised): `HISCORE_RGB = max`, `TROPHY_RGB = max(old, 1 / 2 / 3)` (bronze even for a tiny score). The story takes the win through `miniGameExit` (continue -> node 27).
-Lost (phase 5): `CASGRB05` at y 100, no variables, page 19 (retry / quit). The original also writes `COMPLETE_SUB_GAME (0x53) = 1` at phases 4 and 5; the port does not (its runner checks the story FSM while playing, the original's loop does not: it would advance the story on a loss; `FUN_00404d14` does the
-real work on exit either way).
+Lost (phase 5): `CASGRB05` at y 100, no variables, page 19 (retry / quit). Both phases also write `vars 0xfa = 0` and `COMPLETE_SUB_GAME (0x53) = 1` EVERY tick (`FUN_005f72c0` cases 4 / 5, LE2.c:133938-133951; the port: `RgbGameNode.update`, checked by the oracle at tolerance 0). The original's loop `FUN_005f418b` never calls the story check `FUN_00423bad`, so the write does not move the story while playing (the writer `FUN_005f4154` that would also advance is dead: no caller, docs/re/unused.md); the story moves on exit only, through `FUN_00404d14` (the win: `0x53 = 1` again + advance, the loss: rewind). The port's runner calls `story.frame()` in every non-room zone, so z10RGB sets `ZoneGame.noStoryFrame` (src/shell/playzone.ts) to skip it, like the original's loop.
 HUD: the centre text is the score; the gauge (`FUN_00460214`, 12 segments with the textures 3 3 3 2 2 2 1 1 1 1 1 1, no marker): in phase 3 outside a cannon 0 .. 12 with the cannons left and icon 6 (Cedric's head), inside a cannon 0 .. 100 with the reload.
 Intro `HOLOA`, help `CONTROL0..10`, speech lines by voice index 1136 .. 1150.
 
@@ -122,7 +121,7 @@ Intro `HOLOA`, help `CONTROL0..10`, speech lines by voice index 1136 .. 1150.
 * **Ball shadows** (`FUN_005f8a7b` samples five ground points, `FUN_005f90f7` draws the model `CSHD` there) and the **underwater view plane** of the `rgbgame` draw hook (`FUN_00444500`) are not drawn (the camera is never below the water).
 * The force feedback calls (`FUN_00438518`), the registry of the cannons (`FUN_0061a753`, nothing reads it) and `FUN_005f4d03` (dead probes) are left out.
 * The random numbers come from `rand()` seeded by the clock in the original; since WP-TIME the port draws from the same generator (`RgbState.rand(x)` = `randF`, `FUN_004388ae(x)` = `(float) rand() / 32767.0f * x` in float32, 0 without a draw for x <= 0); the tests script `rand()` with `setRandSource` of `src/game/crt.ts`.
-* The analog aim axes (`DAT_00983848 .. 50`) are not read; the keyboard bits and the pad's d-pad bits are.
+* The analog aim axes (`DAT_00983848 .. 50`) are always 0 in the original (the pad reader zeroes them after mapping the stick to direction bits): the keyboard bits and the pad's direction bits are what exists.
 * `DAT_0090bb84` (the shot scale 8, then 6) is kept in a module variable (`shotScale`): like the original it stays at 6 over restarts of the zone within one program run.
 * The port runs one sim step per drawn frame (WP-TIME: dt = 1 for the first frames, then 0.5, `world.dt` = DAT_008b1718); everything the original multiplies by the frame time uses `w.dt`, the integer counters are `ftol(float += 1 * dt)` (the 30 ticks of the landing wait and Cedric's timers count frame-time units, 60 steps at dt 0.5); the zone has no code that runs per drawn frame except the HUD / barrel draw.
 * The harsh enemy: with a seeded generator the scripted idle player loses four lives in ~6000 ticks (one hit about every 700 ticks; Cedric fires every ~150 ticks, a quarter of the shots hit the player's cannon: the flat arc comes in low, so the ball also hits the cannon's
@@ -183,8 +182,11 @@ the second root order in Cedric's hop (61946c: the first root is always the larg
 * Landing sound slots: `FUN_005f8291`'s chain compares the ball's record name with "CB00" and then "CB01" only, so ball 0 uses the first loaded slot (`land0`) and every other ball the last (`land9`), the sea always `land0`; all ten slots are the same sound 0x197. (Not visible to the oracle, whose sound handles are wildcards; read from the decompile.)
 * `tools/tests/m6-z10RGB.mjs`: two assertions relaxed to float noise (ry after 30 steps 1e-5, turn <= 0.001 + 1e-6): the angles are floats now.
 
-### Known deviation (counted in the notes)
-`COMPLETE_SUB_GAME` (0x53) = 1 is written by the original at the phases 4 and 5, the port does not (section 7; the test ignores that one variable and counts the ticks).
+### Known deviations
+None left. (`COMPLETE_SUB_GAME` = 1 at the phases 4 / 5 is now written exactly, section 7.)
 
 ### Statements corrected
 Section 9 "ball shadows ... not ported": the samples are ported, the drawing is not. Section 9 "the port runs a fixed 30 Hz step (dt = 1)": replaced by the world's dt (1, then 0.5; tested at both). Section 6 / the sound table "ten slots, one per ball": two slots in effect. "Not ported ... FUN_005f4d03" and the analog axes: confirmed dead / zero. `gaps.md` items for this zone: the 5 ground samples and shotScale persistence (module variable `shotScale`, reset by `build()` in the tests) need no further change; every state of the enemy / pepper / ball nodes is visited except the unreachable ones listed above.
+
+## Closure pass (2026-10-31)
+Section 9 is stale: particles, ball-shadow drawing (`GameRenderer.meshDraws`), the underwater plane (R6), the RNG and dt are done (WP-PART-WIRE / WP-TIME); the analog axes and `FUN_005f4d03` are dead / zero; `FUN_0061a753`'s registry has no reader. `COMPLETE_SUB_GAME` is written exactly (section 7). Nothing known differs.

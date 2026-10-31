@@ -1,5 +1,8 @@
 # M6 progress log (remaining mini-games)
 
+> **Historical log.** The "Open" / "not ported" remarks below are the state of the day they were written; the particle runtime, music start, RNG, gamepad (analogue values are always 0 in the original), rumble (empty function), saves of node state, the decor / outfit swap of the hubs and the other items were closed later: `docs/re/gaps.md` and the zone docs carry the current state.
+
+
 One section per zone (status, what's next). Brief for workers: [worker-brief.md](worker-brief.md).
 
 Zones: z15SSH, z21FSH, z27TRX, z20DSP (+ Replay.c), z09JST, z10RGB, z08BKD, z28HAT, z22BIP, z18MMP, z01BPK, z42BRP.
@@ -9,7 +12,7 @@ Zones: z15SSH, z21FSH, z27TRX, z20DSP (+ Replay.c), z09JST, z10RGB, z08BKD, z28H
 Status: playable end to end. Zone loop (intro BPK2, walk to the board, 2:00 clock, banner, result menus 16 / 19, pause 18, retry / abort / continue), the zone's three behaviours
 (clock + score node, walk-in, skateboard with the CURRENT_SUBGAME == 1 branches: half-pipes, arena walls, 20 stunts, landing judgement), spectators, stunt-name text, HUD, wheels sound,
 trophy / hi-score (0x8d / 0xc0). Doc: [z01BPK.md](z01BPK.md). Tests: `m6-z01BPK` (443 checks incl. a full-length WIN bot and a LOSS), browser steps `tools/steps/m6-z01BPK.mjs` /
-`m6-z01BPK-loss.mjs`. Open: the board record is excluded from the board's own sweeps (as on the island), gamepad not read, music starts at zone entry.
+`m6-z01BPK-loss.mjs`. Open: music starts at zone entry (the board record is excluded from the board's own sweeps exactly like the original: header-only .col; the pad's analogue values are always 0 in the original, input.md).
 Shared-file edits: `src/zones/index.ts` (import), `src/shell/zonegame.ts` (`skipBanner?()`), `src/shell/playzone.ts` (one line: `skipBanner` leaves the banner like a button).
 
 ## z27TRX (T-Rex Racing)
@@ -29,7 +32,7 @@ Status: playable end to end. Zone loop (intro cutscene ADV08 at the first start,
 retry / abort / continue -> story node 50), all ten behaviour nodes of the zone (balloon flight + knock-back + camera + music fade, winch hook, six big dinosaurs, five babies, Bronty / Mr Hates state machine with the pizza path, fireball, three sandbags,
 pterodactyl, Pepper in the basket), HUD (score, dinosaurs left, sandbag icon), the winch rope, 22 sounds, HISCORE_HAT 0x4a / TROPHY_HAT 0x9d. Doc: [z28HAT.md](z28HAT.md). Tests: `m6-z28HAT` (340 checks incl. a scripted WIN bot and a LOSS),
 browser steps `tools/steps/m6-z28HAT.mjs` (win with real key presses, ~5 min) / `m6-z28HAT-loss.mjs` (pause, loss, retry, restart, abort). Open: the fireball is drawn as three flame sheets instead of the original's particle emitter (no particle system),
-the dinosaurs' 3D sound positions are the true ones (the original's pointer is one float off), the analogue stick branch / rumble are not ported, music starts at zone entry.
+the dinosaurs' 3D sound positions are the true ones (the original's pointer is one float off), the analogue stick branch never fires and rumble is an empty function in the original (not gaps).
 Shared-file edits: `src/zones/index.ts` (import), `src/shell/zonegame.ts` (`resultHold?` / `resultTick?`), `src/shell/playzone.ts` (mode 5 calls them).
 
 ## z22BIP (jungle biplane)
@@ -45,7 +48,7 @@ Shared-file edits: `src/zones/index.ts` (one import line) only.
 Status: playable end to end. Zone loop (intro `HOLOA`, help of 11 lines, play with the phase machine bridge -> cannons, pause 18, win banner with the medal and `CASGRB01..04`, loss banner `CASGRB05`, result menus 16 / 19, retry / abort / continue -> z07CSI node 27), all five
 behaviour nodes ported from the decompile: `PepSwitc` (bridge fall rule, entering / aiming / firing / leaving the four cannons, camera of sub-game 9), `PeppHit` (knock-up, blinking), `rgbgame` (phases, score, results, flags), the nine enemy `cannon`s (phase 1 volleys, Cedric's shots) and `cedric` (hops
 between the cannons on a parabola), the ten-ball pool, HUD gauge + barrel overlay, 2D / 3D sounds, speech, HISCORE_RGB 0x3b / TROPHY_RGB 0x23. Doc: [z10RGB.md](z10RGB.md). Tests: `m6-z10RGB` (381 checks incl. a scripted WIN bot (silver) and a LOSS) and `m6-z10RGB-emu` (the original's code in the x86 interpreter next to the port: 9.3 million comparisons, 0 differences), browser steps `tools/steps/m6-z10RGB.mjs`
-(win, real key presses, rest of the cannons removed through the page unless `NOSHORT=1`) / `m6-z10RGB-loss.mjs` (pause, loss, retry). Open: no particle runtime (muzzle smoke, splashes, dust), ball shadows and the underwater plane are not drawn, analog aim axes / rumble not read, music starts at zone entry.
+(win, real key presses, rest of the cannons removed through the page unless `NOSHORT=1`) / `m6-z10RGB-loss.mjs` (pause, loss, retry). Open: no particle runtime (muzzle smoke, splashes, dust), ball shadows and the underwater plane are not drawn, analog aim axes always 0 in the original / rumble an empty function, music starts at zone entry.
 Shared-file edits: `src/zones/index.ts` (one import line) only.
 
 ## z20DSP (Desert Speedster race / time trial)
@@ -53,7 +56,7 @@ Shared-file edits: `src/zones/index.ts` (one import line) only.
 Status: playable end to end. Zone loop (intro, help, countdown, race along the car1.man spline with the Speedster, pickups, hazards, finish autopilot, banner with medal and time score, result menus 16 / 19, pause 18, retry / abort / continue),
 Speedster FUN_006c2627, props (falling rocks, turbo, Bertha, Spin, saucers, cones, whirlwind, WalkRock), spline, camera, scoring 6c6d57, Replay.c recorder (6f3270) as ReplayBuffer. Doc: [z20DSP.md](z20DSP.md).
 Tests: `m6-z20DSP` (314 checks incl. the spline / replay / Speedster / props compared with the original's code in the x86 emulator), browser steps `tools/steps/m6-z20DSP.mjs` (win) / `m6-z20DSP-loss.mjs` (loss, retry, pause, abort).
-Open: no particles (dust, sparks), analog axis not read, win bot teleports to 92 % of the track, music starts at zone entry, one prop-oracle run (start 0.7, seed 3) diverges by about 1e-3 after 777 ticks.
+Open: no particles (dust, sparks), the analog axis is always 0 in the original, win bot teleports to 92 % of the track, music starts at zone entry, one prop-oracle run (start 0.7, seed 3) diverges by about 1e-3 after 777 ticks.
 Shared-file edits: `src/zones/index.ts` (import), `src/shell/zonegame.ts` (`everyTick?`), `src/shell/playzone.ts` (calls it), `src/game/render.ts` (`poseRange`).
 
 ## z18MMP (mummy tomb)
@@ -82,7 +85,7 @@ Shared-file edits: `src/zones/index.ts` (one import line) only.
 
 Status: playable end to end. Intro OGSGBP34, help (mode 9), side run up the tower (pepbrp, sliders, switches, crumbling bridge, lift), second help (mode 10, world frozen), roof with pizzas, Brickster (3 hits), bots, collapsing floor, end cutscene BRP01, banner with clock score and medal, result menu 16, OutroFMV + credits -> island node 68, pause 18 (restart / abort -> z40OGL node 66). Doc: [z42BRP.md](z42BRP.md).
 Tests: `m6-z42BRP` (257 checks incl. EXE tables, scripted WIN 1280 ticks / score 10000, LOSS, snapshot/restore); browser steps `tools/steps/m6-z42BRP.mjs` (win) / `m6-z42BRP-loss.mjs` (fall, restart, abort) / `m6-z42BRP-look.mjs`.
-Open: no particles, analogue stick not read, music starts at zone entry, widened switch-2 trigger for the fixed 30 Hz step.
+Open: no particles, music starts at zone entry, widened switch-2 trigger for the fixed 30 Hz step.
 Shared-file edits: `src/zones/index.ts` (import), `src/shell/loopmachine.ts` (`help2` input, `MODE.HELP2` handling), `src/shell/zonegame.ts` (`wantsHelp2?`, `onHelp2End?`), `src/shell/playzone.ts` (passes `help2`, calls `onHelp2End`).
 
 ## z08BKD (Brick Dive)

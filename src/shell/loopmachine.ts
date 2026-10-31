@@ -54,6 +54,8 @@ export interface LoopInput {
   dialog?: boolean;
   /** DAT_008b1718, the time step of this pass (default 1): scales the fades */
   dt?: number;
+  /** mode 0 only (z38PAR, FUN_00465d39 0x465db8: `FUN_004376f9(0)` returns the HELD buttons; any held button skips the intro and the help straight to mode 2): the zone reports it */
+  skipInit?: boolean;
   /** the zone asks for its second controls help (z42BRP: the roof phase starts, FUN_0081fd64 mode 10): play -> mode 10 until a button is pressed */
   help2?: boolean;
 }
@@ -107,6 +109,7 @@ export class LoopMachine {
         else this.level = Math.fround(Math.fround(FADE_STEP * Math.fround(inp.dt ?? 1)) + this.level);
         break;
       case MODE.INIT:
+        if (inp.skipInit) { this.set(MODE.PLAY); break; }
         this.set(this.cfg.intro ? MODE.INTRO : this.cfg.help ? MODE.HELP : MODE.PLAY);
         break;
       case MODE.INTRO:

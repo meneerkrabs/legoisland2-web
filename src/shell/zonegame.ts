@@ -112,14 +112,20 @@ export interface ZoneGame {
   onBanner?(result: number): void;
   /** draw the 2D layer: the HUD of mode 2 and the zone's overlays; `mode` = loop mode (2 play, 1 intro, 9 help, 4 banner ...), not called in the pause menu */
   draw2d?(ui: Ui2D, dt: number, mode: number): void;
+  /** the zone's `draw2d` is also a record draw hook of the original (z15SSH's crosshair, FUN_0065817c from the buggy's hook): it runs under the pause menu too (the scene is drawn in every loop mode) */
+  draw2dInPause?: boolean;
   /** draw the end banner (mode 4: medal text, result lines); default: nothing (the runner draws a generic banner when this is missing) */
   drawBanner?(ui: Ui2D, result: number): void;
   /** the zone's loop runs its update in the end banner (mode 4) as well (the original updates in modes 2 and 4): the runner then ticks the world and calls `bannerTick` instead of `update` */
   tickInBanner?: boolean;
+  /** the zone's loop never calls the story check FUN_00423bad while playing (z10RGB's FUN_005f418b does not: it only reaches FUN_00404d14 on exit), so a zone-written COMPLETE_SUB_GAME does not advance the story mid-game */
+  noStoryFrame?: boolean;
   /** called every tick of mode 4 (the end banner): with `tickInBanner` after the runner ticked the world; without it just a hook, e.g. to keep animating the player (z17WAS: Pepper's cheer / sad clip) */
   bannerTick?(): void;
   /** the end banner (mode 4) is left to the result menu without waiting for a button while this is true (z01BPK FUN_0048d8bd case 4: `DAT_05d580bc < 1`, no points) */
   skipBanner?(): boolean;
+  /** called in the loop's mode 0 only: true when a button is held, which skips the intro and the help (z38PAR's mode 0, which also plays `plane_flyoff` then) */
+  skipInit?(): boolean;
   /** called before every 3D render (camera / interpolation tweaks) */
   beforeRender?(alpha: number): void;
   /** called once at the end of every tick in every loop mode (fade, intro, help, play, pause, banner, result): zones whose camera / HUD code runs every pass of the original's loop (z20DSP FUN_006bd776) */

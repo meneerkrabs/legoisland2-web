@@ -15,6 +15,25 @@ export const r24 = (v: number): number => {
 };
 export const ad = (x: number, y: number): number => r24(x + y);
 export const sb = (x: number, y: number): number => r24(x - y);
+/**
+ * x + y / x - y with ONE rounding to 24 bits where an operand is a full double (`fadd qword` / `fsub qword`: float32 + a double constant): the plain double sum rounded to float32
+ * rounds twice and is wrong on a 24-bit tie whose exact sum is not a double (TwoSum error term decides the direction). Same as `p24sum` of src/formats/x86emu.ts.
+ */
+const TS_F = new Float32Array(1), TS_U = new Uint32Array(TS_F.buffer);
+export const r24sum = (s: number, e: number): number => {
+  const f = Math.fround(s);
+  if (e === 0 || !Number.isFinite(s)) return f;
+  const a = Math.abs(s);
+  if (a < 1.1754943508222875e-38 || a > 3.4028234663852886e38) return r24(s);
+  const d = s - f;
+  if (d === 0) return f;
+  TS_F[0] = f; TS_U[0] += (d > 0) === (f > 0) ? 1 : -1;
+  const g = TS_F[0];
+  if (s !== (f + g) / 2) return f;
+  return e > 0 ? Math.max(f, g) : Math.min(f, g);
+};
+export const adx = (x: number, y: number): number => { const s = x + y, b = s - x; return r24sum(s, (x - (s - b)) + (y - b)); };
+export const sbx = (x: number, y: number): number => adx(x, -y);
 export const ml = (x: number, y: number): number => r24(x * y);
 export const dv = (x: number, y: number): number => r24(x / y);
 export const sq = (x: number): number => r24(Math.sqrt(x));

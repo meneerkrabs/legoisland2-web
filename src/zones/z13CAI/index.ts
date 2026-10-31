@@ -35,9 +35,9 @@ const hudOf = new WeakMap<HubGame, CaiHud>();
  * (the gulls' constructor half is the framework's `ctorInit`, which runs just before this).
  */
 export function applyCaiSetup(ictx: HubContext, world: World, loaded: { pepper: GameRecord }) {
-  // Pepper's chain: the set-up attaches only the seat (SGVehic) / the Ptera ride; the generic set-up added its stub guard and the island's walk / swim / mode nodes
+  // Pepper's chain: the set-up attaches only the seat (SGVehic) / the Ptera ride; the generic set-up added the island's walk / swim / mode nodes
   const c = loaded.pepper.ctrl;
-  if (c) c.nodes = c.nodes.filter((n) => !['StubGuard', 'PepSwitc', 'SGwalk', 'sgswim'].includes(n.kind));
+  if (c) c.nodes = c.nodes.filter((n) => !['PepSwitc', 'SGwalk', 'sgswim'].includes(n.kind));
   const G = vehicles(world);
   // FUN_0061b1f4: DAT_009daa14 = 1 pad (PATH node 0, exit node 0, map 1); the island's boat docks are not set (count 0)
   const mem = ictx.setup.mem;
@@ -83,9 +83,9 @@ registerHub({
       h.ctx.gr.swapTextures = (rec, lod) => looksOf(h.ctx.world)?.textures(rec, lod) ?? null;
     }).catch((e: unknown) => console.warn('z13CAI swaptext', e));
   },
-  frame(h, mode) {
+  frame(h) {
     hudOf.get(h)?.update(h.ctx.hud, h.ctx.vars, h.ctx.world.dt);   // FUN_0061bf8c (every pass of the loop, any mode)
-    // FX_Bricks: the effects are updated in the draw pass (FUN_00442930 -> FUN_00447de0): PHEL's look change morphs through it
-    if (mode === 2) tickIslandBrickFx(h.ctx.world);
+    // FX_Bricks: the effects are updated in the draw pass of EVERY loop mode (FUN_00442930 -> FUN_00447de0, called unconditionally before the mode switch of FUN_0061a821): PHEL's look change morphs through it
+    tickIslandBrickFx(h.ctx.world);
   },
 });

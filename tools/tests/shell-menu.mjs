@@ -98,6 +98,14 @@ export default {
       h.leave(EXIT.QUIT); let j = 0; while (!h.done && j < 100) { h.tick({ pressed: 0, dt: 0.5 }); j++; }
       eq('fade out at dt 0.5 takes 33 passes', j, 33);
     }
+    // z38PAR's mode 0 (FUN_00465d39 0x465db8: FUN_004376f9(0) = the held buttons): a held button skips the intro and the help (`skipInit`); without it mode 0 -> the intro
+    {
+      const x = new LoopMachine(MINIGAME_CONFIG); while (x.mode === MODE.FADE_IN) x.tick({ pressed: 0 });
+      eq('mode 0 follows the fade in', x.mode, MODE.INIT); x.tick({ pressed: 0, skipInit: true });
+      eq('a held button in mode 0 skips intro and help', x.mode, MODE.PLAY);
+      const y = new LoopMachine(MINIGAME_CONFIG); while (y.mode === MODE.FADE_IN) y.tick({ pressed: 0 });
+      y.tick({ pressed: 0, skipInit: false }); eq('no held button: the intro', y.mode, MODE.INTRO);
+    }
     // exits of a mini-game: abort -> 4, restart -> 3, finish via banner and result menu -> 2
     const run2 = (f) => { const x = new LoopMachine(MINIGAME_CONFIG); for (let i = 0; i < 18; i++) x.tick({ pressed: 0 }); f(x); let k = 0; while (!x.done && k++ < 60) x.tick({ pressed: 0 }); return x.exit; };
     eq('abort from the pause menu', run2((x) => { x.tick({ pressed: B.ESC }); x.tick({ pressed: 0, pauseResult: -3 }); }), EXIT.ABANDON);

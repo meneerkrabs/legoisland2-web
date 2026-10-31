@@ -9,6 +9,9 @@ import { GATE_ON, ZoneParticles } from '../../fx/particles/zone.ts';
 import { medalOfScore } from './state.ts';
 import { prepareBkd, snapshot } from './run.ts';
 import type { BkdRun } from './run.ts';
+import { installCtx } from '../../island/ctx.ts';
+import type { IslandCtx } from '../../island/ctx.ts';
+import type { GameRecord } from '../../game/record.ts';
 
 /** the HUD textures of Overlays/z08BKD (FUN_005b9fca): 1 gauge icon, 2 gauge segment, 4 brick icon, 5 page icon */
 export const HUD_TEX = { GAUGE_ICON: 1, SEGMENT: 2, BRICK: 4, PAGE: 5 } as const;
@@ -36,6 +39,8 @@ export async function createBkdGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
     attach: (rec, slot, bone, child) => gr.setAttach(rec, slot, bone, child),
   });
   const { state } = run;
+  // the foam's texture wobble (SeaAmin 0x4b1212, FUN_0043ebe0(model, 0, &0, &v): v is added to the V coordinates of every group): the node reaches the renderer through the island context's `uvScroll`
+  installCtx(world, { world, shared: {}, uvScroll(rec: GameRecord, du: number, dv: number) { const n = gr.groupCount(rec); for (let g = 0; g < n; g++) gr.scrollGroup(rec, g, du, dv); } } as unknown as IslandCtx);
   // the diver's bubble emitter (FUN_005c23f9, see BUBBLE): started with the diver node, always on
   const fx = await ZoneParticles.create(ctx);
   if (fx) {

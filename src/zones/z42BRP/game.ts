@@ -26,7 +26,7 @@ registerZoneGame('z42BRP', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   // FUN_008212a3 starts with srand(time(NULL)); the clock base of FUN_00435c91 is the zone's start
   seedFromTime();
   const tickBase = getTickCount();
-  const S = prepareWorld(w, ctx.archive);
+  const S = prepareWorld(w, ctx.archive, ctx.attempt > 0);
   const ga = ctx.sh.audio.ga;
   // brp.str and brp2.str share the ids CONTROL0 ..: the loop keeps them in two tables (DAT_05d5f58c / DAT_05d5f56c), the shell merged both into `ctx.strings`
   const messages = await ctx.sh.data.archive('messages');
@@ -115,8 +115,9 @@ registerZoneGame('z42BRP', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
       const [a, b] = RESULT_LINES[medal];
       ctx.say(a, b);
     },
+    /** the HUD exists in play only: pass state (the mode after the runner's transition = the mode this pass is drawn in), not a browser rAF call's */
+    everyTick(mode: number) { ctx.hud.visible = mode === MODE.PLAY; },
     draw2d(ui: Ui2D, _dt: number, mode: number) {
-      ctx.hud.visible = mode === MODE.PLAY;
       if (mode === MODE.HELP) ctx.help(ui, 3, brp);
       else if (mode === MODE.HELP2) ctx.help(ui, 5, brp2);
       else if (mode === MODE.PLAY) {

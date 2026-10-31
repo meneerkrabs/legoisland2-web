@@ -2,9 +2,19 @@
 // (Miles XMIDI sequences + a DLS bank, see docs/re/audio.md section 4.1) are plain .mid files.
 import { DlsSynth } from './dm/synth.ts';
 import type { DlsCollection, DlsInstrument } from './dm/dls.ts';
+import { xmiTimeline } from './xmi.ts';
 
 export interface SmfEvent { tick: number; ch: number; kind: 'on' | 'off' | 'cc' | 'prog' | 'bend' | 'tempo'; a: number; b: number }
-export interface Smf { format: number; division: number; events: SmfEvent[]; lengthTicks: number; /** the latest end-of-track meta event (FF 2F) of any track: the length of the sequence */ endTick: number }
+export interface Smf {
+  format: number; division: number; events: SmfEvent[]; lengthTicks: number;
+  /** the latest end-of-track meta event (FF 2F) of any track: the length of the sequence */
+  endTick: number;
+  /**
+   * every track with ALL its events in file order (`ev` is null for the meta events and sysex that `events` leaves out): what Miles' MIDI -> XMIDI converter merges (`xmi.ts`).
+   * `tick` is the absolute tick; a track's end-of-track event is its last entry.
+   */
+  tracks: { tick: number; ev: SmfEvent | null; /** meta event type (FF tt) */ meta?: number }[][];
+}
 
 export function parseSmf(d: Uint8Array): Smf {
   const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
@@ -12,6 +22,7 @@ export function parseSmf(d: Uint8Array): Smf {
   const format = dv.getUint16(8), ntracks = dv.getUint16(10), division = dv.getUint16(12);
   if (division & 0x8000) throw new Error('SMPTE time division not supported');
   const events: SmfEvent[] = [];
+  const tracks: { tick: number; ev: SmfEvent | null; meta?: number }[][] = [];
   let pos = 14, lengthTicks = 0, endTick = 0;
   for (let t = 0; t < ntracks && pos + 8 <= d.length; t++) {
     const id = String.fromCharCode(d[pos], d[pos + 1], d[pos + 2], d[pos + 3]);
@@ -20,6 +31,8 @@ export function parseSmf(d: Uint8Array): Smf {
     const end = Math.min(d.length, p + size);
     pos = p + size;
     if (id !== 'MTrk') continue;
+    const track: { tick: number; ev: SmfEvent | null; meta?: number }[] = [];
+    tracks.push(track);
     let tick = 0, running = 0;
     const vlq = () => { let v = 0, b; do { b = d[p++]; v = (v << 7) | (b & 0x7f); } while (b & 0x80 && p < end); return v; };
     while (p < end) {
@@ -28,26 +41,31 @@ export function parseSmf(d: Uint8Array): Smf {
       if (st === 0xff) {
         const type = d[p + 1]; p += 2;
         const len = vlq();
-        if (type === 0x51 && len === 3) events.push({ tick, ch: 0, kind: 'tempo', a: (d[p] << 16) | (d[p + 1] << 8) | d[p + 2], b: 0 });
+        let tempo: SmfEvent | null = null;
+        if (type === 0x51 && len === 3) { tempo = { tick, ch: 0, kind: 'tempo', a: (d[p] << 16) | (d[p + 1] << 8) | d[p + 2], b: 0 }; events.push(tempo); }
         if (type === 0x2f && tick > endTick) endTick = tick;
+        track.push({ tick, ev: tempo, meta: type });
         p += len;
         continue;
       }
-      if (st === 0xf0 || st === 0xf7) { p++; p += vlq(); continue; }
+      if (st === 0xf0 || st === 0xf7) { p++; p += vlq(); track.push({ tick, ev: null }); continue; }
       if (st & 0x80) { running = st; p++; } else st = running;
       const kind = st & 0xf0, ch = st & 15;
       const a = d[p++];
       const b = kind === 0xc0 || kind === 0xd0 ? 0 : d[p++];
-      if (kind === 0x90) events.push({ tick, ch, kind: b === 0 ? 'off' : 'on', a, b });
-      else if (kind === 0x80) events.push({ tick, ch, kind: 'off', a, b });
-      else if (kind === 0xb0) events.push({ tick, ch, kind: 'cc', a, b });
-      else if (kind === 0xc0) events.push({ tick, ch, kind: 'prog', a, b: 0 });
-      else if (kind === 0xe0) events.push({ tick, ch, kind: 'bend', a, b });
+      let ev: SmfEvent | null = null;
+      if (kind === 0x90) ev = { tick, ch, kind: b === 0 ? 'off' : 'on', a, b };
+      else if (kind === 0x80) ev = { tick, ch, kind: 'off', a, b };
+      else if (kind === 0xb0) ev = { tick, ch, kind: 'cc', a, b };
+      else if (kind === 0xc0) ev = { tick, ch, kind: 'prog', a, b: 0 };
+      else if (kind === 0xe0) ev = { tick, ch, kind: 'bend', a, b };
+      if (ev) events.push(ev);
+      track.push({ tick, ev });
       if (tick > lengthTicks) lengthTicks = tick;
     }
   }
   events.sort((x, y) => x.tick - y.tick);
-  return { format, division, events, lengthTicks, endTick: Math.max(endTick, lengthTicks) };
+  return { format, division, events, lengthTicks, endTick: Math.max(endTick, lengthTicks), tracks };
 }
 
 export interface TimedMidiEvent extends SmfEvent { time: number }
@@ -98,6 +116,8 @@ export class MidiRenderer {
   playing = false;
   gain = 1;
   passes = 0;
+  /** the end-of-track event of this pass was executed (AIL_end_sequence released the notes) */
+  private ended = false;
 
   constructor(sampleRate: number, maxVoices = 32) {
     this.sampleRate = sampleRate;
@@ -106,13 +126,14 @@ export class MidiRenderer {
 
   /** `delaySec`: FUN_00443230 counts 6 loop passes (6 sim steps = 6/60 s) before it first starts the sequence */
   start(smf: Smf, collection: DlsCollection, delaySec = 0) {
-    const tl = smfTimeline(smf);
+    const tl = xmiTimeline(smf);   // the game plays Miles' XMIDI conversion of the file (xmi.ts): its 120 Hz clock, note durations, end-of-track
     this.events = tl.events;
     this.length = tl.length;
     this.collection = collection;
     this.idx = 0;
     this.base = this.frame + Math.round(delaySec * this.sampleRate);
     this.playing = true;
+    this.ended = false;
     this.synth.allSoundOff();
     this.bank.clear();
   }
@@ -151,8 +172,13 @@ export class MidiRenderer {
       if (this.idx < this.events.length) stop = Math.min(stop, this.base + Math.round(this.events[this.idx].time * this.sampleRate));
       else {
         const endFrame = this.base + Math.round(this.length * this.sampleRate);
-        if (here >= endFrame + Math.round(this.gap * this.sampleRate)) {
-          if (this.loop) { this.idx = 0; this.base = here; this.passes++; this.synth.releaseAll(); continue; }
+        // the end-of-track event ends the sequence: AIL_end_sequence sends a note-off for every sounding note (0x21118f00), the restart follows one frame poll later
+        if (!this.ended) {
+          if (here >= endFrame) { this.synth.releaseAll(); this.ended = true; }
+          else stop = Math.min(stop, endFrame);
+        }
+        if (this.ended && here >= endFrame + Math.round(this.gap * this.sampleRate)) {
+          if (this.loop) { this.idx = 0; this.base = here; this.passes++; this.ended = false; continue; }
           this.playing = false; continue;
         }
       }

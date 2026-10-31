@@ -7,4 +7,6 @@ import { CTOR, createBotNode, createPepNode, createWabGame } from './z05WAB/game
 
 registerCtor(CTOR.PEPWAB, () => createPepNode());
 registerCtor(CTOR.BOTWAB, () => createBotNode());
-registerZoneGame('z05WAB', async (ctx) => createWabGame(ctx, await ZoneParticles.create(ctx)));
+/** FUN_0056905a's first statement: DAT_0089df2c = 0x3f11eb85 (the camera zoom, a vertical field of view of 0.57 rad; the default is 1.0), before the set-up that creates the particle engine (it reads the zoom) */
+const WAB_FOV = new Float32Array(new Uint32Array([0x3f11eb85]).buffer)[0];
+registerZoneGame('z05WAB', async (ctx) => { ctx.gr.fov = WAB_FOV; return createWabGame(ctx, await ZoneParticles.create(ctx)); });

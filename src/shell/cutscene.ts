@@ -21,8 +21,8 @@
 //                           the original) / the end of FUN_00459119 (AI back on, walker lanes restored, Pepper: walker unregistered, idle clip, camera behind her
 //                           FUN_00422f21, mouth frames restored, FOV restored, the one-deep queue, bars off, PEPPER_CONTROL &= ~0x100)
 //   skip (Shift edge)     : zero delays, snap moves / animations / speech / splines to their end (FUN_00459597 and every handler's 0x40 branch)
-// Approximations (see the doc): actors without an animation instance count as "clip ended"; ATTACH without a carry node uses a logical attachment (no offset);
-// actors without a controller / walker (the port's NPCs before their nodes exist) skip the walker commands exactly like the original's null walker does.
+// Cases the original does not have (they never occur in the game's own scripts, see docs/re/m4/wp2-cutscenes.md): an actor without an animation instance counts as "clip ended"; ATTACH without a carry node
+// uses a logical attachment (no offset); actors without a controller / walker skip the walker commands exactly like the original's null walker does.
 import type { Cutscene, CutCommand } from '../formats/cutscene.ts';
 import type { Man } from '../formats/anim.ts';
 import { buildMatrix } from '../formats/matrix.ts';
@@ -836,7 +836,7 @@ export class CutsceneRunner {
     return true;
   }
 
-  /** M3 zones without a waypoint system: a straight walk to the cached waypoint at ACTOR_SPEED (approximation) */
+  /** Test environments without a waypoint system only (`CutsceneHost` always has one, so no zone reaches this): a straight walk to the cached waypoint at ACTOR_SPEED */
   private moveStraight(m: Cmd, a: GameRecord): number {
     const p = m.c.targetKind === 'waypoint' ? m.wpPos : null;
     if (!p) return 2;

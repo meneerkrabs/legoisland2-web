@@ -3,6 +3,10 @@
 // FUN_005f418b (modes 7 / 0 / 1 / 9 / 2 / 3 / 4 / 5 / 8: the runner's template), the five behaviour nodes (src/zones/z10rgb/), the HUD, the intro / help / banner
 // texts, the speech, the sounds and the result variables. This file registers the constructors and the zone game (the glue to the shell).
 import { registerCtor } from '../game/setup.ts';
+import { installCtx } from '../island/ctx.ts';
+import type { IslandCtx } from '../island/ctx.ts';
+import type { GameRecord } from '../game/record.ts';
+
 import { restoreHooks } from '../restore/flag.ts';
 import { registerZoneGame } from '../shell/zonegame.ts';
 import type { ZoneGame, ZoneGameCtx } from '../shell/zonegame.ts';
@@ -14,10 +18,10 @@ import { CTOR, K, MODE, PHASE, REC, VAR, f32 } from './z10rgb/consts.ts';
 import { RgbState } from './z10rgb/shared.ts';
 import { NO_HANDLE, ZoneParticles } from '../fx/particles/zone.ts';
 import { updateBalls } from './z10rgb/balls.ts';
-import { PepSwitcNode, PeppHitNode } from './z10rgb/pepper.ts';
+import { PepSwitcNode, PeppHitNode, shotScale } from './z10rgb/pepper.ts';
 import { CannonNode, CedricNode } from './z10rgb/enemy.ts';
 import { RgbGameNode, initRgb } from './z10rgb/game.ts';
-import { ROUTE, aimKeys, nextTarget, planShot, steerKeys } from './z10rgb/bot.ts';
+import { BROWSER_ROUTE, aimKeys, nextTarget, planShot, steerKeys } from './z10rgb/bot.ts';
 import { SoundBank } from './z10rgb/sound.ts';
 import type { SoundBackend } from './z10rgb/sound.ts';
 
@@ -54,6 +58,8 @@ registerZoneGame('z10RGB', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   initRgb(st, world, { pe: sh.pe, archive: archive as never });
   st.say = (id) => ctx.say(id);
   ctx.gr.fov = st.fov;
+  // the shore foam's texture wobble (SeaAmin 0x4b1212 is attached here too: FUN_0043ebe0(model, 0, &0, &v) adds v to the V coordinates of every group): the node reaches the renderer through the island context's `uvScroll`
+  installCtx(ctx.world, { world: ctx.world, shared: {}, uvScroll(rec: GameRecord, du: number, dv: number) { const n = ctx.gr.groupCount(rec); for (let g = 0; g < n; g++) ctx.gr.scrollGroup(rec, g, du, dv); } } as unknown as IslandCtx);
 
   // ---- particles: FUN_005f67b0 creates the engine ("z10rgb" archive); FUN_005f8050 (the ball pool, from FUN_005f690b) starts one `impact01` per ball on the ball's matrix at
   // (0, 0.8, 0), rotated -pi / 2 about x, gate OFF, with LAND as its collision record; FUN_0044e8d0 follows in the loop's set-up (FUN_005f418b); the PepSwitc constructor FUN_005f4f14
@@ -115,7 +121,7 @@ registerZoneGame('z10RGB', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   const game: ZoneGame & { assist: unknown } = {
     /** test aids (not part of the game): the scripted player's decisions for the headless browser runs (tools/steps/m6-z10RGB*.mjs press the keys) */
     assist: {
-      state: st, route: ROUTE,
+      state: st, route: BROWSER_ROUTE, shotScale: () => shotScale.value,
       steer: (dx: number, dz: number) => steerKeys(world.camera.c, dx, dz),
       nextTarget: () => nextTarget(st),
       plan: (point: number[]) => planShot(st, point),
@@ -124,6 +130,7 @@ registerZoneGame('z10RGB', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
     introId: 'HOLOA',
     helpControls: 0xb,
     tickInBanner: true,
+    noStoryFrame: true,     // FUN_005f418b has no FUN_00423bad: the phases 4 / 5 write COMPLETE_SUB_GAME = 1 (FUN_005f72c0) without moving the story; FUN_00404d14 acts on exit
     onStart() { st.phase = PHASE.BRIDGE; },
     beforeTick() { updateBalls(st); },
     update() {

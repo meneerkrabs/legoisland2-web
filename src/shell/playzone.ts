@@ -248,7 +248,7 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
       world.tick();
       if (!gameOver) { const r = game.update(); if (r) gameOver = r; }
       { const lr = game?.leaveRequest?.(); if (lr) m.leave(lr); }
-      if (cfg.hub || !ROOMS.has(zoneName)) storyAdvanced = sh.story.frame() === 6;
+      if ((cfg.hub || !ROOMS.has(zoneName)) && !game?.noStoryFrame) storyAdvanced = sh.story.frame() === 6;
       if (!storyAdvanced && game?.storyTick) { const e = game.storyTick(); if (e !== undefined && e !== EXIT.RUNNING) m.leave(e); }
       varChanged = sh.vars.get(V.NS_NEXT_SUBGAME) !== sh.vars.get(V.CURRENT_SUBGAME);
       if (dev) { dev.afterSim(); if (dev.storyLeave()) storyAdvanced = true; }   // free camera / autoplay (F8) of the corner
@@ -276,7 +276,7 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     // a zone whose mode 1 has no panel (the island) leaves it on any button (DAT_00983840 != 0)
     // M5 audit: the mini-game loops leave the intro / help screens on ANY pressed button (`DAT_00983840 != 0`: the arrows, Z / X / C and the `<>` key count too), not only on Enter / Space / Shift / Alt / Ctrl; the same for the end banner (mode 4), whose three exceptions (z05WAB, z38PAR, z40aPO) test the HELD buttons through `skipBanner`
     const anyButton = ((m.mode === MODE.INTRO || m.mode === MODE.HELP || m.mode === MODE.HELP2) && (pressed & ~B.ESC) !== 0) || (m.mode === MODE.BANNER && ((pressed & ~B.ESC) !== 0 || game?.skipBanner?.() === true)) ? B.ENTER : 0;   // skipBanner: z01BPK's banner is left at once without points
-    m.tick({ dt: world.dt, pressed: ((game?.blockPause?.() ? pressed & ~B.ESC : pressed) | anyButton) & (holding ? B.ESC : ~0), pauseResult, resultResult, gameOver, storyAdvanced, varChanged, dialog: m.mode === MODE.PLAY && !!game?.dialog?.wanted(), help2: m.mode === MODE.PLAY && !!game?.wantsHelp2?.() });
+    m.tick({ dt: world.dt, pressed: ((game?.blockPause?.() ? pressed & ~B.ESC : pressed) | anyButton) & (holding ? B.ESC : ~0), pauseResult, resultResult, gameOver, storyAdvanced, varChanged, dialog: m.mode === MODE.PLAY && !!game?.dialog?.wanted(), help2: m.mode === MODE.PLAY && !!game?.wantsHelp2?.(), skipInit: m.mode === MODE.INIT && game?.skipInit?.() === true });
     if (resultResult === 99) resultResult = 0;   // a zone dialog's "back to play" answer is used once
     game?.everyTick?.(m.mode);
     if (m.mode !== prev && m.mode === MODE.PAUSE && prev !== MODE.PAUSE) sh.menu.open(PAUSE_PAGE[cfg.pauseKind], cfg.pauseMask, true);
@@ -303,7 +303,7 @@ export async function runPlayZone(sh: Shell, info: ZoneInfo): Promise<number> {
     gr.render(a, dt);
     sh.ui.begin(sh.canvas.width, sh.canvas.height);
     if (hud && m.mode !== MODE.PAUSE) hud.draw(sh.ui);
-    if (game && m.mode !== MODE.PAUSE) game.draw2d?.(sh.ui, dt, m.mode);
+    if (game && (m.mode !== MODE.PAUSE || game.draw2dInPause)) game.draw2d?.(sh.ui, dt, m.mode);
     // mode 1: the one-line brief (FUN_00439c6f(zone table, font, id, 1, 0, 320, 120, 30)), mode 9: the controls help
     if (m.mode === MODE.INTRO && !game?.introHold?.() && game?.introPanel !== false) drawIntroScreen(sh.ui, panelEnv, introLines());
     if (m.mode === MODE.HELP && helpControls) drawHelp(sh.ui, sh.menuSet, strings, helpControls, panelEnv);

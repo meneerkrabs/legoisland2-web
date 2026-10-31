@@ -8,7 +8,7 @@
 //   FUN_0053d2ad  pre-render: Pepper gets on (DAT_009daa80 == this record) / off (a platform beside the locomotive)                          -> TrainNode.prerender
 //   FUN_0053c565  a platform beside: probe 8 units to the right (then the left) from 8 above, 16 down; record 5 or 6 = a platform           -> platformBeside
 //   FUN_0053d935  destroy (sounds off)    FUN_0053d48e (draw = the default)    FUN_0053d4ca / FUN_0053d5a3 save / load -> TrainNode.saveBlock / loadBlock
-// The other constructor of SupaStat.c, FUN_0053c337 (SUPE, update FUN_0053adc3 533 lines), is not ported: docs/re/m4/wp5-pizza.md.
+// The other constructor of SupaStat.c, FUN_0053c337 (SUPE, update FUN_0053adc3 533 lines), is `src/island/pizza/supe.ts`.
 import type { BehaviourNode, Controller } from '../../game/controller.ts';
 import { NODE_STOP } from '../../game/controller.ts';
 import type { GameRecord } from '../../game/record.ts';

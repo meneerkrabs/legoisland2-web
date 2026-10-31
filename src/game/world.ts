@@ -33,6 +33,18 @@ export function nextDt(frame: number, prevDt: number, elapsed = STEP_ELAPSED): n
   return Math.fround(v);
 }
 
+/**
+ * Automation (a WebDriver browser: the headless bots and tests, `navigator.webdriver`) and `?det=1` run the loops deterministically: fixed passes of the nominal frame time, so a slow software
+ * renderer (a headless SwiftShader page runs ~30 frames a second) replays the same game as a 60 Hz display would; `?det=0` turns it off. A real player's browser is never in this mode.
+ */
+export function deterministicLoop(): boolean {
+  try {
+    const q = new URLSearchParams(location.search).get('det');
+    if (q !== null) return q !== '0';
+    return !!navigator.webdriver;
+  } catch { return false; }
+}
+
 /** size of the draw pass log ring (a power of two) */
 export const PASS_LOG = 64;
 
@@ -124,14 +136,48 @@ export class World {
   destroy() { destroyNodes(this); this.records = []; this.col.records = []; this.focus = null; }
 }
 
-/** The frame loop: a fixed 60 Hz simulation (one step per drawn frame, no interpolation: the original has none); on a faster display the last frame is drawn again. */
+/**
+ * The pass pacing of the browser loops (WP-TIME). The original runs exactly ONE loop pass per drawn frame and FUN_00443e40 measures the real time of that frame
+ * (QueryPerformanceCounter elapsed / (QPF / 30)) into the step time of the next pass. The port stands in for a 60 Hz v-synced display: a pass runs once a 60 Hz tick has passed
+ * (a faster rAF draws the last frame again, nothing runs), its frame time is the nominal `normal` (0.5) and the accumulator keeps its phase; when the browser is late (the frame time
+ * is >= 1.5 ticks) the pass still runs ONCE and its frame time is the measured one (ms / (1000 / 30)), the accumulator is dropped; `nextDt` then applies the first-five-frames /
+ * stall / 3x-growth rules to it. Never several passes in one drawn frame.
+ */
+export class FrameClock {
+  private last: number;
+  private acc = 0;
+  /** deterministic harness mode (`deterministicLoop`): fixed passes of the nominal frame time, several per drawn frame when the browser is late (the old catch-up, at most 10) */
+  readonly det: boolean;
+  /** `stepMs`: the nominal pass time (60 Hz; z03PPH's QPC limiter 30 Hz); `normal`: its frame time in the game's unit */
+  readonly stepMs: number; readonly normal: number;
+  constructor(now: number, stepMs = TICK_MS, normal = STEP_ELAPSED, det = deterministicLoop()) { this.last = now; this.stepMs = stepMs; this.normal = normal; this.det = det; }
+  /** the frame times of the passes to run for the animation frame at `now`: none, one (`frame`), or in the deterministic harness mode as many nominal ones as the time owes (<= 10) */
+  take(now: number): number[] {
+    if (!this.det) { const e = this.frame(now); return e === null ? [] : [e]; }
+    this.acc += Math.min(1000, Math.max(0, now - this.last)); this.last = now;
+    const out: number[] = [];
+    while (this.acc >= this.stepMs && out.length < 10) { out.push(this.normal); this.acc -= this.stepMs; }
+    if (out.length === 10) this.acc = 0;
+    return out;
+  }
+  /** an animation frame at `now` (ms): the frame time (game unit) of the loop pass to run now, or null = no pass (the display is faster than the step) */
+  frame(now: number): number | null {
+    const ms = Math.max(0, now - this.last);
+    this.last = now;
+    this.acc += ms;
+    if (this.acc < this.stepMs - 1) return null;   // (1 ms slack: a v-synced 60 Hz rAF jitters by a few microseconds and must not drop a pass)
+    if (ms >= 1.5 * this.stepMs) { this.acc = 0; return ms * GAME_TICK_HZ / 1000; }
+    this.acc -= this.stepMs;
+    if (this.acc >= this.stepMs) this.acc = 0;   // a display slower than the step but under 1.5 ticks: no endless catch-up
+    return this.normal;
+  }
+}
+
+/** The frame loop: one simulation pass per drawn frame at most (`FrameClock`: a fixed 60 Hz step, the measured frame time when the browser is late); no interpolation: the original has none. */
 export class GameLoop {
   private raf = 0;
   private last = 0;
-  private acc = 0;
   running = false;
-  /** upper bound of steps run per animation frame (a stall is dropped, like the original's "elapsed > 15 ticks" rule) */
-  maxTicksPerFrame = 10;
   fps = 0;
   private fpsT = 0; private fpsN = 0;
   private world: World;
@@ -142,14 +188,12 @@ export class GameLoop {
     if (this.running) return;
     this.running = true;
     this.last = performance.now();
+    const clock = new FrameClock(this.last);
     const frame = (now: number) => {
       if (!this.running) return;
       const dtMs = Math.min(1000, now - this.last);
       this.last = now;
-      this.acc += dtMs;
-      let n = 0;
-      while (this.acc >= TICK_MS && n < this.maxTicksPerFrame) { this.world.tick(); this.world.advanceDt(); this.onTick?.(); this.acc -= TICK_MS; n++; }
-      if (n === this.maxTicksPerFrame) this.acc = 0;
+      for (const elapsed of clock.take(now)) { this.world.tick(); this.world.advanceDt(elapsed); this.onTick?.(); }
       this.fpsT += dtMs; this.fpsN++;
       if (this.fpsT > 500) { this.fps = (this.fpsN * 1000) / this.fpsT; this.fpsT = 0; this.fpsN = 0; }
       this.render(1, dtMs / 1000);

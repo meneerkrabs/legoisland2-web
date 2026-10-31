@@ -64,7 +64,7 @@ subtitle drawing, letterbox, FOV). Wired through `ctx.cutscene`, `ZoneGame.intro
 | 6 | MOVEPOSITION | 0x45c66b / 0x45ecec | not used by `ogl02`; the host runs the faithful WP2 handlers (waypoint walker FUN_0045c66b / 0045c80d, the camera's eased move / B-spline) |
 | 7 | FOLLOW | 0x45f543 / 0x45cb50 | not used by `ogl02`; WP2's faithful handlers (camera look-at follows the actor +3.37, the actor's walker follow mode) |
 | 8 | SETSWITCH | 0x45f670 | done |
-| 9 | WAV / MIDI | stub | no-op (never emitted) |
+| 9 | WAV / MIDI | 0x45f702 | the original only loads a 3D sound handle and returns 2 (nothing played); no shipped script contains the command (proof: `tools/tests/cutscene.mjs`) |
 | 10 / 11 | SETMOVESPEED / SETTARGETSPEED | 0x45f5b8 | done |
 | 12 | SETFOV | 0x45f64b | done |
 | 13 / 14 | SETEXPRESSION / ATTACH | 0x45d294 / 0x45d2b9 | done (WP2); not used by `ogl02` |
@@ -75,8 +75,8 @@ FOV 1 -> 0.5 -> 1, ~981 ticks = 32.7 s) runs in the test.
 
 ## 6. Known differences
 
-- Particles: wired (WP-PART-WIRE, last section). The shuttle door-part rotations are ported (`ApoPilot.turnDoors`, `GameRenderer.partMatrices`). The wing has no collision in the port (UNCERTAIN, see the oracle notes).
-- Music starts at zone entry. The HUD left icon is absent (stale global in the original). Cutscene camera placement relative to actors is approximated.
+- Particles: wired (WP-PART-WIRE, last section). The shuttle door-part rotations are ported (`ApoPilot.turnDoors`, `GameRenderer.partMatrices`). The wing has no collision, which is exact (settled: `solaarwing.col` is an NCOL file, `m8-para-collision`).
+- Music: A1 (audio.md 11.1). The HUD left icon is absent: exact (`FUN_0045f9d2` resets the HUD with left texture -1 at the zone start; refuted as 'stale global' by the M5 audit). The cutscene is the faithful runner (WP2; the table in section 5 is historic): `ogl02` places the camera by waypoints, no shipped script uses actor-relative camera moves that the runner approximates (see 'Closure 2026-10-31').
 - The browser bot has latency: the browser run expects >= 6 of 15 rings (node bot: 11 rings, score 6657 silver; browser WIN: 13 rings, score ~7650 silver, trophy 2, then node 64 z40OGL; LOSS: no wing, score 0, abort to island node 61).
 
 ## 7. Tests and how to run
@@ -133,3 +133,12 @@ PARA collision question (WP-MINI): SETTLED by running the original's `FUN_004412
 * Time: fixed 60 Hz sim step, one tick = one drawn frame. Audit: dt-scaled float32 `x * dt`: pilot (door, pitch, fall, yaw steps), wing / canopy scale 0.05, bots (timer, 2 * dt flight, ry 0.3 * dt), rock monsters (ry 0.06 * dt, animation), asteroid spins, the HUD spin counters (`1 * dt`); animation advances all carry `dt`; the bots' `counter + 1` is the original's integer step per 30 time units; per drawn frame (the intro's camera ease 0.85 per loop pass in mode 1, the HUD feed) once per sim step, not multiplied. The intro camera settle (`FUN_007cf929` 0x7cfb96) is now float32 per operation. `ApoHud.update` takes `dt` as a required argument.
 * Random numbers: `parachute/util.ts` (shared with z38PAR) draws from `src/game/crt.ts`; the 28 constructor draws (asteroid spins) and the run-time draws keep the original's order; `FUN_004388ae` runs natively in the oracles on the scripted `FUN_0085daf0`. No ms-scaled picks in this zone.
 * Tolerance 0: `m7-z40aPO-emu` (23.4 M checks, dt 1 and 0.5) and `m5-audit-z40aPO-emu` (14 M) compare for equality, including the HUD gauge value (unclamped) and the sound arguments; `APO_TOL` is gone. `m3-z40aPO` runs the scripted WIN and the HUD spin counter at `world.dt` 0.5 too.
+
+
+## Closure 2026-10-31 (fork C)
+
+* **SHAD patch = the wing's draw hook, z test off.** `FUN_007d2cf0` (the first call of the wing hook `FUN_007d2dd8`): while `DAT_05d5f208` it saves the z state, `FUN_0040cc4d(0)` (ZENABLE = 0), sets flag 2 of SHAD, `FUN_0043ebe0(model, 2, DAT_05d5f290, 0)` (live vertices), `FUN_00444480`, clears flag 2, restores z. The port: `ApoWing.draw` (a node draw hook) calls `GameRenderer.drawRecordLive(SHAD, run.shadow, noZ = true)` while `run.shadowOn`; the SHAD record itself stays disabled (the old port kept it enabled and depth tested; the M5 audit's 'SHAD draw ignores FUN_0040cc4d(0)' is closed). `m7-z40aPO-emu` (23.4 M checks) now compares per tick 'the hook drew the patch with the zone's vertices' == `DAT_05d5f208` and 'record disabled'.
+* **The wing hook runs in every loop pass.** `FUN_007d2dd8` is a draw hook (matrix from Pepper's bone + the scale step `DAT_05d5ee64`); the update pass runs in modes 2 and 4 only, the draw pass in every mode: behind the pause menu (and the help / intro) the wing goes on opening or closing (`audit-minigames-b.md`: 'the wing's matrix is built in the update, per drawn frame also during pause'). `apoGame.everyTick(mode)` runs `ApoWing.update` in every pass that started in a mode other than 2 / 4.
+* **Cutscene table items** (SETANIM name map, actor-target sides, FOLLOW, spline targets, end-of-script clean-up, camera placement relative to actors): all superseded by WP2 (`ogl02` runs the faithful handlers on the real zone, `m5-audit-z40aPO-intro`: 981 ticks, every waypoint / actor resolves, no stand-in). `ogl02` uses only SETVISIBILITY, SETPOSITION, SETTARGET, SETFOV and SAYTEXT (listed by `tools/tests/cutscene.mjs`); SETANIM / MOVEPOSITION / FOLLOW / ATTACH / spline targets (the 'approximated' rows of the old table) do not occur in it; nothing is approximated.
+* **WAV / MIDI (cmd 9) and camera MOVEPOSITION to an actor are unreachable**: `tools/tests/cutscene.mjs` scans all 87 shipped `.cut` files (3 675 commands) and fails if one contains cmd 9 or a `CMRA MOVEPOSITION actor`: none does. The original's handler for cmd 9 (`FUN_0045f702`) plays nothing anyway; `FUN_0045ecec` has no branch for target kind 1 (runs on uninitialised data). The runner's no-op / log is the only deterministic choice.
+* Records without an animation instance / controller (the original would dereference NULL): no shipped script of z40aPO (nor the island's, `m4-wp2-scripts`) needs it once the zone's real records exist; the island test fixture adds anim instances only because it runs scripts on a world whose NPC nodes were not started. Nothing to port.

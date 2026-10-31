@@ -94,14 +94,17 @@ Exact layouts (offset: field) are in the doc comments of the `saveBlock` methods
 `StoryFsm.snap` (DAT_00983854[node], the per node variable snapshot of FUN_00404bb2 / FUN_00404b43) is not part of the file and is neither saved nor reset by loads / new games in the original. Decision: kept as it is, a conscious faithful quirk
 ("a rewind after loading a save restores whatever the array holds"): `loadSlot`, new game and the front end do not touch it.
 
-## Not exact (and why)
+## What is exact, and what no port can reproduce (2026-10-31 decision)
 
-* process addresses inside the file cannot be reproduced bit for bit: SGCar's four cached part-matrix pointers, the carry node's stack garbage, the walker table's record pointers (written in the oracle's convention, rebuilt from tags
-  by every loader) and the brick descriptors' install path (the original stores the absolute path of the exe's `_Data` folder: the port writes the installer's default `C:\Program Files\LEGO Media\LEGO Eiland 2\_Data\`,
-  `setBrickDataRoot` changes it; the port reads any root);
-* the frame counter and node stamps are the port's own counter (the original's is a process global that runs on across zones): consistent inside a file, not comparable across processes;
-* dock / pad `taken` words (see the vehicles' notes) and the walker table keep stale data across zones like the original's static memory;
-* the music building keys the port never loads are 0xCDCDCDCD handles in the original (it calls the engine with them); the port plays nothing;
+Exact (verified against the original's own writer and reader, see the oracle list above):
+* every section's layout, the header (version 0xd, markers, checksum), the variables, the walker table's content, camera, **frame counter and node stamps**, object records, decor blob, entity records with the node blocks, brick slots.
+* the frame counter `DAT_009da5cc` is NOT a process counter that runs on across zones: `FUN_004237b6` (called by the start function of every zone, 38 call sites) sets it to 0, `FUN_004225c5` (the pre-render pass, `prerenderPass`) adds 1 per pass (its only guard `DAT_009da5c8` is written by `FUN_00422070`, which nobody calls: always 0) and stamps every node that ran with `counter + 1` (+8 of the node). The port's `World` is created per zone with `frame = 0` and counts the same way, so a file holds the same numbers the original would write for the same play (the counter depends on how many frames the zone has run, as in the original). The earlier remark "the port's own counter" was wrong.
+* the loader reads the original's files: `m8-save-original-to-port` (a file the original produced after playing -> the port's reader -> the port's writer = the same file); a file written by the port is read back by the original's reader and rewritten identically (`m8-save-roundtrip`).
+
+Not reproducible bit for bit (and why: the bytes are addresses / garbage of one process run of the original, which the original's own loader rebuilds or never uses; two runs of the original itself do not write the same bytes there):
+* SGCar's four cached part-matrix pointers (node +0x3c..0x4b) are heap addresses; the carry node's block tail is stack garbage of the saver's frame (or the carrier's record header); the walker table's record pointer words are heap addresses (the port writes the oracle's convention `0x10000000 + i * 0x68`; every loader rebuilds them from the tags / names); dock / pad `taken` words and the walker table keep stale data across zones like the original's static memory.
+* the brick descriptors' install path: the original stores the absolute path of the user's `_Data` folder (`C:\...\_Data\` of that machine); the port writes the installer's default `C:\Program Files\LEGO Media\LEGO Eiland 2\_Data\` (`setBrickDataRoot` changes it; loading a file the original wrote adopts its root, `src/fx/bricks/save.ts`, so a port save made after such a load carries the user's own path again) and reads any root: the loader never opens that path, the models come from the archive.
+* the music building keys the port never loads are 0xCDCDCDCD handles in the original (it calls the engine with them); the port plays nothing.
 
 ## The front end's SaveDef.lgo (WP-SAVE F4)
 

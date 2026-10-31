@@ -55,9 +55,9 @@ None: no code of PeppSwit.c starts an emitter / `.par` / `.swl`.
 
 ## 6. Not exact / open
 
-* The sky dome is drawn with the fog off but WITH the depth test (the original also switches it off: it draws first, so the effect only differs for geometry beyond the far plane).
-* Sound handles: the original has one handle per slug / citizen (own instances of the same sound id); `AudioHost` picks the playing or first idle slot per id.
-* `DAT_05d5f3c0` / lamp globals start at 0 each zone visit (bss kept across visits in the original).
+* The sky dome is drawn with the fog off but WITH the depth test (the original also switches it off: it draws first, so the effect only differs for geometry beyond the far plane): render-side (WP-RENDER's `GameRenderer`), listed in docs/re/rendering.md.
+* Sound handles: the original has one handle per slug / citizen (own instances of the same sound id); `AudioHost` picks the playing or first idle slot per id: audible only as overlap of the same sound (the audio package's `AudioHost` semantics, audio.md).
+* `DAT_05d5f3c0` / the lamp globals (`_DAT_05d5f3c4` / `c8`) / `DAT_009da9a8` are process state like the original's BSS: a second visit of the island starts with what the first left (`PROC` in `peppswit/globals.ts`, `resetOglProcessGlobals` for the test loaders; fixed 2026-10-31, they used to restart at 0 per visit).
 * Debug draws (`FUN_00445ba0` / `FUN_00445c70`: sweep lines and points) are only active in the original's debug view and not ported.
 
 ## WP-TIME (2026-10-30)

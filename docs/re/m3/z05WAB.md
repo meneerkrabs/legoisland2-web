@@ -195,3 +195,7 @@ With a real-keyboard bot the win run scored 88 % (silver, 40 hits / 5 misses: tw
 `src/render/renderer.ts`: expression sheets / frozen textures keep their frames (`TexAnim.frozen`), `Renderer.setTextureFrame(archive, id, mode, frame)` (FUN_00411202), `DrawOpts.uvOffset` + the `uUvOff` uniform;
 `src/game/render.ts`: `GameRenderer.scrollGroup` / `groupCount` and the per-record UV offsets passed to `drawMesh`; `src/shell/audiohost.ts`: `AudioHost.stop(id)` (FUN_004435b0);
 `tools/steps/shell-minigame.mjs`: moved to z08BKD.
+
+## Closure 2026-10-31 (fork C)
+
+Section 7 re-read against the code: the particle bullet is stale (the four `bolts01.par` hole emitters and the `wabswirl.swl` swirl are wired by WP-PART-WIRE, `src/zones/z05WAB/game.ts`); music start is A1; the random picks are exact since WP-TIME; Pepper's blob shadow is a non-issue (the zone never initialises the shadow system, so the original draws none: gaps.md R5, `extractShadowSetup`). The write-only fields (`mark1740` / `mark780`, the eight u16 constants, +0x140 / 0x142 / 0x18c / 0x18d) have no reader anywhere in the executable and are correctly not ported. The `FUN_00443120` slot 0x1c call hits a plain TGA (no animated texture): no effect in the original either. Nothing open.

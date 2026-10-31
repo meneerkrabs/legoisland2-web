@@ -3,6 +3,9 @@
 // (two counters, the score and the charge gauge), the aim marker, the round popups, the end banner and the sounds.
 import type { Ui2D } from '../../ui/renderer2d.ts';
 import { GATE_OFF, GATE_ON, ZoneParticles } from '../../fx/particles/zone.ts';
+import { installCtx } from '../../island/ctx.ts';
+import type { IslandCtx } from '../../island/ctx.ts';
+import type { GameRecord } from '../../game/record.ts';
 import { MODE } from '../../shell/loopmachine.ts';
 import { frustumPlanes, projectPoint, visibleFlags } from '../../fx/particles/sprites.ts';
 import { reticleLines, reticleMode } from './marker.ts';
@@ -20,6 +23,8 @@ import type { PanelLine } from './screens.ts';
 export async function createJstGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   const { world, gr, hud, archive } = ctx;
   startTickClock();                                          // FUN_00435c81 (the zone's start, LE2.c:126202): the base of FUN_00435c91, which scales the reaction variant's random pick
+  // the shore foam's texture wobble (SeaAmin 0x4b1212 is attached here too: FUN_0043ebe0(model, 0, &0, &v) adds v to the V coordinates of every group): the node reaches the renderer through the island context's `uvScroll`
+  installCtx(world, { world: world, shared: {}, uvScroll(rec: GameRecord, du: number, dv: number) { const n = ctx.gr.groupCount(rec); for (let g = 0; g < n; g++) ctx.gr.scrollGroup(rec, g, du, dv); } } as unknown as IslandCtx);
   const recs = world.records;
   const ga = ctx.sh.audio.ga;
   const sound = new JoustSound(ga);

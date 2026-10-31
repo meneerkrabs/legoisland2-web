@@ -89,7 +89,7 @@ setupZone(scene, archive, profile, opts?: SetupOptions): Loaded
 SetupOptions = { pos?, yaw?, from?, world?, subgame?, vars?: Record<number, number>, pe? }
 Loaded = { world, data, pepper, profile, walk, rigs, setup: ZoneSetup | null, skipped: Skipped[], hasPlayer: boolean, notes: string[] }
 registerCtor(address, factory: (attach: Attach) => BehaviourNode) / unregisterCtor / ctorFactory / registeredCtors / CTOR
-PROFILES   // the two hand-written M1 profiles (reference) + stubs for the other zones (setupZone then needs opts.pe)
+PROFILES   // the two hand-written M1 profiles (reference) + placeholders for the other zones (setupZone then needs opts.pe and swaps in `profileFor`); live user: the `?play=1` dev entry (src/game/play.ts), the tests (`reference` option of tools/lib/engine-load.mjs)
 ```
 
 `setupZone`: records from the scene; flag writes, position writes and box colliders of the set-up applied against the game variables of the world (set
@@ -98,8 +98,7 @@ attach whose game conditions hold and whose constructor is registered (`register
 `0x4bbef8`) is created at its position with its gate, the others are listed in `skipped` (`{ record, ctor, ctorName, pos, at }`). A zone whose player record has no
 SGwalk among the attaches gets the M1 chain (PepSwitc / SGwalk / sgswim; the sea nodes only when the zone stores a sea level) so that the player can walk around any
 zone; a walk node gated by a zone-local variable (`0xfb` in z10RGB / z21FSH) gets that variable set; a zone with an `sgswim` node but its own copy of the mode switch gets
-the M1 PepSwitc in front. A `StubGuard` node (first in the chain) puts a player that sinks 60 units below everything solid back to where it stood about a second
-earlier (the original keeps the player inside by walls and by the zone's own code). Zones without a `PEPP` record (z09JST, z39ASB): `hasPlayer` is false,
+the M1 PepSwitc in front. (The former `StubGuard` safety net, a port extension that put a fallen player back, is gone.) Zones without a `PEPP` record (z09JST, z39ASB): `hasPlayer` is false,
 `pepper` is an invisible dummy record without behaviours, the shell should fly a camera.
 
 ## 4. Per zone (counts of the extraction)
@@ -208,23 +207,23 @@ z05WAB / z17WAS have the player at record 0.
   `PAG*`, z27TRX); the table loops `for (i = 0; table[i] != -1; i++)` (z22BIP: `prop`, `JerryCan`) take the record indices from tables in `.data`.
 * Cutscene slots (`FUN_0045c397`) name the cutscene text and the message file (`LGIBR08` ...); the HUD hints (`FUN_00424029`) are 6 icon pairs in the island, 4 in the hubs.
 
-## 6. Stub requirement: the player walks in every zone
+## 6. The generic player chain of `setupZone` (history of the stub requirement)
 
-> **State of M2 (historic).** 23 of the 30 zones are ported meanwhile (M3, M4, M6); only the six hubs (z07CSI, z13CAI, z14OSD, z16PYA, z23DIP, z40OGL) still run as stubs, and the table lists the stub remarks of M2. The ported zones have their own camera, walls and rules; the `StubGuard` is only used for stubs.
+> **State 2026-10-31.** All 30 zones are ported (the island, the six hubs, 19 mini-games, the rooms). In M2 every zone without ported gameplay ran as a stub in which the player simply walks: `setupZone` added the M1 chain
+> (PepSwitc / SGwalk / sgswim, gated by `PEPPER_CONTROL`) to a player record without ported behaviour, plus a `StubGuard` safety net that put a player who fell out of the scene back. The `StubGuard` is gone (it was a port extension
+> that the original does not have: where the original has no wall the original's player falls on as well). The generic M1 chain is kept as set-up scaffolding for the zones that run their own player node (the mini-games, z50LTC, the hubs): each of
+> them removes it again in its own set-up (`PepSwitc` / `SGwalk` / `sgswim` filters in `src/zones/*`), and `Loaded.notes` lists what that scaffolding did. `tools/tests/zonesetup.mjs` still loads all 30 zones and ticks 300 frames with Up held (no exception, no NaN / Infinity in the player,
+> the camera or the matrices); the remarks below are the observations of M2 for the bare set-up, they are not defects of the ported zones (those have their own camera, walls and rules).
 
-`tools/tests/zonesetup.mjs` loads all 30 zones (`loadZone` = `profileFor` + `setupZone`) and ticks 300 frames with Up held: no exception, no NaN / Infinity in the player, the camera or the
-matrices in any zone. 18 of 30 zones are fine (the player moves, no remark). The others:
-
-| zone | remark |
+| zone | remark of the bare set-up |
 |---|---|
 | z09JST, z39ASB | no `PEPP` record (jousting knight `JKIT`, the shuttle `SHUT` are the focus): `hasPlayer` false, dummy record, fly camera |
-| z05WAB, z17WAS, z41MAP, z42BRP, z40OGL | the player walks off the edge of the (small / floating) scene; `StubGuard` puts him back (the original keeps him in with walls and game code) |
-| z10RGB | `CURRENT_SUBGAME` 9: the walk node does not move the camera (the zone has its own camera, not ported), the player leaves the fixed view |
+| z05WAB, z17WAS, z41MAP, z42BRP, z40OGL | the generic player walks off the edge of the (small / floating) scene (the original keeps the player in with walls and game code, which the zones' own nodes have) |
+| z10RGB | `CURRENT_SUBGAME` 9: the walk node does not move the camera (the zone has its own camera: ported in `src/zones/z10rgb`), the generic player leaves the fixed view |
 | z08BKD, z22BIP, (z39ASB) | no `anim/MFIG.blk` in the archive: static player (no animation), it still moves and collides |
-| z36CNT, z38PAR | the player hardly moves (walls / a closed scene; z38PAR starts 50 units up and ends 2 units from its start) |
+| z36CNT, z38PAR | the generic player hardly moves (walls / a closed scene; z38PAR starts 50 units up and ends 2 units from its start) |
 
 No zone needs a ground record: the walk code follows the ground with sweeps and uses the terrain ray / sea level only as a fallback. 17 zones have no ground record in the set-up (the table above).
-The shell should, for the stub zones, treat `Loaded.notes` as the list of approximations.
 
 ## 7. Approximated or not resolved
 
@@ -241,7 +240,7 @@ The shell should, for the stub zones, treat `Loaded.notes` as the list of approx
   `unknown`. `activeEntries(..., true)` treats them as holding. The names of the game variables come from `GameVars.loadNames`.
 * **Not extracted**: the GameLoop-level code (`FUN_0042207d(PEPP)`, `FUN_00421bbe`, exit states, sound handles `FUN_004b037e`), behaviour constructors and per-frame code (M3+), the island's arrival place
   from another zone (`FUN_004c2d22`: kept from M1 in `profileFor('z02LGI')`; the other zones use the extracted `places`), the controller flags `FUN_004238b7(ctrl, 0xb)` (recorded as `ctrlFlags`, not applied: the port's
-  controller keeps its M1 flags), render modes `FUN_00444550` (recorded; the port's records have no per-part mode yet), the variant word `+0x64` is applied (`GameRecord.variant`).
+  controller keeps its M1 flags), render modes `FUN_00444550` (recorded; applied since WP-RENDER through `GameRenderer.setPartMode`, gaps.md R4), the variant word `+0x64` is applied (`GameRecord.variant`).
 * **Region heuristics**: the 0x800 byte stub margin and "direct calls inside the region" can follow a function of a neighbouring zone that sits behind this zone's run function; every followed function is
   listed in `ZoneSetup.functions`. 883 of the 1108 `FUN_00423532` call sites of the executable are in the tables; the others are dynamic (above) or sit in code the set-up chain does not call (behaviour constructors, per-frame and story code reached through pointers, e.g. the island's FSM `FUN_004b8c73`, the cutscene starters `FUN_0051e19c`).
 * Cost: 4-74 ms per zone after `pe.functionStarts()` (12 ms) + the 50 ms zone index; the test bound is 300 ms.

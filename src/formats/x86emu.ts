@@ -393,12 +393,27 @@ export class Cpu {
     const t = v * 536870913, hi = t - (t - v);   // Veltkamp split: the 24 high bits (outside the float range, where fround would saturate)
     return hi;
   }
+  /** a + b with ONE rounding to 24 bits (the x87 rounds the exact sum; the double sum rounded to float32 would round twice on a tie whose exact sum is no double) */
+  private p24sum(a: number, b: number): number {
+    const s = a + b;
+    if (((this.cw >> 8) & 3) !== 0 || s === 0 || !Number.isFinite(s)) return s;
+    const bb = s - a, e = (a - (s - bb)) + (b - bb);
+    const f = Math.fround(s), m = Math.abs(s);
+    if (e === 0 || m < 1.1754943508222875e-38 || m > 3.4028234663852886e38) return this.p24(s);
+    const d = s - f;
+    if (d === 0) return f;
+    const F = new Float32Array(1), U = new Uint32Array(F.buffer);
+    F[0] = f; U[0] += (d > 0) === (f > 0) ? 1 : -1;
+    const g = F[0];
+    if (s !== (f + g) / 2) return f;
+    return e > 0 ? Math.max(f, g) : Math.min(f, g);
+  }
   private farith(op: number, a: number, b: number): number {
     switch (op) {
-      case 0: return this.p24(a + b);
+      case 0: return this.p24sum(a, b);
       case 1: return this.p24(a * b);
-      case 4: return this.p24(a - b);
-      case 5: return this.p24(b - a);
+      case 4: return this.p24sum(a, -b);
+      case 5: return this.p24sum(b, -a);
       case 6: return this.p24(a / b);
       default: return this.p24(b / a);
     }
@@ -467,8 +482,8 @@ export class Cpu {
         if (reg === 2 || reg === 3) { this.fcmp(this.st[T], this.st[si]); if (reg === 3) this.fpop(); return; }
         const x = this.st[si], s0 = this.st[T];
         // register forms: st(i) = st(i) op st0, with the Intel meanings of the sub / div variants (DC E0 = fsubr: st0 - st(i) ...)
-        const r = reg === 0 ? x + s0 : reg === 1 ? x * s0 : reg === 4 ? s0 - x : reg === 5 ? x - s0 : reg === 6 ? s0 / x : x / s0;
-        this.st[si] = this.p24(r);
+        this.st[si] = reg === 0 ? this.p24sum(x, s0) : reg === 4 ? this.p24sum(s0, -x) : reg === 5 ? this.p24sum(x, -s0)
+          : this.p24(reg === 1 ? x * s0 : reg === 6 ? s0 / x : x / s0);
         if (op === 0xde) this.fpop();
         return;
       }

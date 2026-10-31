@@ -117,3 +117,7 @@ with the shared float-noise guard, sync mode that copies the original's float st
   runs before the vehicle's pre-render copies the position) is one world length (2 x 1040) away. 14 occurrences in the test, nothing else observable.
 * State 2 stays unreachable (no code sets it); not scripted.
 Not covered: era 4 (node 61, same code), the save / load hooks.
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* The Ptera's save / load hooks are ported (`saveBlock` / `loadBlock`, 0x70 bytes from +0x18). "Landing with no free pad" (original: pad table index -1) is unreachable: see wp7-ambient.md status.

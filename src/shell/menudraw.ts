@@ -18,13 +18,14 @@ export interface MenuGfx {
 export interface MenuRowTables { normal: number[]; list: number[]; dialog: number[]; themeBase: number[] }
 export const DEFAULT_ROWS: MenuRowTables = {
   normal: [-5, 0, -2, -1, 1, -1, 2, -1, 3, -1, 4, -1, 5, -1, 6, -1, 7, -1, 8, -1],
-  list: [-5, 0, -2, -1, -3, 10, 20, 30, 40, 50, 60, 70, 80, -1, 2, -1],
-  dialog: [-5, 0, -2, -1, -7, -7, -7, -7, -7, -7, -7, -7, -7, -7, -7, -1],
+  list: [-5, 0, -2, -1, -3, 10, 20, 30, 40, 50, 60, 70, 80, -1, 2, -1, 3, -1, 4, -1],
+  dialog: [-5, 0, -2, -1, -7, -7, -7, -7, -7, -7, -7, -7, -7, -7, -7, -1, 2, -1, 3, -1],
   themeBase: [0, 2, 1],
 };
 export function readRowTables(pe: { u32(va: number): number }): MenuRowTables {
   const rd = (va: number, n: number) => Array.from({ length: n }, (_, i) => pe.u32(va + 4 * i) | 0);
-  return { normal: rd(0x8a9928, 20), list: rd(0x8a9978, 16), dialog: rd(0x8a99c8, 16), themeBase: rd(0x8a9a18, 3) };
+  // the three tables are 20 entries each (0x50 bytes: 0x8a9928, 0x8a9978, 0x8a99c8): a list page with trailing items reads rows up to n * 2 + 0xb (the key page: 19 rows, its second button KeysM2 sits in row 16)
+  return { normal: rd(0x8a9928, 20), list: rd(0x8a9978, 20), dialog: rd(0x8a99c8, 20), themeBase: rd(0x8a9a18, 3) };
 }
 
 const WHITE = 0xffffffff, GREY = 0xff7f7f7f;
@@ -75,16 +76,17 @@ export function drawMenu(e: MenuEngine, o: DrawOpts): number {
   const raw = page.items[0].label.startsWith('^');
   let w = raw ? 0x60 : gfx.textWidth(0, pageTitle);
   const half = (x: number) => Math.floor(x / 0x30) + 1;
-  const extra = (it: MenuItem, off: number) => {
+  const extra = (it: MenuItem, off: number, type = it.type) => {
     const t = label(it);
-    if (it.type === IT.TOGGLE) return gfx.textWidth(1, t) + 0x30 + gfx.textWidth(1, it.value === 0 ? o.offText : o.onText);
-    if (it.type === IT.SLIDER) return gfx.textWidth(1, t) + 0xa8;
-    if (it.type === IT.KEY) return 0xf0;
+    if (type === IT.TOGGLE) return gfx.textWidth(1, t) + 0x30 + gfx.textWidth(1, it.value === 0 ? o.offText : o.onText);
+    if (type === IT.SLIDER) return gfx.textWidth(1, t) + 0xa8;
+    if (type === IT.KEY) return 0xf0;
     return gfx.textWidth(1, t);
   };
   const titleHalf = half(w);
   if (page.kind === 1) {
-    for (const it of e.list) if (it) w = Math.max(w, extra(it, 0) + 0x60);
+    // the original takes the TYPE of list entry j from item slot j of the page (also for the slots behind the page's own items), the label and value from the entry
+    for (let j = 0; j < 8; j++) { const it = e.list[j]; if (it) w = Math.max(w, extra(it, 0, page.slotTypes?.[j] ?? it.type) + 0x60); }
   }
   for (let i = page.kind === 1 ? 2 : 1; i < n; i++) w = Math.max(w, extra(page.items[i], 0));
   let hw = half(w);
@@ -150,7 +152,7 @@ export function drawMenu(e: MenuEngine, o: DrawOpts): number {
         const grey = it.type !== IT.KEY && (it.disable & o.mask) !== 0;
         if (grey) { argb = GREY; colour = 9; }
         const sel = what === e.item;
-        const pr = !(e.press < 1 || e.pressKind !== 0) && e.capture === 0;
+        const pr = !(e.press < 1 || e.pressKind !== 0) || e.capture >= 1;   // FUN_0041d765: `(press < 1 || kind != 0) && capture < 1` selects the plain tile; a negative capture (the blinking cursor phase) counts as not pressed
         if (it.type === IT.KEY) {
           // header over the first entry: "ACTIE | INST. 1 | INST. 2" on three bars (FUN_0041d765 case 10)
           if (what === 10) {
@@ -168,7 +170,7 @@ export function drawMenu(e: MenuEngine, o: DrawOpts): number {
           tile(0, 8, row, yoff);
           tile(base + 0xc, 9, row, yoff);
           if (sel) {
-            const t = pr || e.capture !== 0 ? 0x43 : 0x42;
+            const t = pr ? 0x43 : 0x42;
             tile(t, -4, row, yoff, argb); tile(t, 1, row, yoff, argb); tile(t, 6, row, yoff, argb);
           }
           text(label(it), 0, -6, row, yoff, colour);
@@ -187,7 +189,14 @@ export function drawMenu(e: MenuEngine, o: DrawOpts): number {
           tile(sel ? (pr ? theme + 0x33 : theme + 0x30) : theme + 0x2d, hw - 3, row, yoff);
           tile(0, hw - 2, row, yoff); tile(0, hw, row, yoff);
           tile(base + 0xc, hw + 1, row, yoff);
-          text(label(it), -1, 1 - hw, row, yoff, colour);
+          // FUN_0041d765 (cases 10 .. 80, not a key row): a toggle shows its label left and the on / off text right, a slider its label left and the 10 bars, anything else the label centred at column -1
+          if (it.type === IT.TOGGLE) {
+            text(label(it), -1, 1 - hw, row, yoff, colour);
+            text(it.value === 0 ? o.offText : o.onText, 1, hw - 3, row, yoff, colour);
+          } else if (it.type === IT.SLIDER) {
+            text(label(it), -1, 1 - hw, row, yoff, colour);
+            for (let k = 0; k < 10; k++) tileSmall(k * 10 < it.value ? 0x39 : 0x3a, k - 0xe + hw * 2, row, yoff, argb);
+          } else text(label(it), 0, -1, row, yoff, colour);
           e.hits.push({ item: what, x0: 320 + (-hw) * 24, y0: yoff + (row - 1) * 24, x1: 320 + (hw + 1) * 24, y1: yoff + row * 24 });
         }
         break;

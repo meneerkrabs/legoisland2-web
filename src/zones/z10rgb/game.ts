@@ -65,12 +65,12 @@ export class RgbGameNode implements BehaviourNode {
         this.blink(w);
         break;
       case PHASE.WON:
-        w.vars.set(VAR.GAME_ON, 0);
+        w.vars.set(VAR.GAME_ON, 0); w.vars.set(VAR.COMPLETE_SUB_GAME, 1);     // FUN_005f72c0 case 4: var 0xfa = 0, var 0x53 = 1 every tick
         st.resultMode = 1;
         if (!st.resultWritten) { st.writeResult(); st.resultWritten = true; }
         break;
       case PHASE.LOST:
-        w.vars.set(VAR.GAME_ON, 0);
+        w.vars.set(VAR.GAME_ON, 0); w.vars.set(VAR.COMPLETE_SUB_GAME, 1);    // case 5: the same write on a loss
         st.resultMode = 2;
         break;
     }

@@ -21,9 +21,8 @@ bot `tools/steps/m5-z16PYA.mjs` (+ `lib-pya.mjs`); helpers `tools/lib/m5-z16PYA-
 | FX_Bricks / particles update | `FUN_00442930` = `FUN_00447de0` + `FUN_0044e8e0` every pass | `tickIslandBrickFx` in `frame` (particles: the framework / particle package) |
 | teleport / fog / sea | `FUN_00676c22`: `FUN_00442d90(4, 400, 400, 100, 0xffff, 1)`, sea `DAT_009da858 = -400` (0xc3c80000), gravity `DAT_009da9bc = -10`, board record `DAT_009daa7c = 0x11` | emulation (`W.seaLevel -400`, `vehicles(w).board = 17` in `applyPyaSetup`) |
 
-The zone's own sky `0x426915` is drawn by `src/render/environment.ts`. Not ported on purpose: the second PeppSw class `FUN_00677521` (file PeppSw.c line 799, table 0x91efd8 = `FUN_00677474` over the empty list 0x91eff0):
-nothing attaches it (dead code); `FUN_00676c87` (loader + `FUN_006768ce(0)`, never called); the load / save hooks of PeppSw (`FUN_00677312` copies the 0x20 bytes at node + 0x18 and re-runs `FUN_00698940`):
-the port's save does not store node state (shared limitation, V1 of gaps.md).
+The zone's own sky `0x426915` is drawn by `src/render/environment.ts`. Not ported because the original never runs it: the second PeppSw class `FUN_00677521` (file PeppSw.c line 799, table 0x91efd8 = `FUN_00677474` over the empty list 0x91eff0):
+nothing attaches it (dead code); `FUN_00676c87` (loader + `FUN_006768ce(0)`, never called). The load / save hooks of PeppSw (`FUN_006772ed` / `FUN_00677312`: 0x20 bytes at node + 0x18, then `FUN_00698940` re-run) are ported (`saveBlock` / `loadBlock`, `m8-save-hubs`, `m8-save-pyadip`).
 
 ## 2. PeppSw (`peppsw.ts`)
 
@@ -48,8 +47,8 @@ compared as distinct ids), groove calls, the Enter / tick calls, the board's vis
 and render mode 1; decor group 3 of the decor tables (48 records: PM00..PM23, BS00..BS08, OBL0..OBL9, JAK0 x2, JTHN, MPRD, DRKL) the variant word `set << 8 | 1 | variant << 16` (type 1); the roster `0x925a00` (one entry: SPED = record 112,
 SwapText set 0x37, game variable 0x24) variant word 2 and its FX_Bricks effect (var 0x24, nine models `speedster08, 00 .. 07.txt`, nine stages). The record writes are made by `applyRosterRecords`, the brick registrations come from the run's
 calls (`setup.calls`, applied when the brick manager is created). Enter near SPED (the nearest record with a variant word within sqrt(800) and in view) cycles its paint (sound 0x2c0, var 0x24, SwapText textures, brick morph): tested
-(`m5-z16PYA-node`) and played by the bot. **Not ported (the island's open item S2 in gaps.md)**: Enter near a type-1 record (the palms, bushes, obelisks, Johnny / Mrs Read / Dr Kilroy) = the outfit / decor model swap
-`FUN_00420bb7` / `FUN_00420dc4` (`VehicleLooks.unportedNearest` counts it): 48 records in this zone.
+(`m5-z16PYA-node`) and played by the bot. Enter near a type-1 record (the palms, bushes, obelisks, Johnny / Mrs Read / Dr Kilroy) = the outfit / decor model swap
+`FUN_00420bb7` / `FUN_00420dc4`: wired since 2026-10-31 (`ensurePyaLooks` -> `startZoneDecor`, decor group 3, the island's `DecorState`; `m9-hub-decor` swaps a palm through Enter): 48 records in this zone; the stored decor (`decorStore`, what a save holds) is applied at the zone start like the wrapper's `FUN_00421bbe(3)`.
 
 ## 4. HUD (`hud.ts`)
 
@@ -69,8 +68,7 @@ PEPPER_CONTROL & 1, 0xc0 -> blinking 4 / 5 with `DAT_05d5bd9c`), then var 0xc = 
 
 Gems (gate var 0xde, mask 1 << n, value 0; score vars 0x17 and 0xca += 1000; pick-up sound 0x2f1), scorpions SCR0..SCR9 (no argument block, gate 2 & 1) and the grab node on PEPP (pos 1, 0x5e & 0x20), tumbleweeds TUM0 / TUM1 (no argument block): attach sites
 match what `src/zones/z14OSD` reads (node tests: GEM1 picked up -> bit 2, +1000, the HUD says `x1`; collected gems stay hidden at the next visit; a scorpion grabs Pepper and lets go; bot: SCR8 grab, GEM2). The Pyramid's sound loader
-fills the scorpion globals with the same ids as the Oasis' (`0x5d5bc54..c78` 0x2fc, `c90` 0x2fe, `c94` 0x2fd, `c80` 0x308). **The Tumblewd sound globals `0x5d5bca0..cb8` are NOT loaded by the Pyramid's loader** (the original plays whatever
-slot number is left in them from an earlier Oasis visit: session dependent, UNCERTAIN): the port is silent for them. The scorpions wander up the canyon walls like in the Oasis (same drift measured in both worlds: the Oasis' own oracle covers the node).
+fills the scorpion globals with the same ids as the Oasis' (`0x5d5bc54..c78` 0x2fc, `c90` 0x2fe, `c94` 0x2fd, `c80` 0x308). **The Tumblewd sound globals `0x5d5bca0..cb8` are NOT loaded by the Pyramid's loader** (the original calls `FUN_004433f0(slot, position)` with the number the Oasis' loader stored there in an earlier visit of the same process, or with the BSS zero when the Oasis was not visited: slot numbers are indices into the 3D bank of the CURRENT zone, which `FUN_00874be4` fills in call order (every `FUN_004433b0` of the zone, including those of node constructors and of the shared loaders) and resets per zone WITHOUT clearing the entries, so an index beyond the Pyramid's own loads reads a stale entry of an earlier zone's bank. The sound that plays is a function of the whole process's load history; the port's set-up emulation does not run the node constructors and so does not know the real slot numbers: **cannot be reproduced exactly, the port is silent for them**; effect: at most a whoosh at the tumbleweeds in the Pyramid). The scorpions wander up the canyon walls like in the Oasis (same drift measured in both worlds: the Oasis' own oracle covers the node).
 No difference to report to the OSD worker.
 
 ## 7. Particle emitters of this hub's code (listed, not wired here: all belong to shared nodes)
@@ -85,7 +83,7 @@ off 3 ticks later 0x62b1a0): wired by the OSD worker / particle package. `FUN_00
 
 ## 9. What is not exact
 
-Random numbers use `rand` of src/island/rng.ts on the shared `src/game/crt.ts` generator, the clock is the shared REAL zone clock (`msClock` = `GetTickCount() - base`, `src/zones/common/tickrand.ts`; `startTickClock()` = FUN_00435c81 runs in the hub's `onCreate` like the wrapper FUN_00675f02; the exported name `msClock` of `peppsw.ts` stays; `m5-z16PYA-emu` pins it with `setTickCountSource`; HUD blink counter also checked at dt 0.5); the port's save does not keep PeppSw's node state; decor / outfit swap (section 3); Tumblewd sounds (section 6).
+Random numbers use `rand` of src/island/rng.ts on the shared `src/game/crt.ts` generator, the clock is the shared REAL zone clock (`msClock` = `GetTickCount() - base`, `src/zones/common/tickrand.ts`; `startTickClock()` = FUN_00435c81 runs in the hub's `onCreate` like the wrapper FUN_00675f02; the exported name `msClock` of `peppsw.ts` stays; `m5-z16PYA-emu` pins it with `setTickCountSource`; HUD blink counter also checked at dt 0.5); Tumblewd sounds (section 6).
 
 ## 10. Bot (`tools/steps/m5-z16PYA.mjs`, `lib-pya.mjs`; snapshot server port 5514)
 

@@ -88,10 +88,8 @@ LGI06, LGI07; node 30: LGIBR05-07, LGI08 (7 slots declared, 4 defined); node 52:
 ## 4. Approximations and what the port cannot know
 
 * **ATTACH** hands parent / bone to the actor's carry node (handler table 0x8adf50, constructor **0x429d1b "Pizza"**: PIZ3, CNST, RHCP, BRIK, and PAPA / MAMA in era 3) through
-  FUN_00429638. That node is not ported yet (WP5 / lead): the runner looks for a node with a `setParent(parent, bone)` method (`CarryNode`) and otherwise keeps a logical
-  attachment (`runner.carried`) and moves the child with `carryMatrix` (no offset: the node's offset / scale come from its argument block) every runner tick; the zone loop
-  should call `CutsceneHost.applyCarried()` every frame since the original keeps carrying after the script. The bone matrix is `AnimInstance.pose()` (assumed to be what
-  FUN_0043bc58 returns; unverified).
+  FUN_00429638. That node is ported since WP5 (`src/island/pizza`, `CarryNode.setParent(parent, bone)`, compared with the original in `m7-isl-veh-carry`; its save block is in save.md): the runner uses it. A record without a carry node keeps a logical
+  attachment (`runner.carried`, no offset; the game's own scripts only ATTACH records that have one). The bone matrix is `AnimInstance.pose()` = what FUN_0043bc58 returns (`m7-pose-emu` compares the pose evaluation with the original's FUN_0043ba7a on every `.blk` of the data; the carry duel hosts the carrier's pose from it).
 * Records without an animation instance count as "clip ended" for SETANIM (the original always has one: it would crash otherwise). The port's island NPCs have none until
   their nodes / rigs exist (WP3); then SETANIM works unchanged.
 * Records without a controller: SETVISIBILITY etc. work; ENABLEAI / ATTACH skip the controller part (the original would crash).
@@ -124,3 +122,14 @@ LGI06, LGI07; node 30: LGIBR05-07, LGI08 (7 slots declared, 4 defined); node 52:
   turns are no-ops and the end-of-script camera / clip rule does not run (it is tied to the walker in the original).
 * Call `host.applyCarried()` every frame (after the update pass) until the carry node is ported.
 * `GameRecord.face` (new field) is the face / mouth frame for the renderer (FUN_0043f2f0).
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* The ATTACH carry node (Pizza, 0x429d1b) is ported (`src/island/pizza/carry.ts`, `CarryNode.storyReset` included); the host gives the runner the faithful handlers (waypoints, animation instances for every NPC rig). Remaining by design: records without an animation instance / controller (the original would crash: nothing to port), camera MOVEPOSITION to an actor (FUN_0045ecec has no branch for target type 1; no shipped script uses it: logged).
+
+## 7. Closure 2026-10-31 (fork C: section 4 re-read)
+
+* ATTACH: the carry node (Pizza.c 0x429d1b) is ported (WP5, `CarryNode.setParent`), the runner hands parent / bone to it; the logical fallback is only used where a record has no carry node (never in a shipped script that reaches it).
+* Camera MOVEPOSITION to an actor, WAV / MIDI: no shipped script contains either (`tools/tests/cutscene.mjs` scans all 87 `.cut` files, 3 675 commands, and fails if one appears); the original's `FUN_0045ecec` has no branch for target kind 1 and `FUN_0045f702` plays nothing, so the runner's log / no-op is the only deterministic behaviour.
+* Records without an animation instance / controller: the original dereferences NULL (would crash). The island test fixture adds instances only because it runs the scripts on a world whose NPC nodes were not started; with the real nodes every actor of a shipped script has them. Nothing to port.
+* M3 zones keep no approximation: the host always gives the runner its own waypoint maps (end of section 4), `m5-audit-z40aPO-intro` runs `ogl02` (SETVISIBILITY, SETPOSITION, SETTARGET, SETFOV, SAYTEXT) on the real zone.

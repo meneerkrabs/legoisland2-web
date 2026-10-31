@@ -754,7 +754,7 @@ export class SpeedsterNode implements BehaviourNode {
     return NODE_CONTINUE;
   }
   private carWheels(w: World, clip: number) { this.poseWheels(w); this.carMatrix(w, clip); }
-  /** the four ground sample matrices of the skid dust emitters (FUN_0043a5e4 + FUN_0043a9e5 at the top of the update): particles are not ported */
+  /** the four ground sample matrices of the skid dust emitters (FUN_0043a5e4 + FUN_0043a9e5 at the top of the update)(the emitters themselves: emitters.ts) */
   private poseGroundSamples() {
     // FUN_006c2627's first lines: four matrices (identity rotation, the places of the wheels 2, 3, 0, 1 (W[7..9]) with y - 2) times the car's matrix (as it is at the start of the update)
     const E = this.shared.emit, car = this.rec;

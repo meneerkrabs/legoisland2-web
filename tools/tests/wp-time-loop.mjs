@@ -1,6 +1,6 @@
 // WP-TIME: the fixed 60 Hz loop's pieces. nextDt (FUN_00443e40), World.advanceDt (dt, pass log, particle tickers), the shared C runtime (src/game/crt.ts: LCG, FUN_004388ae, injection,
 // time / tick sources) and the renderer's per-pass state (.wib textures FUN_00410ff8, the sky / sea steps, the pass replay of GameRenderer).
-import { World, nextDt, TICK_HZ, TICK_MS, STEP_ELAPSED, PASS_LOG } from '../../src/game/world.ts';
+import { World, FrameClock, nextDt, TICK_HZ, TICK_MS, STEP_ELAPSED, PASS_LOG } from '../../src/game/world.ts';
 import { addParticleTicker } from '../../src/fx/particles/ticker.ts';
 import { srand, rand, randF, randD, setRandSource, getRandSource, time, setTimeSource, getTickCount, setTickCountSource, seedFromTime } from '../../src/game/crt.ts';
 import { Renderer } from '../../src/render/renderer.ts';
@@ -152,7 +152,7 @@ const __test = {
     {
       const w = new World();
       const G = Object.create(GameRenderer.prototype);
-      G.loaded = { world: w }; G.seenPass = 0;
+      G.loaded = { world: w }; G.seenPass = 0; G.stepSetups = new Array(PASS_LOG);
       const take = () => G.takePasses();
       ok(take().length === 0, 'no pass, nothing to replay (a rAF between two steps draws the last frame again)');
       w.camera.c[0] = 7; w.advanceDt();
@@ -162,6 +162,76 @@ const __test = {
       p = take(); ok(p.length === 3 && p.every((q) => q.dt === 0.5) && p.map((q) => q.eye[0]).join() === '10,11,12', 'three passes in order with their own dt / camera');
       for (let i = 0; i < PASS_LOG + 10; i++) w.advanceDt();
       ok(take().length === PASS_LOG, 'a long stall replays at most the ring');
+    }
+
+
+    // ---------------------------------------------------------------- FrameClock: one pass per drawn frame at most, the measured frame time when the browser is late
+    {
+      // a steady 60 Hz display (with microsecond jitter): every frame one pass with the nominal frame time 0.5, never a skipped pass
+      { const c = new FrameClock(0); let t = 0, n = 0, bad = 0;
+        for (let i = 0; i < 600; i++) { t += TICK_MS + (i % 2 ? 0.05 : -0.05); const e = c.frame(t); if (e === null) bad++; else { n++; if (e !== STEP_ELAPSED) bad++; } }
+        ok(n === 600 && bad === 0, `steady 60 Hz: ${n} passes, ${bad} irregular`); }
+      // a 120 Hz display: every second frame a pass, still 0.5; 144 Hz: about 60 passes per second
+      { const c = new FrameClock(0); let t = 0, n = 0, bad = 0;
+        for (let i = 0; i < 240; i++) { t += 1000 / 120; const e = c.frame(t); if (e !== null) { n++; if (e !== STEP_ELAPSED) bad++; } }
+        ok(n === 120 && bad === 0, `120 Hz: ${n} passes in 2 s, ${bad} with another frame time`); }
+      { const c = new FrameClock(0); let t = 0, n = 0;
+        for (let i = 0; i < 1440; i++) { t += 1000 / 144; if (c.frame(t) !== null) n++; }
+        ok(Math.abs(n - 600) <= 2, `144 Hz: ${n} passes in 10 s`); }
+      // a slow frame (>= 1.5 ticks) is ONE pass with the measured frame time in the game's unit (ms / (1000 / 30)); the accumulator restarts
+      { const c = new FrameClock(0); let t = 0;
+        t += TICK_MS; c.frame(t);
+        t += 100; same(c.frame(t), 3, 'a 100 ms frame measures 3.0 game ticks');
+        t += TICK_MS; same(c.frame(t), STEP_ELAPSED, 'back at 60 Hz: nominal again (no catch-up passes)');
+        t += 50; same(c.frame(t), 50 * 0.03, 'a 50 ms frame');
+        t += 24; ok(c.frame(t) === STEP_ELAPSED, 'under 1.5 ticks stays nominal');
+        t += 5000; same(c.frame(t), 150, 'a 5 s stall measures 150 (nextDt turns it into 1.0)'); }
+      // the 30 Hz limiter of z03PPH: nominal frame time 1 every 1000 / 30 ms, a late frame measured
+      { const c = new FrameClock(0, 1000 / 30, 1); let t = 0, n = 0;
+        for (let i = 0; i < 120; i++) { t += TICK_MS; const e = c.frame(t); if (e !== null) { n++; same(e, 1, '30 Hz pass frame time'); } }
+        ok(n === 60, `30 Hz limiter: ${n} passes in 2 s`);
+        t += 80; ok(Math.abs(c.frame(t) - 2.4) < 1e-9, 'a late 30 Hz frame is measured'); }
+      // the deterministic harness mode (WebDriver / ?det=1): fixed nominal passes, as many as the time owes (the old catch-up, at most 10); a normal clock never does that
+      { const d = new FrameClock(0, TICK_MS, STEP_ELAPSED, true); let t = 0;
+        t += 101; const a = d.take(t);
+        ok(a.length === 6 && a.every((e) => e === STEP_ELAPSED), `det mode after a 101 ms frame: ${a.length} nominal passes`);
+        t += 5000; ok(d.take(t).length === 10, 'det mode caps the catch-up at 10 passes');
+        t += TICK_MS; ok(d.take(t).length === 1, 'det mode at 60 Hz: one pass per frame');
+        const n = new FrameClock(0, TICK_MS, STEP_ELAPSED, false); const b = n.take(100);
+        ok(b.length === 1 && Math.abs(b[0] - 3) < 1e-9, 'normal mode after a 100 ms frame: ONE pass with the measured 3.0'); }
+      // through advanceDt: a slow rAF is ONE pass with a larger dt, capped at 3x of the previous one; a stall counts as 1.0
+      { const w = new World(); w.frame = 20; w.dt = 0.5; w.invDt = 2;
+        const c = new FrameClock(0); let t = 0; const log = [];
+        const step = (ms) => { t += ms; const e = c.frame(t); if (e !== null) { w.advanceDt(e); log.push(w.dt); } };
+        step(TICK_MS); step(TICK_MS);                 // steady: 0.5
+        step(66);                                     // 66 ms = 1.98: the pass ran with 0.5, the NEXT step is min(1.98, 3 * 0.5) = 1.5
+        step(66);                                     // again 1.98: 3 * 1.5 is not reached, 1.98 as float32
+        step(TICK_MS);                                // back to 0.5
+        step(2000);                                   // a stall (60 > 15): 1.0
+        step(TICK_MS);
+        ok(log.join() === [0.5, 0.5, 1.5, fr(1.98), 0.5, 1, 0.5].join(), `dt through slow frames: ${log}`);
+        ok(w.passes === 7, 'one logged pass per advanceDt (never several in a frame)'); }
+    }
+
+    // ---------------------------------------------------------------- the pass log carries the pass's own far / fog set-up
+    {
+      const w = new World();
+      const G = Object.create(GameRenderer.prototype);
+      G.loaded = { world: w }; G.seenPass = 0; G.stepSetups = new Array(PASS_LOG);
+      // stepView writes the set-up of the pass about to be logged: stub the view set-up it reads
+      let far = 500;
+      G.viewSetup = () => ({ viewProj: new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]), setup: { far, fog: { enabled: far > 600, end: far - 50 } } });
+      G.planes = null;
+      w.camera.c[0] = 1; G.stepView(); w.advanceDt();
+      far = 900; w.camera.c[0] = 2; G.stepView(); w.advanceDt();
+      far = 300; w.camera.c[0] = 3; G.stepView(); w.advanceDt();
+      const p = G.takePasses();
+      ok(p.length === 3 && p.map((q) => q.setup && q.setup.far).join() === '500,900,300', `each pass has its own far: ${p.map((q) => q.setup && q.setup.far)}`);
+      ok(p[1].setup.fogOn === true && p[0].setup.fogOn === false && p[2].setup.fogEnd === 250, 'fog state and end of the pass');
+      ok(p.map((q) => q.eye[0]).join() === '1,2,3', 'camera of each pass');
+      // a pass nobody logged a set-up for uses the current one (null)
+      w.advanceDt();
+      ok(G.takePasses()[0].setup === null, 'a pass without a logged set-up: null');
     }
 
     return { checked, failures, notes };

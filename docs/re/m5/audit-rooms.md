@@ -160,3 +160,7 @@ z04IFC: `escTick` flag makes the four nodes return "did not run" (no update, and
 z03PPH: `world.frozen` for that tick (update pass skipped, pre-render runs) unless the computer menu / a movie is up (pause key not sampled); z50LTC: frozen plus the `ran` lists emptied.
 Bot `m5-z04IFC` now checks it: after Esc the pin has taken exactly one step fewer than the world ticks (`tick + 16 - 1`), 16 of them from the fade-in. Remaining difference of this kind: none
 (Esc together with another key never reached the update before: the input mapper reports only Esc in that tick).
+
+## Closure 2026-10-31 (fork C)
+
+All 'Not exact' lists above are historic: z04IFC (input before update, modes 7 / 5: done by `escTick`; music: A1; 3D sounds: audio.md 11.4; the menu pages are the shared engine); z03PPH (computer menu step in the draw pass: same frame; music A1; the 2D / 3D sound question is audio.md 11.4); z50LTC (particles wired `m8-wire-z50LTC`, person sound at Pepper's position, oracle `m7-z50LTC-emu` at tolerance 0 exists, modes 4 / 5 unreachable). `FUN_00423f7b` / F8 is a windowed-debug key (gaps.md T3), deliberately not ported. Nothing open.

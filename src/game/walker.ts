@@ -17,7 +17,7 @@
 //   0x46410c setTo, 0x4642b0 setNext, 0x46407e setFrom, 0x463e11/0x463d50 list add/remove, 0x463f9d/0x463ec8 register/unregister,
 //   0x464e16 blocked (0x464bbf ahead, 0x464b4b crossing, 0x464a7a yield, 0x4649d2 car), 0x4651d4 follow/point step, 0x465146 heading step,
 //   0x465416 move-to-point step.
-// 0x462d8b / 0x462e75 save game writer / loader of the table -> src/game/walkersave.ts. Not ported: the debug overlay (0x461155..0x461347) and trivial accessors
+// 0x462d8b / 0x462e75 save game writer / loader of the table -> src/game/walkersave.ts. Not ported: the debug overlay (0x461155..0x461347: draws only in the original's debug view) and trivial accessors
 // that only read a field (they are plain properties of `Walker` here).
 import { buildMatrix } from '../formats/matrix.ts';
 import { ad, ml, sq } from '../zones/common/f32.ts';

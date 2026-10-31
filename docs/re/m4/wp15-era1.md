@@ -50,3 +50,7 @@ chapter-1 bot did not reach node 11 in my run on a loaded machine: 3 of 4 heads,
 * NUM_PIZZAS (0xb0) is -2 at node 7 after the chapter-1 bot (11 house deliveries + NANC take 12 from 11, the jail op 0x40 another one); era 0, not shown in era 1.
 * The castle stub completes node 15 at once (PC == 1 holds as soon as the stub walks Pepper): M5.
 * Boats are fast (about 2.4 units / tick at full throttle): not compared with the original here.
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* "No node state is restored" after a load is out of date: every vehicle node has `saveBlock` / `loadBlock` (boat, heli, car, Ptera, SUPE, train ...) and the load restores them (`m8-save-vehicles`, `m8-save-nodes`).

@@ -175,3 +175,9 @@ Deviations (port-owned `src/island/**`, not edited): D1 `startIslandNpcs` inits 
 sets 32.0 (FUN_00427014) so the first throttled probe runs at once; D3 controller +0x14 bit 0x10 never cleared (the draw pass zeroes the word); D4 Human1 update returns 0 on the
 `res == -1 && count == 1` path (0x4be7f8), port 1; D5 Euler yaw outside +-PI not normalised by the step; D6 cone constants 1.0472 / 1.39626 vs float32 0x3f860a63 (1.04719198) /
 0x3fb2b884 (1.39625597); D7 faceEachOther lacks FUN_00429e00 (slope alignment of Pepper after the turn). D2 / D3 / D6 / D7 are neutralised in the harness (documented in the lib).
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* BrickBot.c **is ported** (`src/island/npc/brickbot.ts`, wp11-brickbot.md); "not ported" / the inventory above is historic. Its save / load blocks exist too (`saveBlock` / `loadBlock`, `m8-save-npc*`).
+* "Random numbers use `Math.random`" is out of date: every node draws from the shared CRT generator (`src/island/rng.ts` -> `src/game/crt.ts`, WP-TIME); there is no `Math.random` left in `src/island` / `src/zones/z02LGI`.
+* The walkers' ground snap is the original's controller probe (FUN_00427014 requests, run by the shared probe pass FUN_00427233 in `World.tick`): SGMFIG 0xa110 / 0x2110 (`sgmfig.ts`), Human1's hop probes 0x110 (`human1.ts`, FUN_004be700 / FUN_004be7ba), the bunny 0x50 (`animals.ts`, FUN_004b1fb3). The old `groundSnap` helper (ground record's ray) was dead code and is deleted.

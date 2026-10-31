@@ -8,8 +8,8 @@
 // 0x08 sneak, 0x0d walk, 0x1b idle (plays clip 0x3a), 0x24 run, 0x30 skid, 0x37 slide, 0x38 teeter on an edge, 0x57 hard landing, ...
 // The state struct sits at node + 0x18; comments give the original offsets. The numbers are the original's (.rdata floats of the EXE, see
 // docs/re/engine-m1.md for the list); they are plain constants here because each is a single value, not a data table.
-// The pizza throw on Space (FUN_00427c15 + FUN_004277d0 / FUN_00428a0a) is a hook (`walkHooks.space`) that src/island/pizza installs. Not ported: the skateboard dismount state
-// 0x1c, the camera of sub-game 9 (FUN_0042d4b1), mouse look.
+// The pizza throw on Space (FUN_00427c15 + FUN_004277d0 / FUN_00428a0a) is a hook (`walkHooks.space`) that src/island/pizza installs. The skateboard dismount state 0x1c is ported (OFFBOARD below);
+// the camera of sub-game 9 (FUN_0042d4b1) is the zone's own node (src/zones/z10rgb/pepper.ts); the mouse look is in camera.ts `chase`.
 import type { BehaviourNode, Controller } from './controller.ts';
 import { NODE_STOP } from './controller.ts';
 import type { GameRecord } from './record.ts';

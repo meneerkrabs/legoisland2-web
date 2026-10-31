@@ -70,3 +70,7 @@ fires again (fresh node state after the zone load).
   era-3 talk NPC), not the page table; the island's only callers of FUN_0045c40c are StartCSM, the page node and SGMFIG. Unused in the shipped game.
 * The URL shortcut `?node=55..58` starts with NUM_PAGES = 0 etc. (FUN_00404c07 forces only the node's own var): the HUD shows 0/4 pages and the heads; not a game bug.
 * At node 68 10 attaches are skipped (unregistered constructors: Human1.c XXX0..2 0x4bf329, SPLH 0x88d1f6, sea / sky nodes ...; see WP13's list).
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* `FUN_00427000` on BOTMUSIC's dancing path is ported (`misc.ts`, controller near bit 0x10 at 0x536b25).

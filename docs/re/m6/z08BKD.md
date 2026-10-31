@@ -70,7 +70,7 @@ leave in the next free window. Seed 1: all five bricks in 12224 ticks (407.5 s),
 * Music starts at zone entry (shared behaviour), not at the loop start.
 * The matrix lag of the original (records are drawn with last frame's matrix) is not reproduced; the listener uses the camera target of the same frame.
 * The hurt template numbers come from the immediate stores of FUN_005ba32c; the shark's three spheres are used for the swordfish too (the original registers the same template).
-* No analogue stick (shared input layer).
+* No analogue stick: nothing to port (the pad reader FUN_004376f9 zeroes `DAT_00983848+4 / +8` (= `DAT_0098384c / 50`) at every poll after turning the stick into direction bits, so no stick value ever reaches the zone: not a gap (input.md section 1)).
 
 ## Tests
 
@@ -92,3 +92,7 @@ helpers, graph, diver physics, brick lifecycle, every creature, camera, oxygen /
 * **Abort node**: abort (pause menu or result page 19) rewinds the story to node 17 (z07CSI hub) and z07CSI runs next; checked in `tools/steps/m6-z08BKD-loss.mjs` (the old check `node <= start` was vacuous; in the `?zone=` dev entry the castle then advances the story back to the dive because node 17's variable is satisfied, so the rewind is watched while it happens). The generic path is verified against the original by `m7-shell-story`.
 * **Matrix lag**: not reproducible: the original loop order is clock, hurt move, node update, listener / `FUN_00444370` after the update, draw; `m7-z08BKD-emu` compares every record matrix per frame bit for bit. Only the renderer's tick interpolation (all zones) differs.
 * Browser win step (`tools/steps/m6-z08BKD.mjs`): after the zone's float32 exactness the bot's coarse grid can no longer enter the pocket of the last brick (the node test already says so and fetches it by script); the step now does the same at the same point (4 bricks, > 7000 ticks): the diver is put at the brick and picks it up through the node's own pickup, everything after (delivery, banner, variables, result menu, Continue to z07CSI node 19) is real play. Run: ALL OK, score 9487, gold.
+
+## Closure pass (2026-10-31)
+* **Matrix lag: nothing to reproduce.** The loop (LE2.c:118085 ff.) runs `FUN_005b8301` (clock), `FUN_005baf8f` (hurt move), `FUN_005ba5d7`, `FUN_0042226e` (node update), `FUN_005b8319` (listener / view set-up), probes, `FUN_0042271b` (draw): the draw reads the matrices of the update of the SAME pass, so no record is drawn with the previous frame's matrix. The "Approximations" bullet above ("records are drawn with last frame's matrix ... not reproduced") and the bullets on particles (wired, see WP-PART-WIRE), the stick (zeroed by `FUN_004376f9`, non-gap) and "music at zone entry" (A1, central) are stale. `m7-z08BKD-emu` compares every record matrix per pass bit for bit.
+* The shark template used for the swordfish: the original registers the same template (checked in the set-up comparison of `m7-z08BKD-emu`): faithful.

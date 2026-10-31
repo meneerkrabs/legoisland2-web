@@ -12,7 +12,7 @@ import { tryCtx } from '../../island/ctx.ts';
 import { islandBrickFx } from '../../fx/bricks/island.ts';
 import { NO_SLOT } from '../../fx/bricks/manager.ts';
 import { readDecorTables, decorGroupOfZone } from '../../shell/tables.ts';
-import { VehicleLooks, LOOKS_KEY, ROSTER_STRIDE, VARIANT_VEHICLE, applyDecorSets, looksOf, lookKey, tickLooks } from '../../island/vehicles/looks.ts';
+import { VehicleLooks, LOOKS_KEY, ROSTER_STRIDE, VARIANT_VEHICLE, applyDecorSets, looksOf, lookKey, tickLooks, startZoneDecor } from '../../island/vehicles/looks.ts';
 
 export const FN_ROSTER = 0x655de3, ROSTER_VA = 0x91c450, HIDDEN_LIST_VA = 0x91c480;
 /** the Oasis' zone table index (var 0x59 while it runs): `FUN_00420837(2)` = decor group 2 = `decorGroupOfZone(0xb)` */
@@ -56,10 +56,11 @@ export function ensureOsdLooks(w: World): VehicleLooks | null {
     return s === undefined ? NO_SLOT : s;
   }, ROSTER_VA);
   w.ext.set(LOOKS_KEY, looks);
+  startZoneDecor(w, c.pe, ZONE_INDEX);   // FUN_00420837(2) resolved against the zone's models + the wrapper's FUN_00421bbe(2): the stored decor applied
   return looks;
 }
 
-/** FUN_006561e9: Enter -> the nearest record with a variant word (type 2 changes its look, type 1 the decor / outfit swap: not ported, the island's open item) */
+/** FUN_006561e9: Enter -> the nearest record with a variant word (type 2 changes its look, type 1 the decor / outfit swap FUN_00420bb7: `lookKey` -> `DecorState.enter`) */
 export function lookEnter(w: World, pepper: GameRecord): void { if (ensureOsdLooks(w)) lookKey(w, pepper); }
 /** FUN_0065627e: every tick */
 export function lookTick(w: World): void { if (ensureOsdLooks(w)) tickLooks(w); }

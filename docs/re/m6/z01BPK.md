@@ -82,12 +82,13 @@ exit state 2 (`miniGameExit(true, true)`: the story advances when the zone is th
 * **The board record is not hit by the skateboard's sweeps: SkBoard.col is loaded by the OTHER collision loader** (WP-VERIFY, resolved; was "UNCERTAIN why"). The zone loader (0x4a26df) reads `PEPP_HR.col`,
   `SkBoard.col` and the other character / part files with `FUN_0043f700`, which reads only the 28 byte header (centre, half extents, radius) and sets the polygon count to 0; only the
   scenery files (`Pipe3.col`, `SkatePark.col`, fences ...) use the full loader `FUN_0043f370`. `FUN_00441270` case 0 tests `*piVar4 != 0` polygons, so the board (and Pepper, the
-  spectators) can never be hit: the port's old `withoutBoard` flag trick was an accidental equivalent (and wrong for the other records). Now: `src/game/colbounds.ts`
-  (`boundsOnlyColPaths` finds the loader per file from the code, `applyBoundsOnly` swaps the records' objects), called by `prepareBpk`; the node no longer touches the board's flags.
+  spectators) can never be hit: the port's old `withoutBoard` flag trick was an accidental equivalent (and wrong for the other records). Now (S5 engine level): `setupZone` applies
+  `src/game/colshapes.ts` (`applyHeaderOnlyCols`, the header-only slots read per record from the loader function's code) to every zone; `prepareBpk` no longer calls the old path-based
+  `src/game/colbounds.ts` (it is unreferenced; it marked 116 island records where the slot rule marks 60) and the node does not touch the board's flags.
   Evidence: the differential test (below) sweeps 1129 times from within 3.5 of the board: the original hits it 0 times, 505 times when the board is given the polygons of the full loader
   (that is the "lifts Pepper every tick" the old note saw; the ground sweep returns the board's bevel at +0.139 above its start and `rec.y = point.y` raises him by 1.3 per tick).
   The same applies to the island's `SBRD` (src/island/vehicles/skate.ts, gaps.md S5): its zone loader calls `FUN_0043f700` for `SkBoard.col` as well (not changed here).
-* The gamepad (FUN_004376f9 pad values override the key ramp when beyond +-30) is not read.
+* The gamepad's analogue values (`FUN_004376f9`: they would override the key ramp beyond +-30) are always 0 in the original: the pad reader zeroes them at every poll (docs/re/input.md section 1); the pad's direction bits are read through the input mapper.
 * Music starts at zone entry, not after the intro screen (all zones of the port).
 * `FUN_00444370` (record frustum flags), `FUN_00444850` etc. are the generic renderer's. The HUD texts the clock writes besides the score and the time (`DAT_05d4dfec` the stunt
   score) are not drawn by FUN_0046055f either (only `DAT_05d4dd20` / `dd44` / `dd60`).

@@ -34,7 +34,7 @@ Findings:
 * `sw.dat` (vars 15..234, 220 dwords) is written at launch from the live (= .data) array and read straight back, so the "new game" defaults are: vars 15..234 = their launch values, then `NUM_BRICKS` (0x4f) = `NUM_PIZZAS` (0xb0) = 11, `PEPPHOUSE_SIZE` (0xb3) = `MOVE_PIZ3` (0xb4) = 0, `MOVE_CNST` (0xb5) = 1, `PAGES_SET` (0x26) = 0. Vars < 15, >= 235 are not reset by a new game (zone-local ones are cleared on every zone start anyway).
 * The snapshot array is **not saved** and not reset by a new game or a load. A rewind after loading a save therefore restores whatever (usually 0) was in `DAT_00983854[node]`: e.g. aborting WAB after loading into node 9 sets var 5 to 0, which makes the island loop see `var5 != var59` and return zone 0. Ported as is (`StoryFsm.snap` is plain state): decided in WP-SAVE (V2) to keep it as the original's own behaviour, a conscious faithful quirk.
 * Node 56 (`COLORED_BOTHEADS == 15`) is already complete on entry (the var stays 15 from node 8): the story advances through it on the next frame.
-* `FUN_00404dc9` also copies `DAT_0089df28` to `DAT_0089df2c` before each zone run (a frame/timer snapshot, not ported).
+* `FUN_00404dc9` also copies `DAT_0089df28` (1.0) to `DAT_0089df2c` before each zone run: that is the camera zoom (the vertical field of view `FUN_0040cd1a` sets; the projection, the LOD test and the particle size read it): a reset of whatever zoom the previous zone left. The port gets it from the new `GameRenderer` of every zone (`DEFAULT_FOV` = 1.0); z05WAB sets 0.57 at its own start (gaps.md S12).
 
 ## 3. Save game (`save.ts`)
 

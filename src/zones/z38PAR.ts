@@ -118,7 +118,10 @@ async function parGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   }
   // FUN_0043ebe0(SHAD model, 2, DAT_05d57da8, 0) in the draw hook FUN_00468250: the five vertices of the shadow patch are the points FUN_00442a70 computed (ParPilot.ground)
   const shad = run.recs.shad;
-  if (shad) ctx.gr.vertexOverride = (rec) => (rec === shad ? run.shadow : undefined);
+  if (shad) {
+    const canopy = run.recs.para?.ctrl?.find<ParCanopy>('ParCanopy');
+    if (canopy) canopy.drawShadow = (rec, verts) => ctx.gr.drawRecordLive(rec, verts, true);   // FUN_00468250: the patch is drawn inside the canopy's draw hook, z test off
+  }
   const sfx = ctx.sh.audio.ga?.sfx ?? null;
   run.sound = new SoundBank(PAR_SOUNDS, sfx as unknown as SoundBackend | null);
   void run.sound.load();
@@ -128,6 +131,7 @@ async function parGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   let result = 0;
   let queued: string | null = null;
   let wasOver = false;
+  let passMode: number = MODE.INIT;   // the loop mode the current pass started in (see `everyTick`)
 
   /** FUN_004434d0 once per frame: the listener is the camera target (z38PAR passes DAT_009da5f4), facing along the view */
   const listen = () => {
@@ -147,6 +151,22 @@ async function parGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
   return {
     introId: 'LESGPT01',
     helpControls: 6,
+    /**
+     * FUN_00468338 (the canopy, with the shadow patch FUN_00468250) is a DRAW hook: it runs in every loop pass, also where the update pass does not (only mode 2 updates here): the canopy
+     * keeps closing behind the end banner and the pause menu. `everyTick` gets the mode after the transition: the mode the pass started in is kept.
+     */
+    everyTick(mode: number) {
+      const start = passMode; passMode = mode;
+      if (start === MODE.PLAY) return;
+      const para = run.recs.para;
+      para?.ctrl?.find<ParCanopy>('ParCanopy')?.update(world, para);
+    },
+    /** FUN_00465d39 mode 0 (0x465db8): `FUN_004376f9(0, ..)` = the buttons HELD in this one pass; any of them skips the intro and the help: mode 2 and `FUN_004435a0(plane_flyoff)` */
+    skipInit() {
+      if (ctx.sh.input.held === 0) return false;
+      run.sound.play('flyOff');
+      return true;
+    },
     onStart() { ctx.hud.visible = true; },
     /** FUN_00465d39 mode 4 leaves for the result menu when ANY button is HELD (`DAT_0098383c != 0`, not just pressed; M5 audit) */
     skipBanner() { return (ctx.sh.input.held & ~B.ESC) !== 0; },

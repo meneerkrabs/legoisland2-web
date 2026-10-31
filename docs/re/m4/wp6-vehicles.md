@@ -206,3 +206,8 @@ spot search `FUN_0088e030`, SGVehic's seat). Result: **exact within float noise*
 * The graze guard (`Duel.grazeBegin / grazeEnd`): free-running sessions can disagree once on a knife-edge swept collision (float32 original vs double port: dt 0.5, boat t2814, one shore crash); it is taken back once and
   the port is re-synced; a mismatch that persists a second tick is a failure.
 * The doc sentence "BOATPLUME particle emitter is not ported" is out of date: the port gates `BOATPLUME` (the test compares the gate calls, 0 differences).
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* `FUN_00444550(rec, 0xff, 2)` of the ripple / wake meshes is modelled (`IslandCtx.partMode`, gaps S7). The dock / pad reservation runs in the attach order (`runSetups`, `ctorSeq`, `vehicles/common.ts`), not the record order. BOATPLUME is wired. The sea sound that follows Pepper (FUN_004433f0(DAT_05d5812c, ...)) belongs to the sea audio (docs/re/audio.md).
+* The skateboard sweep question (S5 / "UNCERTAIN why") is solved: SkBoard.col is loaded header-only (FUN_0043f700); `src/game/colshapes.ts` applies it in `setupZone` for every zone, the old per-node hack is gone.

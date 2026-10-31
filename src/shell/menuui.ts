@@ -44,6 +44,10 @@ export interface MenuContext {
   newGame(): boolean;
   /** the key bindings changed: the input mapper must pick them up */
   keysChanged(): void;
+  /** FUN_00437e82 / FUN_00437f6e / the key table's current key (entry +4): the live key table the input poll reads, separate from the Settings array (docs/re/input.md section 2) */
+  bindKey?(index: number, code: number): void;
+  cancelKeys?(): void;
+  keyOf?(index: number): number;
   /** FUN_00438099 (the key capture of the key page): the key code that is down now and may be bound (`own` = the entry's current key), 0 = none */
   captureKey(own: number): number;
   /** options changed: apply (volumes, draw distance ...) */
@@ -61,7 +65,7 @@ export interface MenuContext {
 }
 
 export function toEnginePages(raw: RawPage[]): MenuPage[] {
-  return raw.map((p) => ({ kind: p.kind, theme: p.type, setupAt: p.setupFn, items: p.items.map((i): MenuItem => ({ label: i.label, type: i.type, value: i.id, disable: i.mask })) }));
+  return raw.map((p) => ({ kind: p.kind, theme: p.type, setupAt: p.setupFn, slotTypes: p.slotTypes, items: p.items.map((i): MenuItem => ({ label: i.label, type: i.type, value: i.id, disable: i.mask })) }));
 }
 
 /** result codes of the event handler (FUN_0041b500) */
@@ -157,7 +161,7 @@ export class MenuUi {
         if (index < 0 || index >= 13) return -1;
         const label = c.msgs.label(this.keyLabelId(index));
         item.label = label;
-        item.value = c.options.a[S.KEY_FIRST + index];
+        item.value = c.keyOf ? c.keyOf(index) : c.options.a[S.KEY_FIRST + index];   // entry +0x24 of the live key table
         item.disable = c.options.defaultOf(S.KEY_FIRST + index);   // the fixed key of the action (entry + 0x20)
         return 13 - index - 1;
       }
@@ -206,7 +210,7 @@ export class MenuUi {
     const e = this.engine;
     if (!e.open) return 0;
     this.refreshPage();
-    if (e.cur.kind === 1 && e.page === KEYS_PAGE && !this.keyBackup) this.keyBackup = Array.from({ length: 13 }, (_, i) => this.ctx.options.a[S.KEY_FIRST + i]);
+    if (!this.ctx.cancelKeys && e.cur.kind === 1 && e.page === KEYS_PAGE && !this.keyBackup) this.keyBackup = Array.from({ length: 13 }, (_, i) => this.ctx.options.a[S.KEY_FIRST + i]);
     if (e.page === KEYS_PAGE && e.capture !== 0) this.pollCapture();
     const r = e.step(pressed, this.mask, pointer);
     return this.handle(r.ev, r.a, r.b);
@@ -219,7 +223,7 @@ export class MenuUi {
   private pollCapture() {
     const e = this.engine, c = this.ctx;
     const idx = e.item / 10 - 1 + e.scroll;
-    const own = idx >= 0 && idx < 13 ? c.options.a[S.KEY_FIRST + idx] >>> 0 : 0;
+    const own = idx >= 0 && idx < 13 ? (c.keyOf ? c.keyOf(idx) : c.options.a[S.KEY_FIRST + idx]) >>> 0 : 0;
     const k = c.captureKey(own);
     if (k !== 0) { this.capHeld = true; this.capCode = k; }
     else if (this.capHeld) { this.capHeld = false; e.feedKey(this.capCode); }
@@ -232,8 +236,10 @@ export class MenuUi {
     switch (ev) {
       case 2: {
         if (a === KEYS_PAGE) {
-          if (b === 1) c.keysChanged();
-          else if (this.keyBackup) { this.keyBackup.forEach((v, i) => o.set(S.KEY_FIRST + i, v)); c.keysChanged(); }
+          // FUN_0041b500 case 2, page 0xd: OK saves the settings (FUN_0040410f, the options object does that at every change); anything else FUN_00437f6e: the live key table goes back (only it: the
+          // Settings array keeps the keys that were bound, and the options page writes it to the file when it is left)
+          if (b !== 1) { if (c.cancelKeys) c.cancelKeys(); else if (this.keyBackup) { this.keyBackup.forEach((v, i) => o.set(S.KEY_FIRST + i, v)); c.keysChanged(); } }
+          else if (!c.cancelKeys) c.keysChanged();
           this.keyBackup = null;
         }
         if (a === -1 && e.stack.length === 0 && this.isPauseRoot()) res = MR.RESUME; // Esc at the root of a pause menu resumes
@@ -248,9 +254,9 @@ export class MenuUi {
         // again unless another entry's current key is the same, which InputMapper.makeBindings derives); leaving the page with "cancel" puts the old keys back (FUN_00437f6e)
         const idx = e.item / 10 - 1 + e.scroll;
         if (idx >= 0 && idx < 13) {
-          o.set(S.KEY_FIRST + idx, b);
+          o.set(S.KEY_FIRST + idx, b);        // Settings[idx + 4] = key (FUN_00437e82 writes it through FUN_004040ec)
+          if (c.bindKey) c.bindKey(idx, b); else c.keysChanged();
           e.refreshList();
-          c.keysChanged();
         }
         break;
       }

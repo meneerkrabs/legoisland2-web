@@ -56,15 +56,16 @@ Headless bots with real key input (`tools/steps/`, new: `m4-wp-island.mjs` = tri
 `m4-chapter1.mjs` (front end -> new game -> chapter 1 -> Whack-A-Bot -> back, ~8 min), `m4-era1.mjs` (nodes 11-30), `m4-era2.mjs` (30-52), `m4-era3.mjs` (52-68), `m4-heads.mjs`, `m4-island.mjs`
 (`&hold=1`), `m4-wp5-nubb.mjs`, `m4-wp9-bricks.mjs`, `m4-wp11-brickbot.mjs`.
 
-## Approximations / not ported (for M5 and later)
+## Approximations / not ported (state 2026-10-31: none left on the island)
 
-* Particles: no particle renderer (`ctx.particles` is an optional member nobody implements: train smoke, BOATPLUME, TWINKLE, Explode01 ...).
-* Vehicles: vehicle brick-morph clips beyond the car crash and the look change (done, WP-ISLAND); the Enter outfit / decor swap of minifigs and decor models (`FUN_00420bb7`).
-* Brick effects: no specular term, no 4096-vertex batching (one draw per brick); the carry node of the cutscene ATTACH is the logical attachment.
-* Save / load: Pepper's place, camera, the 304 game variables and (new) the vehicle are saved; NPC / walker / node state restarts from the set-up for the loaded variables.
-* `Math.random` for the random choices (bunnies, NPC idles); the original's rand is not seeded reproducibly either.
-* Castle, Adventure Island, Oasis, Pyramid, Dino island, Ogel's island hubs and their mini-games are stubs (M5): the island hands over to them at nodes 14, 33, 62-67.
-* Emulation hosts return 0 for engine functions that are not on the island's set-up paths (`unhooked` is empty for all 73 nodes).
+The M4 list of this section is closed; what replaced each line (gaps.md has the detail):
+* Particles: the runtime exists (`src/fx/particles`, gaps.md R1 / R1b, `ctx.particles` is implemented by `IslandCtx`).
+* Vehicles / looks / decor: the brick-morph clips, the look change and the Enter outfit / decor swap (`FUN_00420bb7`) are ported and compared on the emulator (gaps.md S2, `m4-decor`).
+* Brick effects: specular term and the 4096-vertex batching exist (gaps.md R2); the carry node of the cutscene ATTACH is the original's.
+* Save / load: the whole original file, node state included (WP-SAVE, save.md).
+* Random numbers: one shared C runtime generator (`src/game/crt.ts`, gaps.md T2); the sequences depend on the time seed like the original's.
+* The six hubs and their mini-games are ported (gaps.md H).
+* Emulation hosts of the oracles return 0 for engine functions that are not on the compared code's paths (`unhooked` is empty for all 73 island nodes): a property of the test harness, not of the game.
 
 ## Next (M5)
 

@@ -73,13 +73,13 @@ No other emitter, `.par` or `.swl` is started by the Oasis' own code (the set-up
 
 ## 7. Not exact / open
 
-* The shared `World` / `updatePass` computes the controller's squared distance (`ctrl.distSq`, `FUN_0042216f`) in doubles; the original rounds every step to float32 (relative deviation ~1e-7). The Oasis nodes use `distSq32` (`exact.ts`) so they are unaffected; the shared island nodes keep the small deviation (report for the island package).
-* On leaving the board the original stops 8 sound handles, sound 0x185 twice (two handles of the same id); the port stops it once (`SKATE_ROLL_SOUNDS` is a list of ids). No audible difference.
+* The controller's squared distance (`ctrl.distSq`, `FUN_0042216f`) is float32 per operation in the shared `updatePass` (24-bit x87 like the original; the doubles of the first version are gone); the Oasis nodes use `distSq32` (`exact.ts`), the same values.
+* On leaving the board the original stops 8 sound handles, sound 0x185 twice (two handles of the same id); the port stops it once (`SKATE_ROLL_SOUNDS` is a list of ids). `AudioHost` keeps one voice per id, so the second stop finds nothing playing: the same result.
 * Handle identity of repeated sounds (see section 3) belongs to the audio package.
-* Collision answers in the oracle (`CollisionWorld` / a scripted ground) and the animation instances are the same stand-ins on both sides: not verified there. The decor / outfit swap of Enter near an NPC / decor model (variant type 1) is not ported (island open item gaps S2).
+* Collision answers in the oracle (`CollisionWorld` / a scripted ground) and the animation instances are the same stand-ins on both sides: the collision engine itself is verified by `m7-walk-col` / `m4-s5-colshapes`. The decor / outfit swap of Enter near an NPC / decor model (variant type 1) is wired since 2026-10-31 (`startZoneDecor` in `ensureOsdLooks`, group 2; `m9-hub-decor`).
 * The "4 point lights" of the gaps list are the 4 HUD hint calls `FUN_00424029(0..3, 0x71, 0x79, 0x82, 0x81, 0.004)`: SGMFIG animation sets 0..3 (catch high / low, talk, point clips) = the same values as the executable's static table the island's `readAnimSet` reads; nothing to port. The 9 box colliders
   (`FUN_004427e0` / `FUN_004428b0` by record name) are part of the emulated set-up.
-* `FUN_0043ebe0(model, 0x14, &0xff555555)` of the Tumblewd constructor sets the part-0 vertex colours; the tumbleweeds are drawn in render mode 2 (block 1: texture only), so the colour has no visible effect: not ported.
+* `FUN_0043ebe0(model, 0x14, &0xff555555)` of the Tumblewd constructor sets the part-0 vertex colours; the tumbleweeds are drawn in render mode 2 (block 1: texture only, the vertex colour is not read), so the call has no effect on the picture: nothing to port (not an approximation).
 * Hologram texts / objective: selected by the set-up (`ADVFSM1` / `ADVHOL1` + objective record 78 SCRP at node 34, `ADVHOL9` + record 5 at node 45): `replaySetupState` of the framework; hOLO (`0x88df51`) is the island's node.
 
 ## 8. Story flow and the bots

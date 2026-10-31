@@ -43,16 +43,24 @@ export const SND = {
   SLUG_HIT_A: 0x5d5f374, SLUG_HIT_B: 0x5d5f328,
 } as const;
 
+/**
+ * The zone globals that live in the executable's BSS (`_DAT_05d5f3c0` / `c4` / `c8`, `DAT_009da9a8`): nothing resets them at a zone entry (the only writers are the zone's own update code), so a second visit
+ * of the island (story node 64, then 66) starts with what the first visit left. Process state like the vehicles' dock words; `resetOglProcessGlobals` = a fresh process (the test loaders).
+ */
+const PROC = { fall: 0, lampTimer: 0, lampPhase: 0, hitBy: -1 };
+export function resetOglProcessGlobals(): void { PROC.fall = 0; PROC.lampTimer = 0; PROC.lampPhase = 0; PROC.hitBy = -1; }
+
 /** the zone globals of PeppSwit.c */
 export class OglGlobals {
   /** DAT_05d5f3bc: which part of the island the set-up built: 1 = story node 64 (< 0x41), 2 = node 66 (the base) */
   part = 1;
   /** _DAT_05d5f3c0: Pepper's fall speed (PEPPSWIT's pre-render writes it, the void node reads it; saved with the game) */
-  fall = 0;
+  get fall(): number { return PROC.fall; } set fall(v: number) { PROC.fall = v; }
   /** _DAT_05d5f3c4 / DAT_05d5f3c8: the lamp blink timer and phase (FUN_007e42b0) */
-  lampTimer = 0; lampPhase = 0;
+  get lampTimer(): number { return PROC.lampTimer; } set lampTimer(v: number) { PROC.lampTimer = v; }
+  get lampPhase(): number { return PROC.lampPhase; } set lampPhase(v: number) { PROC.lampPhase = v; }
   /** DAT_009da9a8: the slug that caught Pepper (written by the slug update; nothing in this file reads it) */
-  hitBy: number = -1;
+  get hitBy(): number { return PROC.hitBy; } set hitBy(v: number) { PROC.hitBy = v; }
   /** handle global -> sound id (from the emulated set-up: IslandSetup.soundHandles) */
   readonly handles = new Map<number, number>();
   /** handle token (the value a global holds, 0x5a000000 + n in the emulation) -> sound id */

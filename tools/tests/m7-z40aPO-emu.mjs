@@ -171,7 +171,13 @@ export default {
             cmp(nm + ' rx', mem.f32(a + 0x4c), r.rx); cmp(nm + ' ry', mem.f32(a + 0x50), r.ry); cmp(nm + ' rz', mem.f32(a + 0x54), r.rz);
             // SHAD: the original's draw hook (FUN_007d2cf0) shows the record only while it draws it (flags |= 2, draw, flags &= ~2) and only while DAT_05d5f208 is set; the port keeps it
             // visible for the renderer in exactly those ticks
-            if (nm === 'SHAD') eq('SHAD visible (= DAT_05d5f208)', (mem.r32(0x5d5f208) | 0) !== 0, (r.flags & 2) !== 0);
+            // port: the wing's draw hook draws the record (live vertices, z test off) exactly while DAT_05d5f208 is set, and the record itself stays disabled (flag 2 cleared after the draw)
+            if (nm === 'SHAD') {
+              let drawn = 0; wing.node.drawShadow = (rec, verts) => { if (rec === r && verts === run.shadow) drawn++; };
+              wing.node.draw(W, W.records[wing.rec]);
+              eq('SHAD drawn by the hook (= DAT_05d5f208)', (mem.r32(0x5d5f208) | 0) !== 0, drawn === 1);
+              eq('SHAD record disabled between draws', false, (r.flags & 2) !== 0);
+            }
             else eq(nm + ' visible', (mem.r16(a + 0x60) & 2) !== 0, (r.flags & 2) !== 0);
           }
         }

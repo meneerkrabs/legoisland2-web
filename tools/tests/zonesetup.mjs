@@ -2,6 +2,7 @@ import { interpret } from '../../src/formats/x86.ts';
 import { extractZoneSetup, zoneCodeIndex, readZoneTable, activeEntries, hiddenRecords, nameOfEntry, ctorName, ZONE_ARCHIVES, FN, GLOBALS } from '../../src/formats/zonesetup.ts';
 import { PROFILES, registerCtor, unregisterCtor, ctorFactory, CTOR } from '../../src/game/setup.ts';
 import { loadExe, loadZone, sceneOf } from '../lib/engine-load.mjs';
+import { loadIslandWalkMaps } from '../../src/island/npc/index.ts';
 
 // Zone set-up extracted from the executable (docs/re/zone-setup.md): per-zone counts, spot checks against the decompile (LE2.c = the Ghidra decompile in
 // basdebeer-tools/decomp-le2, line numbers in the comments), the equality with the hand-written M1 profiles of z02LGI / z03PPH, the time bound, the
@@ -249,6 +250,8 @@ export default {
       let Lz;
       try { Lz = loadZone(ctx, zone); } catch (e) { failures.push(`${zone}: load failed: ${e.stack || e}`); continue; }
       const w = Lz.world, p = Lz.pepper;
+      // the walker nodes the registered constructors create (hub citizens, Human1) need the zone's waypoint maps, which the zone's start function loads (FUN_004630c0)
+      if (Lz.setup?.waypointMaps?.length) loadIslandWalkMaps(Lz.archive, Lz.setup);
       ok(!!p && !!Lz.walk && w.records.includes(p), `${zone}: pepper / walk non-null`);
       ok(Lz.hasPlayer === !NO_PLAYER.includes(zone), `${zone}: hasPlayer ${Lz.hasPlayer}`);
       const x0 = p.x, y0 = p.y, z0 = p.z;
@@ -270,13 +273,11 @@ export default {
       w.input.setKey('ArrowUp', false);
       checked++;
       if (bad) { failures.push(`${zone}: ${bad}`); continue; }
-      const guard = p.ctrl?.nodes.find((n) => n.kind === 'StubGuard');
       const moved = Math.hypot(p.x - x0, p.z - z0);
       const flags = [];
       if (!Lz.hasPlayer) flags.push('dummy player (fly camera)');
       else {
         if (moved < 5) flags.push(`stuck (moved ${moved.toFixed(1)}: walls / a closed scene)`);
-        if (guard?.respawns) flags.push(`walked off the edge ${guard.respawns} time(s), put back`);
         if (maxCam > 60) flags.push(`camera ${maxCam.toFixed(0)} away`);
         for (const n of Lz.notes) if (/camera|MFIG/.test(n)) flags.push(n);
       }

@@ -61,7 +61,7 @@ export function createBrpOracle(ctx, opts = {}) {
   };
   P.__rand = 0;
   // construction: prepareWorld runs the six constructors (lazy init) in the port's order; the log of the constructors is compared too
-  prepareWorld(P, LP.archive);
+  prepareWorld(P, LP.archive, !!opts.restarted);
   const S = S0;
 
   // ------------------------------------------------------------ the oracle world (host of the engine services)

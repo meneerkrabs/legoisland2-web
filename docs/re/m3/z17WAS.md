@@ -132,3 +132,7 @@ The browser runs shorten the clock through `__zone.world.records[22].ctrl.nodes[
 
 * The story node 37 -> 38: a won game sets `COMPLETE_SUB_GAME` and advances through `story.miniGameExit`; the island totals (`HISCORE_WAS` in the Adventure sum, `TROPHY_WAS`) are only written here.
 * `GameRenderer.fov` (the zoom) is a per-zone property: other zones that call `FUN_0040cd1a` with something else than 1.0 can set it the same way.
+
+## Closure 2026-10-31 (fork C)
+
+Section 8 re-read: the last 'not modelled' sentence of the time-step bullet (the constructor sees the previous zone's last step time) is closed: `playzone.ts` carries `sh.dt` into the new world (`world.dt = sh.dt`, the original's `DAT_008b1718` is a global that only the zone loops' `FUN_00443e40` write; the frame counter, which makes the first five passes 1.0, is reset per zone by `FUN_004237b6`), so the pepwas timer `ftol(15 * dt)` sees 0.5 after the island's loop like the original. The flash counter (+0xf9 / +0x130) is dead code (nothing reads it); the `GEMM` second flag word is set; torch particles are wired. Nothing open.

@@ -279,7 +279,7 @@ export default {
         const { F, pep, S } = g;
         ok(F.state === ST.WALK_IDLE && F.casts === 20 && g.w.vars.get(0xfb) === 1, 'start: state 1, 20 casts, the walk node on');
         g.run(5);
-        ok(g.w.records[REC.PEPP].ctrl.nodes.map((n) => n.kind).join() === 'StubGuard,FSwitch,SGwalk,Fishing' || g.w.records[REC.PEPP].ctrl.nodes.map((n) => n.kind).join() === 'FSwitch,SGwalk,Fishing', `Pepper's nodes ${g.w.records[REC.PEPP].ctrl.nodes.map((n) => n.kind)}`);
+        ok(g.w.records[REC.PEPP].ctrl.nodes.map((n) => n.kind).join() === 'FSwitch,SGwalk,Fishing', `Pepper's nodes ${g.w.records[REC.PEPP].ctrl.nodes.map((n) => n.kind)}`);
         // Shift: the nearest spot, turn, walk, turn to the lake
         const x0 = pep.x, z0 = pep.z;
         let best = 0, bd = 1e9; S.spots.forEach((s, i) => { const d = (s.x - x0) ** 2 + (s.y - pep.y) ** 2 + (s.z - z0) ** 2; if (d < bd) { bd = d; best = i; } });

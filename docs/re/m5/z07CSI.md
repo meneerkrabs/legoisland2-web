@@ -142,8 +142,8 @@ the original's own set-up left (`IslandSetup.mem`), with FUN_004388ae natively o
 
 ## 7. What is not exact and why
 
-* **Look change / decor**: ported on the island's modules, not compared with the original (the decor swap is a render-side effect).
-* **FUN_00579a96** never gives up in the original (it loops for ever when no free spot exists); the port stops after 8 rounds and uses PATH node 0x72 (a situation that cannot arise on the castle island).
+* **Look change / decor**: the island's modules (`src/island/vehicles/looks.ts`, `src/island/decor.ts`) with the castle's roster and decor group 1; the swap machinery is compared with the original's FUN_00420bb7 / FUN_00420dc4 / FUN_00421bbe in `m4-decor` (generic in the decor group), the castle's tables in `m8-save-decor` / `m8-save-csi`.
+* **FUN_00579a96** never gives up in the original (it loops for ever when no free spot exists); the port stops after 8 rounds and uses PATH node 0x72. That situation cannot arise on the castle island (the loop finds a spot in the first rounds in every state the story can produce; a port that looped for ever would hang the tab): the only difference, unobservable in play.
 * **D8** (NPC oracle; FIXED by WP-ISLAND-FIX, and since WP-TIME `m5-z07CSI-npc` no longer filters it: any difference fails, all explicit tolerances of the z07CSI tests are gone, everything runs at tolerance 0, dt 1 and 0.5; new `m5-z07CSI-hud-emu` = FUN_00575ca0 against `CsiHud` at dt 1 and 0.5): a float32 ulp of a citizen's yaw differs from the original in the shared walker (`src/game/walker.ts`, first at tick 5 of BSD3); a facing test that sits exactly on the boundary flips by one tick (MOVE_LSD3's bit 0x100
   cleared one tick later in 2 of 4000 compared ticks). No record differs. Not fixed (the island package's file); evidence in `m5-z07CSI-npc.mjs`.
 * **Hidden-list visibility** is derived from the emulated set-up's flag-store order (rule in section 5), not by running the constructors inside the set-up emulation (the foundation hosts the attach); the other effects of the constructors that run at the attach (Control's variant
@@ -151,7 +151,7 @@ the original's own set-up left (`IslandSetup.mem`), with FUN_004388ae natively o
 * **csi02a** (a script in the archive that no slot names) and **csi03** (no such file) are not played: the original never starts them either.
 * **Bot shortcuts**: the three mini-games (z08BKD / z09JST / z10RGB) are left by the loop for real (hand-over, the mini-game's own zone loads) but completed with the node skip (`F9`, the mini-game's story condition) instead of played; their own work is the M6 tests'.
   The bot's key taps are held for 3 game ticks (>= 70 ms); the boat, walk and ride are steered by the arrow keys with a route from the game's own collision / the PATH map.
-* **Saved games**: the nodes' save blocks (Control 12 bytes at +0x18, goblet 4 at +0x18, rat 20 at +0x20) are not written to the save file (the shell saves the vehicle only); a load restores the variables (goblet bits, score) and the nodes start from them.
+* **Saved games**: exact since WP-SAVE (docs/re/save.md): Control 12 bytes at +0x18, goblet 4, rat 20 and the horse's blocks are written and read like the original (`m8-save-csi`, `m8-save-nodes`).
 * The wrapper's speech set-up (`FUN_00435b59` / `FUN_00435a07("medieval")`), `FUN_00443230` (the audio frame) and `FUN_0041adb5` are the shell's / audio host's.
 * The foundation does not run the wrapper's `FUN_00421bbe(n)` itself; the port does it as `ensureCsiLooks` (decor, roster looks).
 

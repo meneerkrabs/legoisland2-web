@@ -16,7 +16,7 @@ import { CTOR_PEPPSW, PeppSwNode } from './peppsw.ts';
 import { H, play } from './common.ts';
 import { OsdHudState, initOsdHud, updateOsdHud } from './hud.ts';
 import { applySubMatrices } from './setup.ts';
-import { constructRoster, hiddenList } from './looks.ts';
+import { constructRoster, hiddenList, ensureOsdLooks } from './looks.ts';
 import { looksOf } from '../../island/vehicles/looks.ts';
 import { vehicles } from '../../island/vehicles/common.ts';
 import { tickIslandBrickFx } from '../../fx/bricks/island.ts';
@@ -43,6 +43,8 @@ registerHub({
     initOsdHud(h.ctx.hud);
     // FUN_00655de3: the decor templates are drawn in mode 1 (and hidden: looks.ts)
     for (const i of hiddenList(h.ictx.pe)) { const r = h.ctx.world.records[i]; if (r) h.ctx.gr.setPartMode(r, 0xff, 1); }
+    // the wrapper's FUN_00421bbe(2): the stored decor applied before the first frame (the roster / decor state is built here: the renderer is bound)
+    ensureOsdLooks(h.ctx.world);
     // SwapText (FUN_00443810 / FUN_004439f0): the helicopter's look replaces the model's textures (island/vehicles/looks.ts, the roster is this zone's)
     h.ctx.sh?.data?.archive('SwapText').then((arc) => {
       h.ctx.gr.swapArchive = arc;
@@ -56,11 +58,9 @@ registerHub({
     updateOsdHud(h.ctx.hud, h.ctx.vars, osdState(h.ictx).hud, h.ctx.world.dt);
     tickIslandBrickFx(h.ctx.world);   // FUN_00442930 -> FUN_00447de0 (the look change's brick morph), every pass of the loop
   },
-  afterSetup({ ictx, world, loaded }) {
-    // PEPPSW's constructor tail FUN_00655de3 (the roster); Pepper's chain as the original's set-up built it: setupZone's stub guard does not exist in the original; DAT_009daa7c = 0x40 (the board SKBD)
+  afterSetup({ ictx, world }) {
+    // PEPPSW's constructor tail FUN_00655de3 (the roster); Pepper's chain as the original's set-up built it: DAT_009daa7c = 0x40 (the board SKBD)
     constructRoster(world, ictx.pe, (fn) => ictx.setup.run(fn, []));
-    const c = loaded.pepper.ctrl;
-    if (c) c.nodes = c.nodes.filter((n) => n.kind !== 'StubGuard');
     const board = ictx.setup.mem.u32(0x9daa7c) | 0;
     if (board >= 0 && board < world.records.length) vehicles(world).board = board;
     // FUN_0062bb80 (node 45): FUN_0043ea60(rec[70].model, 1 / 2) + 0x30 := 0

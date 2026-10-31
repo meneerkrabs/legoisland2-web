@@ -124,3 +124,7 @@ Oracle: `tools/tests/wptime-bricks-sim.mjs` (`tools/lib/brick-sim-emu.mjs`, `Bri
   FUN_00449be0, `FUN_00447c90` blob of the save game).
 * Bricks whose second colour is missing use the first colour (the original reads garbage UVs before the palette table).
 * Record flag 0x4000 (set while bricks swap) is kept but nothing reads it in the port.
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* Done since: the outfit / decor half of Enter (`src/island/decor.ts`, `m4-decor`), the specular term and the 4096-vertex batching (WP-RENDER), the save / load of the effects (`m8-save-bricks`), the missing second colour (`draw.ts`: the original's 8 bytes before the palette table are read, not "first colour"). The record flag 0x4000 is set / cleared like the original; a static scan of the executable's 68 uses of the constant 0x4000 found no reader of a record's +0x60 word with it.

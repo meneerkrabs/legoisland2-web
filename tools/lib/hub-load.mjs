@@ -20,12 +20,13 @@ import { ensureAnim } from '../../src/island/ambient/common.ts';
 import { applyEmulatedArrival } from '../../src/hub/arrival.ts';
 import { pathPositions } from '../../src/zones/z02LGI/index.ts';
 import { BrickLibrary } from '../../src/formats/bricks.ts';
+import { resetOglProcessGlobals } from '../../src/zones/z40OGL/peppswit/globals.ts';
 import { DOCK_WORDS, PAD_WORDS } from '../../src/island/vehicles/common.ts';
 import { installBrickLibrary, brickMorph, brickBurst } from '../../src/fx/bricks/island.ts';
 
 export function loadHub(ctx, opts = {}) {
   // the dock / helipad taken words are static process memory (src/island/vehicles/common.ts): a hub test world starts like a fresh process unless the test says otherwise (`keepVehicleWords`)
-  if (!opts.keepVehicleWords) { DOCK_WORDS.fill(0); PAD_WORDS.fill(0); }
+  if (!opts.keepVehicleWords) { DOCK_WORDS.fill(0); PAD_WORDS.fill(0); resetOglProcessGlobals(); }
   const zone = opts.zone ?? 'z07CSI';
   const pe = loadExe(ctx.dataRoot);
   const scene = sceneOf(ctx, zone);

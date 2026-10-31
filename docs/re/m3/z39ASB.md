@@ -59,7 +59,7 @@ z <= 1024: 2.4 (asteroid spacing 20), <= 3072: 3.6 (16), <= 6144: 4.8 (14), abov
 
 Keys (the 13-entry key table of the executable, logical bits): LEFT / RIGHT steer in x at 0.8 per tick, **UP goes down and DOWN goes up** (inverted flight stick; the help text
 `CONTROL0 BUTTON_UP Omlaag gaan`, `CONTROL1 BUTTON_DOWN Omhoog gaan`, `CONTROL2 BUTTON_LEFT Naar links sturen`, `CONTROL3 BUTTON_RIGHT Naar rechts sturen`). LEFT wins over RIGHT, UP over DOWN.
-A pad stick beyond +-0x14 of 512 steers proportionally (`axis / 128 * 0.8`); the port's input mapper turns the stick into key bits (full speed), the analog values are not used.
+A pad stick beyond +-0x14 of 512 would steer proportionally (`axis / 128 * 0.8`), but the stick values are always 0 in the original (the pad reader zeroes `DAT_0098384c / 50` after turning the stick into direction bits, docs/re/input.md section 1): only the key / direction-bit path exists.
 x is allowed while inside [-16, 16] on the side the shuttle moves away from, y inside [-12, 12]: the shuttle can overshoot the limit by one step. Every move of an axis costs **1.0 hull per tick**
 (both axes in one tick: 2) and one score point per full hull unit (the integer shadow +0x288, `ftol(hull) < shadow`); a refused move costs nothing. Hull 1000.0 at the start; the move that takes it below 0 still happens (hull -1, score -1) and ends the run (state 4):
 the hull is the fuel (the gauge icon is the Octan fuel logo).
@@ -115,12 +115,12 @@ Music: `Z38PAR` (`Asteroids.sgt`, the same as z38PAR / z40aPO; started by the sh
 
 ## 5. Differences and approximations (nothing silently dropped)
 
-* **Exhaust particles are not drawn**: the node creates three `rocket01.par` emitters on the shuttle matrix (`FUN_007b780c`: offsets (0, 4.08, 0), (+-1.44, 1.65, 0), additive sprites 0.9 -> 0.3, life 0.15 s) and switches them off in the end states. The port has no particle system yet (docs/re/rendering.md 8); in the cockpit view they are off-screen, they are only visible at the tail of the shuttle during the fly-in.
-* **Music starts with the zone**, not when the loop leaves the help (`FUN_004432c0` in mode 9 -> 2): the shell's `enterZone` starts `Z38PAR` at zone entry for every zone.
-* **Controller rumble** (`FUN_00438518(0, 100, 100)` while the camera shakes) is not ported; the analog stick values are not used (the port's input mapper only has direction bits).
+* **[Closed by WP-PART-WIRE: the three exhaust emitters are wired exactly, see the section below.]** Exhaust particles (historic note): the node creates three `rocket01.par` emitters on the shuttle matrix (`FUN_007b780c`: offsets (0, 4.08, 0), (+-1.44, 1.65, 0), additive sprites 0.9 -> 0.3, life 0.15 s) and switches them off in the end states. The port has no particle system yet (docs/re/rendering.md 8); in the cockpit view they are off-screen, they are only visible at the tail of the shuttle during the fly-in.
+* **Music**: closed by A1 (audio.md 11.1: the zone's music starts at the moment of the original's `FUN_004432c0` call).
+* **Controller rumble** (`FUN_00438518(0, 100, 100)` while the camera shakes): `FUN_00438518` is an empty function in the executable, nothing to port; the analog stick values are always 0 in the original (docs/re/input.md section 1).
 * The roll accumulators (+0x2a8 / +0x2ac / +0x2b4) are kept but nothing reads them (in the original they are passed to `FUN_007b7c24`, which ignores its arguments); the Euler decay of the shuttle record (2 degrees per tick towards 0) is skipped because nothing ever sets those angles; the thrust glow (+0x2d0, +-0.05 per tick towards "steering") is kept (it probably feeds the exhaust particles, which are not drawn).
 * The random source (WP-TIME): the shared C runtime generator of `src/game/crt.ts` (`BeltRng`, default source `rand()`; `FUN_004388ae(x)` = `randFrom`, float32 like the x87 at 24 bit); the zone has no `srand` of its own (the start-up one, `FUN_00402bac`, seeds it). The constructor first burns the star table's 100 draws (`FUN_007b780c`: two `FUN_004388ae(64)` per star, 50 stars, nothing reads the stars) so the layout continues the sequence like the original. The hit test's sound picks are `ftol(FUN_004388ae((float) FUN_00435c91())) & 1` / `% 3` with `FUN_00435c91` = GetTickCount - start: `AsteroidBelt.ms` (default: the real clock since the belt was created, tests script it).
-* A Codex review of `belt.ts` against the decompile (five findings: SHUT flags, the unused tilt accumulator, float32 rounding of the asteroid angles, the frustum bit, the tick-scaled random choices) was applied except the last point (the original scales `rand()` by the elapsed milliseconds before taking the parity / modulo; the port uses `rand()` directly: a different random sequence, the same distribution).
+* (historic) A Codex review of `belt.ts` against the decompile (five findings: SHUT flags, the unused tilt accumulator, float32 rounding of the asteroid angles, the frustum bit, the tick-scaled random choices) was applied except the last point (the original scales `rand()` by the elapsed milliseconds before taking the parity / modulo; the port uses `rand()` directly: a different random sequence, the same distribution).
 * A restart (pause menu / result menu) re-runs the whole zone (new layout, fresh records) instead of resetting the records with `FUN_007b9b50` + `FUN_007b70a1(0)`: equivalent.
 * The loop's draw of the intro (mode 1) shows the scene behind the panel only through the generic runner (opaque panel), as for all zones.
 * Test aids that are not in the original: **F9** finishes the course (the shuttle is moved to the finish line, the normal success path runs with the score it has) and **F10** empties the hull (normal failure path); both only act while the shuttle is under control.
@@ -179,7 +179,7 @@ Deviations found and FIXED in the port (`belt.ts`, `sound.ts`, `game.ts`):
 
 Recorded, not changed: the port logs no `rate` call when nothing changed (the original does not either), but plays / stops the alarm and miss sounds as the groups they are (one `warnEnd` event = the four stops the original makes one by one);
 a loop stopped twice in the same tick (the gyro by both `FUN_007b6f1f(0)` calls of the tick the run ends) is stopped once by the port. (WP-TIME: the sound picks now scale with the clock like the original; the old note follows: same distribution,
-cannot be reproduced). The constructor also draws 100 values for the star table before the layout (not ported: nothing reads the table), so a seeded layout differs from the original's by that offset only.
+cannot be reproduced). (Closed: the constructor's 100 star-table draws are burned by the port, `belt.ts` line 243; the layout continues the sequence like the original.)
 
 ## WP-PART-WIRE / WP-MINI (2026-10-29)
 
@@ -194,3 +194,8 @@ cannot be reproduced). The constructor also draws 100 values for the star table 
 * dt audit: nothing per drawn frame in this zone (the draw hook FUN_007b9434 / 007b959c only sets flags / matrices from the node's state, done at the end of every update = once per sim step); every `* DAT_008b1718` of the update, the asteroid motion and the engine counters is dt-scaled (see above), `world.dt` is passed by `ShuttleNode` / the zone game; the layout and recycling have no dt.
 * RNG: see the random-source note above (shared generator, float32 `FUN_004388ae`, ms-scaled picks, 100 star draws burned). `tools/lib/asb-rng.mjs` gives the node tests a scripted source.
 * Float32: `gauge` (DAT_05d4e138) is a float store now; with that `m7-z39ASB-emu` (dt 1 and 0.5) and `m5-audit-z39ASB-emu` (dt 1) compare at TOLERANCE 0 (every node field, the SHUT / HULL / asteroid matrices and Euler angles, the camera, the HUD globals): 14.9 M / 7.0 M comparisons, the sound / speech calls with their ids.
+
+
+## Closure 2026-10-31 (fork C)
+
+Every item of section 5 and of the oracle notes was checked against the current code: exhaust emitters wired (`createAsbGame`, `m8-wire-z39ASB`), the star table's 100 draws burned in the constructor before the layout (`belt.ts`), ms-scaled sound picks exact, rumble / stick are not gaps, music start by A1. The roll accumulators / Euler decay / thrust glow are state nothing reads (as documented). The 'exhaust particles are not drawn' and 'music starts with the zone' bullets of section 5 were stale (marked). Nothing open.

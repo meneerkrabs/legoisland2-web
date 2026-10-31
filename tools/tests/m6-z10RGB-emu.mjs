@@ -359,8 +359,6 @@ const __test = {
         if (pa.clip !== oa.clip || pa.frame !== oa.frame) bad(`${label}: animation of record ${i} ${r.name}: port clip ${pa.clip} frame ${pa.frame}, original clip ${oa.clip} frame ${oa.frame}`);
       });
       const a = readPortState(S), b = readEmuState(S);
-      // KNOWN DEVIATION (docs/re/m6/z10RGB.md section 7): at the phases 4 / 5 the original writes COMPLETE_SUB_GAME (0x53) = 1, the port does not (its runner checks the story machine while playing)
-      if (b.vars[0x53] !== a.vars[0x53]) { (S.known ??= { complete53: 0 }).complete53++; S.known.complete53At ??= `${label}: port ${a.vars[0x53]}, original ${b.vars[0x53]}`; a.vars[0x53] = b.vars[0x53]; }
       compare(a, b, label, S);
       return { a, b };
     };

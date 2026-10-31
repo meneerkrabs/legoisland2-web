@@ -1,5 +1,5 @@
 // Walk the whole story through the shell with the stub aid F9 (hubs: complete the node the story waits for; mini-games: finish successfully -> banner ->
-// result menu -> Continue), from "new game" (node 2) to the free roam node 68, including the outro movie and the credits after the Brickster's palace.
+// result menu -> Continue), from "new game" (node 2) to the free roam node 68, including the outro movie after the Brickster's palace (straight to the island: no credits, gaps.md U2).
 //   node tools/browse.mjs "http://localhost:5499/?start=frontend&mute=1&debug=1" tools/steps/shell-story.mjs --size 640x480
 export default async ({ page, shot, wait, log, key }) => {
   const fail = [];
@@ -28,8 +28,8 @@ export default async ({ page, shot, wait, log, key }) => {
     else if (s.mode === 4) { await press('Enter'); await wait(500); }
     else if (s.mode === 5) { await select(1); await press('Enter'); await wait(1500); }
     else await wait(500);
-    // credits after the outro (the front end stage): any key ends them
-    if (await page.evaluate(() => window.__fe && window.__fe.mode === 2 && !__shell.menu.engine.open)) { log('credits after the outro'); await press('Enter'); await wait(1500); }
+    // the credits are no part of the story: a front end stage after the outro would be a bug (gaps.md U2)
+    if (await page.evaluate(() => window.__fe && window.__fe.mode === 2 && !__shell.menu.engine.open)) throw new Error('credits after the outro: the original goes straight to the island');
   }
   const s = await state();
   log('visited', visited.join(' '));

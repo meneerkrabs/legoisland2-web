@@ -10,12 +10,15 @@ import type { Pe } from '../../formats/exe.ts';
 import type { IslandSetup } from '../../formats/emusetup.ts';
 import { RECORDS_BASE } from '../../formats/emusetup.ts';
 import { readDecorTables, decorGroupOfZone } from '../../shell/tables.ts';
+import { applyDecorSets, VARIANT_VEHICLE, ROSTER_STRIDE } from '../../island/vehicles/looks.ts';
 import { vehicles } from '../../island/vehicles/common.ts';
 import { ensureAnim } from '../../island/ambient/common.ts';
 import { ZONE_INDEX, REC } from './consts.ts';
 
 /** FUN_007651a3's hidden list (DAT_0093d590, ends with -1) */
 export const HIDDEN_LIST_VA = 0x93d590;
+/** the roster table (FUN_007651a3's last loop): its first record is -1 */
+const ROSTER_VA = 0x93d578;
 /** the stride of the emulated record array */
 const STRIDE = 0x68;
 
@@ -58,6 +61,8 @@ export function applyDecorRecords(w: World, pe: Pe) {
     const e = dt.entries[i], r = w.records[e.record];
     if (r) r.variant = (e.set << 8) | 1 | (e.variant << 16);
   }
+  applyDecorSets(w, pe);   // FUN_00765180: FUN_00420674(4) (the decor sets' era table) + FUN_004202ef(0x93d578)
+  for (let va = ROSTER_VA; (pe.u32(va) | 0) !== -1; va += ROSTER_STRIDE) { const r = w.records[pe.u32(va) | 0]; if (r) r.variant = VARIANT_VEHICLE; }   // (the roster is empty here)
 }
 
 /** DAT_009daa7c := 0x1c (FUN_00726e25): the skateboard record the skate node and the walk node's accessory use */

@@ -126,8 +126,11 @@ async function trxGame(ctx: ZoneGameCtx): Promise<ZoneGame> {
     introId: MSG.INTRO,
     helpControls: 6,
     onStart() { hud.visible = true; },
-    update() {
+    /** FUN_00444370 ran in the draw pass of the previous loop pass (after its update, with that pass's camera: `stepView`); the nodes of this pass read its flags: set them before the nodes run */
+    beforeTick() {
       for (const sp of g.spectators) sp.rec.flags = frustum(sp.rec) ? sp.rec.flags | RF_FRUSTUM : sp.rec.flags & ~RF_FRUSTUM;
+    },
+    update() {
       syncHud();
       listen();
       if (run.arrivalFog && !fogDone) { fogDone = true; ctx.gr.useFogCall(7); }     // FUN_00442d90(34, 250, 250, 100, ...) of FUN_0076ac33

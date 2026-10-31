@@ -46,6 +46,9 @@ export default {
           if (x.cmd === 13 && x.expression >= 16) failures.push(`${entry.fullPath}: expression ${x.expression}`);
           if (x.cmd === 12 && !(x.fov >= 0.01)) failures.push(`${entry.fullPath}: fov ${x.fov}`);
           if ((x.cmd === 4 || x.cmd === 6) && x.targetKind === 'spline' && x.splineCount > 0 && x.splineFirst >= x.splineCount) failures.push(`${entry.fullPath}: spline range ${x.splineFirst}..${x.splineCount}`);
+          // S9 proof (gaps.md): no shipped script uses WAV / MIDI (cmd 9, a stub in the runner) or a camera MOVEPOSITION to an actor (FUN_0045ecec has no branch for target kind 1)
+          if (x.cmd === 9) failures.push(`${entry.fullPath}: WAV/MIDI command used (the runner stubs it)`);
+          if (x.cmd === 6 && x.actor === 'CMRA' && x.targetKind === 'actor') failures.push(`${entry.fullPath}: camera MOVEPOSITION to an actor (unsupported by the original)`);
           const e = catalog.get(x.name) ?? { n: 0, shapes: new Map() }; e.n++;
           const s = shape(x); e.shapes.set(s, (e.shapes.get(s) ?? 0) + 1); catalog.set(x.name, e);
         }
@@ -80,6 +83,8 @@ export default {
       else failures.push(`${entry.fullPath}: compiled text differs from .cut`);
     }
     notes.unshift(`.cut ${bin}, .txt ${txt} (${txt - txtNoCut} with .cut; ${exact} compile byte-identical; ${txtNoCut} text only: ${psx} *psx variants + ${txtNoCut - psx} others), script lines ${lines}, rejected lines ${skippedLines}`);
+    notes.push(`commands in .cut files: ${[...catalog.values()].reduce((a, v) => a + v.n, 0)}; WAV/MIDI 0, camera MOVEPOSITION to an actor 0 (checked per command above)`);
+    { const og = [...parsed].find(([k]) => /z40ogl\/cutscene\/ogl02$/.test(k)); if (og) notes.push('ogl02 uses: ' + [...new Set(og[1].commands.map((x) => x.name))].join(' ')); }
     notes.push('commands (binary): ' + [...catalog].sort((a, b) => b[1].n - a[1].n).map(([k, v]) => `${k}:${v.n}`).join(' '));
     // cross-check ids vs doc
     for (const k of catalog.keys()) if (!CUT_COMMAND_NAMES.includes(k)) failures.push(`unknown command name ${k}`);

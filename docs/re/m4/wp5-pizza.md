@@ -222,3 +222,8 @@ the 10 degree cone, hand-overs at 2..4 units (window frames, both halves), a thr
 * KNOWN DEVIATION `pizza-hand-splat-sound-stubbed-emitter` (18 occurrences, `HandPizzaNode.update`, pizza.ts:451): `FUN_00428a5f` plays Piza_Hit (`FUN_004433f0(DAT_009da8f0, pos)`) and starts the splat only when the emitter
   handle `param_2[5] != 0xbabababa`; that handle comes from `FUN_0044ebb0` (pizzasplat.par), which in this executable is `mov eax, 0xbabababa; ret` (compiled out), so the original NEVER plays the hand-over's sound or splat.
   The statement above ("at the end the first one plays Piza_Hit and the splat") is wrong for this build.
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* **DAT_00987660 is settled**: it is `DAT_00983cc8 == 0x10` (FUN_004060b1 / FUN_00406f0d, LE2.c:2747 / 3135): the display is in 16-bit colour mode. The port runs 32-bit colour, so the value is 0 and the 2.8 look-at (and the 4.0 near plane, `DAT_0089df50`) are the original's own values for this mode: not an approximation ("meaning unknown" above is obsolete). FUN_004096b3(1) saves and zeroes it around the front-end's screen set-up, FUN_004096b3(0) restores it.
+* SUPE is ported (`src/island/pizza/supe.ts`, WP14, `m7-isl-veh-supe` at tolerance 0); the save / load of node state exists (`saveBlock` / `loadBlock` of every family, `m8-save-*`); the train's `0x53dbe0` call of FUN_00427000 (controller near bit 0x10) has no consumer (no probe is armed on the train cars) and is not modelled.

@@ -2,7 +2,7 @@
 //
 // Original (LE2.c): PepSwitc's pre-render FUN_004bb67d starts with `if (DAT_00983840 & 0x10000) FUN_0051db5c(Pepper); FUN_0051dbd7(Pepper);`.
 //   FUN_0051db5c  nearest record (FUN_004201f0: record variant word +0x64 != 0, not Pepper, record flag 1 = in the view frustum, squared distance < 800) ->
-//                 variant & 0xff == 1: FUN_00420bb7 (an outfit / decor swap of a minifig or a decor model, NOT ported: docs) ; variant == 2: FUN_00420570 -> FUN_00420404
+//                 variant & 0xff == 1: FUN_00420bb7 (an outfit / decor swap of a minifig or a decor model: `decorOf(w).enter`) ; variant == 2: FUN_00420570 -> FUN_00420404
 //   FUN_00420404  plays DAT_009da5b0 (sound 0x2c0); the roster entry (table 0x8e9b28, 0x18 bytes: record, record pointer, cycler handle, SwapText set, game variable, brick
 //                 effect handle) of the record: not while the record has flag 0x8000, not while the entry is in the busy list DAT_009da590 (8 slots); the cycler goes to the
 //                 next look (FUN_00443b00) and applies it (FUN_004439f0); the game variable := part + variant * 256 (FUN_00417597); the record gets flags |= 0x8020 and the entry
@@ -99,9 +99,7 @@ export class VehicleLooks {
   readonly entries: RosterEntry[] = [];
   /** DAT_009da590: the entries whose look change is still running (index into `entries`), -1 free */
   readonly busy: number[] = new Array(BUSY_SLOTS).fill(-1);
-  /** a record variant word of 1 (an outfit / decor swap, FUN_00420bb7) was the nearest: the call is not ported, the count is for the tests and the docs */
-  unportedNearest = 0;
-
+  
   /** FUN_004202ef: the roster of the executable, the stored looks applied */
   constructor(w: World, pe: Pe, brickSlot: (entry: number) => number, rosterVa: number = ROSTER_VA) {
     for (let c = 0; ; c++) {
@@ -163,7 +161,7 @@ export function applyRosterRecords(w: World, pe: Pe): void {
     if (r) r.flags &= ~0x2;
   }
   // FUN_00420837(0) (called by FUN_0051c823): the island's decor group, 147 decor models + 29 minifig outfit entries: variant word = set << 8 | 1 | variant << 16 (type 1:
-  // Enter would swap the outfit / decor model, FUN_00420bb7: not ported, but these records are what `nearestLookRecord` finds before a farther vehicle)
+  // Enter swaps the outfit / decor model, FUN_00420bb7: `lookKey`)
   startDecor(w, pe);
   for (let va = ROSTER_VA; (pe.u32(va) | 0) !== -1; va += ROSTER_STRIDE) { const r = w.records[pe.u32(va) | 0]; if (r) r.variant = VARIANT_VEHICLE; }
 }
@@ -171,7 +169,12 @@ export function applyRosterRecords(w: World, pe: Pe): void {
 const DECOR_KEY = 'island.decor';
 export function decorOf(w: World): DecorState | null { return (w.ext.get(DECOR_KEY) as DecorState | undefined) ?? null; }
 /** FUN_00420837 (the resolution of the sets' entries) + FUN_00421bbe(-1) (the stored decor applied to the zone's decor records) */
-function startDecor(w: World, pe: Pe): void {
+function startDecor(w: World, pe: Pe): void { startZoneDecor(w, pe, 2); }
+/**
+ * The same for any zone with a decor group (the island 2, the castle 6, the Oasis 0xb, the Pyramid 0xd, the Dino island 0x13, Ogel's island 0x1b: `zoneIndex` = var 0x59 of FUN_00421b18): FUN_00420837(group)'s
+ * resolution and the wrapper's FUN_00421bbe(group). Needs `decorSetsOf(w)` (FUN_00420674) to exist. Enter / every tick then reach the DecorState through `lookKey` / `tickLooks` (FUN_00420bb7 / FUN_00420dc4).
+ */
+export function startZoneDecor(w: World, pe: Pe, zoneIndex: number): void {
   const c = tryCtx(w), ds = decorSetsOf(w);
   if (!ds) return;
   const R = c?.decorRender;
@@ -188,7 +191,7 @@ function startDecor(w: World, pe: Pe): void {
   st.resolve();
   w.ext.set(DECOR_KEY, st);
   if (!decorStore.blob) decorStore.blob = defaultDecor(pe);   // FUN_00420837: DAT_008adbf0 (a new game) copies the defaults into the stored decor
-  st.applyStored(pe, decorGroupOfZone(2), decorStore.blob);
+  st.applyStored(pe, decorGroupOfZone(zoneIndex), decorStore.blob);
 }
 
 /** the decor model sets' groups (0x8acb98 +0) as FUN_00420674 left them, and the BAATAT state they were made for */

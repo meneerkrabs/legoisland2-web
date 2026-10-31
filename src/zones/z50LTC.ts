@@ -91,9 +91,8 @@ export function buildLtc(world: World, loaded: Loaded, pe: Pe): LtcRoom {
   // the attaches handled here are not "skipped" any more (the skateboard node is never active in the room)
   loaded.skipped = loaded.skipped.filter((s) => s.ctor !== CTOR_PORTAL && s.ctor !== CTOR_SKATE && s.ctor !== CTOR_LTC_PEPSWITC);
 
-  // Pepper's chain of the original: pepswitc, SGwalk (the M1 safety net of the stub chain is replaced by the pepswitc fall guard)
+  // Pepper's chain of the original: pepswitc, SGwalk
   const pc = pepper.ctrl;
-  if (pc) pc.nodes = pc.nodes.filter((n) => n.kind !== 'StubGuard');
   const pep = pc?.find<LtcPepSwitch>('pepswitc') ?? null;
   // FUN_0083ab7b (the attach at 0x839abe) stores the record's position when the node is created, before anything moves Pepper
   if (pep) { pep.home = [pepper.x, pepper.y, pepper.z]; pep.homeSet = true; }

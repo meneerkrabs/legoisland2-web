@@ -14,7 +14,8 @@ export const A = {
 };
 
 export class MenuEmu {
-  constructor(pe) {
+  /** opts.record: the page renderer's drawing (FUN_0041d765 + the tile / text helpers FUN_0041c478 .. FUN_0041c7cd) runs natively and its sprite / text queue calls are logged in `this.draw` */
+  constructor(pe, opts = {}) {
     const cpu = (this.cpu = createGameCpu(pe));
     const mem = (this.mem = cpu.mem);
     this.pe = pe;
@@ -104,8 +105,39 @@ export class MenuEmu {
     mem.w32(0x8a9a24, 0); mem.w32(0x8a9a28, 0); mem.w32(0x8a9a2c, 0); mem.w32(0x8a9a30, 0);
     mem.w32(0x9dafe8, 0);
     this.out = this.alloc(16);
+    if (opts.record) this.recordDraws();
   }
   alloc(n) { const p = this.brk; this.brk += (n + 15) & ~15; return p; }
+
+  /**
+   * Run the drawing helpers natively (the tile functions 0x41c478 / 51f / 5c6 / 670 / 71b and the text helper 0x41c7cd, which add the two panel offsets DAT_008a9918 / 8a991c) and log what
+   * they hand to the sprite / text queue: FUN_0043c267(rect, colour, &{texset, index}) and FUN_0043a25c / 0043a091 / 0043a167(font, 0, colour, text, x, y) (left / centre / right).
+   * Hosted: the label resolver (the id is its own text), the text width (10 per character + 4 for the title font: `FONT_TITLE` = ctx +0x68, `FONT_ITEM` = ctx +0x6c), the key names ("K<code>").
+   */
+  recordDraws() {
+    const L = this, H = this.cpu.hooks, mem = this.mem;
+    const log = (this.draw = { tiles: [], texts: [] });
+    for (const a of [0x41c478, 0x41c51f, 0x41c5c6, 0x41c670, 0x41c71b, 0x41c7cd, 0x43a091]) H.delete(a);
+    this.cpu.exec.push([0x41c478, 0x41c964]);
+    this.FONT_TITLE = 0x11110000; this.FONT_ITEM = 0x22220000;
+    mem.w32(A.CTX + 0x68, this.FONT_TITLE); mem.w32(A.CTX + 0x6c, this.FONT_ITEM);
+    H.set(0x43c267, (c) => {
+      const r = c.arg(0), t = c.arg(2);
+      log.tiles.push({ rect: [0, 1, 2, 3].map((i) => mem.r32(r + 4 * i)), colour: c.arg(1) >>> 0, tex: mem.r32(t + 4) });
+      c.eax = 0;
+    });
+    for (const [a, align] of [[0x43a25c, -1], [0x43a091, 0], [0x43a167, 1]]) {
+      H.set(a, (c) => { log.texts.push({ align, font: c.arg(0) >>> 0, colour: c.arg(2) >>> 0, text: mem.cstr(c.arg(3)), x: c.arg(4) | 0, y: c.arg(5) | 0 }); c.eax = 0; });
+    }
+    H.set(0x43a05b, (c) => { c.eax = 10 * mem.cstr(c.arg(0)).length + (c.arg(1) >>> 0 === L.FONT_TITLE ? 4 : 0); });
+    const names = new Map();
+    H.set(0x43839f, (c) => {
+      const code = c.arg(0) >>> 0;
+      if (!names.has(code)) { const p = L.alloc(32), s = 'K' + code; for (let i = 0; i < s.length; i++) mem.w8(p + i, s.charCodeAt(i)); mem.w8(p + s.length, 0); names.set(code, p); }
+      c.eax = names.get(code);
+    });
+  }
+  clearDraw() { if (this.draw) { this.draw.tiles.length = 0; this.draw.texts.length = 0; } }
 
   /** the save slot files for FUN_0041a9bf (name -> bytes) */
   setSlots(files) { this.files = new Map(files); this.mem.w8(A.CACHE_FLAG, 0); }

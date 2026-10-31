@@ -11,6 +11,7 @@ import type { Pe } from '../../formats/exe.ts';
 import './krystal.ts';
 import { ensureTwinkle } from './krystal.ts';
 import { ZoneParticles } from '../../fx/particles/zone.ts';
+import { tickIslandBrickFx } from '../../fx/bricks/island.ts';
 import { hudFrame, hudInit, newHudState } from './hud.ts';
 import type { OglHudState } from './hud.ts';
 
@@ -24,7 +25,7 @@ export const OUTFIT_TABLE = 0x8acdc0, OUTFIT_RECORDS = 0x8acdf0, PHASE_TABLE = 0
 
 /**
  * FUN_00421bbe(5), run by the wrapper after the set-up: every record of the hub's outfit table gets the variant word `phase << 8 | 1 | outfit << 16` (record + 0x64) from the saved phase / outfit bytes
- * (DAT_009d9fd0 / DAT_009d9fd1 per table entry; a new game has zeros), the phase's own model words (the 0xbabababa "unchanged" markers of phase 0 / outfit 0) are not kept by the port.
+ * (DAT_009d9fd0 / DAT_009d9fd1 per table entry; a new game has zeros). The models / attachments of the phases are applied by `peppswit/decor.ts` (`decorInit`: DecorState.applyStored, from PEPPSWIT's constructor); this is the variant-word half only (the same values).
  * `saved(i)` = [phase, outfit] of table entry i (default: a new game).
  */
 export function restoreOutfits(world: World, pe: Pe, saved: (i: number) => [number, number] = () => [0, 0]) {
@@ -38,6 +39,10 @@ export function restoreOutfits(world: World, pe: Pe, saved: (i: number) => [numb
 }
 
 import { decorStore } from '../../island/decor.ts';
+import { decorOf } from '../../island/vehicles/looks.ts';
+import { decorGroupOfZone } from '../../shell/tables.ts';
+/** the zone table index of z90OGL (var 0x59): decor group 5 */
+const OGL_ZONE_INDEX = 0x1b;
 
 registerHub({
   archive: 'z40OGL',
@@ -46,13 +51,16 @@ registerHub({
     const st = newHudState();
     h.ictx.hub[HUD_KEY] = st;
     hudInit(h.ctx.hud, st);
+    // the wrapper's FUN_00421bbe(5) ran in the set-up (`decorInit`), before the renderer was bound: the attachments of the outfits (hats, hair) are handed to the renderer now, before the first frame
+    const dst = decorOf(h.ctx.world);
+    if (dst && decorStore.blob) dst.applyStored(h.ictx.pe, decorGroupOfZone(OGL_ZONE_INDEX), decorStore.blob);
     // FUN_00442900("z40OGL"): the zone's particle engine (own Particle/ folder); the krystals' TWINKLE01 emitter is created on it (FUN_0044e920 in the first Overlay constructor)
     if (!(h.ictx as { fx?: unknown }).fx) {
       ZoneParticles.create(h.ctx).then((fx) => { if (fx) { Object.assign(h.ictx, { fx }); ensureTwinkle(h.ctx.world); } }).catch((e) => console.warn('z40OGL particles', e));
     }
   },
   // FUN_007e2ad0: every pass of the GameLoop, in every mode
-  frame(h: HubGame) { hudFrame(h.ctx.hud, h.ctx.vars, hudState(h), h.ctx.world.dt); },
+  frame(h: HubGame) { hudFrame(h.ctx.hud, h.ctx.vars, hudState(h), h.ctx.world.dt); tickIslandBrickFx(h.ctx.world); /* FUN_00442930 in every pass (no brick effect is registered here: a no-op) */ },
   // (a new game's stored decor = the table's defaults, FUN_00420837 copies them while DAT_008adbf0 is set: the records get the table's phase / outfit, not zeros)
   afterSetup({ ictx, world }) { decorStore.ensureDefaults(ictx.pe); restoreOutfits(world, ictx.pe, (i) => [decorStore.mem[i * 2], decorStore.mem[i * 2 + 1]]); },
   debug(h: HubGame) { return { hud: { ...hudState(h), left: h.ctx.hud.leftText, centre: h.ctx.hud.centreText, slot: h.ctx.hud.column[0]?.tex } }; },

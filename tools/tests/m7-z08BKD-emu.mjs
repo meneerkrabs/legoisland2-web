@@ -52,7 +52,6 @@ const __test = {
       for (let i = 0; i < P.recs.length; i++) {
         const a = P.recs[i], b = E.recs[i];
         let fa = a.flags, fb = b.flags;
-        if (i === REC.SEAE) { if (fa !== fb) note('SEAE flags', `record 43 flags port ${fa.toString(16)} original ${fb.toString(16)}`); fa = fb; }
         checked++;
         if (fa !== fb) bad(`${label}: record ${i} flags port ${fa.toString(16)}, original ${fb.toString(16)}`);
         let w = 0;

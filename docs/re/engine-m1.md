@@ -85,8 +85,7 @@ result = hit height - 0.1 (= the surface). Footstep surfaces come from "the poly
 Walking with `y < sea level` (2.4 on the island, a global the zone code sets) -> `PEPPER_CONTROL = 2`, state 0x62 (dive clip, then tread water 0x41, swim clip 9);
 Left / Right turn 0.0872660 rad (`0x8926a4`, 5 degrees) per tick, Up accelerates to 0.8 (+0.08 / tick, -0.04 when released; every constant is a float32 of the executable: the first version used the double 0.8, which the speed test `0.8f <= speed` misses); a mask-3 sphere sweep at +3.6; y = sea level. Swimming and the terrain ray one unit ahead reaches the sea
 level -> mode 1, state 0x25 (out of the water), the position moves one unit ahead. The sea is a loop (`FUN_0043363c`, called at the end of the swim update): past
-+-1056 (880 in sub-game 6, 1840 in 10 / 0x16) Pepper and the camera move to the opposite edge (x or z = +-1040, the other coordinate becomes its fraction). Ctrl (skateboard), vehicles and the Ptera are not ported; the mode word and the
-node gating are in place for them.
++-1056 (880 in sub-game 6, 1840 in 10 / 0x16) Pepper and the camera move to the opposite edge (x or z = +-1040, the other coordinate becomes its fraction). The skateboard (Ctrl), the vehicles and the Ptera are the island's `PepSwitc` nodes (`src/island/vehicles`, behind the `PEPPER_CONTROL` mode word).
 
 ## 3. Findings about the original
 
@@ -130,22 +129,20 @@ Single numbers are written into the code with the address in a comment where the
 | jump arc time step; pose snap | 0.1; 0.1 | 0x8920cc |
 | swim: turn / acceleration / max / deceleration | 0.0873 / 0.08 / 0.8 / 0.04 | 0x8926a4 / 0x89212c / 0x892084 / 0x8925ec |
 
-## 5. Approximated or missing
+## 5. State of the M1 modules (rewritten 2026-10-31: nothing of this chapter is approximated any more)
 
-* Not ported (state after the differential test, section 8): pizza throwing and talking (Space / Shift call `FUN_00427c15`, which is 0 while no pizza record or NPC target exists;
-  the Space branch is the hook `walkHooks.space` that `src/island/pizza` installs), the skateboard (Ctrl) and the vehicle modes (`src/island/vehicles`), the Ptera, the sub-game 9 camera
-  (`FUN_0042d4b1`; the zone's own node does it), mouse look of the camera, analytic sphere / cylinder shapes (never created by the island / house set-up).
-  **Ported since the first version of this document:** the skateboard dismount state 0x1c (`OFFBOARD`), the explicit +-1840 wrap inside the swim update (it fires first in sub-games 10 / 0x16),
-  the hit cache of `FUN_00441b10` (`CollisionWorld.hitCache`, on by default: the original keeps the last ray's end points and the polygon of the last hit of ANY query and re-tests that
-  polygon, without the mask test, when the next ray on the same record starts and ends within 2 units; the "same result as a full scan" claim of the first version was wrong, the cache returns
-  stale polygons), the NPC bound (records with flag 0x40 use the box shape `FUN_004410e0`), the swim stroke sound (frames 18..20 of the swim / tread clips), the pad stick in the swim node.
-* The island set-up applies the hide lists of `FUN_004b4220` / `FUN_004b6475` and the box colliders; the story handler `FUN_004b7040` (era dependent visibility, NPC
-  placement, the bridge collision cubes `BRCC`) is not ported, so records the story would move or hide (many sit at the origin until the story places them) are drawn /
-  collide where the builder tables put them. The `BRCC` boxes block some places that the story opens.
-* Sound: footsteps (surface and step pattern as in the original, variants from the sound table), jump, landing, skid, teeter, dive / out of water; no 3D positioning, no
-  swim stroke loop. Music / ambience are started by the browser glue only if cheap.
-* The blob shadow follows `rendering.md` section 9 loosely (type 4, ray down from the player).
-* The simulation is deterministic: one step per drawn frame at a fixed 60 Hz with the original's `DAT_008b1718` rules (1.0 for the first five frames, then 0.5; WP-TIME, gaps.md T1); the original ran with the measured frame time, so a machine that misses 60 Hz behaved differently.
+This chapter listed what the first version left out. Everything on that list has since been ported or settled; where each piece lives and how it was verified:
+
+* **Pizza throwing, talking (Space / Shift, `FUN_00427c15`)**: `src/island/pizza` (the walk node's hook `walkHooks.space`), the NPC families in `src/island/npc`; compared with the original's constructors / updates in the x86 emulator (`m7-isl-*`, `m5-*`).
+* **Skateboard, vehicle modes, Ptera**: `src/island/vehicles` (`PepSwitc`, SGBoat / SGHeli / SGCar / Ptera ...), oracle tests `m7-isl-veh-*`, `m4-wp6-looks`, `m4-wp13-ptera`.
+* **Sub-game 9 camera (`FUN_0042d4b1`)**: the zone's own node (z09JST), not the walk node.
+* **Mouse look of the camera**: ported (`camera.ts chase`, `FUN_00437ca5`, docs/re/input.md section 3, `m7-walk-cam` mouse scenarios at tolerance 0).
+* **Analytic sphere / cylinder shapes**: never created by any zone's set-up (checked by `tools/tests/m4-s5-colshapes` for the loader slots; `FUN_004410e0` box shapes are in).
+* **Island story handler `FUN_004b7040`, era visibility, NPC placement, `BRCC` cubes**: `src/island/story*`, `src/zones/z02LGI` (WP-ISLAND; the set-up runs in the x86 emulation `m4-s-island`).
+* **Sound**: 3D positioning, ambience and music: `src/audio` / `src/shell/audiohost.ts`, docs/re/audio.md.
+* **Blob shadow**: `FUN_00444940` / `FUN_00444ef0` ported function by function and verified on the emulator (rendering.md 9, gaps.md R5).
+* **Simulation step**: one step per drawn frame at a fixed 60 Hz with the original's `DAT_008b1718` rules (1.0 for the first five frames, then 0.5; WP-TIME, gaps.md T1); the original ran with the measured frame time, so a machine that misses 60 Hz behaved differently there. This is the one inherent difference.
+* **Still true and exact**: the hit cache of `FUN_00441b10` (`CollisionWorld.hitCache`: the cache returns stale polygons exactly like the original), the NPC bound (flag 0x40 uses the box shape `FUN_004410e0`), the swim stroke sound, the skateboard dismount state 0x1c, the explicit +-1840 wrap.
 
 ## 6. Tests
 
@@ -167,16 +164,9 @@ Single numbers are written into the code with the address in a comment where the
 Headless browser runs (`tools/steps/game-*.mjs`, `node tools/browse.mjs "http://localhost:5499/?play=1&zone=z02LGI&mute=1" tools/steps/game-island.mjs --size 1280x800`)
 cover the same scenarios with screenshots.
 
-## 7. Next steps (M2 and on)
+## 7. Next steps (historical)
 
-1. The zone loop / shell: `FUN_00404dc9` and the zone exit states (architecture.md 2.1 / 2.3), the front end `z60FRE`, pause menu (the input mapper already reports Esc), save game.
-   `setupZone` is the place where the per-zone loop will call the same set-up.
-2. Pull more of the zone set-up out of the EXE with the symbolic interpreter instead of the hand-written `ZoneProfile`s: the `FUN_00423532` attach calls and the record flag
-   writes (architecture.md 8.2). The hide lists, box colliders and node registrations of `FUN_004b6475` / `FUN_004b4220` are the first test case.
-3. Port the story handler (`FUN_004b7040`) and the era visibility for the island, then NPCs (generic talking NPC `FUN_00426151`, `Turn2Pep`, `MeetPepp`, `Human1`) on top of
-   the waypoint walker, the cutscene runner (architecture.md 5), doors / portals / buildings, and the other player modes (skateboard, boat, helicopter, car) as nodes behind `PEPPER_CONTROL`.
-4. HUD / 2D layer: fonts (`Fonts` archive), the text queue, `.str` messages; the DOM HUD of `play.ts` is a dev overlay only.
-5. Particles and brick-morph effects, music (DirectMusic player exists), 3D sound positioning.
+The plan of M1 (zone loop / shell, set-up extraction, story handler and NPCs, HUD / 2D layer, particles and brick effects, audio) has been carried out; see engine-m2.md (shell), engine-m4.md (island), docs/re/m5 (hubs), docs/re/m6 (mini-games), particles.md, audio.md and gaps.md (the inventory).
 
 ## 8. Differential test (WP-VERIFY)
 
@@ -190,7 +180,7 @@ Run: `node tools/test-formats.mjs --only m7-walk-col,m7-walk-emu,m7-walk-island,
 Direct3D 7 leaves the FPU in single precision (no `DDSCL_FPUPRESERVE` in any `SetCooperativeLevel` call of the executable; the CRT's sin / cos / sqrt wrappers compare the control word with 0x27f and switch for
 their own call). So **every arithmetic result of the original's code (fadd, fsub, fmul, fdiv, fsqrt) is rounded to a float32 mantissa**, no matter whether the compiler stored it in a local or kept it on the FPU
 stack. A bit-exact port therefore writes `Math.fround` around every single `+ - * /` and `sqrt` (`k = fr(1 / fr(sqrt(s)))`); only the results of `sin` / `cos` / `atan2` (CRT calls, computed at 53 bits) stay doubles until the next
-operation. The emulator's default control word is 0x27f (53 bit); the oracles of this WP set `cpu.cw = 0x7f` (`M7_CW=0x27f` runs the 53-bit mode for comparison; the first version of the port was exact in
+operation. The emulator's bare `Cpu` still starts with the CRT's control word 0x27f (53 bit, what the C runtime sets before Direct3D exists); everything the game runs after the device exists is `createGameCpu` (`GAME_CW` = 0x7f, `src/formats/emusetup.ts` included) and the oracles of this WP set `cpu.cw = 0x7f` (`M7_CW=0x27f` runs the 53-bit mode for comparison; the first version of the port was exact in
 that mode and differed by one ulp in about 1 in 10 multi-operation statements in the real one). Three more rules learned on the way:
 
 * the decompile lists the terms of a sum in a different order than the code adds them (`z*m10 + y*m6 + x*m2` in the listing, `x, y, z` in the machine code; also `l84 + y0 + la0` is as listed): every
@@ -242,10 +232,9 @@ the sub-game 9 camera, the debug-line draws, analytic sphere shapes, `FUN_0042ba
 ### 8.4 Recorded, not in this WP's modules (KNOWN DEVIATION)
 
 * **CAM-1 / CAM-2 / CAM-3 (`src/game/camera.ts`): FIXED by WP-ISLAND-FIX.** The shipped camera used `ground ?? true` (the original's "no ground record" is "no hit": `ground ? true : null`), a Float64Array with double constants, and a double view basis. Now `c` is a `Float32Array(18)`, every operation is rounded like the 24-bit x87 (`zones/common/f32.ts`), the constants are the exe's floats, `updateView` is the exact LookAtLH (the basis is left alone when the length is below 1e-6) and `init` / `chase` follow `FUN_0043cc5c` / `FUN_0042c227` (the mouse path `FUN_00437ca5`: buttons 0x10 / 0x20 zoom, dx / dy replace the sticks before the 0.1 factor). `tools/lib/m7-camera-exact.ts` only re-exports `ChaseCamera`; `m7-walk-cam` runs the shipped camera at tolerance 0 (z03PPH, z50LTC, the island nodes, 5 mouse scenarios).
-* `src/island/vehicles/pepswitch.ts` (`IslandPepSwitch.prerender`, `FUN_004bb67d`, WP-ISLAND): the "leave the water" rule passes double `px / py / pz` to the terrain ray where the original has float32 locals
-  (`swim.ts` has the fix: `fr(m[8] + x)` ...). The mode switch itself (skateboard, vehicles, `0x401`) was not run against the original here (it needs the whole prerender hook set).
-* `m6-z10RGB` (scripted win of the cannon duel) passes only with `col.hitCache = false`: the cannon-ball queries of `src/zones/z10rgb/balls.ts` now see the original's hit cache, whose result depends on the order of
-  all earlier queries (`rayRecord(land)` / `rayRecord(buns)` / `sweep`); the zone's query order has to be the original's (`tools/tests/m7-walk-col` proves the cache itself is exact on the z10 collision data).
+* `src/island/vehicles/pepswitch.ts` (`IslandPepSwitch.prerender`, `FUN_004bb67d`): FIXED (the terrain ray gets float32 values like the original's locals); the mode switch runs inside the island duels (`m7-isl-veh-*`) at tolerance 0.
+* `m6-z10RGB` (scripted win of the cannon duel) used to pass only with `col.hitCache = false`: the cannon-ball queries see the original's hit cache, whose result depends on the order of
+  all earlier queries (`rayRecord(land)` / `rayRecord(buns)` / `sweep`), so the zone's query order has to be the original's (`tools/tests/m7-walk-col` proves the cache itself is exact on the z10 collision data); `m6-z10RGB-emu` compares the zone with the original.
 * Every other oracle that runs the original natively at the default control word 0x27f (z21FSH, z13CAI (Ptera), ...) now shows one-ulp differences in Pepper's position against these modules: their harnesses
   must set `cpu.cw = 0x7f` and their own ports must round per operation (8.1).
 
@@ -255,4 +244,4 @@ the sub-game 9 camera, the debug-line draws, analytic sphere shapes, `FUN_0042ba
   slide (0.5); the order of the sweep slide dot products (x, y, z).
 * Left: `local_5c` of `FUN_0042d514` (the input reader's "moving" result) is uninitialised stack in the states that skip the reader (slide flag set, state 2 / 0x1c): its value is the stack garbage of the
   real game's call history and cannot be derived; the port assumes the debug fill (non-zero = moving) and the oracle fills the stack below the call with 0xCC to run the same path.
-* `FUN_00462206` / `FUN_0046248a` (clone): `FUN_004388e7()` of the clone's distance is taken as a square root by the walker's author (the walker oracle does not exercise `clone`, 0 / 2 outcomes).
+* `FUN_00462206` / `FUN_0046248a` (clone): `FUN_004388e7` is the CRT `sqrt` behind a debug trap for a negative argument (asm 0x4388e7: `fcomp`, `int3`, `call 0x85d104`); the API battery of the walker oracle (`m7-walker-emu`, tools/lib/m7-walker-api.mjs) runs `clone` with and without the distance delta natively and compares every walker field at tolerance 0. Closed.

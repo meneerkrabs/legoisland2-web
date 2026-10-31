@@ -31,10 +31,10 @@ export const csiState = (ic: HubContext): CsiState => (ic.hub.csi ??= { hud: new
  * After `setupZone` and the framework's world work (src/hub/game.ts): what the castle's own code adds. Exported for the node tests (tools/lib/m5-z07CSI-load.mjs).
  */
 export function applyCsiSetup(ictx: HubContext, world: World, loaded: { pepper: GameRecord }) {
-  // Pepper's chain as the original's set-up built it (Control, SGwalk, sgswim, skate, SGVehic, Horse): setupZone's stub guard and the island's mode switch (added because the zone has the swim node
+  // Pepper's chain as the original's set-up built it (Control, SGwalk, sgswim, skate, SGVehic, Horse): the island's mode switch (added because the zone has the swim node
   // but not a PepSwitc) do not exist in the original
   const c = loaded.pepper.ctrl;
-  if (c) c.nodes = c.nodes.filter((n) => n.kind !== 'StubGuard' && n.kind !== 'PepSwitc');
+  if (c) c.nodes = c.nodes.filter((n) => n.kind !== 'PepSwitc');
   const mem = ictx.setup.mem, G = vehicles(world);
   // FUN_00573527: DAT_009daa7c = 0x44 (the board SKBD); DAT_009da9d4 = 0x6f / DAT_009da9f0 = 0x72 / DAT_009da9e4 = 1 / DAT_009da9e9 = 1: ONE boat dock (PATH node 0x6f, Pepper steps off to node 0x72); no helipads
   const board = mem.u32(0x9daa7c) | 0;
@@ -89,10 +89,10 @@ registerHub({
     }
   },
   // FUN_00572910 calls FUN_00575ca0 on every pass of the loop (any mode)
-  frame(h: HubGame, mode: number) {
+  frame(h: HubGame) {
     csiState(h.ictx).hud.update(h.ctx.hud, h.ctx.vars, h.ctx.world.dt);
-    // FX_Bricks: the effects are updated in the draw pass (FUN_00442930 -> FUN_00447de0): the speedboat's look change morphs through it
-    if (mode === 2) tickIslandBrickFx(h.ctx.world);
+    // FX_Bricks: the effects are updated in the draw pass of EVERY loop mode (FUN_00442930 -> FUN_00447de0, called unconditionally before the mode switch of FUN_00572910): the speedboat's look change morphs through it
+    tickIslandBrickFx(h.ctx.world);
   },
   debug(h: HubGame) { return { csi: { blink: csiState(h.ictx).hud.blink } }; },
 });

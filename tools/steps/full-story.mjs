@@ -58,6 +58,7 @@ export default async (h) => {
   /** play the mini-game `arch` (the zone is running) with its own win bot until the result menu's Continue has led away from it (a lost run is retried like a player does) */
   const retries = [];
   const playMini = async (arch, env = {}) => {
+    if (process.env.MINI_ONLY && !process.env.MINI_ONLY.split(',').includes(arch)) return 'skip';   // test aid: play only this mini-game, skip the rest through the castle step's node skip
     const m = MINI[arch];
     if (!m) throw new Error(`no player for the mini-game ${arch}`);
     log(stamp(), `mini-game ${arch}: ${m.file}`);
@@ -117,7 +118,7 @@ export default async (h) => {
     if (from < 0) throw new Error(`RESUME=${id}?`);
     const s = CH[from].start;
     if (!s.fe) {
-      const url = `${base}/?zone=${s.zone}&node=${s.node}&mute=1&hold=1`;
+      const url = `${base}/?zone=${s.zone}&node=${s.node}&mute=1&hold=1${process.env.URL_EXTRA ?? ''}`;
       log(stamp(), `resume at ${id}: ${url}`);
       process.env.RESUMED = '1';   // the steps know that the first chapter did not start through the game's own hand-over
       await page.goto(url, { waitUntil: 'load' });

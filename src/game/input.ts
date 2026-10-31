@@ -184,7 +184,39 @@ export class InputMapper {
     });
   }
   /** the options' key bindings changed (Settings.set 4..0x10: the current key per logical bit) */
-  rebind(table: BindingSpec[]) { this.bindings = this.makeBindings(table); }
+  rebind(table: BindingSpec[]) { this.bindings = this.makeBindings(table); this.keyBackups = []; }
+
+  /** DAT_009db038 / 3c / 44 per entry: the current key and flag an entry had before its latest `bindKey` (null = marker 0: nothing to restore) */
+  private keyBackups: ({ code: number; active: boolean } | null)[] = [];
+  private setCurrent(b: KeyBinding, code: number) {
+    const dev = code >>> 16, id = code & 0xffff;
+    b.code = code >>> 0; b.dik = dev === KC.KEY ? id : 0; b.codes = dev === KC.KEY ? codesOfDik(id) : [];
+  }
+  /**
+   * FUN_00437e82(i, key): entry i's current key becomes `key` at once. The entry's own current key and flag are remembered first (overwriting what an earlier bind of the same entry remembered:
+   * a cancel goes back to the state before the LATEST bind of each entry), every entry whose fixed key is the old current key gets its flag back, every entry whose fixed key is the new key loses it.
+   * (The original writes Settings[i + 4] in the same call: the options object of the caller does that.)
+   */
+  bindKey(i: number, code: number) {
+    const b = this.bindings[i];
+    if (!b) return;
+    this.keyBackups[i] = { code: b.code, active: b.defaultActive };
+    for (const o of this.bindings) if (o.defaultCode === b.code) o.defaultActive = true;
+    this.setCurrent(b, code);
+    for (const o of this.bindings) if (o.defaultCode === (code >>> 0)) o.defaultActive = false;
+  }
+  /**
+   * FUN_00437f6e (the keys page left with "cancel"): every entry with a remembered state gets its current key and its OWN flag back (the flags of other entries that the bind changed stay), the
+   * marker is cleared. The Settings array (what the options file stores) is not touched by it; the markers are never cleared by "OK", so a later cancel also reverts binds that were accepted before.
+   */
+  cancelKeyBinds() {
+    this.bindings.forEach((b, i) => {
+      const k = this.keyBackups[i];
+      if (!k) return;
+      this.setCurrent(b, k.code); b.defaultActive = k.active;
+      this.keyBackups[i] = null;
+    });
+  }
 
   private isGameKey(code: string) {
     return code === 'Escape' || code === 'F10' || this.bindings.some((b) => b.codes.includes(code) || (b.defaultActive && (b.defaultCode >>> 16) === KC.KEY && codesOfDik(b.defaultCode & 0xffff).includes(code)));

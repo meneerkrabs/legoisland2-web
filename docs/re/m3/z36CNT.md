@@ -210,3 +210,7 @@ The sim ran with `dt = 1` baked in (`* 1`, `time - 1`, `+ 1`, `advance(1)`); it 
 * Draw hook FUN_007b1a1b (`placeParts`): a pure function of the last angle / power, no accumulating state: once per sim step is enough.
 * RNG: `host.rand(x)` is `FUN_004388ae(x)` (float32): Bob's `rand(1.0)` against the power and `ftol(rand(4.0))` for the clip (src/zones/common/crtrand.ts `randFrom` in tests, `randF` of src/game/crt.ts in the game).
 * Oracle `m5-audit-z36CNT-emu` runs with the x87 at 24 bit (`cw 0x7f`), FUN_004388ae native on a hosted `rand()`, dt 1 / 0.5 / the game's own rule (1 for the first five frames, then 0.5) and TOLERANCE 0 (4.7 M comparisons). `m3-z36cnt` has a dt 0.5 block.
+
+## Closure 2026-10-31 (fork C)
+
+The audit-minigames-a 'Not exact' paragraph for this zone (copies' draw order, arm shadows, rumble, Bob's random clip) is stale: section 12 above records the copies drawn in the hook in the original's order (mode 7, no z), the arm shadows through the original's matrix code, rumble is an empty function in this build, and Bob's clip pick uses the shared CRT generator. Nothing open.

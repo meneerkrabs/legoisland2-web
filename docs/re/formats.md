@@ -1240,17 +1240,17 @@ Loader code: `FUN_00450250` (.app: the scalar keys store the float, `iSSprite/iE
 | --- | --- | --- | --- |
 | `ForNew ExecuteScript <t> <file>` | 2 | 297 | run `.app` / `.mov` / `.emi` (three per effect, at t=0) |
 | `ForNew SetEmiPrimitive <t0> <t1> <Prim> <Prop> [f..8]` | 4..10 | 150 | emitter shape: `Box` 0, `Line` 1, `Sphere` 2, `Ring` 3, `Circle` 4; property `Set`(-1) `EmitMode` 0 `AngleMode` 1 `Radius` 2 `Size` 3 `Points` 4 `Angle0/1` 5,6 `DAngle0/1` 7,8 `LineStart` 9 `LineEnd` 10; format `%s %s %f %f %s %s %f x8`; `Box Set` = default box, `Box Size x y z x y z` |
-| `ForNew rgbaSColour/rgbaEColour <t0> <t1> r g b a r g b a` | 10 | 107 | timed colour range (min rgba, max rgba): spawn colour randomly between the two |
-| `ForAll rgbaSColour ...` | 10 | 15 | same for live particles |
-| `ForNew fSSize/fESize/fDensity/fDDensity/fForce <t0> <t1> min max` | 4 | 12 | timed scalar range |
-| `ForNew vGravity / ForAll vGravity,vDGravity <t0> <t1> x y z x y z` | 8 | 4 | timed vector range |
+| `ForNew rgbaSColour/rgbaEColour <t0> <t1> r g b a r g b a` | 10 | 107 | timed colour RAMP of the emitter's template colour: the first rgba (four integers, `ftol`) at the start of the window to the second rgba at its end, linear per frame (step `ftol((end - start) / (30 t1))`, or the whole difference at once when `t1 <= 0`); the particles emitted meanwhile take the template's value of that frame (NOT a random pick between the two: the per-particle random spread is the `VSCOL` / `VECOL` / `VSALPHA` ... fields) |
+| `ForAll rgbaSColour ...` | 10 | 15 | the same ramp written into every LIVE particle each frame (the value after the increment) |
+| `ForNew fSSize/fESize/fDensity/fDDensity/fForce <t0> <t1> a b` | 4 | 12 | timed scalar RAMP (`FUN_00457850`): the template value goes from `a` to `b` over `t1` seconds, `value = a + n * step` with `step = (b - a) / (30 t1)` (float32, one step per frame, `cur = a` on the first frame; `t1 <= 0`: `step = b - a`), written to the template (or to every live particle for `ForAll`) every frame of the window |
+| `ForNew vGravity / ForAll vGravity,vDGravity <t0> <t1> x y z x y z` | 8 | 4 | timed vector RAMP (`FUN_00457ab0`): the first frame already adds a step, the last frame of the window assigns the end vector exactly |
 | `ForAll ResetScript <t> <f>` / `ResetScript ResetScript` | 2-3 | 35 | restart the script after `t` seconds |
 | `ForNew EndSource <t> <f>` | 2 | 8 | stop the source after `t` |
 
 Script interpreter `FUN_00455750` (CParticleActionManager): each line is scanned with `%s %s %f %f` + up to 10 floats; the action word selects the action object (colour/size/gravity ... ranges are created with
-a start time `t0` (+ the time offset of the including script) and duration `t1`).
+a start time `t0` and duration `t1`): an action runs in the window of FRAMES `[frame + trunc(30 t0), start + trunc(30 t1)]` of the global frame counter `DAT_009da5cc` (`frame` = the frame of the source's (re)start, so an included script's offset is added), once per update while the frame is inside it; the actions of a script are kept in time-ordered buckets (`FUN_00456600` / `FUN_004546a0`, with their insertion quirks, particles.md 2).
 Dangling references exist in the shipped data (14: `splash01.par` -> `splash02.par`, `splasht02.par` -> `splash02.{app,mov,emi}` (in `z20DSP`, `z21FSH`), `Volcano01.par` -> `spray01.*`, `botexpl01.par` -> own missing triple).
-Confidence: grammar high, semantic of `t0/t1` medium.
+Confidence: high: the `t0` / `t1` windows, the ramps and the bucket order are ported function by function (`src/fx/particles/actions.ts`) and verified against the original code in the x86 interpreter (particles.md 7: 99 effects x 11 scenarios, 0 differences).
 
 ##### 8.3 `.swl` swirl lists (4 files)
 
@@ -1340,7 +1340,7 @@ Also non-text leftovers seen in the data: `z39ASB/Particle/Text000.tgaback` (bac
 * `.lgt`: fields `a`/`b` (always 0.5), ambient/diffuse/specular slot order is inferred from the loader's copies (ambient max over all, diffuse used for colour).
 * Waypoints: exact meaning of `kind` 2/4/8 and `mask`; editor flag word 0x00ffff0x.
 * `.src`: consumer unknown (not referenced by the EXE). `.mtl` always empty.
-* Particles: precise action semantics of `t0/t1` and how `ForNew` ranges are sampled (`FUN_00457850` etc. not traced in detail).
+* (Closed, item 10: the action semantics of `t0/t1` and the `ForNew` ramps `FUN_00457850` / `FUN_00457970` / `FUN_00457ab0` / `FUN_00457c70`: section 8.3, particles.md 2.)
 * `.str` voice ids are indices into the sound banks (owned by another slice).
 
 #### References

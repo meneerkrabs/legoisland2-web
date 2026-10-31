@@ -14,7 +14,7 @@ import type { GameRecord } from '../../game/record.ts';
 import { UiTextureSet } from '../../ui/renderer2d.ts';
 import { PyaHud } from './hud.ts';
 import { PyaPepSwitch, CTOR_PEPPSW, setRosterHooks } from './peppsw.ts';
-import { constructRoster, hiddenList, pyaRosterHooks } from './roster.ts';
+import { constructRoster, hiddenList, pyaRosterHooks, ensurePyaLooks } from './roster.ts';
 import { looksOf } from '../../island/vehicles/looks.ts';
 import { tickIslandBrickFx } from '../../fx/bricks/island.ts';
 import { startTickClock } from '../common/tickrand.ts';
@@ -29,15 +29,15 @@ const OVERLAY_SET = 'z14OSD';
 const hudOf = new WeakMap<HubGame, PyaHud>();
 
 /**
- * After `setupZone` and the framework's world work (src/hub/game.ts): Pepper's chain as the original's set-up built it (PeppSw, 0x62af8d, SGwalk, sgswim, skate): `setupZone` adds
- * the stub guard (a fall-out-of-the-world net of the zones without a port) and, when a zone has its own mode switch it cannot attach, the island's PepSwitc: neither exists in
- * the original; the board record the mode switch and the skateboard node use (DAT_009daa7c, written by FUN_006768ce: 0x11, the island's is 9).
+ * After `setupZone` and the framework's world work (src/hub/game.ts): Pepper's chain as the original's set-up built it (PeppSw, 0x62af8d, SGwalk, sgswim, skate): `setupZone` adds,
+ * when a zone has its own mode switch it cannot attach, the island's PepSwitc (which does not exist in
+ * the original); the board record the mode switch and the skateboard node use (DAT_009daa7c, written by FUN_006768ce: 0x11, the island's is 9).
  */
 export function applyPyaSetup(ictx: { setup: { mem: { u32(a: number): number }; run(fn: number, args?: number[]): unknown }; pe: Pe }, world: World, loaded: { pepper: GameRecord }) {
   constructRoster(world, ictx.pe, (fn) => ictx.setup.run(fn, []));   // PeppSw's constructor tail FUN_00698963
   setRosterHooks(world, pyaRosterHooks);
   const c = loaded.pepper.ctrl;
-  if (c) c.nodes = c.nodes.filter((n) => n.kind !== 'StubGuard' && !(n.kind === 'PepSwitc' && c.nodes.some((x) => x.kind === 'PeppSw')));
+  if (c) c.nodes = c.nodes.filter((n) => !(n.kind === 'PepSwitc' && c.nodes.some((x) => x.kind === 'PeppSw')));
   const board = ictx.setup.mem.u32(GLOBAL_ACCESSORY) | 0;
   if (board >= 0 && board < world.records.length) vehicles(world).board = board;
 }
@@ -63,6 +63,8 @@ registerHub({
     sh?.data?.archive('Overlays').then((ov) => { h.ctx.hud.set = UiTextureSet.load(sh.gl.gl, ov, OVERLAY_SET); }).catch((e: unknown) => console.warn('z16PYA overlay', e));
     // FUN_00698963: the 15 decor templates are drawn in mode 1 (and hidden: roster.ts)
     for (const i of hiddenList(h.ictx.pe)) { const r = h.ctx.world.records[i]; if (r) h.ctx.gr.setPartMode(r, 0xff, 1); }
+    // the wrapper's FUN_00421bbe(3): the stored decor applied before the first frame (the roster / decor state is built here: the renderer is bound)
+    ensurePyaLooks(h.ctx.world);
     // SwapText (FUN_00443810 / FUN_004439f0): the Speedster's look replaces the model's textures (island/vehicles/looks.ts, the roster is this zone's)
     sh?.data?.archive('SwapText').then((arc) => {
       h.ctx.gr.swapArchive = arc;

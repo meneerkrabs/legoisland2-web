@@ -1,7 +1,7 @@
 // "Ptera" (Common\Z02LGI\c_src\Ptera.c): the ridden flying vehicles of eras 3 / 4, the pterodactyl PTER (record 66, animated rig PTER) and the hang glider
 // GLDR (record 172, no animation instance: every `rec + 8 == 0` branch of the original is the glider). Docs: docs/re/m4/wp13-ptera.md.
 //   ctor FUN_004bb1a6 (node block 0x88 bytes), handler table 0x8d9c70 = { update FUN_004b93b0, pre-render FUN_004baf1b, destroy FUN_004bb3f5 (frees the block),
-//   draw FUN_004bb100 (= the default draw FUN_00444480), save FUN_004bb16d / load FUN_004bb148 (0x70 bytes from +0x18: not ported) }
+//   draw FUN_004bb100 (= the default draw FUN_00444480), save FUN_004bb16d / load FUN_004bb148 (0x70 bytes from +0x18: `saveBlock` / `loadBlock` below) }
 //   attaches: PTER by FUN_004b4220 (era 3 / 4 roster) gate var 0xb6 mask 0, GLDR by FUN_00522e68 / FUN_0052c2b5 gate var 0x11 mask 0; argument +0 = the
 //   home PATH node (PTER 406, GLDR 270), only used by the dead state 2 and as a "may land" flag.
 // The riding half on PEPP (FUN_004bb582, gate PEPPER_CONTROL & 0x40) only returns 1 (pepswitch.ts PteraRide): this node moves Pepper (pre-render).
@@ -233,7 +233,9 @@ export class PteraNode implements BehaviourNode {
       }
       case 1: {
         const i = this.nearestPad(w, x, z, PAD_FAR);
-        // (the original reads the table at index -1 when the pad was taken meanwhile; the port keeps flying instead)
+        // (the original would read the pad table at index -1 here. Unreachable: state 1 starts only when this same search found a free pad within the smaller PAD_NEAR (line above), a pad
+        // is taken only by the vehicle that flies (one vehicle at a time: the ridden one) and the search limit PAD_FAR here is the larger one, so the pad found at the start is still free;
+        // the port's fallback to flying is never taken)
         if (i < 0) { this.state = 0; break; }
         const q = berthPos(G.pads[i]);
         x = ad(ml(ml(sb(q[0], x), LAND_EASE), dt), x);

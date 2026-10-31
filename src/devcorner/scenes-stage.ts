@@ -100,12 +100,12 @@ export class Stage {
   get finished(): boolean { return this.started && !this.host.active(); }
 
   /** one 60 Hz step of the manager (FUN_0045c402), then the step time of the next one (`World.advanceDt`, the loops' rule) */
-  step() {
+  step(elapsed?: number) {
     if (!this.host.active()) return;
     this.elapsed += this.world.dt;
     this.host.tick();
     this.world.frame++;           // DAT_009da5cc: the pre-render pass of the full world counts it; the stage has no such pass
-    this.world.advanceDt();
+    this.world.advanceDt(elapsed);
     this.ticks++;
     this.note();
   }

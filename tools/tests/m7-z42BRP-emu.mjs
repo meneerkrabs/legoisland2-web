@@ -424,7 +424,7 @@ export default {
         lock(E, (t) => (t < 16 / dt ? 0 : f()), Math.round(700 / dt), `restart prelude dt${dt}`);
         const before = { sw1: E.S.pepbrp.sw1, restarts: E.S.restarts, y: E.P.records[REC.PEPP].y };
         restartOriginal(E);
-        const F = fresh(dt, 3);
+        const F = fresh(dt, 3, { restarted: true });   // the port's run after a restart (ctx.attempt > 0)
         const H = { ...E, P: F.P, S: F.S, cutP: F.cutP, logP: F.logP, nodes: E.nodes.filter((n) => n.kind === 'zonebrp' || n.kind === 'zonetop') };
         ok(F.P.vars.get(VAR.PHASE) === 1 && E.O.vars.get(VAR.PHASE) === 1, 'restart: both are in phase 1');
         const f2 = fuzzKeys(556, { left: 0.5, right: 0.1, alt: 0.3 });
@@ -435,7 +435,7 @@ export default {
           E.setInput(h, (h ^ held0) & h); held0 = h;
           const oe = E.pass();
           const { log } = portTick(H, ZoneLoop, null, h);
-          const c = compareState(H, `restart dt${dt} t${t}`, { noCamera: true, records: others, flagMask: 0xfffe, ignoreHiddenMatrix: true, ulps: 2,   // (the original re-computes BRI5's place from the angle: 1 ulp from the scene's value)
+          const c = compareState(H, `restart dt${dt} t${t}`, { noCamera: true, records: others, flagMask: 0xfffe, ignoreHiddenMatrix: true,
             nodes: new Set(['zonebrp', 'zonetop']), skip: new Set(['respawn', 'firstRun', 'knockTimer', 'reset5ec', 'reset5fc', 'reset600', 'firstTop']) });
           const l = compareLogs(`restart dt${dt} t${t}`, log, oe);
           checked += c.checks + l.checks; ticksTotal++;

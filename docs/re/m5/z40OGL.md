@@ -130,9 +130,9 @@ var 257 = 1, hand-over to z42BRP (node 67). Screenshots show the HUD (krystal ic
 
 ## 12. Not exact / open
 
-* Particles: wired (section 8), not yet looked at in a screenshot.
-* Outfit restore: the saved phase / outfit bytes come from the save-game package; the phase tables' model words are not applied (they are the `0xbabababa` markers in a new game).
-* Node save / load states exist but are not stored in save games (V1).
+* Particles: wired (section 8).
+* Outfit restore: the stored phase / outfit bytes (`decorStore`) are applied by PEPPSWIT's constructor (`peppswit/decor.ts` `decorInit`: variant words, models and attachments of the phases, `DecorState.applyStored`); `restoreOutfits` in `index.ts` repeats the variant words only.
+* Node save / load states are written to and read from save games since WP-SAVE (`m8-save-z40`).
 * The dead functions `FUN_007e4278` / `FUN_007e8800` are not ported (nothing calls them).
 * The 3D loop of a krystal uses the audio host's per-slot API (`slot` / `ga.sfx.play3D`); the pan / attenuation are the audio package's.
 

@@ -1,5 +1,8 @@
 # M4 progress log (the island z02LGI with its story)
 
+> **Historical log.** The "Open" / "not ported" remarks below are the state of the day they were written; the particle runtime, music start, RNG, gamepad (analogue values are always 0 in the original), rumble (empty function), saves of node state, the decor / outfit swap of the hubs and the other items were closed later: `docs/re/gaps.md` and the zone docs carry the current state.
+
+
 Running log, newest section last. Keep it current: it is what survives an interruption.
 
 ## Plan (2026-10-28)

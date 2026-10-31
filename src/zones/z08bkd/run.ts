@@ -95,6 +95,9 @@ export function prepareBkd(world: World, archive: Archive, scene: ZoneScene, o: 
   const bad = checkRecords(records);
   if (bad.length) throw new Error(`z08BKD: ${bad.join('; ')}`);
 
+  // FUN_004b1212 (SeaAmin, the shore foam SEAE's node): the constructor makes the record non-solid (flags |= 0x10) at the attach, before any tick
+  records[REC.SEAE].flags |= 0x10;
+
   // the player's controller keeps only the zone's own nodes (the stub set-up adds the walk / swim chain of the island)
   const pepper = records[REC.PEPP];
   if (pepper.ctrl) pepper.ctrl.nodes = pepper.ctrl.nodes.filter((n) => n instanceof BkdNode);

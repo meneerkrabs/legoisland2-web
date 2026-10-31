@@ -95,3 +95,7 @@ every LOD of INFO / PAPA / PEPP and their 16-frame sheets, `clipPlanes` / `spher
 radius), `IslandContext.inFrustum` rules (in view, behind, no collision object, disabled, before the first frame), the `partMatrices` binding, SeaAmin's
 `uvScroll` calls (per sim step, |dv| <= 0.003, net negative drift), and the skinned-lighting equivalence. `m4-wp8-island` extended (vehicle arrival = emulated).
 Browser: private dev server 5495, bots in /tmp/wp10 (close-up camera by wrapping `gr.render`).
+
+## Status 2026-10-31 (WP-ISLAND-CLOSE: the statements of this document that are out of date)
+
+* "PTER shows its bind pose (the Ptera node is not ported)" is out of date: the Ptera node is ported (`src/island/vehicles/ptera.ts`).

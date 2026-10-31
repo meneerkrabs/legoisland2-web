@@ -183,6 +183,16 @@ const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 
 export class ApoWing extends PropNode {
   readonly kind = 'ApoWing';
   scale = 0;
+  /**
+   * FUN_007d2cf0 (first thing the wing's draw hook FUN_007d2dd8 does): while the pilot glides the SHAD record is drawn with the live vertices `run.shadow` and the z test OFF (FUN_0040cc4d(0)
+   * around FUN_00444480, flag 2 set only for that draw). The zone game installs the draw call (`GameRenderer.drawRecordLive`); 0 = the default draw of the wing goes on.
+   */
+  drawShadow: ((rec: GameRecord, verts: Float32Array) => void) | null = null;
+  draw(w: World, rec: GameRecord): number {
+    const run = apoRun(w);
+    if (run.shadowOn && run.recs.shad) this.drawShadow?.(run.recs.shad, run.shadow);
+    return 0;
+  }
   update(w: World, rec: GameRecord): number {
     const run = apoRun(w);
     const R = run.recs, pep = R.pepp;
@@ -192,9 +202,10 @@ export class ApoWing extends PropNode {
     // FUN_007d2cf0 (the shadow patch of the glide) comes first, then the matrix with the scale of this moment, then the scale moves on (DAT_05d5ee64: 1 opening, 2 closing)
     const sh = R.shad;
     if (sh) {
-      // while DAT_05d5f208 (the pilot glides) the SHAD record (identity matrix, position zeroed by the pilot's constructor) is drawn with its five vertices set to the shadow points
-      // of FUN_00442a70 (`run.shadow`, GameRenderer.vertexOverride): a patch that follows the terrain
-      if (run.shadowOn) { sh.m.set(IDENTITY); sh.show(); } else sh.hide();
+      // while DAT_05d5f208 (the pilot glides) the SHAD record (identity matrix, position zeroed by the pilot's constructor) is drawn by the hook with its five vertices set to the shadow points
+      // of FUN_00442a70 (`run.shadow`): a patch that follows the terrain. The hook sets flag 2, draws and clears it again: the record is never enabled between the draws (`ApoWing.draw`)
+      if (run.shadowOn) sh.m.set(IDENTITY);
+      sh.hide();
     }
     const s = this.scale;
     rec.m.set(buildMatrix(f(pep.rx + f(0.523596)), pep.ry, pep.rz, pos[0], pos[1], pos[2], s, s, s));

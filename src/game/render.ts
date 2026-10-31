@@ -17,6 +17,8 @@ import { RF_ENABLED, RF_NO_DRAW } from './record.ts';
 import { V } from './vars.ts';
 import { PASS_LOG } from './world.ts';
 import { pickFogCall } from './fogphases.ts';
+import { frustumPlanes, visibleFlags } from '../fx/particles/sprites.ts';
+import { PARTITIONS } from '../render/partition.ts';
 import { runDrawHooks } from './controller.ts';
 import { blobShadowPoints, markerPoints, markerVisible, shadowGate, SHADOW_HANDLED, SHADOW_RAY_LENGTH, SHADOW_RAY_MASK, SHADOW_RAY_RADIUS } from './shadow.ts';
 import type { ShadowRay } from './shadow.ts';
@@ -29,6 +31,10 @@ interface SceneNodeApi { place(rec: GameRecord, eye: ArrayLike<number>, drawEye:
  * one LOD part of a model (the 0x14-byte part record: mesh +8, texture list +0xc, mode +0x10): `mode` is the draw mode FUN_00444550(record, partMask, mode) sets (default 0;
  * `slot` = the part's index, the bit of the part mask), `shiny` = FUN_004446c0 switched its mesh to vertex format 0x2c2
  */
+/** the far / fog set-up of a loop pass (`stepView`); `pass` is its number in `World.passes` */
+interface PassSetup { pass: number; far: number; fogOn: boolean; fogEnd: number }
+/** one replayed pass: its own dt, camera and far / fog set-up (null = nobody logged it: the current one) */
+interface PassInfo { dt: number; eye: [number, number, number]; setup: PassSetup | null }
 interface Part { meshPath: string | null; texList: number[]; lod: number; mesh?: MeshGpu | null; slot: number; mode: number; shiny?: boolean }
 interface Attach { bone: number; slot: number; parts: Part[] }
 /** a skinned mesh of one record that is re-posed every frame */
@@ -146,8 +152,15 @@ export class GameRenderer {
     this.renderer = renderer; this.data = data; this.archive = archive; this.scene = scene; this.loaded = loaded;
     this.fog = fog; this.lights = lights ?? defaultLights(); this.shadowArchive = shadowArchive;
     this.sky = new SkyState(loaded.profile.zone === 'z02LGI');
+    renderer.loadDt = loaded.world.dt;   // FUN_004112ac's closing pass adds DAT_008b1718 to a fresh .wib timer: the global at the zone's load = the previous loop's last dt (`sh.dt`, 1.0 at boot), wp-time-wib-load
     renderer.resetLighting();   // a zone's meshes are loaded afresh: their mode 0 lighting happens again at the first draw
     this.buildViews();
+    // FUN_00444530(FUN_0043f160(model, 0), nx, ny, nz) of the zone's set-up: the mesh of the record's part 0 is cut into cells and drawn through them (src/render/partition.ts)
+    for (const [ri, nx, ny, nz] of PARTITIONS[loaded.profile.zone] ?? []) {
+      const p0 = this.views.find((v) => v.rec.index === ri)?.parts.find((p) => p.slot === 0);
+      const pm = p0 && this.partMesh(p0);
+      if (pm) renderer.partitionMesh(pm, nx, ny, nz);
+    }
     // the draw hooks FUN_005f7709 / FUN_0070fc64 (constructors 0x5f77ad / 0x70fd0b) draw the view plane around their record
     for (const a of loaded.setup?.attaches ?? []) {
       if (a.record < 0) continue;
@@ -348,13 +361,21 @@ export class GameRenderer {
     for (const rv of this.views) if (rv.rec.model === model) for (const p of rv.parts) this.markShiny(p, true);
   }
 
-  /** add (du, dv) to the texture coordinates of mesh group `group` of the record's first part (accumulates; the repeating texture wraps) */
+  /**
+   * FUN_0043ebe0(model, 0, &du, &dv) = FUN_0088350d mode 0 for mesh group `group` of the record's first part (callers loop over every group, which adds (du, dv) once to every vertex like the
+   * original): u += du, v += dv per vertex in float32 on the mesh's own UVs (`Renderer.scrollMeshUV`, no wrapping, no dt). A skinned part's drawn mesh is a per-record copy of this one, which the
+   * in-place scroll cannot reach: those keep a draw-time offset (never wrapped, summed in float32).
+   */
   scrollGroup(rec: GameRecord, group: number, du: number, dv: number) {
-    let m = this.uvOffsets.get(rec);
-    if (!m) this.uvOffsets.set(rec, (m = new Map()));
-    const o = m.get(group) ?? [0, 0];
-    o[0] = (o[0] + du) % 1024; o[1] = (o[1] + dv) % 1024;
-    m.set(group, o);
+    const rv = this.views.find((x) => x.rec === rec);
+    const m = rv && rv.parts[0] ? this.partMesh(rv.parts[0]) : null;
+    const g = m && !m.msh.svwl ? m.msh.groups[group] : undefined;
+    if (m && g) { this.renderer.scrollMeshUV(m, du, dv, g.firstVertex, g.vertexCount); return; }
+    let u = this.uvOffsets.get(rec);
+    if (!u) this.uvOffsets.set(rec, (u = new Map()));
+    const o = u.get(group) ?? [0, 0];
+    o[0] = Math.fround(o[0] + du); o[1] = Math.fround(o[1] + dv);
+    u.set(group, o);
   }
   /** number of mesh groups of the record's first part (0 until its mesh is loaded) */
   groupCount(rec: GameRecord): number {
@@ -434,25 +455,29 @@ export class GameRenderer {
   // ---------------------------------------------------------------- frame
 
   /**
-   * The draw passes of the original (FUN_00442930, once per loop pass) that happened since the last drawn frame: `World.advanceDt` logs each pass's dt and camera. The loop runs one sim step per
-   * pass at a fixed 60 Hz, the browser draws at the display's rate: a rAF call between two steps replays nothing (the last frame is drawn again), one after n steps replays n passes. State the
-   * original changes in its draw pass (.wib textures, sky / sea hooks, flowing water, view plane phases, the marker blink) advances by exactly those passes, never by rAF calls and never scaled by the wall time.
+   * The draw passes of the original (FUN_00442930, once per loop pass) that happened since the last drawn frame: `World.advanceDt` logs each pass's dt and camera, `stepView` (the end of the
+   * sim step, where the pass's view is set up) the pass's own far / fog set-up. The browser loops run at most ONE pass per drawn frame (`FrameClock`: a slow frame is one pass with a larger
+   * dt, never several fixed ones), so a drawn frame replays 0 or 1 passes; harnesses that step many times between two draws replay them all, each with its own dt, camera and set-up.
+   * State the original changes in its draw pass (.wib textures, sky / sea hooks, flowing water, view plane phases, the marker blink) advances by exactly those passes, never by rAF calls and never scaled by the wall time.
    */
-  private takePasses(): { dt: number; eye: [number, number, number] }[] {
+  private takePasses(): PassInfo[] {
     const w = this.loaded.world;
     const n = Math.min(w.passes - this.seenPass, PASS_LOG);
     this.seenPass = w.passes;
-    const out: { dt: number; eye: [number, number, number] }[] = [];
+    const out: PassInfo[] = [];
     for (let j = 0; j < n; j++) {
-      const i = (w.passes - n + j) & (PASS_LOG - 1);
-      out.push({ dt: w.passDt[i], eye: [w.passEye[i * 3], w.passEye[i * 3 + 1], w.passEye[i * 3 + 2]] });
+      const k = w.passes - n + j, i = k & (PASS_LOG - 1);
+      const st = this.stepSetups[i];
+      out.push({ dt: w.passDt[i], eye: [w.passEye[i * 3], w.passEye[i * 3 + 1], w.passEye[i * 3 + 2]], setup: st && st.pass === k ? st : null });
     }
     return out;
   }
   /** the number of `world.passes` the last drawn frame had replayed */
   private seenPass = 0;
   /** the passes of the frame being drawn (`takePasses`) */
-  private passes: { dt: number; eye: [number, number, number] }[] = [];
+  private passes: PassInfo[] = [];
+  /** the far / fog set-up of each logged pass (ring parallel to the world's pass log), written by `stepView` before the pass is logged */
+  private stepSetups: (PassSetup | undefined)[] = new Array(PASS_LOG);
 
   /** the view of the last sim step: eye / target (hub zones push the eye in front of walls), the camera setup (fog / fov / near / far) and the view-projection matrix */
   private viewSetup() {
@@ -477,7 +502,12 @@ export class GameRenderer {
    * the end of every sim step, so the flags follow the sim and not the browser's drawing rate: a page that draws one frame for several steps (a loaded machine) would otherwise let the nodes see
    * the view of a frame long gone (a bot head walked into while the view was stale was not collected). `render` computes the same planes again from the same camera.
    */
-  stepView(): void { this.planes = clipPlanes(this.viewSetup().viewProj, this.planes ?? new Float32Array(24)); }
+  stepView(): void {
+    const vs = this.viewSetup();
+    this.planes = clipPlanes(vs.viewProj, this.planes ?? new Float32Array(24));
+    const k = this.loaded.world.passes;   // the pass this step is about to log (`World.advanceDt` follows)
+    this.stepSetups[k & (PASS_LOG - 1)] = { pass: k, far: vs.setup.far, fogOn: vs.setup.fog.enabled, fogEnd: vs.setup.fog.end };
+  }
 
   /**
    * draw one frame: the state of the last sim step. The arguments are not used any more (the loops pass `alpha` = 1: the original does not interpolate, and the step time is `world.dt`);
@@ -520,14 +550,15 @@ export class GameRenderer {
       const vp = this.viewPlanes.get(rv.rec.index);
       if (vp) { if (vp.after) planeAfter = vp.y; else viewPlane(vp.y); }
       const rec = rv.rec;
-      // the flowing-water node's draw hook (constructor 0x426f55, z13CAI's LAVA / FALL; FUN_00426e9a): every frame it adds (du, dv) to the texture coordinates of part 0's mesh and draws that
-      // mesh in mode 0 at the record's matrix, without the visibility flags and without LOD selection (per DRAWN FRAME = once per pass of the loop, NOT scaled by the frame time)
+      // the flowing-water node's draw hook (constructor 0x426f55, z13CAI's LAVA / FALL; FUN_00426e9a): every pass it adds (du, dv) to the texture coordinates of part 0's mesh (FUN_0043ebe0 ->
+      // FUN_0088350d mode 0: in place, per vertex, float32, no wrapping, the vertex buffer is shared by every record of the mesh) and draws that mesh in mode 0 at the record's matrix, without the
+      // visibility flags and without LOD selection (per DRAWN FRAME = once per pass of the loop, NOT scaled by the frame time)
       const flow = this.flow.get(rec.index);
       let flowing = false;
       if (flow && this.loaded.world.vars.gate(flow.var, flow.mask, flow.value)) {
         flowing = true;
         const m0 = rv.parts[0] ? this.partMesh(rv.parts[0]) : null;
-        if (m0) for (let k = 0; k < passes.length; k++) for (let g = 0; g < m0.groups.length; g++) this.scrollGroup(rec, g, flow.du, flow.dv);
+        if (m0) for (let k = 0; k < passes.length; k++) r.scrollMeshUV(m0, flow.du, flow.dv);   // the vertex buffer's own float32 u += du, v += dv per pass (`scrollUvs`), uploaded again
       }
       // the node draw pass (FUN_0042271b): the draw hooks of the nodes that ran run whatever the record's own draw flags say (the blob shadow hook FUN_004bd41a draws a hidden record's shadow);
       // a hook that reports "handled" (non-zero) replaces the record's default draw (FUN_00444480)
@@ -558,7 +589,13 @@ export class GameRenderer {
         // the draw hook of every pass of this frame (each with its own dt and camera position, the hook advances the node's state); a frame without a new pass shows the record as the last hook left it
         const v = { far: setup.far, fogOn: setup.fog.enabled, fogEnd: Math.trunc(setup.fog.end), domeBase: range, seaLevel, dt: 0 };
         world_ = mat.slice();
-        for (const p of passes) { v.dt = p.dt; world_ = sceneNode.place(rec, p.eye, p.eye, v); }
+        for (const p of passes) {
+          // each pass with its own far / fog set-up (the logged one; the current one for a pass nobody logged)
+          const ps = p.setup;
+          v.dt = p.dt; v.far = ps ? ps.far : setup.far; v.fogOn = ps ? ps.fogOn : setup.fog.enabled; v.fogEnd = Math.trunc(ps ? ps.fogEnd : setup.fog.end);
+          v.domeBase = Math.min(v.far, v.fogOn ? ps ? ps.fogEnd : setup.fog.end : v.far);
+          world_ = sceneNode.place(rec, p.eye, p.eye, v);
+        }
       }
       else if (rv.kind === 'sky') world_ = this.sky.matrix(eye, range, mat[13]);
       else if (rv.kind === 'sea') world_ = this.sea.matrix(eye, range, seaLevel);
@@ -720,11 +757,8 @@ export class GameRenderer {
   sphereVisible(c: ArrayLike<number>, radius: number): boolean {
     const P = this.planes;
     if (!P) return true;
-    for (let i = 0; i < 6; i++) {
-      const o = i * 4;
-      if (P[o] * c[0] + P[o + 1] * c[1] + P[o + 2] * c[2] + P[o + 3] < -radius) return false;
-    }
-    return true;
+    // FUN_0040cd36: `(flags & 0x3f000) == 0` of the ComputeSphereVisibility result = no plane has the sphere completely outside (a sphere cutting a plane is visible)
+    return (visibleFlags(P, c[0], c[1], c[2], radius) & 0x3f000) === 0;
   }
 
   // ---------------------------------------------------------------- shadow
@@ -804,8 +838,22 @@ export class GameRenderer {
     if (!rec.ctrl) return false;
     return runDrawHooks(w, rec, (n) => {
       if (n.blobShadow) return this.drawBlobShadow(rec, rec.m, rec.m.slice(), null, this.eye);
+      if (n.kind === 'SeaAmin') { this.drawFoamHook(rec); return 1; }
       return n.draw?.(w, rec, rec.ctrl!);
     });
+  }
+
+  /**
+   * The shore foam's draw hook FUN_004b109e (SeaAmin, the node's `draw` reports "handled" = 1, so the record's default draw does not run): it draws part 0's mesh itself,
+   * `FUN_0043f1a0(mesh, record matrix, entry + 0xc, 3)` = draw mode 3 (block 0x10: no depth), whatever the part's mode (2) or the record's flags say; no LOD, no distance cull (the engine's own
+   * clip-box test of FUN_0088aca2 is the GPU's clipping here). The hook runs on every pass the node ran, visible or not (its UV step, `SeaAminNode.prerender`, too).
+   */
+  private drawFoamHook(rec: GameRecord) {
+    const rv = this.viewOf(rec.index);
+    const part = rv?.parts[0];
+    const m = part ? this.partMesh(part) : null;
+    if (!part || !m) return;
+    this.renderer.drawMesh(m, rec.m.slice(), (g) => this.texFor(part, g), { mode: 3, skinned: !!m.msh.svwl });
   }
 
   /**
@@ -854,17 +902,10 @@ export class GameRenderer {
   }
 }
 
-/** the six frustum planes of a row-vector view * projection matrix with GL clip space (-w..w), normalised: left, right, bottom, top, near, far */
+/**
+ * The six planes IDirect3DDevice7::ComputeSphereVisibility builds from a row-vector view * projection matrix with GL clip space (-w..w): left, right, top, bottom, front, back,
+ * float32, not normalised (the call normalises per sphere): `sprites.ts frustumPlanes` (Wine's native-measured ddraw implementation, tools/tests/d3d-spherevis.mjs).
+ */
 export function clipPlanes(vp: ArrayLike<number>, out: Float32Array): Float32Array {
-  // clip = (x, y, z, 1) * VP: clip component j = column j of VP
-  const col = (j: number, k: number) => vp[k * 4 + j];
-  const sets: [number, number][] = [[0, 1], [0, -1], [1, 1], [1, -1], [2, 1], [2, -1]];
-  for (let i = 0; i < 6; i++) {
-    const [j, sgn] = sets[i];
-    let a = col(3, 0) + sgn * col(j, 0), b = col(3, 1) + sgn * col(j, 1), c = col(3, 2) + sgn * col(j, 2), d = col(3, 3) + sgn * col(j, 3);
-    const l = Math.hypot(a, b, c) || 1;
-    a /= l; b /= l; c /= l; d /= l;
-    out[i * 4] = a; out[i * 4 + 1] = b; out[i * 4 + 2] = c; out[i * 4 + 3] = d;
-  }
-  return out;
+  return frustumPlanes(vp, out);
 }

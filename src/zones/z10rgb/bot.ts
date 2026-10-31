@@ -8,8 +8,17 @@ import { K } from './consts.ts';
 import { shotScale } from './pepper.ts';
 import type { RgbState } from './shared.ts';
 
-/** the walk from the start to the cannons: the bridge, its gap in the invisible fence at z = -15 .. -12, the field of the cannons (found with the walk sweeps) */
+/** the walk from the start to the cannons: the bridge, its gap in the invisible fence at z = -15 .. -12, the field of the cannons (found with the walk sweeps); the node tests' scripted player (seed 10 wins with it) */
 export const ROUTE: readonly (readonly [number, number])[] = [[100, -6], [40, -10], [10, -16.2], [-20, -16.2], [-47, -14], [-56, -13], [-70, -13], [-88, -12]];
+
+/**
+ * the route of the headless browser bot (`assist.route`, tools/steps/m6-z10RGB.mjs). The invisible fence G091 is two parallel diagonal walls (a map from `tools/steps/m6-z10RGB-lanes.mjs`: the
+ * south one starts with a post at (-2, -16) and runs to (-54, -6), the north one from (-6, -26) to (-56, -16)): the bridge deck (z -19 .. -17) leads into the corridor between them, which is
+ * about 8 units wide and opens at x = -56. The walkers' default heading (Up = the camera's forward axis) points 11 degrees towards the north wall, so a bot has to steer. `ROUTE` (the node tests'
+ * scripted player) holds z = -16.2 over the bridge, i.e. right at the tip of the south wall: a key walk that arrives there stands still against the post for ever; that was the loss of the
+ * first run of the full-story chain (the standalone runs mostly drifted to z < -16.6 and slid past). The browser bot walks the middle of the corridor (z = -20.6 at x = -6, -16 at x = -30, -12.5 at x = -56), 4.5 units from the post; it also unsticks itself when pinned (m6-z10RGB.mjs).
+ */
+export const BROWSER_ROUTE: readonly (readonly [number, number])[] = [[100, -6], [40, -10], [10, -21], [-6, -20.6], [-30, -16], [-47, -13], [-56, -12.5], [-70, -13], [-88, -12]];
 
 export interface ShotPlan { /** the ball's path, swept like the game's (FUN_005f8291), stops at the enemy cannon */ hits?: boolean; rx: number; ry: number; /** where the ball comes down (x, z), the horizontal miss and the flight time in ticks */ land: [number, number]; miss: number; time: number }
 
@@ -132,11 +141,10 @@ export function aimKeys(rx: number, ry: number, plan: { rx: number; ry: number }
 }
 
 /** which keys walk towards (dx, dz) with the fixed camera of the zone (controls are screen based: Up = away from the camera along its forward axis) */
-export function steerKeys(cam: ArrayLike<number>, dx: number, dz: number): number {
+export function steerKeys(cam: ArrayLike<number>, dx: number, dz: number, t = 0.3): number {
   const fx = cam[15], fz = cam[17], rx = cam[9], rz = cam[11];
   const fl = Math.hypot(fx, fz) || 1, rl = Math.hypot(rx, rz) || 1, dl = Math.hypot(dx, dz) || 1;
   const df = (dx * fx + dz * fz) / (dl * fl), dr = (dx * rx + dz * rz) / (dl * rl);
-  const t = 0.3;
   let keys = 0;
   if (df > t) keys |= 4; if (df < -t) keys |= 8; if (dr > t) keys |= 2; if (dr < -t) keys |= 1;
   return keys;

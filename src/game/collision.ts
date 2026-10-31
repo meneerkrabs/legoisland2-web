@@ -5,8 +5,8 @@
 // Polygon test = FUN_00440810 (plane distance with skin, then the three edge planes widened by the radius), cells are walked like
 // FUN_004405f0 / FUN_0043f810 (origin = centre - half extents - 1.0, the shipped engine's off-by-margin), the record's box with FUN_0043f9b0.
 // Analytic shapes: only the box (shape 3, FUN_00440f30; set by FUN_004427e0 / 00442780 / 004428b0) is implemented; the sphere / cylinder
-// shapes (FUN_00440d00 / 00440e00) are never created by the island / house set-up. Not ported: the NPC bound of records with flag 0x40 is the box (FUN_004410e0 = FUN_00440f30
-// without the debug lines).
+// shapes (FUN_00440d00 / 00440e00) are never created by the island / house set-up. The NPC bound of records with flag 0x40 is the box (FUN_004410e0 = FUN_00440f30
+// without the debug lines, which only draw in the original's debug view).
 //
 // FLOAT32: Direct3D 7 leaves the x87 in 24-bit precision (no DDSCL_FPUPRESERVE anywhere in the executable), so EVERY arithmetic result of the original's code rounds to a float32 mantissa
 // (whether the compiler stored it in a local or kept it on the FPU stack). The functions below therefore write `fr` (Math.fround) around every single +, -, *, /, in the order of the

@@ -91,6 +91,7 @@ registerZoneGame('z15SSH', async (ctx) => {
       if (!bannerDone) { applyResult(vars, node.finalScore, node.result); bannerDone = true; }
       void result;
     },
+    draw2dInPause: true,   // the crosshair is drawn by the buggy's draw hook, which runs in every loop mode (FUN_00656372 calls FUN_0042271b in mode 3 too)
     draw2d(ui: Ui2D) {
       // FUN_0065817c: the crosshair (overlay texture 0, 64 x 64) where the turret points; the original draws it in every loop mode (the panels of the intro / help / banner / result are drawn over it)
       const c = node.crosshair(cart);

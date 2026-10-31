@@ -19,7 +19,6 @@ const __test = {
     const cov = createCoverage(Hn.pe);
     const { open, tick, walkTo, setKeys, inj } = Hn;
     let scenarios = 0; const scenarioList = [];
-    const knownTotal = () => scenarioList.reduce((a, S) => a + (S.known?.complete53 ?? 0), 0);
     const visited = {};
     const mark = (k) => { visited[k] = (visited[k] ?? 0) + 1; };
 
@@ -277,7 +276,6 @@ const __test = {
     for (const m of rep.missing) (by[m.fn] ??= []).push(`${m.at.toString(16)}${m.out === 'taken' ? 'T' : 'F'}`);
     notes.push(`not taken (all classified in docs/re/m6/z10RGB.md, section "Differential test (WP-VERIFY): coverage"): ${Object.entries(by).map(([k, v]) => `${k}: ${v.join(' ')}`).join('; ')}`);
     T.ok(rep.covered >= 350, `branch coverage fell: ${rep.covered} / ${rep.total} (350 expected)`);
-    notes.push(`KNOWN DEVIATION (docs section 7): the original writes COMPLETE_SUB_GAME (0x53) = 1 at the phases 4 / 5, the port does not: seen ${knownTotal()} tick(s) of ${scenarios} scenarios`);
     notes.push(`tolerance: ${TOL} relative to max(1, |v|) on every float (all scenarios also pass at 2e-7: the 24-bit x87 is rounded per operation in the port; what is left is the matrix builder's 1 ulp); ground samples of the ball shadows ${S_TOL_SAMPLES} (the ground height at positions that differ by an ulp, slope amplified)`);
     setRandSource(null);
     return { checked: T.checked, failures, notes };
