@@ -33,6 +33,7 @@ import { looksOf, applyRosterRecords } from '../../island/vehicles/looks.ts';
 import { IslandContext } from './ctx.ts';
 import { BrickLibrary } from '../../formats/bricks.ts';
 import { installBrickLibrary, islandBrickFx, drawBrickFx } from '../../fx/bricks/index.ts';
+import { loadLegoStuds, drawLegoStuds } from '../../mods/lego3d/studs.ts';
 import { storyHandler } from './story.ts';
 import type { StoryEnv, StoryRef } from './story.ts';
 import { arrival, emulatedVehicle } from './arrival.ts';
@@ -252,7 +253,8 @@ registerZoneGame('z02LGI', async (ctx) => {
   try {
     const [bricks, morph] = await Promise.all([ctx.sh.data.archive('Bricks'), ctx.sh.data.archive('BrickMorph')]);
     installBrickLibrary(ctx.world, new BrickLibrary(ctx.sh.pe, bricks, morph));
-    ctx.gr.effects = (r) => { const fx = islandBrickFx(ctx.world); if (fx) drawBrickFx(r, fx); };
+    const legoStuds = loadLegoStuds(ctx.archive);   // the "LEGO 3D" mod's stud geometry (src/mods/lego3d/studs.ts): null without such a mod, then nothing changes
+    ctx.gr.effects = (r) => { const fx = islandBrickFx(ctx.world); if (fx) { drawBrickFx(r, fx); if (legoStuds) drawLegoStuds(r, fx.lib, legoStuds, ctx.world.records); } };
   } catch (e) { console.warn('island bricks', e); }
   // SwapText.c (FUN_00443810 / FUN_004439f0): the vehicles' looks replace the model's texture table by textures of the SwapText bank (island/vehicles/looks.ts)
   try {
