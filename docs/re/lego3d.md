@@ -214,7 +214,7 @@ frames with the mod: an installed HD pack and other agents' browsers on the same
 ## 6. Proposal and estimate for doing everything (the pilot's plan; the full build below follows it, with the changes listed in section 8)
 
 Goal: every character, the brick library, the LEGO-built buildings / vehicles and the LEGO-surface textures of the game rebuilt from LDraw, as one optional "LEGO 3D" option (start screen, next to "HD-textures"),
-off by default, the original look untouched without it. What the pilot proved: the mod layer takes the new meshes as they are (no engine change), the skeleton / animation / attachments / LOD scheme / texture slots
+on by default (off on weak devices), the original look untouched without it. What the pilot proved: the mod layer takes the new meshes as they are (no engine change), the skeleton / animation / attachments / LOD scheme / texture slots
 survive, the original's textures map at run time, the cost is modest. What it did not prove: that the result is *dramatically* better (section 4), and the hosting route (section 5).
 
 **Phases** (working days of one person who knows this code base; ranges, the first number if everything goes the way of the pilot):

@@ -6,7 +6,7 @@
 //   debugMenu  the original's story-checkpoint list in the front end's main menu in place of "Credits" (the Mod Manager's "Debug Mode"), docs/re/mods.md
 //   restored   the optional mode "Herstelde inhoud" (restored content, docs/re/restore-plan.md; default OFF: with it off the game is exactly the original)
 //   hd         the HD Texture Pack (src/mods/hd.ts) on / off; null = never chosen (the default then depends on the device, `hdDefault`). An explicit choice always wins.
-//   lego3d     "LEGO 3D" (src/mods/lego3d, docs/re/lego3d.md): the LEGO-model look generated in the browser from an LDraw-derived data pack; default OFF (the original look stays the default)
+//   lego3d     "LEGO 3D" (src/mods/lego3d, docs/re/lego3d.md): the LEGO-model look generated in the browser from an LDraw-derived data pack; default ON (off on weak devices, where the original look is used)
 //   restoredOff the individual restored features (src/restore/flag.ts `RESTORE_FEATURES`) the player switched off again; all on by default
 // URL parameters override them for one session: `?hd=1|0`, `?lego3d=1|0|<generators>`, `?wide=1|0`, `?intro=0`, `?debug=1`, `?restored=1|0`, `?restoredoff=a,b`.
 
@@ -23,8 +23,8 @@ function storage(): Storage | null {
 export function storedPrefs(): Prefs {
   try {
     const v = JSON.parse(storage()?.getItem(KEY) ?? 'null') as Partial<Prefs> | null;
-    return { mode: v?.mode === 'wide' ? 'wide' : '4:3', skipIntro: v?.skipIntro === true, debugMenu: v?.debugMenu === true, restored: v?.restored === true, restoredOff: Array.isArray(v?.restoredOff) ? v.restoredOff.filter((x) => typeof x === 'string') : [], hd: typeof v?.hd === 'boolean' ? v.hd : null, lego3d: v?.lego3d === true };
-  } catch { return { mode: '4:3', skipIntro: false, debugMenu: false, restored: false, restoredOff: [], hd: null, lego3d: false }; }
+    return { mode: v?.mode === 'wide' ? 'wide' : '4:3', skipIntro: v?.skipIntro === true, debugMenu: v?.debugMenu === true, restored: v?.restored === true, restoredOff: Array.isArray(v?.restoredOff) ? v.restoredOff.filter((x) => typeof x === 'string') : [], hd: typeof v?.hd === 'boolean' ? v.hd : null, lego3d: typeof v?.lego3d === 'boolean' ? v.lego3d : true };
+  } catch { return { mode: '4:3', skipIntro: false, debugMenu: false, restored: false, restoredOff: [], hd: null, lego3d: true }; }
 }
 
 export function storePrefs(p: Partial<Prefs>) {

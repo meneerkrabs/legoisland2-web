@@ -43,7 +43,7 @@ browser, instead of a 2.2 GB download up front; MEGA is the fallback. Fetching h
 textures and is sharper the next time, and unchecking stops it and offers to remove what was stored. Off = exactly the original look. Nothing of the pack is hosted here. Details:
 [docs/re/mods.md](docs/re/mods.md).
 
-**LEGO 3D** (port extra, **off by default**: the original look stays the default): a start-screen checkbox that rebuilds the game from real LEGO parts of the [LDraw](https://www.ldraw.org)
+**LEGO 3D** (port extra, **on by default**; off on weak devices): a start-screen checkbox that rebuilds the game from real LEGO parts of the [LDraw](https://www.ldraw.org)
 library (CC BY 4.0 / CCAL 2.0): the minifigs (bodies, heads, hands, hair and hats where a part exists), the brick library, real 3D studs on the stud plates, 4x stud / brick-wall pictures and
 seven LDraw set models (jet ski, ambulance, Island Racer, ...). It is assembled **in your browser** from a small data pack (about 1 MB, LDraw-derived, with `ATTRIBUTION.txt`) plus your own
 game files; nothing of the game is hosted, nothing of it leaves your browser. It never blocks play (no pack in time = the original game), weak devices get a warning, unchecking removes

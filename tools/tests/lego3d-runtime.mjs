@@ -20,8 +20,8 @@ export default {
     const failures = [], notes = [];
     let checked = 0;
     const ok = (c, m) => { checked++; if (!c) failures.push(m); };
-    // defaults: off; the url forms
-    ok(storedPrefs().lego3d === false, 'LEGO 3D must be OFF by default');
+    // defaults: on (a weak device starts with it off, see the ui guard); the url forms
+    ok(storedPrefs().lego3d === true, 'LEGO 3D is ON by default');
     ok(JSON.stringify(lego3dOptions('?lego3d=1')) === '[]' && JSON.stringify(lego3dOptions('?lego3d=chars,-studs')) === '["chars","-studs"]' && lego3dOptions('').length === 0, 'url options');
     // device guard
     ok(judgeLego3d({ userAgent: 'Mozilla/5.0 (iPhone)', touchPrimary: true }).ok === false, 'phone is warned');

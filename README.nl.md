@@ -42,7 +42,7 @@ opgehaald (het eiland is ongeveer 65 MB) en in je browser bewaard, in plaats van
 die nog niet klaar is begint met de originele plaatjes en is de volgende keer scherper, en uitvinken stopt het en biedt aan wat bewaard is te verwijderen. Uit = precies het originele
 beeld. Niets van het pakket staat hier. Details: [docs/re/mods.md](docs/re/mods.md).
 
-**LEGO 3D** (extra van de port, **standaard uit**: het originele beeld blijft de standaard): een vinkje op het beginscherm dat het spel opbouwt uit echte LEGO-onderdelen van de
+**LEGO 3D** (extra van de port, **standaard aan**; op zwakke apparaten uit): een vinkje op het beginscherm dat het spel opbouwt uit echte LEGO-onderdelen van de
 [LDraw](https://www.ldraw.org)-bibliotheek (CC BY 4.0 / CCAL 2.0): de minifiguren (lichaam, hoofd, handen, haar en hoeden waar een onderdeel bestaat), de stenenbibliotheek, echte 3D-noppen op
 de noppenplaten, 4x scherpe nop- en muurplaatjes en zeven LDraw-setmodellen (jetski, ambulance, Island Racer, ...). Het wordt **in je browser** samengesteld uit een klein gegevenspakket (ongeveer
 1 MB, uit LDraw afgeleid, met `ATTRIBUTION.txt`) plus je eigen spelbestanden; niets van het spel wordt gehost en niets verlaat je browser. Het houdt het spelen nooit tegen (geen pakket op tijd =
