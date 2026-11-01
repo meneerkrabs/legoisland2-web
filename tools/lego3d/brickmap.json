@@ -1,0 +1,5070 @@
+{
+ "v": 2,
+ "rule": {
+  "box": 0.045,
+  "mean": 0.02,
+  "far": 0.08,
+  "classBox": 0.1,
+  "classMean": 0.1
+ },
+ "bricks": {
+  "arch2x8x1": {
+   "parts": [
+    {
+     "p": "3308a"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Arch 1 x 8 x 2",
+   "note": "same arch; LDraw's hollow deck shows from below",
+   "lod0": {
+    "raw": 444,
+    "box": 0,
+    "mean": 0.0275,
+    "far": 0.209,
+    "verts": 460,
+    "tris": 408,
+    "game": 244,
+    "gameVerts": 340,
+    "verified": false,
+    "why": "mean 0.028 > 0.02, far 20.9% > 8%"
+   },
+   "lod1": {
+    "raw": 252,
+    "box": 0,
+    "mean": 0.0304,
+    "verts": 216,
+    "tris": 162,
+    "game": 132,
+    "gameVerts": 196
+   }
+  },
+  "bar4x2": {
+   "parts": [
+    {
+     "p": "6187"
+    }
+   ],
+   "tier": "verified",
+   "title": "Bar 1 x 4 x 2",
+   "lod0": {
+    "raw": 662,
+    "box": 0,
+    "mean": 0.0106,
+    "far": 0,
+    "verts": 387,
+    "tris": 230,
+    "game": 268,
+    "gameVerts": 312,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 598,
+    "box": 0,
+    "mean": 0.0082,
+    "verts": 367,
+    "tris": 204,
+    "game": 204,
+    "gameVerts": 240
+   }
+  },
+  "car_grill": {
+   "parts": [
+    {
+     "p": "30147"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Car Grille 1 x 2 x 2 Round Top with Lights",
+   "note": "same grille shape; the game's bars are simpler",
+   "lod0": {
+    "raw": 754,
+    "box": 0.011,
+    "mean": 0.0319,
+    "far": 0.129,
+    "verts": 670,
+    "tris": 438,
+    "game": 338,
+    "gameVerts": 532,
+    "verified": false,
+    "why": "mean 0.032 > 0.02, far 12.9% > 8%"
+   },
+   "lod1": {
+    "raw": 464,
+    "box": 0.055,
+    "mean": 0.0422,
+    "verts": 381,
+    "tris": 200,
+    "game": 200,
+    "gameVerts": 319
+   }
+  },
+  "dish2x2": {
+   "parts": [
+    {
+     "p": "4740"
+    }
+   ],
+   "tier": "verified",
+   "title": "Dish 2 x 2 Inverted",
+   "note": "same dish; the stud is a hollow stud in LDraw",
+   "lod0": {
+    "raw": 304,
+    "box": 0.003,
+    "mean": 0.0184,
+    "far": 0.055,
+    "verts": 184,
+    "tris": 164,
+    "game": 76,
+    "gameVerts": 82,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 224,
+    "box": 0.077,
+    "mean": 0.0337,
+    "verts": 104,
+    "tris": 60,
+    "game": 60,
+    "gameVerts": 70
+   }
+  },
+  "fat1x2_45slope": {
+   "parts": [
+    {
+     "p": "3040b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 45 2 x 1",
+   "lod0": {
+    "raw": 50,
+    "box": 0,
+    "mean": 0.0006,
+    "far": 0,
+    "verts": 66,
+    "tris": 50,
+    "game": 50,
+    "gameVerts": 87,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 26,
+    "box": 0,
+    "mean": 0.0017,
+    "verts": 42,
+    "tris": 26,
+    "game": 26,
+    "gameVerts": 46
+   }
+  },
+  "fat1x3_33slope": {
+   "parts": [
+    {
+     "p": "4286"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 33 3 x 1",
+   "lod0": {
+    "raw": 50,
+    "box": 0,
+    "mean": 0.0005,
+    "far": 0,
+    "verts": 64,
+    "tris": 50,
+    "game": 50,
+    "gameVerts": 87,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 26,
+    "box": 0,
+    "mean": 0.0014,
+    "verts": 40,
+    "tris": 26,
+    "game": 26,
+    "gameVerts": 46
+   }
+  },
+  "fat2x1_hinge_pin": {
+   "parts": [
+    {
+     "p": "3830"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Hinge Brick 1 x 4 Top",
+   "note": "same hinge brick; the knuckles are simpler in the game",
+   "lod0": {
+    "raw": 485,
+    "box": 0.001,
+    "mean": 0.0317,
+    "far": 0.281,
+    "verts": 462,
+    "tris": 274,
+    "game": 118,
+    "gameVerts": 182,
+    "verified": false,
+    "why": "mean 0.032 > 0.02, far 28.1% > 8%"
+   },
+   "lod1": {
+    "raw": 299,
+    "box": 0.005,
+    "mean": 0.0393,
+    "verts": 148,
+    "tris": 82,
+    "game": 71,
+    "gameVerts": 113
+   }
+  },
+  "fat2x2_45slope": {
+   "parts": [
+    {
+     "p": "3039"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 45 2 x 2",
+   "lod0": {
+    "raw": 86,
+    "box": 0,
+    "mean": 0.0007,
+    "far": 0,
+    "verts": 104,
+    "tris": 86,
+    "game": 72,
+    "gameVerts": 116,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 38,
+    "box": 0,
+    "mean": 0.0022,
+    "verts": 56,
+    "tris": 38,
+    "game": 36,
+    "gameVerts": 62
+   }
+  },
+  "fat3x2": {
+   "parts": [
+    {
+     "p": "3002"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 2 x 3",
+   "lod0": {
+    "raw": 216,
+    "box": 0,
+    "mean": 0.0011,
+    "far": 0,
+    "verts": 240,
+    "tris": 216,
+    "game": 160,
+    "gameVerts": 238,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 72,
+    "box": 0,
+    "mean": 0.0035,
+    "verts": 96,
+    "tris": 72,
+    "game": 72,
+    "gameVerts": 120
+   }
+  },
+  "flap4x3_hinged": {
+   "parts": [
+    {
+     "p": "2873"
+    }
+   ],
+   "tier": "verified",
+   "title": "Hinge Tile 2 x 4 with Ribs",
+   "lod0": {
+    "raw": 512,
+    "box": 0.011,
+    "mean": 0.0107,
+    "far": 0.021,
+    "verts": 316,
+    "tris": 208,
+    "game": 124,
+    "gameVerts": 204,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 400,
+    "box": 0.047,
+    "mean": 0.016,
+    "verts": 171,
+    "tris": 115,
+    "game": 108,
+    "gameVerts": 188
+   }
+  },
+  "flat6x1": {
+   "parts": [
+    {
+     "p": "6636"
+    }
+   ],
+   "tier": "verified",
+   "title": "Tile 1 x 6",
+   "note": "tile; the game's has a bevel",
+   "lod0": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.0084,
+    "far": 0.06,
+    "verts": 48,
+    "tris": 28,
+    "game": 44,
+    "gameVerts": 88,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.0079,
+    "verts": 48,
+    "tris": 28,
+    "game": 28,
+    "gameVerts": 48
+   }
+  },
+  "grill2x1": {
+   "parts": [
+    {
+     "p": "2412b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Tile 1 x 2 Grille with Groove",
+   "note": "same grille tile",
+   "lod0": {
+    "raw": 96,
+    "box": 0,
+    "mean": 0.0024,
+    "far": 0.008,
+    "verts": 144,
+    "tris": 76,
+    "game": 156,
+    "gameVerts": 272,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 80,
+    "box": 0,
+    "mean": 0.0017,
+    "verts": 142,
+    "tris": 76,
+    "game": 76,
+    "gameVerts": 140
+   }
+  },
+  "hinge2x1_base": {
+   "parts": [
+    {
+     "p": "3937"
+    }
+   ],
+   "tier": "verified",
+   "title": "Hinge 1 x 2 Base",
+   "lod0": {
+    "raw": 248,
+    "box": 0,
+    "mean": 0.0062,
+    "far": 0,
+    "verts": 220,
+    "tris": 146,
+    "game": 110,
+    "gameVerts": 164,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 216,
+    "box": 0.001,
+    "mean": 0.0089,
+    "verts": 132,
+    "tris": 76,
+    "game": 76,
+    "gameVerts": 122
+   }
+  },
+  "panel2x4x3": {
+   "parts": [
+    {
+     "p": "2582"
+    }
+   ],
+   "tier": "verified",
+   "title": "Hinge Panel 2 x 4 x 3.333",
+   "lod0": {
+    "raw": 732,
+    "box": 0.011,
+    "mean": 0.0074,
+    "far": 0.053,
+    "verts": 680,
+    "tris": 432,
+    "game": 244,
+    "gameVerts": 376,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 524,
+    "box": 0.041,
+    "mean": 0.0093,
+    "verts": 321,
+    "tris": 179,
+    "game": 180,
+    "gameVerts": 308
+   }
+  },
+  "parasol_table": {
+   "parts": [
+    {
+     "p": "2723"
+    }
+   ],
+   "tier": "verified",
+   "title": "Technic Disc 3 x 3 with Axlehole",
+   "lod0": {
+    "raw": 478,
+    "box": 0.023,
+    "mean": 0.0063,
+    "far": 0,
+    "verts": 276,
+    "tris": 186,
+    "game": 144,
+    "gameVerts": 146,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 414,
+    "box": 0.094,
+    "mean": 0.0096,
+    "verts": 186,
+    "tris": 100,
+    "game": 100,
+    "gameVerts": 106
+   }
+  },
+  "prop_rotor": {
+   "parts": [
+    {
+     "p": "2479"
+    }
+   ],
+   "tier": "verified",
+   "title": "Propeller 4 Blade 5 Diameter",
+   "lod0": {
+    "raw": 828,
+    "box": 0,
+    "mean": 0.0028,
+    "far": 0,
+    "verts": 812,
+    "tris": 664,
+    "game": 512,
+    "gameVerts": 836,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 428,
+    "box": 0,
+    "mean": 0.0084,
+    "verts": 469,
+    "tris": 303,
+    "game": 304,
+    "gameVerts": 535
+   }
+  },
+  "support_angle": {
+   "parts": [
+    {
+     "p": "4476"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Support 2 x 4 x 5 Stanchion Inclined",
+   "note": "same stanchion; the game's cross bars are simpler",
+   "lod0": {
+    "raw": 420,
+    "box": 0,
+    "mean": 0.0326,
+    "far": 0.167,
+    "verts": 410,
+    "tris": 304,
+    "game": 304,
+    "gameVerts": 420,
+    "verified": false,
+    "why": "mean 0.033 > 0.02, far 16.7% > 8%"
+   },
+   "lod1": {
+    "raw": 228,
+    "box": 0,
+    "mean": 0.0292,
+    "verts": 241,
+    "tris": 148,
+    "game": 148,
+    "gameVerts": 216
+   }
+  },
+  "thin10x1": {
+   "parts": [
+    {
+     "p": "4477"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 10",
+   "lod0": {
+    "raw": 352,
+    "box": 0,
+    "mean": 0.0016,
+    "far": 0,
+    "verts": 384,
+    "tris": 352,
+    "game": 248,
+    "gameVerts": 354,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 112,
+    "box": 0,
+    "mean": 0.0055,
+    "verts": 144,
+    "tris": 112,
+    "game": 112,
+    "gameVerts": 184
+   }
+  },
+  "thin1x1_cliplight": {
+   "parts": [
+    {
+     "p": "4081b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 1 with Clip Light Type 2",
+   "lod0": {
+    "raw": 256,
+    "box": 0.006,
+    "mean": 0.0154,
+    "far": 0.051,
+    "verts": 283,
+    "tris": 214,
+    "game": 172,
+    "gameVerts": 201,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 172,
+    "box": 0.05,
+    "mean": 0.0205,
+    "verts": 187,
+    "tris": 126,
+    "game": 128,
+    "gameVerts": 155
+   }
+  },
+  "thin1x2_handle": {
+   "parts": [
+    {
+     "p": "3839b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 2 with Handles Type 2",
+   "lod0": {
+    "raw": 292,
+    "box": 0.002,
+    "mean": 0.0078,
+    "far": 0.04,
+    "verts": 308,
+    "tris": 182,
+    "game": 128,
+    "gameVerts": 182,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 156,
+    "box": 0.019,
+    "mean": 0.0251,
+    "verts": 146,
+    "tris": 88,
+    "game": 88,
+    "gameVerts": 140
+   }
+  },
+  "thin2x1_handle": {
+   "parts": [
+    {
+     "p": "2432"
+    }
+   ],
+   "tier": "verified",
+   "title": "Tile 1 x 2 with Handle",
+   "lod0": {
+    "raw": 102,
+    "box": 0,
+    "mean": 0.0027,
+    "far": 0.002,
+    "verts": 88,
+    "tris": 54,
+    "game": 88,
+    "gameVerts": 119,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 86,
+    "box": 0.005,
+    "mean": 0.0017,
+    "verts": 102,
+    "tris": 60,
+    "game": 60,
+    "gameVerts": 82
+   }
+  },
+  "thin2x1": {
+   "parts": [
+    {
+     "p": "3023b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 2",
+   "lod0": {
+    "raw": 80,
+    "box": 0,
+    "mean": 0.0015,
+    "far": 0,
+    "verts": 96,
+    "tris": 80,
+    "game": 72,
+    "gameVerts": 122,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 32,
+    "box": 0,
+    "mean": 0.0047,
+    "verts": 48,
+    "tris": 32,
+    "game": 32,
+    "gameVerts": 56
+   }
+  },
+  "thin3x2": {
+   "parts": [
+    {
+     "p": "3021"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 2 x 3",
+   "lod0": {
+    "raw": 216,
+    "box": 0,
+    "mean": 0.0017,
+    "far": 0,
+    "verts": 240,
+    "tris": 216,
+    "game": 160,
+    "gameVerts": 238,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 72,
+    "box": 0,
+    "mean": 0.0059,
+    "verts": 96,
+    "tris": 72,
+    "game": 72,
+    "gameVerts": 120
+   }
+  },
+  "thin5x2_zbend": {
+   "parts": [
+    {
+     "p": "6087"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Bracket 5 x 2 x 2.333 with Inside Rib",
+   "note": "same bracket",
+   "lod0": {
+    "raw": 756,
+    "box": 0,
+    "mean": 0.0117,
+    "far": 0.088,
+    "verts": 709,
+    "tris": 570,
+    "game": 264,
+    "gameVerts": 382,
+    "verified": false,
+    "why": "far 8.8% > 8%"
+   },
+   "lod1": {
+    "raw": 372,
+    "box": 0,
+    "mean": 0.0149,
+    "verts": 261,
+    "tris": 187,
+    "game": 128,
+    "gameVerts": 214
+   }
+  },
+  "thin6x2": {
+   "parts": [
+    {
+     "p": "3795"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 2 x 6",
+   "lod0": {
+    "raw": 420,
+    "box": 0,
+    "mean": 0.0017,
+    "far": 0,
+    "verts": 456,
+    "tris": 420,
+    "game": 292,
+    "gameVerts": 412,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 132,
+    "box": 0,
+    "mean": 0.0064,
+    "verts": 168,
+    "tris": 132,
+    "game": 132,
+    "gameVerts": 216
+   }
+  },
+  "thin8x2": {
+   "parts": [
+    {
+     "p": "3034"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 2 x 8",
+   "lod0": {
+    "raw": 556,
+    "box": 0,
+    "mean": 0.0017,
+    "far": 0,
+    "verts": 600,
+    "tris": 556,
+    "game": 380,
+    "gameVerts": 528,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 172,
+    "box": 0,
+    "mean": 0.0063,
+    "verts": 216,
+    "tris": 172,
+    "game": 172,
+    "gameVerts": 280
+   }
+  },
+  "window_shuttle": {
+   "parts": [
+    {
+     "p": "6152a"
+    }
+   ],
+   "tier": "verified",
+   "title": "Windscreen 6 x 4 x 1.333 Airplane with Hollow Studs and Bottom Tabs",
+   "note": "same windscreen shape",
+   "lod0": {
+    "raw": 315,
+    "box": 0,
+    "mean": 0.0058,
+    "far": 0.004,
+    "verts": 310,
+    "tris": 220,
+    "game": 140,
+    "gameVerts": 232,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 207,
+    "box": 0,
+    "mean": 0.006,
+    "verts": 176,
+    "tris": 108,
+    "game": 108,
+    "gameVerts": 190
+   }
+  },
+  "windscreen3x4": {
+   "parts": [
+    {
+     "p": "2437"
+    }
+   ],
+   "tier": "verified",
+   "title": "Windscreen 3 x 4 x 1.333",
+   "note": "same windscreen shape",
+   "lod0": {
+    "raw": 409,
+    "box": 0,
+    "mean": 0.0047,
+    "far": 0.022,
+    "verts": 345,
+    "tris": 241,
+    "game": 176,
+    "gameVerts": 259,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 227,
+    "box": 0,
+    "mean": 0.007,
+    "verts": 209,
+    "tris": 124,
+    "game": 124,
+    "gameVerts": 197
+   }
+  },
+  "wing3x3_thin": {
+   "parts": [
+    {
+     "p": "2450"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 3 x 3 without Corner",
+   "note": "same plate",
+   "lod0": {
+    "raw": 416,
+    "box": 0,
+    "mean": 0.0089,
+    "far": 0.066,
+    "verts": 466,
+    "tris": 344,
+    "game": 162,
+    "gameVerts": 236,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 200,
+    "box": 0,
+    "mean": 0.0107,
+    "verts": 151,
+    "tris": 101,
+    "game": 76,
+    "gameVerts": 126
+   }
+  },
+  "wing7x12_right": {
+   "parts": [
+    {
+     "p": "3586"
+    }
+   ],
+   "tier": "verified",
+   "title": "Wing 7 x 12 Left",
+   "note": "same wing plate",
+   "lod0": {
+    "raw": 1544,
+    "box": 0,
+    "mean": 0.0055,
+    "far": 0.01,
+    "verts": 1646,
+    "tris": 1544,
+    "game": 996,
+    "gameVerts": 1320,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 482,
+    "box": 0.077,
+    "mean": 0.0111,
+    "verts": 574,
+    "tris": 470,
+    "game": 464,
+    "gameVerts": 744
+   }
+  },
+  "flat1x1": {
+   "parts": [
+    {
+     "p": "3070b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Tile 1 x 1 with Groove",
+   "note": "tile; the game's has a bevel",
+   "lod0": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.002,
+    "far": 0,
+    "verts": 48,
+    "tris": 28,
+    "game": 28,
+    "gameVerts": 64,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 28,
+    "box": 0.022,
+    "mean": 0.0064,
+    "verts": 24,
+    "tris": 12,
+    "game": 12,
+    "gameVerts": 24
+   }
+  },
+  "antenna6": {
+   "parts": [
+    {
+     "p": "3957b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Antenna 4H with Flat Top",
+   "lod0": {
+    "raw": 254,
+    "box": 0.004,
+    "mean": 0.0065,
+    "far": 0,
+    "verts": 215,
+    "tris": 104,
+    "game": 118,
+    "gameVerts": 103,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 142,
+    "box": 0.057,
+    "mean": 0.0124,
+    "verts": 123,
+    "tris": 66,
+    "game": 66,
+    "gameVerts": 67
+   }
+  },
+  "awning": {
+   "parts": [
+    {
+     "p": "678"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Homemaker Awning 2 x 6",
+   "lod0": {
+    "raw": 156,
+    "box": 0.04,
+    "mean": 0.0101,
+    "far": 0,
+    "verts": 164,
+    "tris": 108,
+    "game": 124,
+    "gameVerts": 209,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 124,
+    "box": 0,
+    "mean": 0.0103,
+    "verts": 144,
+    "tris": 96,
+    "game": 96,
+    "gameVerts": 175
+   }
+  },
+  "bar4x2_studs": {
+   "parts": [
+    {
+     "p": "4083"
+    }
+   ],
+   "tier": "verified",
+   "title": "Bar 1 x 4 x 2 with Studs",
+   "lod0": {
+    "raw": 1016,
+    "box": 0.002,
+    "mean": 0.0141,
+    "far": 0.001,
+    "verts": 669,
+    "tris": 371,
+    "game": 312,
+    "gameVerts": 328,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 688,
+    "box": 0.087,
+    "mean": 0.0254,
+    "verts": 343,
+    "tris": 176,
+    "game": 176,
+    "gameVerts": 208
+   }
+  },
+  "car_door3x1_left": {
+   "parts": [
+    {
+     "p": "3822"
+    }
+   ],
+   "tier": "verified",
+   "title": "Door 1 x 3 x 1 Left",
+   "lod0": {
+    "raw": 241,
+    "box": 0,
+    "mean": 0.0044,
+    "far": 0,
+    "verts": 183,
+    "tris": 139,
+    "game": 80,
+    "gameVerts": 113,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 146,
+    "box": 0.028,
+    "mean": 0.0129,
+    "verts": 95,
+    "tris": 60,
+    "game": 58,
+    "gameVerts": 90
+   }
+  },
+  "dish6x6_webbed": {
+   "parts": [
+    {
+     "p": "4285b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Dish 6 x 6 Inverted Webbed Type 2",
+   "lod0": {
+    "raw": 1540,
+    "box": 0.014,
+    "mean": 0.0151,
+    "far": 0.051,
+    "verts": 1700,
+    "tris": 1244,
+    "game": 660,
+    "gameVerts": 932,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 1272,
+    "box": 0.106,
+    "mean": 0.0328,
+    "verts": 685,
+    "tris": 404,
+    "game": 404,
+    "gameVerts": 514
+   }
+  },
+  "fat1x1_5h": {
+   "parts": [
+    {
+     "p": "2453b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 1 x 1 x 5 with Solid Stud",
+   "lod0": {
+    "raw": 46,
+    "box": 0,
+    "mean": 0.0003,
+    "far": 0,
+    "verts": 60,
+    "tris": 46,
+    "game": 50,
+    "gameVerts": 93,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 22,
+    "box": 0,
+    "mean": 0.0005,
+    "verts": 36,
+    "tris": 22,
+    "game": 22,
+    "gameVerts": 40
+   }
+  },
+  "fat1x1": {
+   "parts": [
+    {
+     "p": "3005"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 1 x 1",
+   "lod0": {
+    "raw": 46,
+    "box": 0,
+    "mean": 0.0008,
+    "far": 0,
+    "verts": 60,
+    "tris": 46,
+    "game": 50,
+    "gameVerts": 93,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 22,
+    "box": 0,
+    "mean": 0.0021,
+    "verts": 36,
+    "tris": 22,
+    "game": 22,
+    "gameVerts": 40
+   }
+  },
+  "fat2x1": {
+   "parts": [
+    {
+     "p": "3004"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 1 x 2",
+   "lod0": {
+    "raw": 80,
+    "box": 0,
+    "mean": 0.0008,
+    "far": 0,
+    "verts": 96,
+    "tris": 80,
+    "game": 72,
+    "gameVerts": 122,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 32,
+    "box": 0,
+    "mean": 0.0027,
+    "verts": 48,
+    "tris": 32,
+    "game": 32,
+    "gameVerts": 56
+   }
+  },
+  "fat2x3_33slope": {
+   "parts": [
+    {
+     "p": "3298"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 33 3 x 2",
+   "lod0": {
+    "raw": 84,
+    "box": 0,
+    "mean": 0.0006,
+    "far": 0,
+    "verts": 100,
+    "tris": 84,
+    "game": 72,
+    "gameVerts": 116,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 36,
+    "box": 0,
+    "mean": 0.0019,
+    "verts": 52,
+    "tris": 36,
+    "game": 36,
+    "gameVerts": 62
+   }
+  },
+  "fat3x1": {
+   "parts": [
+    {
+     "p": "3622"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 1 x 3",
+   "lod0": {
+    "raw": 114,
+    "box": 0,
+    "mean": 0.0009,
+    "far": 0,
+    "verts": 132,
+    "tris": 114,
+    "game": 94,
+    "gameVerts": 151,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 42,
+    "box": 0,
+    "mean": 0.0029,
+    "verts": 60,
+    "tris": 42,
+    "game": 42,
+    "gameVerts": 72
+   }
+  },
+  "fat3x2x2_66slope": {
+   "parts": [
+    {
+     "p": "3684c"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 75 2 x 2 x 3 with Solid Studs",
+   "lod0": {
+    "raw": 84,
+    "box": 0,
+    "mean": 0.0003,
+    "far": 0,
+    "verts": 100,
+    "tris": 84,
+    "game": 72,
+    "gameVerts": 116,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 36,
+    "box": 0,
+    "mean": 0.0008,
+    "verts": 52,
+    "tris": 36,
+    "game": 36,
+    "gameVerts": 62
+   }
+  },
+  "fat3x3_33slope_cnrinvert": {
+   "parts": [
+    {
+     "p": "99301"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 33 3 x 3 Double Concave",
+   "lod0": {
+    "raw": 188,
+    "box": 0,
+    "mean": 0.0007,
+    "far": 0,
+    "verts": 212,
+    "tris": 188,
+    "game": 136,
+    "gameVerts": 199,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 68,
+    "box": 0,
+    "mean": 0.0025,
+    "verts": 92,
+    "tris": 68,
+    "game": 68,
+    "gameVerts": 116
+   }
+  },
+  "fat6x1_6h": {
+   "parts": [
+    {
+     "p": "3754"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 1 x 6 x 5",
+   "lod0": {
+    "raw": 274,
+    "box": 0,
+    "mean": 0.0005,
+    "far": 0.003,
+    "verts": 300,
+    "tris": 274,
+    "game": 160,
+    "gameVerts": 238,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 106,
+    "box": 0,
+    "mean": 0.001,
+    "verts": 112,
+    "tris": 86,
+    "game": 72,
+    "gameVerts": 120
+   }
+  },
+  "flat8x1": {
+   "parts": [
+    {
+     "p": "4162"
+    }
+   ],
+   "tier": "verified",
+   "title": "Tile 1 x 8",
+   "note": "tile; the game's has a bevel",
+   "lod0": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.0085,
+    "far": 0.059,
+    "verts": 48,
+    "tris": 28,
+    "game": 44,
+    "gameVerts": 88,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.0081,
+    "verts": 48,
+    "tris": 28,
+    "game": 28,
+    "gameVerts": 48
+   }
+  },
+  "hinge2x1_top": {
+   "parts": [
+    {
+     "p": "3938"
+    }
+   ],
+   "tier": "verified",
+   "title": "Hinge 1 x 2 Top",
+   "lod0": {
+    "raw": 462,
+    "box": 0,
+    "mean": 0.0024,
+    "far": 0,
+    "verts": 304,
+    "tris": 206,
+    "game": 158,
+    "gameVerts": 224,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 302,
+    "box": 0,
+    "mean": 0.0097,
+    "verts": 126,
+    "tris": 78,
+    "game": 78,
+    "gameVerts": 132
+   }
+  },
+  "klaxon": {
+   "parts": [
+    {
+     "p": "3963"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Brick 2 x 1 with Positioning Rockets",
+   "note": "same element; the game's rockets are simpler",
+   "lod0": {
+    "raw": 928,
+    "box": 0,
+    "mean": 0.0155,
+    "far": 0.095,
+    "verts": 750,
+    "tris": 500,
+    "game": 260,
+    "gameVerts": 359,
+    "verified": false,
+    "why": "far 9.5% > 8%"
+   },
+   "lod1": {
+    "raw": 758,
+    "box": 0.001,
+    "mean": 0.0217,
+    "verts": 387,
+    "tris": 188,
+    "game": 188,
+    "gameVerts": 268
+   }
+  },
+  "lever": {
+   "parts": [
+    {
+     "p": "4593"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Hinge Control Stick",
+   "note": "same lever; the game's ends are rounder",
+   "lod0": {
+    "raw": 476,
+    "box": 0.038,
+    "mean": 0.0297,
+    "far": 0.003,
+    "verts": 87,
+    "tris": 39,
+    "game": 60,
+    "gameVerts": 60,
+    "verified": false,
+    "why": "mean 0.030 > 0.02"
+   },
+   "lod1": {
+    "raw": 288,
+    "box": 0.05,
+    "mean": 0.0287,
+    "verts": 103,
+    "tris": 49,
+    "game": 50,
+    "gameVerts": 53
+   }
+  },
+  "prop_small_base2x2": {
+   "parts": [
+    {
+     "p": "4488"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Plate 2 x 2 with 1 Wheel Pin",
+   "note": "same plate",
+   "lod0": {
+    "raw": 436,
+    "box": 0,
+    "mean": 0.015,
+    "far": 0.107,
+    "verts": 402,
+    "tris": 270,
+    "game": 178,
+    "gameVerts": 274,
+    "verified": false,
+    "why": "far 10.7% > 8%"
+   },
+   "lod1": {
+    "raw": 274,
+    "box": 0,
+    "mean": 0.0183,
+    "verts": 158,
+    "tris": 94,
+    "game": 94,
+    "gameVerts": 160
+   }
+  },
+  "roof2x2": {
+   "parts": [
+    {
+     "p": "3300"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 33 2 x 2 Double",
+   "lod0": {
+    "raw": 16,
+    "box": 0.009,
+    "mean": 0.0026,
+    "far": 0,
+    "verts": 30,
+    "tris": 16,
+    "game": 40,
+    "gameVerts": 88,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 16,
+    "box": 0.009,
+    "mean": 0.0026,
+    "verts": 30,
+    "tris": 16,
+    "game": 28,
+    "gameVerts": 48
+   }
+  },
+  "thin1x1_clip_horz": {
+   "parts": [
+    {
+     "p": "6019"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 1 with Clip Horizontal (Thick U-Clip)",
+   "lod0": {
+    "raw": 166,
+    "box": 0.003,
+    "mean": 0.0062,
+    "far": 0.034,
+    "verts": 172,
+    "tris": 126,
+    "game": 98,
+    "gameVerts": 153,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 142,
+    "box": 0.034,
+    "mean": 0.0106,
+    "verts": 121,
+    "tris": 68,
+    "game": 68,
+    "gameVerts": 115
+   }
+  },
+  "thin1x1": {
+   "parts": [
+    {
+     "p": "3024"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 1",
+   "lod0": {
+    "raw": 46,
+    "box": 0,
+    "mean": 0.0014,
+    "far": 0,
+    "verts": 60,
+    "tris": 46,
+    "game": 50,
+    "gameVerts": 93,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 22,
+    "box": 0,
+    "mean": 0.0041,
+    "verts": 36,
+    "tris": 22,
+    "game": 22,
+    "gameVerts": 40
+   }
+  },
+  "thin1x2_handle2": {
+   "parts": [
+    {
+     "p": "2540"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 2 with Handle",
+   "lod0": {
+    "raw": 416,
+    "box": 0.001,
+    "mean": 0.0027,
+    "far": 0,
+    "verts": 270,
+    "tris": 204,
+    "game": 208,
+    "gameVerts": 340,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 248,
+    "box": 0.002,
+    "mean": 0.0081,
+    "verts": 257,
+    "tris": 160,
+    "game": 160,
+    "gameVerts": 278
+   }
+  },
+  "thin2x1_hinge_hole": {
+   "parts": [
+    {
+     "p": "2429"
+    }
+   ],
+   "tier": "verified",
+   "title": "Hinge Plate 1 x 4 Base",
+   "lod0": {
+    "raw": 194,
+    "box": 0.001,
+    "mean": 0.0067,
+    "far": 0.011,
+    "verts": 184,
+    "tris": 132,
+    "game": 132,
+    "gameVerts": 215,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 124,
+    "box": 0.01,
+    "mean": 0.0091,
+    "verts": 144,
+    "tris": 82,
+    "game": 82,
+    "gameVerts": 138
+   }
+  },
+  "thin3x2_rounded": {
+   "parts": [
+    {
+     "p": "3176"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 3 x 2 with Hole",
+   "note": "same plate",
+   "lod0": {
+    "raw": 234,
+    "box": 0,
+    "mean": 0.0036,
+    "far": 0,
+    "verts": 228,
+    "tris": 198,
+    "game": 202,
+    "gameVerts": 270,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 106,
+    "box": 0,
+    "mean": 0.0081,
+    "verts": 134,
+    "tris": 98,
+    "game": 108,
+    "gameVerts": 140
+   }
+  },
+  "thin4x4_shuttleroof": {
+   "parts": [
+    {
+     "p": "4859"
+    }
+   ],
+   "tier": "verified",
+   "title": "Wing 3 x 4 with 1 x 2 Cutout without Stud Notches",
+   "lod0": {
+    "raw": 178,
+    "box": 0,
+    "mean": 0.001,
+    "far": 0,
+    "verts": 216,
+    "tris": 178,
+    "game": 116,
+    "gameVerts": 164,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 82,
+    "box": 0,
+    "mean": 0.0039,
+    "verts": 99,
+    "tris": 69,
+    "game": 68,
+    "gameVerts": 112
+   }
+  },
+  "thin6x1": {
+   "parts": [
+    {
+     "p": "3666"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 6",
+   "lod0": {
+    "raw": 216,
+    "box": 0,
+    "mean": 0.0015,
+    "far": 0,
+    "verts": 240,
+    "tris": 216,
+    "game": 160,
+    "gameVerts": 238,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 72,
+    "box": 0,
+    "mean": 0.0054,
+    "verts": 96,
+    "tris": 72,
+    "game": 72,
+    "gameVerts": 120
+   }
+  },
+  "thin8x1": {
+   "parts": [
+    {
+     "p": "3460"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 8",
+   "lod0": {
+    "raw": 284,
+    "box": 0,
+    "mean": 0.0016,
+    "far": 0,
+    "verts": 312,
+    "tris": 284,
+    "game": 204,
+    "gameVerts": 296,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 92,
+    "box": 0,
+    "mean": 0.0052,
+    "verts": 120,
+    "tris": 92,
+    "game": 92,
+    "gameVerts": 152
+   }
+  },
+  "wedge4x4_triple": {
+   "parts": [
+    {
+     "p": "6069"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Wedge 4 x 4 Triple",
+   "note": "same wedge",
+   "lod0": {
+    "raw": 304,
+    "box": 0,
+    "mean": 0.02,
+    "far": 0.187,
+    "verts": 345,
+    "tris": 220,
+    "game": 96,
+    "gameVerts": 152,
+    "verified": false,
+    "why": "far 18.7% > 8%"
+   },
+   "lod1": {
+    "raw": 202,
+    "box": 0.064,
+    "mean": 0.0216,
+    "verts": 127,
+    "tris": 83,
+    "game": 72,
+    "gameVerts": 126
+   }
+  },
+  "window3x4x4_invert": {
+   "parts": [
+    {
+     "p": "4872"
+    }
+   ],
+   "tier": "verified",
+   "title": "Windscreen 3 x 4 x 4 Inverted",
+   "lod0": {
+    "raw": 424,
+    "box": 0,
+    "mean": 0.0081,
+    "far": 0.001,
+    "verts": 461,
+    "tris": 381,
+    "game": 256,
+    "gameVerts": 386,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 190,
+    "box": 0.046,
+    "mean": 0.0085,
+    "verts": 208,
+    "tris": 143,
+    "game": 144,
+    "gameVerts": 244
+   }
+  },
+  "windscreen4x4x3_hinge": {
+   "parts": [
+    {
+     "p": "2620"
+    }
+   ],
+   "tier": "verified",
+   "title": "Windscreen 4 x 4 x 3 with Hinge",
+   "note": "same windscreen shape",
+   "lod0": {
+    "raw": 550,
+    "box": 0.015,
+    "mean": 0.0165,
+    "far": 0.033,
+    "verts": 296,
+    "tris": 186,
+    "game": 132,
+    "gameVerts": 239,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 458,
+    "box": 0.013,
+    "mean": 0.0165,
+    "verts": 187,
+    "tris": 108,
+    "game": 108,
+    "gameVerts": 195
+   }
+  },
+  "wing9x4": {
+   "parts": [
+    {
+     "p": "2413"
+    }
+   ],
+   "tier": "verified",
+   "title": "Wing 4 x 9",
+   "note": "same wing plate",
+   "lod0": {
+    "raw": 1616,
+    "box": 0,
+    "mean": 0.0102,
+    "far": 0.076,
+    "verts": 1619,
+    "tris": 1254,
+    "game": 632,
+    "gameVerts": 882,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 652,
+    "box": 0.002,
+    "mean": 0.0109,
+    "verts": 478,
+    "tris": 351,
+    "game": 288,
+    "gameVerts": 464
+   }
+  },
+  "flat2x2": {
+   "parts": [
+    {
+     "p": "3068b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Tile 2 x 2 with Groove",
+   "lod0": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.0014,
+    "far": 0,
+    "verts": 48,
+    "tris": 28,
+    "game": 28,
+    "gameVerts": 64,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 28,
+    "box": 0.021,
+    "mean": 0.0054,
+    "verts": 24,
+    "tris": 12,
+    "game": 12,
+    "gameVerts": 24
+   }
+  },
+  "balcony01": {
+   "parts": [
+    {
+     "p": "6583"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 6 with Train Wagon End",
+   "note": "same railing plate",
+   "lod0": {
+    "raw": 526,
+    "box": 0,
+    "mean": 0.0044,
+    "far": 0.03,
+    "verts": 476,
+    "tris": 346,
+    "game": 260,
+    "gameVerts": 408,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 262,
+    "box": 0,
+    "mean": 0.0065,
+    "verts": 229,
+    "tris": 149,
+    "game": 140,
+    "gameVerts": 236
+   }
+  },
+  "bar4x3_window": {
+   "parts": [
+    {
+     "p": "6016"
+    }
+   ],
+   "tier": "verified",
+   "title": "Bar 1 x 4 x 3 Window",
+   "note": "same window bars",
+   "lod0": {
+    "raw": 340,
+    "box": 0.015,
+    "mean": 0.0186,
+    "far": 0.008,
+    "verts": 224,
+    "tris": 108,
+    "game": 148,
+    "gameVerts": 220,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 148,
+    "box": 0.16,
+    "mean": 0.0103,
+    "verts": 190,
+    "tris": 98,
+    "game": 96,
+    "gameVerts": 180
+   }
+  },
+  "car_door3x1_right": {
+   "parts": [
+    {
+     "p": "3821"
+    }
+   ],
+   "tier": "verified",
+   "title": "Door 1 x 3 x 1 Right",
+   "lod0": {
+    "raw": 240,
+    "box": 0,
+    "mean": 0.0045,
+    "far": 0,
+    "verts": 180,
+    "tris": 138,
+    "game": 80,
+    "gameVerts": 113,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 150,
+    "box": 0.03,
+    "mean": 0.0105,
+    "verts": 101,
+    "tris": 63,
+    "game": 58,
+    "gameVerts": 90
+   }
+  },
+  "car_mudguard_str": {
+   "parts": [
+    {
+     "p": "3788"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Car Mudguard 2 x 4",
+   "note": "same mudguard",
+   "lod0": {
+    "raw": 408,
+    "box": 0,
+    "mean": 0.013,
+    "far": 0.093,
+    "verts": 488,
+    "tris": 384,
+    "game": 244,
+    "gameVerts": 346,
+    "verified": false,
+    "why": "far 9.3% > 8%"
+   },
+   "lod1": {
+    "raw": 192,
+    "box": 0,
+    "mean": 0.0178,
+    "verts": 244,
+    "tris": 160,
+    "game": 148,
+    "gameVerts": 242
+   }
+  },
+  "cone1x1": {
+   "parts": [
+    {
+     "p": "59900"
+    }
+   ],
+   "tier": "verified",
+   "title": "Cone 1 x 1 with Stop",
+   "lod0": {
+    "raw": 248,
+    "box": 0.003,
+    "mean": 0.0156,
+    "far": 0.02,
+    "verts": 186,
+    "tris": 130,
+    "game": 140,
+    "gameVerts": 146,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 206,
+    "box": 0.062,
+    "mean": 0.018,
+    "verts": 138,
+    "tris": 78,
+    "game": 80,
+    "gameVerts": 86
+   }
+  },
+  "fat10x2": {
+   "parts": [
+    {
+     "p": "3006"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 2 x 10",
+   "lod0": {
+    "raw": 692,
+    "box": 0,
+    "mean": 0.002,
+    "far": 0,
+    "verts": 744,
+    "tris": 692,
+    "game": 468,
+    "gameVerts": 644,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 212,
+    "box": 0,
+    "mean": 0.0048,
+    "verts": 264,
+    "tris": 212,
+    "game": 212,
+    "gameVerts": 344
+   }
+  },
+  "fat1x1_round": {
+   "parts": [
+    {
+     "p": "3062a"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 1 x 1 Round with Solid Stud",
+   "lod0": {
+    "raw": 192,
+    "box": 0.002,
+    "mean": 0.0132,
+    "far": 0.019,
+    "verts": 158,
+    "tris": 132,
+    "game": 92,
+    "gameVerts": 113,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 104,
+    "box": 0.064,
+    "mean": 0.0165,
+    "verts": 116,
+    "tris": 68,
+    "game": 68,
+    "gameVerts": 74
+   }
+  },
+  "fat1x4_18slope": {
+   "parts": [
+    {
+     "p": "60477"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 18 4 x 1",
+   "lod0": {
+    "raw": 50,
+    "box": 0,
+    "mean": 0.0005,
+    "far": 0,
+    "verts": 64,
+    "tris": 50,
+    "game": 50,
+    "gameVerts": 87,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 26,
+    "box": 0,
+    "mean": 0.0011,
+    "verts": 40,
+    "tris": 26,
+    "game": 26,
+    "gameVerts": 46
+   }
+  },
+  "fat3x1x2_66slope": {
+   "parts": [
+    {
+     "p": "4460a"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 75 2 x 1 x 3 with Open Stud",
+   "lod0": {
+    "raw": 76,
+    "box": 0,
+    "mean": 0.0006,
+    "far": 0,
+    "verts": 80,
+    "tris": 68,
+    "game": 50,
+    "gameVerts": 87,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 44,
+    "box": 0.042,
+    "mean": 0.0014,
+    "verts": 39,
+    "tris": 26,
+    "game": 26,
+    "gameVerts": 46
+   }
+  },
+  "fat3x2x2_66slope_cnr": {
+   "parts": [
+    {
+     "p": "3685"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 75 2 x 2 x 3 Double Convex",
+   "lod0": {
+    "raw": 52,
+    "box": 0,
+    "mean": 0.0007,
+    "far": 0,
+    "verts": 66,
+    "tris": 52,
+    "game": 48,
+    "gameVerts": 87,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.0005,
+    "verts": 42,
+    "tris": 28,
+    "game": 28,
+    "gameVerts": 50
+   }
+  },
+  "fat4x1": {
+   "parts": [
+    {
+     "p": "3010"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 1 x 4",
+   "lod0": {
+    "raw": 148,
+    "box": 0,
+    "mean": 0.0009,
+    "far": 0,
+    "verts": 168,
+    "tris": 148,
+    "game": 116,
+    "gameVerts": 180,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 52,
+    "box": 0,
+    "mean": 0.003,
+    "verts": 72,
+    "tris": 52,
+    "game": 52,
+    "gameVerts": 88
+   }
+  },
+  "fat4x2": {
+   "parts": [
+    {
+     "p": "u8004a"
+    }
+   ],
+   "tier": "verified",
+   "title": "Mursten Brick 2 x 4",
+   "lod0": {
+    "raw": 284,
+    "box": 0,
+    "mean": 0.0011,
+    "far": 0,
+    "verts": 312,
+    "tris": 284,
+    "game": 204,
+    "gameVerts": 296,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 92,
+    "box": 0,
+    "mean": 0.0043,
+    "verts": 120,
+    "tris": 92,
+    "game": 92,
+    "gameVerts": 152
+   }
+  },
+  "fat6x1": {
+   "parts": [
+    {
+     "p": "3009"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 1 x 6",
+   "lod0": {
+    "raw": 216,
+    "box": 0,
+    "mean": 0.0009,
+    "far": 0,
+    "verts": 240,
+    "tris": 216,
+    "game": 160,
+    "gameVerts": 238,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 72,
+    "box": 0,
+    "mean": 0.003,
+    "verts": 96,
+    "tris": 72,
+    "game": 72,
+    "gameVerts": 120
+   }
+  },
+  "fat8x2": {
+   "parts": [
+    {
+     "p": "3007"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 2 x 8",
+   "lod0": {
+    "raw": 556,
+    "box": 0,
+    "mean": 0.0012,
+    "far": 0,
+    "verts": 600,
+    "tris": 556,
+    "game": 380,
+    "gameVerts": 528,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 172,
+    "box": 0,
+    "mean": 0.0044,
+    "verts": 216,
+    "tris": 172,
+    "game": 172,
+    "gameVerts": 280
+   }
+  },
+  "flat2x1": {
+   "parts": [
+    {
+     "p": "3069b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Tile 1 x 2 with Groove",
+   "note": "tile; the game's has a bevel",
+   "lod0": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.0084,
+    "far": 0.06,
+    "verts": 48,
+    "tris": 28,
+    "game": 44,
+    "gameVerts": 88,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.0078,
+    "verts": 48,
+    "tris": 28,
+    "game": 28,
+    "gameVerts": 48
+   }
+  },
+  "garage_door_frame": {
+   "parts": [
+    {
+     "p": "821c"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Garage Door Frame 1 x 6 x 4",
+   "note": "same frame",
+   "lod0": {
+    "raw": 522,
+    "box": 0.04,
+    "mean": 0.0247,
+    "far": 0.103,
+    "verts": 476,
+    "tris": 394,
+    "game": 304,
+    "gameVerts": 410,
+    "verified": false,
+    "why": "mean 0.025 > 0.02, far 10.3% > 8%"
+   },
+   "lod1": {
+    "raw": 282,
+    "box": 0.02,
+    "mean": 0.0255,
+    "verts": 296,
+    "tris": 196,
+    "game": 196,
+    "gameVerts": 284
+   }
+  },
+  "parasol": {
+   "parts": [
+    {
+     "p": "6252"
+    }
+   ],
+   "tier": "verified",
+   "title": "Umbrella 8 x 8 with Curved Tabs",
+   "note": "same umbrella",
+   "lod0": {
+    "raw": 1466,
+    "box": 0.017,
+    "mean": 0.017,
+    "far": 0.016,
+    "verts": 1299,
+    "tris": 957,
+    "game": 514,
+    "gameVerts": 580,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 1106,
+    "box": 0.08,
+    "mean": 0.0403,
+    "verts": 503,
+    "tris": 270,
+    "game": 270,
+    "gameVerts": 353
+   }
+  },
+  "police_car_box": {
+   "parts": [
+    {
+     "p": "4209a"
+    }
+   ],
+   "tier": "verified",
+   "title": "Hose Reel 2 x 4 x 2 Holder with Solid Studs",
+   "note": "same hose-reel holder box",
+   "lod0": {
+    "raw": 1258,
+    "box": 0,
+    "mean": 0.0022,
+    "far": 0.007,
+    "verts": 737,
+    "tris": 493,
+    "game": 208,
+    "gameVerts": 280,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 820,
+    "box": 0,
+    "mean": 0.0044,
+    "verts": 216,
+    "tris": 149,
+    "game": 112,
+    "gameVerts": 176
+   }
+  },
+  "prop_small": {
+   "parts": [
+    {
+     "p": "2421"
+    }
+   ],
+   "tier": "verified",
+   "title": "Propeller 3 Blade 4 Diameter",
+   "lod0": {
+    "raw": 272,
+    "box": 0.019,
+    "mean": 0.004,
+    "far": 0,
+    "verts": 244,
+    "tris": 144,
+    "game": 336,
+    "gameVerts": 305,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 192,
+    "box": 0.075,
+    "mean": 0.0046,
+    "verts": 264,
+    "tris": 188,
+    "game": 188,
+    "gameVerts": 206
+   }
+  },
+  "tap1x1": {
+   "parts": [
+    {
+     "p": "459923"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "~_Tap 1 x 1 Blue (Obsolete)",
+   "note": "same tap; 0.047 box (0.002 over)",
+   "lod0": {
+    "raw": 489,
+    "box": 0.047,
+    "mean": 0.0163,
+    "far": 0.032,
+    "verts": 238,
+    "tris": 141,
+    "game": 180,
+    "gameVerts": 207,
+    "verified": false,
+    "why": "box 0.047 > 0.045"
+   },
+   "lod1": {
+    "raw": 340,
+    "box": 0.048,
+    "mean": 0.0175,
+    "verts": 202,
+    "tris": 108,
+    "game": 108,
+    "gameVerts": 113
+   }
+  },
+  "thin1x1_clip": {
+   "parts": [
+    {
+     "p": "2555"
+    }
+   ],
+   "tier": "verified",
+   "title": "Tile 1 x 1 with Clip",
+   "lod0": {
+    "raw": 80,
+    "box": 0,
+    "mean": 0.004,
+    "far": 0.017,
+    "verts": 78,
+    "tris": 48,
+    "game": 80,
+    "gameVerts": 156,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 80,
+    "box": 0,
+    "mean": 0.0038,
+    "verts": 78,
+    "tris": 48,
+    "game": 48,
+    "gameVerts": 76
+   }
+  },
+  "thin1x1_round": {
+   "parts": [
+    {
+     "p": "6141"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 1 Round",
+   "lod0": {
+    "raw": 208,
+    "box": 0.005,
+    "mean": 0.0121,
+    "far": 0,
+    "verts": 180,
+    "tris": 144,
+    "game": 124,
+    "gameVerts": 130,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 128,
+    "box": 0.058,
+    "mean": 0.0171,
+    "verts": 138,
+    "tris": 92,
+    "game": 92,
+    "gameVerts": 98
+   }
+  },
+  "thin1x2_jet": {
+   "parts": [
+    {
+     "p": "3475b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 2 with Jet Engine with Axle Hole",
+   "note": "same jet plate",
+   "lod0": {
+    "raw": 760,
+    "box": 0.03,
+    "mean": 0.0166,
+    "far": 0.048,
+    "verts": 448,
+    "tris": 298,
+    "game": 316,
+    "gameVerts": 433,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 608,
+    "box": 0.025,
+    "mean": 0.0141,
+    "verts": 332,
+    "tris": 196,
+    "game": 196,
+    "gameVerts": 246
+   }
+  },
+  "thin2x1_hinge_pin": {
+   "parts": [
+    {
+     "p": "2430"
+    }
+   ],
+   "tier": "verified",
+   "title": "Hinge Plate 1 x 4 Top",
+   "lod0": {
+    "raw": 492,
+    "box": 0.001,
+    "mean": 0.0105,
+    "far": 0.047,
+    "verts": 376,
+    "tris": 221,
+    "game": 118,
+    "gameVerts": 182,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 304,
+    "box": 0.005,
+    "mean": 0.0152,
+    "verts": 127,
+    "tris": 70,
+    "game": 71,
+    "gameVerts": 113
+   }
+  },
+  "thin2x2": {
+   "parts": [
+    {
+     "p": "3022"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 2 x 2",
+   "lod0": {
+    "raw": 148,
+    "box": 0,
+    "mean": 0.0016,
+    "far": 0,
+    "verts": 168,
+    "tris": 148,
+    "game": 116,
+    "gameVerts": 180,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 52,
+    "box": 0,
+    "mean": 0.0058,
+    "verts": 72,
+    "tris": 52,
+    "game": 52,
+    "gameVerts": 88
+   }
+  },
+  "thin4x1_hinge_door": {
+   "parts": [
+    {
+     "p": "4315"
+    }
+   ],
+   "tier": "verified",
+   "title": "Hinge Plate 1 x 4 with Car Roof Holder",
+   "note": "same hinge plate",
+   "lod0": {
+    "raw": 584,
+    "box": 0.011,
+    "mean": 0.0045,
+    "far": 0.022,
+    "verts": 334,
+    "tris": 260,
+    "game": 224,
+    "gameVerts": 285,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 360,
+    "box": 0.019,
+    "mean": 0.008,
+    "verts": 226,
+    "tris": 152,
+    "game": 152,
+    "gameVerts": 207
+   }
+  },
+  "thin4x2_hinge": {
+   "parts": [
+    {
+     "p": "4315"
+    }
+   ],
+   "tier": "verified",
+   "title": "Hinge Plate 1 x 4 with Car Roof Holder",
+   "note": "same hinge plate",
+   "lod0": {
+    "raw": 584,
+    "box": 0.011,
+    "mean": 0.0016,
+    "far": 0,
+    "verts": 334,
+    "tris": 260,
+    "game": 248,
+    "gameVerts": 314,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 360,
+    "box": 0,
+    "mean": 0.0054,
+    "verts": 246,
+    "tris": 172,
+    "game": 172,
+    "gameVerts": 234
+   }
+  },
+  "thin6x6_boatbow": {
+   "parts": [
+    {
+     "p": "2625"
+    }
+   ],
+   "tier": "verified",
+   "title": "Boat Bow Plate 6 x 7",
+   "note": "same boat plate",
+   "lod0": {
+    "raw": 1490,
+    "box": 0,
+    "mean": 0.0088,
+    "far": 0.065,
+    "verts": 1536,
+    "tris": 1218,
+    "game": 676,
+    "gameVerts": 940,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 544,
+    "box": 0,
+    "mean": 0.0099,
+    "verts": 516,
+    "tris": 374,
+    "game": 308,
+    "gameVerts": 497
+   }
+  },
+  "wing6x3": {
+   "parts": [
+    {
+     "p": "2419"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 3 x 6 without Corners",
+   "note": "same plate",
+   "lod0": {
+    "raw": 896,
+    "box": 0,
+    "mean": 0.0168,
+    "far": 0.068,
+    "verts": 964,
+    "tris": 704,
+    "game": 308,
+    "gameVerts": 444,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 416,
+    "box": 0,
+    "mean": 0.0203,
+    "verts": 259,
+    "tris": 176,
+    "game": 140,
+    "gameVerts": 228
+   }
+  },
+  "fat10x1": {
+   "parts": [
+    {
+     "p": "6111"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 1 x 10",
+   "fitScale": true,
+   "note": "same brick, 0.08 shorter in the game: the body is fitted, the studs stay on the grid",
+   "lod0": {
+    "raw": 352,
+    "box": 0,
+    "mean": 0.0023,
+    "far": 0,
+    "verts": 384,
+    "tris": 352,
+    "game": 248,
+    "gameVerts": 354,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 112,
+    "box": 0,
+    "mean": 0.0036,
+    "verts": 144,
+    "tris": 112,
+    "game": 112,
+    "gameVerts": 184
+   }
+  },
+  "antenna8_whip": {
+   "parts": [
+    {
+     "p": "2569"
+    }
+   ],
+   "tier": "verified",
+   "title": "Antenna 8H Whip",
+   "lod0": {
+    "raw": 330,
+    "box": 0.013,
+    "mean": 0.0081,
+    "far": 0,
+    "verts": 189,
+    "tris": 91,
+    "game": 138,
+    "gameVerts": 134,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 174,
+    "box": 0.063,
+    "mean": 0.0134,
+    "verts": 152,
+    "tris": 77,
+    "game": 78,
+    "gameVerts": 79
+   }
+  },
+  "bar1x6_studs": {
+   "parts": [
+    {
+     "p": "4873"
+    }
+   ],
+   "tier": "verified",
+   "title": "Bar 1 x 6 with Studs Open",
+   "lod0": {
+    "raw": 1428,
+    "box": 0.001,
+    "mean": 0.0153,
+    "far": 0.002,
+    "verts": 1010,
+    "tris": 592,
+    "game": 424,
+    "gameVerts": 446,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 948,
+    "box": 0.054,
+    "mean": 0.0283,
+    "verts": 448,
+    "tris": 228,
+    "game": 228,
+    "gameVerts": 274
+   }
+  },
+  "fat10x4": {
+   "parts": [
+    {
+     "p": "6212"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 4 x 10",
+   "lod0": {
+    "raw": 1372,
+    "box": 0,
+    "mean": 0.0024,
+    "far": 0,
+    "verts": 1464,
+    "tris": 1372,
+    "game": 908,
+    "gameVerts": 1224,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 412,
+    "box": 0,
+    "mean": 0.0058,
+    "verts": 504,
+    "tris": 412,
+    "game": 412,
+    "gameVerts": 664
+   }
+  },
+  "fat1x1_handle": {
+   "parts": [
+    {
+     "p": "2921"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 1 x 1 with Handle",
+   "lod0": {
+    "raw": 154,
+    "box": 0.001,
+    "mean": 0.0038,
+    "far": 0.007,
+    "verts": 148,
+    "tris": 100,
+    "game": 90,
+    "gameVerts": 147,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 82,
+    "box": 0.047,
+    "mean": 0.0075,
+    "verts": 92,
+    "tris": 52,
+    "game": 52,
+    "gameVerts": 84
+   }
+  },
+  "fat1x3_33slope_corner": {
+   "parts": [
+    {
+     "p": "3675"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 33 3 x 3 Double Convex",
+   "lod0": {
+    "raw": 52,
+    "box": 0,
+    "mean": 0.0013,
+    "far": 0,
+    "verts": 68,
+    "tris": 52,
+    "game": 54,
+    "gameVerts": 97,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.001,
+    "verts": 44,
+    "tris": 28,
+    "game": 28,
+    "gameVerts": 50
+   }
+  },
+  "fat2x1_hinge_hole": {
+   "parts": [
+    {
+     "p": "3831"
+    }
+   ],
+   "tier": "verified",
+   "title": "Hinge Brick 1 x 4 Base",
+   "lod0": {
+    "raw": 194,
+    "box": 0,
+    "mean": 0.0054,
+    "far": 0.001,
+    "verts": 220,
+    "tris": 144,
+    "game": 132,
+    "gameVerts": 215,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 108,
+    "box": 0.016,
+    "mean": 0.0076,
+    "verts": 137,
+    "tris": 82,
+    "game": 82,
+    "gameVerts": 138
+   }
+  },
+  "fat2x2_45slope_cnr": {
+   "parts": [
+    {
+     "p": "3045"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 45 2 x 2 Double Convex",
+   "lod0": {
+    "raw": 52,
+    "box": 0,
+    "mean": 0.0003,
+    "far": 0,
+    "verts": 70,
+    "tris": 52,
+    "game": 40,
+    "gameVerts": 63,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.0012,
+    "verts": 46,
+    "tris": 28,
+    "game": 28,
+    "gameVerts": 50
+   }
+  },
+  "fat2x2": {
+   "parts": [
+    {
+     "p": "3003"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 2 x 2",
+   "lod0": {
+    "raw": 148,
+    "box": 0,
+    "mean": 0.001,
+    "far": 0,
+    "verts": 168,
+    "tris": 148,
+    "game": 116,
+    "gameVerts": 180,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 52,
+    "box": 0,
+    "mean": 0.0033,
+    "verts": 72,
+    "tris": 52,
+    "game": 52,
+    "gameVerts": 88
+   }
+  },
+  "fat2x4_18slope": {
+   "parts": [
+    {
+     "p": "30363"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 18 4 x 2",
+   "lod0": {
+    "raw": 84,
+    "box": 0,
+    "mean": 0.0005,
+    "far": 0,
+    "verts": 100,
+    "tris": 84,
+    "game": 72,
+    "gameVerts": 116,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 36,
+    "box": 0,
+    "mean": 0.0014,
+    "verts": 52,
+    "tris": 36,
+    "game": 36,
+    "gameVerts": 62
+   }
+  },
+  "fat3x2_curve": {
+   "parts": [
+    {
+     "p": "6215"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 2 x 3 with Curved Top",
+   "lod0": {
+    "raw": 168,
+    "box": 0,
+    "mean": 0.0039,
+    "far": 0,
+    "verts": 182,
+    "tris": 164,
+    "game": 136,
+    "gameVerts": 196,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 64,
+    "box": 0,
+    "mean": 0.0065,
+    "verts": 80,
+    "tris": 60,
+    "game": 72,
+    "gameVerts": 110
+   }
+  },
+  "fat4x3_33slope": {
+   "parts": [
+    {
+     "p": "3297"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 33 3 x 4",
+   "lod0": {
+    "raw": 152,
+    "box": 0,
+    "mean": 0.0006,
+    "far": 0,
+    "verts": 172,
+    "tris": 152,
+    "game": 116,
+    "gameVerts": 174,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 56,
+    "box": 0,
+    "mean": 0.0023,
+    "verts": 76,
+    "tris": 56,
+    "game": 56,
+    "gameVerts": 94
+   }
+  },
+  "fat6x2": {
+   "parts": [
+    {
+     "p": "2456"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 2 x 6",
+   "lod0": {
+    "raw": 420,
+    "box": 0,
+    "mean": 0.0012,
+    "far": 0,
+    "verts": 456,
+    "tris": 420,
+    "game": 292,
+    "gameVerts": 412,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 132,
+    "box": 0,
+    "mean": 0.0043,
+    "verts": 168,
+    "tris": 132,
+    "game": 132,
+    "gameVerts": 216
+   }
+  },
+  "fat8x1": {
+   "parts": [
+    {
+     "p": "3008"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 1 x 8",
+   "lod0": {
+    "raw": 284,
+    "box": 0,
+    "mean": 0.0009,
+    "far": 0,
+    "verts": 312,
+    "tris": 284,
+    "game": 204,
+    "gameVerts": 296,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 92,
+    "box": 0,
+    "mean": 0.0035,
+    "verts": 120,
+    "tris": 92,
+    "game": 92,
+    "gameVerts": 152
+   }
+  },
+  "flat4x1": {
+   "parts": [
+    {
+     "p": "2431"
+    }
+   ],
+   "tier": "verified",
+   "title": "Tile 1 x 4 with Groove",
+   "note": "tile; the game's has a bevel",
+   "lod0": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.0083,
+    "far": 0.06,
+    "verts": 48,
+    "tris": 28,
+    "game": 44,
+    "gameVerts": 88,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 28,
+    "box": 0,
+    "mean": 0.0079,
+    "verts": 48,
+    "tris": 28,
+    "game": 28,
+    "gameVerts": 48
+   }
+  },
+  "hingerod12": {
+   "parts": [
+    {
+     "p": "2375"
+    }
+   ],
+   "tier": "verified",
+   "title": "Hinge Bar 12 with Split Rod Holder",
+   "lod0": {
+    "raw": 721,
+    "box": 0.004,
+    "mean": 0.0183,
+    "far": 0.002,
+    "verts": 446,
+    "tris": 277,
+    "game": 248,
+    "gameVerts": 415,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 585,
+    "box": 0.004,
+    "mean": 0.0259,
+    "verts": 265,
+    "tris": 123,
+    "game": 124,
+    "gameVerts": 215
+   }
+  },
+  "mast": {
+   "parts": [
+    {
+     "p": "4318"
+    }
+   ],
+   "tier": "verified",
+   "title": "Boat Mast Hinged with 2 Fingers on Both Sides",
+   "note": "same mast",
+   "lod0": {
+    "raw": 492,
+    "box": 0.002,
+    "mean": 0.0085,
+    "far": 0.013,
+    "verts": 536,
+    "tris": 294,
+    "game": 228,
+    "gameVerts": 342,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 352,
+    "box": 0.023,
+    "mean": 0.013,
+    "verts": 332,
+    "tris": 166,
+    "game": 166,
+    "gameVerts": 268
+   }
+  },
+  "parasol_stand": {
+   "parts": [
+    {
+     "p": "4095"
+    }
+   ],
+   "tier": "verified",
+   "title": "Bar 6.6L with Stop",
+   "lod0": {
+    "raw": 190,
+    "box": 0.005,
+    "mean": 0.0087,
+    "far": 0,
+    "verts": 152,
+    "tris": 76,
+    "game": 92,
+    "gameVerts": 98,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 94,
+    "box": 0.044,
+    "mean": 0.009,
+    "verts": 116,
+    "tris": 68,
+    "game": 68,
+    "gameVerts": 74
+   }
+  },
+  "roadsign_oct": {
+   "parts": [
+    {
+     "p": "30260"
+    }
+   ],
+   "tier": "verified",
+   "title": "Roadsign Clip-on 2 x 2 Octagonal",
+   "note": "same sign; the game's has two slots",
+   "lod0": {
+    "raw": 134,
+    "box": 0.002,
+    "mean": 0.001,
+    "far": 0,
+    "verts": 148,
+    "tris": 86,
+    "game": 122,
+    "gameVerts": 220,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 102,
+    "box": 0.005,
+    "mean": 0.001,
+    "verts": 139,
+    "tris": 73,
+    "game": 74,
+    "gameVerts": 124
+   }
+  },
+  "roof4x2": {
+   "parts": [
+    {
+     "p": "3299"
+    }
+   ],
+   "tier": "verified",
+   "title": "Slope Brick 33 2 x 4 Double",
+   "lod0": {
+    "raw": 16,
+    "box": 0.009,
+    "mean": 0.0029,
+    "far": 0,
+    "verts": 30,
+    "tris": 16,
+    "game": 40,
+    "gameVerts": 88,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 16,
+    "box": 0.009,
+    "mean": 0.0029,
+    "verts": 30,
+    "tris": 16,
+    "game": 28,
+    "gameVerts": 48
+   }
+  },
+  "thin_2x1_offset": {
+   "parts": [
+    {
+     "p": "4590"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Plate 1 x 2 with 2 Offset Hollow Studs",
+   "note": "same plate",
+   "lod0": {
+    "raw": 546,
+    "box": 0.001,
+    "mean": 0.0232,
+    "far": 0.115,
+    "verts": 470,
+    "tris": 328,
+    "game": 340,
+    "gameVerts": 462,
+    "verified": false,
+    "why": "mean 0.023 > 0.02, far 11.5% > 8%"
+   },
+   "lod1": {
+    "raw": 312,
+    "box": 0,
+    "mean": 0.0182,
+    "verts": 303,
+    "tris": 180,
+    "game": 180,
+    "gameVerts": 236
+   }
+  },
+  "thin10x2": {
+   "parts": [
+    {
+     "p": "3832"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 2 x 10",
+   "lod0": {
+    "raw": 692,
+    "box": 0,
+    "mean": 0.0018,
+    "far": 0,
+    "verts": 744,
+    "tris": 692,
+    "game": 468,
+    "gameVerts": 644,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 212,
+    "box": 0,
+    "mean": 0.0072,
+    "verts": 264,
+    "tris": 212,
+    "game": 212,
+    "gameVerts": 344
+   }
+  },
+  "thin1x1_clip_vert": {
+   "parts": [
+    {
+     "p": "4085b"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 1 with Clip Vertical (Thin U-Clip)",
+   "lod0": {
+    "raw": 158,
+    "box": 0,
+    "mean": 0.0052,
+    "far": 0,
+    "verts": 140,
+    "tris": 98,
+    "game": 94,
+    "gameVerts": 139,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 126,
+    "box": 0,
+    "mean": 0.0104,
+    "verts": 95,
+    "tris": 68,
+    "game": 68,
+    "gameVerts": 110
+   }
+  },
+  "thin1x2_1stud": {
+   "parts": [
+    {
+     "p": "379421"
+    }
+   ],
+   "tier": "verified",
+   "title": "~_Plate 1 x 2 with 1 Stud Red (Obsolete)",
+   "lod0": {
+    "raw": 46,
+    "box": 0,
+    "mean": 0.0007,
+    "far": 0,
+    "verts": 60,
+    "tris": 46,
+    "game": 34,
+    "gameVerts": 53,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 22,
+    "box": 0,
+    "mean": 0.002,
+    "verts": 36,
+    "tris": 22,
+    "game": 28,
+    "gameVerts": 47
+   }
+  },
+  "thin2x1_2fingers": {
+   "parts": [
+    {
+     "p": "78256"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 2 with Clip Vertical on End",
+   "lod0": {
+    "raw": 184,
+    "box": 0.001,
+    "mean": 0.0094,
+    "far": 0.005,
+    "verts": 200,
+    "tris": 154,
+    "game": 116,
+    "gameVerts": 178,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 112,
+    "box": 0.001,
+    "mean": 0.0111,
+    "verts": 123,
+    "tris": 75,
+    "game": 76,
+    "gameVerts": 122
+   }
+  },
+  "thin2x1_hook": {
+   "parts": [
+    {
+     "p": "4623"
+    }
+   ],
+   "tier": "reviewed",
+   "title": "Plate 1 x 2 with Vertical Bar on Long Side and Long Arm",
+   "note": "same plate with bar; the bar is 0.05 longer",
+   "lod0": {
+    "raw": 192,
+    "box": 0.05,
+    "mean": 0.0082,
+    "far": 0.002,
+    "verts": 138,
+    "tris": 100,
+    "game": 118,
+    "gameVerts": 184,
+    "verified": false,
+    "why": "box 0.050 > 0.045"
+   },
+   "lod1": {
+    "raw": 80,
+    "box": 0.044,
+    "mean": 0.0103,
+    "verts": 123,
+    "tris": 72,
+    "game": 72,
+    "gameVerts": 90
+   }
+  },
+  "thin2x2_upright": {
+   "parts": [
+    {
+     "p": "2422"
+    }
+   ],
+   "tier": "verified",
+   "title": "Bracket 2 x 2 - 1 x 4",
+   "note": "same bracket",
+   "lod0": {
+    "raw": 442,
+    "box": 0,
+    "mean": 0.0184,
+    "far": 0.032,
+    "verts": 498,
+    "tris": 390,
+    "game": 228,
+    "gameVerts": 326,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 210,
+    "box": 0,
+    "mean": 0.0213,
+    "verts": 233,
+    "tris": 150,
+    "game": 124,
+    "gameVerts": 202
+   }
+  },
+  "thin4x1": {
+   "parts": [
+    {
+     "p": "3710"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 1 x 4",
+   "lod0": {
+    "raw": 148,
+    "box": 0,
+    "mean": 0.0015,
+    "far": 0,
+    "verts": 168,
+    "tris": 148,
+    "game": 116,
+    "gameVerts": 180,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 52,
+    "box": 0,
+    "mean": 0.0055,
+    "verts": 72,
+    "tris": 52,
+    "game": 52,
+    "gameVerts": 88
+   }
+  },
+  "thin4x2": {
+   "parts": [
+    {
+     "p": "3020"
+    }
+   ],
+   "tier": "verified",
+   "title": "Plate 2 x 4",
+   "lod0": {
+    "raw": 284,
+    "box": 0,
+    "mean": 0.0017,
+    "far": 0,
+    "verts": 312,
+    "tris": 284,
+    "game": 204,
+    "gameVerts": 296,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 92,
+    "box": 0,
+    "mean": 0.006,
+    "verts": 120,
+    "tris": 92,
+    "game": 92,
+    "gameVerts": 152
+   }
+  },
+  "thin6x7_boatbow": {
+   "parts": [
+    {
+     "p": "2625"
+    }
+   ],
+   "tier": "verified",
+   "title": "Boat Bow Plate 6 x 7",
+   "note": "same boat plate",
+   "lod0": {
+    "raw": 1490,
+    "box": 0,
+    "mean": 0.0085,
+    "far": 0.068,
+    "verts": 1550,
+    "tris": 1223,
+    "game": 644,
+    "gameVerts": 862,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 547,
+    "box": 0,
+    "mean": 0.0105,
+    "verts": 519,
+    "tris": 375,
+    "game": 308,
+    "gameVerts": 498
+   }
+  },
+  "wing7x12_left": {
+   "parts": [
+    {
+     "p": "3585"
+    }
+   ],
+   "tier": "verified",
+   "title": "Wing 7 x 12 Right",
+   "note": "same wing plate",
+   "lod0": {
+    "raw": 1544,
+    "box": 0,
+    "mean": 0.0057,
+    "far": 0.01,
+    "verts": 1646,
+    "tris": 1544,
+    "game": 996,
+    "gameVerts": 1320,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 482,
+    "box": 0.077,
+    "mean": 0.0111,
+    "verts": 571,
+    "tris": 467,
+    "game": 464,
+    "gameVerts": 744
+   }
+  },
+  "fat12x1": {
+   "parts": [
+    {
+     "p": "6112"
+    }
+   ],
+   "tier": "verified",
+   "title": "Brick 1 x 12",
+   "fitScale": true,
+   "note": "same brick, 0.08 shorter in the game: the body is fitted, the studs stay on the grid",
+   "lod0": {
+    "raw": 420,
+    "box": 0,
+    "mean": 0.0023,
+    "far": 0,
+    "verts": 456,
+    "tris": 420,
+    "game": 292,
+    "gameVerts": 412,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 132,
+    "box": 0,
+    "mean": 0.0038,
+    "verts": 168,
+    "tris": 132,
+    "game": 132,
+    "gameVerts": 216
+   }
+  },
+  "car_steeringwheel": {
+   "parts": [
+    {
+     "p": "3829c01"
+    }
+   ],
+   "tier": "class",
+   "strict": true,
+   "cls": "other",
+   "title": "",
+   "note": "steering stand and wheel; the stand is the second colour",
+   "lod0": {
+    "raw": 980,
+    "box": 0.003,
+    "mean": 0.014,
+    "far": 0.042,
+    "verts": 427,
+    "tris": 303,
+    "game": 128,
+    "gameVerts": 174,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 904,
+    "box": 0.029,
+    "mean": 0.017,
+    "verts": 201,
+    "tris": 92,
+    "game": 92,
+    "gameVerts": 124
+   }
+  },
+  "door4x5_4pane": {
+   "parts": [
+    {
+     "p": "3861c"
+    },
+    {
+     "p": "4344!"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "door",
+   "title": "",
+   "fitScale": true,
+   "note": "door 1x4x5 with 4 panes + door glass",
+   "lod0": {
+    "raw": 622,
+    "box": 0,
+    "mean": 0.077,
+    "far": 0.428,
+    "verts": 628,
+    "tris": 436,
+    "game": 236,
+    "gameVerts": 341,
+    "verified": false,
+    "why": "mean 0.077 > 0.02, far 42.8% > 8%"
+   },
+   "lod1": {
+    "raw": 444,
+    "box": 0.027,
+    "mean": 0.0848,
+    "verts": 369,
+    "tris": 211,
+    "game": 186,
+    "gameVerts": 260
+   }
+  },
+  "fat1x1_headlight": {
+   "parts": [
+    {
+     "p": "4070"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "other",
+   "title": "",
+   "note": "headlight brick: LDraw has the lamp recess, the game a moulded round lamp",
+   "lod0": {
+    "raw": 184,
+    "box": 0,
+    "mean": 0.02,
+    "far": 0.19,
+    "verts": 196,
+    "tris": 156,
+    "game": 80,
+    "gameVerts": 134,
+    "verified": false,
+    "why": "mean 0.020 > 0.02, far 19.0% > 8%"
+   },
+   "lod1": {
+    "raw": 104,
+    "box": 0,
+    "mean": 0.0312,
+    "verts": 89,
+    "tris": 54,
+    "game": 40,
+    "gameVerts": 68
+   }
+  },
+  "fat2x2_pin": {
+   "parts": [
+    {
+     "p": "4730"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "pin",
+   "title": "",
+   "note": "brick 2x2 with pin; the pin is 0.08 longer than the game's and has friction ridges",
+   "lod0": {
+    "raw": 502,
+    "box": 0.08,
+    "mean": 0.0184,
+    "far": 0.035,
+    "verts": 436,
+    "tris": 315,
+    "game": 138,
+    "gameVerts": 209,
+    "verified": false,
+    "why": "box 0.080 > 0.045"
+   },
+   "lod1": {
+    "raw": 294,
+    "box": 0.08,
+    "mean": 0.0184,
+    "verts": 113,
+    "tris": 68,
+    "game": 68,
+    "gameVerts": 108
+   }
+  },
+  "fat6x6_boatbow": {
+   "parts": [
+    {
+     "p": "2626"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "other",
+   "title": "",
+   "note": "boat base 6x6 (the underside is closed like the game's solid bow)",
+   "lod0": {
+    "raw": 819,
+    "box": 0.013,
+    "mean": 0.0428,
+    "far": 0.299,
+    "verts": 928,
+    "tris": 734,
+    "game": 424,
+    "gameVerts": 614,
+    "verified": false,
+    "why": "mean 0.043 > 0.02, far 29.9% > 8%"
+   },
+   "lod1": {
+    "raw": 379,
+    "box": 0,
+    "mean": 0.0446,
+    "verts": 432,
+    "tris": 292,
+    "game": 200,
+    "gameVerts": 329
+   }
+  },
+  "lever_base": {
+   "parts": [
+    {
+     "p": "4592"
+    }
+   ],
+   "tier": "class",
+   "strict": true,
+   "cls": "other",
+   "title": "",
+   "nostud": true,
+   "note": "control stick base (faceted dome with notch)",
+   "lod0": {
+    "raw": 258,
+    "box": 0.004,
+    "mean": 0.0181,
+    "far": 0.008,
+    "verts": 140,
+    "tris": 73,
+    "game": 76,
+    "gameVerts": 76,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 222,
+    "box": 0.036,
+    "mean": 0.0253,
+    "verts": 109,
+    "tris": 55,
+    "game": 56,
+    "gameVerts": 58
+   }
+  },
+  "wheel01": {
+   "parts": [
+    {
+     "p": "6014bc02"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "wheel",
+   "title": "",
+   "fitScale": true,
+   "note": "wheel rim with tyre 12/40x11 (centre band): the tyre is the second colour; the real tyre has a tread, the game's is smooth",
+   "lod0": {
+    "raw": 1711,
+    "box": 0,
+    "mean": 0.0569,
+    "far": 0.317,
+    "verts": 1185,
+    "tris": 570,
+    "game": 188,
+    "gameVerts": 202,
+    "verified": false,
+    "why": "mean 0.057 > 0.02, far 31.7% > 8%"
+   },
+   "lod1": {
+    "raw": 1455,
+    "box": 0.014,
+    "mean": 0.0762,
+    "verts": 593,
+    "tris": 294,
+    "game": 156,
+    "gameVerts": 170
+   }
+  },
+  "window_bay": {
+   "parts": [
+    {
+     "p": "30185c01"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "window",
+   "title": "",
+   "fitScale": true,
+   "second": "trans",
+   "note": "bay window: LDraw frame + brown glass; the glass is the second colour",
+   "lod0": {
+    "raw": 922,
+    "box": 0,
+    "mean": 0.0529,
+    "far": 0.232,
+    "verts": 960,
+    "tris": 642,
+    "game": 456,
+    "gameVerts": 746,
+    "verified": false,
+    "why": "mean 0.053 > 0.02, far 23.2% > 8%"
+   },
+   "lod1": {
+    "raw": 610,
+    "box": 0,
+    "mean": 0.0541,
+    "verts": 595,
+    "tris": 363,
+    "game": 340,
+    "gameVerts": 610
+   }
+  },
+  "window1x4x3": {
+   "parts": [
+    {
+     "p": "4033c01"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "window",
+   "title": "",
+   "fitScale": true,
+   "second": "trans",
+   "note": "train window 1x4x3 with its glass pane (second colour); the game has more mullions in some variants",
+   "lod0": {
+    "raw": 846,
+    "box": 0,
+    "mean": 0.0537,
+    "far": 0.344,
+    "verts": 418,
+    "tris": 309,
+    "game": 124,
+    "gameVerts": 172,
+    "verified": false,
+    "why": "mean 0.054 > 0.02, far 34.4% > 8%"
+   },
+   "lod1": {
+    "raw": 542,
+    "box": 0,
+    "mean": 0.0547,
+    "verts": 263,
+    "tris": 181,
+    "game": 76,
+    "gameVerts": 120
+   }
+  },
+  "window4x6_3pane": {
+   "parts": [
+    {
+     "p": "57894"
+    },
+    {
+     "p": "57895!"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "window",
+   "title": "",
+   "fitScale": true,
+   "note": "window frame with three panes + its glass",
+   "lod0": {
+    "raw": 1105,
+    "box": 0,
+    "mean": 0.0932,
+    "far": 0.372,
+    "verts": 512,
+    "tris": 339,
+    "game": 188,
+    "gameVerts": 268,
+    "verified": false,
+    "why": "mean 0.093 > 0.02, far 37.2% > 8%"
+   },
+   "lod1": {
+    "raw": 903,
+    "box": 0,
+    "mean": 0.0941,
+    "verts": 234,
+    "tris": 141,
+    "game": 132,
+    "gameVerts": 220
+   }
+  },
+  "car_mudguard": {
+   "parts": [
+    {
+     "p": "2513"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "other",
+   "title": "",
+   "note": "car mudguard 3x4 with the arch cut-out",
+   "lod0": {
+    "raw": 603,
+    "box": 0,
+    "mean": 0.0451,
+    "far": 0.387,
+    "verts": 528,
+    "tris": 352,
+    "game": 144,
+    "gameVerts": 218,
+    "verified": false,
+    "why": "mean 0.045 > 0.02, far 38.7% > 8%"
+   },
+   "lod1": {
+    "raw": 410,
+    "box": 0,
+    "mean": 0.0516,
+    "verts": 288,
+    "tris": 174,
+    "game": 88,
+    "gameVerts": 146
+   }
+  },
+  "door4x5_6pane": {
+   "parts": [
+    {
+     "p": "4486c01"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "door",
+   "title": "",
+   "fitScale": true,
+   "second": "trans",
+   "note": "door 1x4x5 with 6 panes and glass",
+   "lod0": {
+    "raw": 607,
+    "box": 0,
+    "mean": 0.0234,
+    "far": 0.238,
+    "verts": 629,
+    "tris": 443,
+    "game": 280,
+    "gameVerts": 431,
+    "verified": false,
+    "why": "mean 0.023 > 0.02, far 23.8% > 8%"
+   },
+   "lod1": {
+    "raw": 449,
+    "box": 0,
+    "mean": 0.0283,
+    "verts": 441,
+    "tris": 252,
+    "game": 254,
+    "gameVerts": 405
+   }
+  },
+  "fat1x3_33slopeinvert": {
+   "parts": [
+    {
+     "p": "4287b"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "slope",
+   "title": "",
+   "note": "inverted slope 33 3x1",
+   "lod0": {
+    "raw": 261,
+    "box": 0,
+    "mean": 0.0251,
+    "far": 0.179,
+    "verts": 243,
+    "tris": 179,
+    "game": 102,
+    "gameVerts": 165,
+    "verified": false,
+    "why": "mean 0.025 > 0.02, far 17.9% > 8%"
+   },
+   "lod1": {
+    "raw": 142,
+    "box": 0,
+    "mean": 0.0294,
+    "verts": 96,
+    "tris": 62,
+    "game": 46,
+    "gameVerts": 78
+   }
+  },
+  "fat2x2_45slopeinvert": {
+   "parts": [
+    {
+     "p": "3660a"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "slope",
+   "title": "",
+   "note": "inverted slope 45 2x2; the two front studs sit in a pocket in LDraw (the game has a flat deck)",
+   "lod0": {
+    "raw": 207,
+    "box": 0,
+    "mean": 0.0266,
+    "far": 0.232,
+    "verts": 235,
+    "tris": 185,
+    "game": 124,
+    "gameVerts": 194,
+    "verified": false,
+    "why": "mean 0.027 > 0.02, far 23.2% > 8%"
+   },
+   "lod1": {
+    "raw": 94,
+    "box": 0,
+    "mean": 0.0298,
+    "verts": 106,
+    "tris": 72,
+    "game": 56,
+    "gameVerts": 94
+   }
+  },
+  "fat4x2_dbinv45": {
+   "parts": [
+    {
+     "p": "4871"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "slope",
+   "title": "",
+   "note": "double inverted slope 45 4x2 with open centre",
+   "lod0": {
+    "raw": 410,
+    "box": 0,
+    "mean": 0.0202,
+    "far": 0.171,
+    "verts": 456,
+    "tris": 360,
+    "game": 244,
+    "gameVerts": 368,
+    "verified": false,
+    "why": "mean 0.020 > 0.02, far 17.1% > 8%"
+   },
+   "lod1": {
+    "raw": 184,
+    "box": 0,
+    "mean": 0.0252,
+    "verts": 188,
+    "tris": 124,
+    "game": 116,
+    "gameVerts": 188
+   }
+  },
+  "flat1x4_tophinge": {
+   "parts": [
+    {
+     "p": "4625"
+    }
+   ],
+   "tier": "class",
+   "strict": true,
+   "cls": "hinge",
+   "title": "",
+   "fitScale": true,
+   "note": "hinge tile 1x4; the hinge is 0.069 lower than in the game, the body is fitted",
+   "lod0": {
+    "raw": 454,
+    "box": 0.012,
+    "mean": 0.0149,
+    "far": 0,
+    "verts": 198,
+    "tris": 146,
+    "game": 142,
+    "gameVerts": 262,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 326,
+    "box": 0.021,
+    "mean": 0.017,
+    "verts": 162,
+    "tris": 102,
+    "game": 102,
+    "gameVerts": 159
+   }
+  },
+  "shutter": {
+   "parts": [
+    {
+     "p": "3856"
+    }
+   ],
+   "tier": "class",
+   "strict": true,
+   "cls": "door",
+   "title": "",
+   "b1": 2.5,
+   "bc1": 1,
+   "note": "window shutter 1x2x3 with slats (the game has a flat panel)",
+   "lod0": {
+    "raw": 1000,
+    "box": 0.004,
+    "mean": 0.0141,
+    "far": 0,
+    "verts": 648,
+    "tris": 400,
+    "game": 72,
+    "gameVerts": 106,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 768,
+    "box": 0.051,
+    "mean": 0.0183,
+    "verts": 116,
+    "tris": 106,
+    "game": 36,
+    "gameVerts": 54
+   }
+  },
+  "window_bay_mantle": {
+   "parts": [
+    {
+     "p": "30181"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "window",
+   "title": "",
+   "fitScale": true,
+   "note": "brick 4x10 without two corners = the base of the bay window",
+   "lod0": {
+    "raw": 1684,
+    "box": 0,
+    "mean": 0.0467,
+    "far": 0.44,
+    "verts": 1944,
+    "tris": 1396,
+    "game": 720,
+    "gameVerts": 998,
+    "verified": false,
+    "why": "mean 0.047 > 0.02, far 44.0% > 8%"
+   },
+   "lod1": {
+    "raw": 676,
+    "box": 0,
+    "mean": 0.0536,
+    "verts": 880,
+    "tris": 544,
+    "game": 328,
+    "gameVerts": 530
+   }
+  },
+  "window_space_roof": {
+   "parts": [
+    {
+     "p": "30343c01"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "window",
+   "title": "",
+   "fitScale": true,
+   "second": "trans",
+   "note": "double slope window 4x10x2 with glass",
+   "lod0": {
+    "raw": 792,
+    "box": 0,
+    "mean": 0.0421,
+    "far": 0.173,
+    "verts": 802,
+    "tris": 594,
+    "game": 364,
+    "gameVerts": 536,
+    "verified": false,
+    "why": "mean 0.042 > 0.02, far 17.3% > 8%"
+   },
+   "lod1": {
+    "raw": 488,
+    "box": 0,
+    "mean": 0.0542,
+    "verts": 471,
+    "tris": 295,
+    "game": 248,
+    "gameVerts": 396
+   }
+  },
+  "dingy_prop": {
+   "parts": [
+    {
+     "p": "2433"
+    }
+   ],
+   "tier": "class",
+   "strict": true,
+   "cls": "other",
+   "title": "",
+   "b0": 0,
+   "mc0": 0.00002,
+   "note": "hinge bar with three fingers and a stud (propeller shaft); fine decimation keeps the grooves clean",
+   "lod0": {
+    "raw": 1600,
+    "box": 0.003,
+    "mean": 0.0114,
+    "far": 0.021,
+    "verts": 621,
+    "tris": 396,
+    "game": 176,
+    "gameVerts": 200,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 1384,
+    "box": 0.044,
+    "mean": 0.0201,
+    "verts": 266,
+    "tris": 140,
+    "game": 140,
+    "gameVerts": 156
+   }
+  },
+  "fat1x2_45slopeinvert": {
+   "parts": [
+    {
+     "p": "3665a"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "slope",
+   "title": "",
+   "note": "inverted slope 45 2x1; one stud sits in a pocket in LDraw (the game has a flat deck)",
+   "lod0": {
+    "raw": 113,
+    "box": 0,
+    "mean": 0.0196,
+    "far": 0.163,
+    "verts": 142,
+    "tris": 108,
+    "game": 80,
+    "gameVerts": 136,
+    "verified": false,
+    "why": "far 16.3% > 8%"
+   },
+   "lod1": {
+    "raw": 62,
+    "box": 0,
+    "mean": 0.0229,
+    "verts": 77,
+    "tris": 47,
+    "game": 36,
+    "gameVerts": 62
+   }
+  },
+  "fat2x1_pin": {
+   "parts": [
+    {
+     "p": "2458"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "pin",
+   "title": "",
+   "note": "brick 1x2 with pin; the pin is 0.08 longer than the game's",
+   "lod0": {
+    "raw": 434,
+    "box": 0.08,
+    "mean": 0.0248,
+    "far": 0.051,
+    "verts": 383,
+    "tris": 242,
+    "game": 94,
+    "gameVerts": 151,
+    "verified": false,
+    "why": "box 0.080 > 0.045, mean 0.025 > 0.02"
+   },
+   "lod1": {
+    "raw": 274,
+    "box": 0.08,
+    "mean": 0.025,
+    "verts": 85,
+    "tris": 47,
+    "game": 48,
+    "gameVerts": 76
+   }
+  },
+  "fat2x3_33slopeinvert": {
+   "parts": [
+    {
+     "p": "3747a"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "slope",
+   "title": "",
+   "note": "inverted slope 33 3x2",
+   "lod0": {
+    "raw": 505,
+    "box": 0,
+    "mean": 0.0319,
+    "far": 0.205,
+    "verts": 434,
+    "tris": 328,
+    "game": 168,
+    "gameVerts": 252,
+    "verified": false,
+    "why": "mean 0.032 > 0.02, far 20.5% > 8%"
+   },
+   "lod1": {
+    "raw": 257,
+    "box": 0,
+    "mean": 0.0365,
+    "verts": 168,
+    "tris": 107,
+    "game": 76,
+    "gameVerts": 126
+   }
+  },
+  "l_s_globe": {
+   "parts": [
+    {
+     "p": "4592"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "other",
+   "title": "",
+   "nostud": true,
+   "note": "control stick base used as the globe (faceted dome)",
+   "lod0": {
+    "raw": 258,
+    "box": 0.007,
+    "mean": 0.0245,
+    "far": 0.064,
+    "verts": 142,
+    "tris": 72,
+    "game": 108,
+    "gameVerts": 92,
+    "verified": false,
+    "why": "mean 0.024 > 0.02"
+   },
+   "lod1": {
+    "raw": 222,
+    "box": 0.048,
+    "mean": 0.0265,
+    "verts": 140,
+    "tris": 72,
+    "game": 72,
+    "gameVerts": 62
+   }
+  },
+  "window1x4x3_": {
+   "parts": [
+    {
+     "p": "4033c01"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "window",
+   "title": "",
+   "fitScale": true,
+   "second": "trans",
+   "note": "train window 1x4x3 with its glass pane (second colour); the game has more mullions in some variants",
+   "lod0": {
+    "raw": 846,
+    "box": 0,
+    "mean": 0.0407,
+    "far": 0.208,
+    "verts": 472,
+    "tris": 362,
+    "game": 228,
+    "gameVerts": 306,
+    "verified": false,
+    "why": "mean 0.041 > 0.02, far 20.8% > 8%"
+   },
+   "lod1": {
+    "raw": 542,
+    "box": 0,
+    "mean": 0.0418,
+    "verts": 273,
+    "tris": 185,
+    "game": 180,
+    "gameVerts": 254
+   }
+  },
+  "window4x2": {
+   "parts": [
+    {
+     "p": "453cc01"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "window",
+   "title": "",
+   "fitScale": true,
+   "second": "trans",
+   "note": "window 1x4x2 classic with sill and glass",
+   "lod0": {
+    "raw": 483,
+    "box": 0,
+    "mean": 0.0427,
+    "far": 0.213,
+    "verts": 411,
+    "tris": 295,
+    "game": 234,
+    "gameVerts": 356,
+    "verified": false,
+    "why": "mean 0.043 > 0.02, far 21.3% > 8%"
+   },
+   "lod1": {
+    "raw": 243,
+    "box": 0.003,
+    "mean": 0.0462,
+    "verts": 250,
+    "tris": 154,
+    "game": 150,
+    "gameVerts": 253
+   }
+  },
+  "window6x3": {
+   "parts": [
+    {
+     "p": "604ac01"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "window",
+   "title": "",
+   "fitScale": true,
+   "second": "trans",
+   "note": "panorama window 1x6x3 with glass",
+   "lod0": {
+    "raw": 759,
+    "box": 0,
+    "mean": 0.0282,
+    "far": 0.162,
+    "verts": 627,
+    "tris": 427,
+    "game": 308,
+    "gameVerts": 454,
+    "verified": false,
+    "why": "mean 0.028 > 0.02, far 16.2% > 8%"
+   },
+   "lod1": {
+    "raw": 375,
+    "box": 0,
+    "mean": 0.0309,
+    "verts": 349,
+    "tris": 200,
+    "game": 196,
+    "gameVerts": 336
+   }
+  },
+  "window4x6_1pane": {
+   "parts": [
+    {
+     "p": "6160c01"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "window",
+   "title": "",
+   "fitScale": true,
+   "second": "trans",
+   "note": "window 1x4x6 with fixed glass",
+   "lod0": {
+    "raw": 220,
+    "box": 0,
+    "mean": 0.0509,
+    "far": 0.186,
+    "verts": 288,
+    "tris": 220,
+    "game": 140,
+    "gameVerts": 196,
+    "verified": false,
+    "why": "mean 0.051 > 0.02, far 18.6% > 8%"
+   },
+   "lod1": {
+    "raw": 124,
+    "box": 0,
+    "mean": 0.0511,
+    "verts": 192,
+    "tris": 124,
+    "game": 92,
+    "gameVerts": 152
+   }
+  },
+  "bar7x3_clips": {
+   "parts": [
+    {
+     "p": "30095"
+    }
+   ],
+   "tier": "class",
+   "strict": true,
+   "cls": "other",
+   "title": "",
+   "note": "bar 7x3 with four clips; the clips are slightly different in size",
+   "lod0": {
+    "raw": 768,
+    "box": 0.018,
+    "mean": 0.0155,
+    "far": 0.006,
+    "verts": 668,
+    "tris": 392,
+    "game": 392,
+    "gameVerts": 554,
+    "verified": true,
+    "why": ""
+   },
+   "lod1": {
+    "raw": 496,
+    "box": 0.001,
+    "mean": 0.012,
+    "verts": 534,
+    "tris": 286,
+    "game": 286,
+    "gameVerts": 446
+   }
+  },
+  "car_seat": {
+   "parts": [
+    {
+     "p": "6216"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "other",
+   "title": "",
+   "fitScale": true,
+   "note": "brick 2x4x2 with triple curved top (the seat back)",
+   "lod0": {
+    "raw": 80,
+    "box": 0,
+    "mean": 0.0718,
+    "far": 0.27,
+    "verts": 92,
+    "tris": 80,
+    "game": 56,
+    "gameVerts": 72,
+    "verified": false,
+    "why": "mean 0.072 > 0.02, far 27.0% > 8%"
+   }
+  },
+  "door4x5_1pane": {
+   "parts": [
+    {
+     "p": "73194c01"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "door",
+   "title": "",
+   "fitScale": true,
+   "second": "trans",
+   "note": "door 1x4x5 with glass",
+   "lod0": {
+    "raw": 346,
+    "box": 0,
+    "mean": 0.0231,
+    "far": 0.163,
+    "verts": 400,
+    "tris": 276,
+    "game": 118,
+    "gameVerts": 175,
+    "verified": false,
+    "why": "mean 0.023 > 0.02, far 16.3% > 8%"
+   },
+   "lod1": {
+    "raw": 256,
+    "box": 0.031,
+    "mean": 0.0272,
+    "verts": 229,
+    "tris": 125,
+    "game": 98,
+    "gameVerts": 155
+   }
+  },
+  "fat1x1_roundhole": {
+   "parts": [
+    {
+     "p": "3062b"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "other",
+   "title": "",
+   "note": "round brick 1x1; its stud is hollow in LDraw (built solid), the game's has a hole",
+   "lod0": {
+    "raw": 208,
+    "box": 0.002,
+    "mean": 0.0324,
+    "far": 0.217,
+    "verts": 180,
+    "tris": 144,
+    "game": 160,
+    "gameVerts": 192,
+    "verified": false,
+    "why": "mean 0.032 > 0.02, far 21.7% > 8%"
+   },
+   "lod1": {
+    "raw": 136,
+    "box": 0.064,
+    "mean": 0.0311,
+    "verts": 156,
+    "tris": 120,
+    "game": 120,
+    "gameVerts": 150
+   }
+  },
+  "window1x4x3_1pane": {
+   "parts": [
+    {
+     "p": "4033c01"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "window",
+   "title": "",
+   "fitScale": true,
+   "second": "trans",
+   "note": "train window 1x4x3 with its glass pane (second colour); the game has more mullions in some variants",
+   "lod0": {
+    "raw": 846,
+    "box": 0,
+    "mean": 0.0486,
+    "far": 0.272,
+    "verts": 472,
+    "tris": 362,
+    "game": 156,
+    "gameVerts": 216,
+    "verified": false,
+    "why": "mean 0.049 > 0.02, far 27.2% > 8%"
+   },
+   "lod1": {
+    "raw": 542,
+    "box": 0,
+    "mean": 0.0497,
+    "verts": 263,
+    "tris": 181,
+    "game": 108,
+    "gameVerts": 164
+   }
+  },
+  "window1x4x5_1pane": {
+   "parts": [
+    {
+     "p": "4347c01"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "window",
+   "title": "",
+   "fitScale": true,
+   "second": "trans",
+   "note": "window 1x4x5 with fixed glass",
+   "lod0": {
+    "raw": 196,
+    "box": 0,
+    "mean": 0.0493,
+    "far": 0.341,
+    "verts": 240,
+    "tris": 196,
+    "game": 140,
+    "gameVerts": 204,
+    "verified": false,
+    "why": "mean 0.049 > 0.02, far 34.1% > 8%"
+   },
+   "lod1": {
+    "raw": 100,
+    "box": 0,
+    "mean": 0.05,
+    "verts": 144,
+    "tris": 100,
+    "game": 92,
+    "gameVerts": 152
+   }
+  },
+  "window4x4x3sloped_2pane": {
+   "parts": [
+    {
+     "p": "6159c01"
+    }
+   ],
+   "tier": "class",
+   "strict": false,
+   "cls": "window",
+   "title": "",
+   "fitScale": true,
+   "second": "trans",
+   "note": "sloped roof window with centre bar and glass",
+   "lod0": {
+    "raw": 222,
+    "box": 0,
+    "mean": 0.0459,
+    "far": 0.148,
+    "verts": 282,
+    "tris": 222,
+    "game": 204,
+    "gameVerts": 331,
+    "verified": false,
+    "why": "mean 0.046 > 0.02, far 14.8% > 8%"
+   },
+   "lod1": {
+    "raw": 126,
+    "box": 0,
+    "mean": 0.0472,
+    "verts": 184,
+    "tris": 125,
+    "game": 124,
+    "gameVerts": 200
+   }
+  }
+ },
+ "rejected": {
+  "antenna_sidespokes": "92908 (Technic Steering Portal Axle Frame) is the closest library part, but the game's own LOD 0 differs: best part mean 0.6144 / far 92 % / box 0.08",
+  "camera_body": "no LDraw counterpart: the game's camera body is a custom shape",
+  "car_dash": "no LDraw counterpart: the game's dashboard is a custom shape",
+  "fat3x3_33slopeinvert": "the nearest part (4161, a normal slope) has 3 of the game's 9 studs at the wrong height: not an inverted double slope",
+  "fat4x3_33slopeinvert": "no LDraw part with this shape (double inverted slope)",
+  "hook": "no LDraw counterpart: the game's hook is a custom anchor shape",
+  "hosp_sign": "69761 (Technic Gear 22 Tooth Bevel with Peghole) is the closest library part, but the game's own LOD 0 differs: best part mean 0.1607 / far 65 % / box 0.069",
+  "roof2x1_sloped": "the game's roof is a hipped pyramid, LDraw's a plain slope",
+  "roof4x2_sloped": "the game's roof is a hipped pyramid, LDraw's a plain slope",
+  "wedge4x4_triple_but": "the game's wedge has a recess (button) that the LDraw wedge does not",
+  "window2x4x3_sloped": "LDraw windscreen 2352 has no glass part: the game's pane (second colour) would have no counterpart",
+  "fat2x2_eye": "the eye is a print in LDraw (no geometry): the plain brick would lose the game's second colour (68 vertices)",
+  "car_base4x10": "LDraw's car base has rows of studs and tubes the game's simplified base does not",
+  "chair": "no LDraw counterpart: custom chair",
+  "fat1x2_45slopeinvert_cnr": "as fat1x2_45slopeinvert",
+  "fat6x1x6_66slope": "15627 (Panel 1 x 6 x 6 with 4 x 2 Window Cutout) is the closest library part, but the game's own LOD 0 differs: best part mean 0.3766 / far 66 % / box 0",
+  "handlebar": "no LDraw counterpart",
+  "hose_garage": "41752 (Technic Rubber Band Holder Small with Pinholes) is the closest library part, but the game's own LOD 0 differs: best part mean 0.4757 / far 95 % / box 0.067",
+  "pizzaoven_door": "55237a (Bar 3.2L with Bow) is the closest library part, but the game's own LOD 0 differs: best part mean 0.2098 / far 63 % / box 0.07",
+  "thin2x2_hole": "LDraw's closest part (plate with rubber foot) is another element",
+  "wheel02": "the puck 44848 has the shape (mean 0.04) but no hub colour (the second colour would be lost); the integral-tyre wheel 6600 is mean 0.12",
+  "window1x4x3_shut": "a compound (window with two opened shutters): no single library part (best: mean 0.073, box 0.011) and the frames have no glass",
+  "window6x2_45dslope": "78522 is a curved slope, the game's is flat (mean 0.12)",
+  "wing4x4": "the game's wing is a trapezoid plate, LDraw's a plain plate with a hinge",
+  "door4x3_window": "the game's door is a frame with a pane; no LDraw door with this shape",
+  "door4x6_1pane": "no LDraw door with this shape",
+  "fat1x1_6h": "the LDraw pillar is round with a base, the game's square",
+  "fat2x2_clips": "no LDraw counterpart",
+  "fat4x4_18slope_cnr": "no LDraw part with this shape",
+  "fat6x2_45dslope_": "the LDraw slope has studs on both decks, the game's on one: the stud layout and the triangle budget do not fit",
+  "hemisphere4x4_base": "no LDraw part with this shape",
+  "hinge2x2_top": "the LDraw hinge plate has 4 studs, the game's 2",
+  "hose_nozzle": "no LDraw counterpart: the game's nozzle is a custom shape",
+  "loudhailer": "no LDraw counterpart",
+  "roof2x2_sloped_cnr": "the game's roof is a hipped pyramid, LDraw's a plain slope",
+  "wedge6x4_invert": "no LDraw part with this shape",
+  "winch": "no LDraw counterpart",
+  "window_info_cornersolid": "4737 (outward sloping panel) is another element (mean 0.111) and has no glass part for the game's pane",
+  "window1x4x4_1pane": "no window 1x4x4 with glass in the library (40527 + a 1x3x3 glass leaves the lower part open: looked at, wrong)",
+  "windscreen6x3": "the LDraw slope has 2 studs on its top, the game's 6: not the same element",
+  "car_boot": "no LDraw counterpart: custom boot",
+  "car_engine": "no LDraw counterpart: custom engine block",
+  "dingy_pummel": "no LDraw counterpart: custom dinghy fender",
+  "fat3x2x8_66slope": "4743 (Arch 2 x 8 x 3) is the closest library part, but the game's own LOD 0 differs: best part mean 0.1973 / far 56 % / box 0",
+  "garage_door": "60932 (~Constraction Ball Cannon Housing) is the closest library part, but the game's own LOD 0 differs: best part mean 0.6308 / far 87 % / box 0.116",
+  "hemisphere4x4": "the LDraw hemisphere is a cratered rock",
+  "lasergun": "48170 (Technic Brick 2 x 2 with Hole, Half Rotation Joint Ball Horiz) is the closest library part, but the game's own LOD 0 differs: best part mean 0.1387 / far 60 % / box 0.08",
+  "wedge6x4": "the LDraw wedge has 6 studs on its top, the game's 4: not the same element",
+  "winch_wheel": "no LDraw counterpart",
+  "window_info_straight": "4741 (outward sloping window) has no glass part in the library: the pane would be lost; mean 0.108, looked at: open frame only",
+  "fat1x1_eye": "the eye is a print in LDraw (no geometry): the plain brick would lose the game's second colour (34 vertices)"
+ },
+ "none": {
+  "cylinder4x4_5h": "no library part with a similar bounding box (3.378 x 4.96 x 3.378)",
+  "fat3x1_6h": "no library part with a similar bounding box (2.4 x 5.92 x 0.8)",
+  "dingy": "no library part with a similar bounding box (5.418 x 1.789 x 9.182)",
+  "panel4x3_window": "no library part with a similar bounding box (3.2 x 2.88 x 0.32)",
+  "support_str_tall": "no library part with a similar bounding box (4.8 x 9.76 x 4.8)",
+  "antenna8_whip_flag": "no library part with a similar bounding box (0.652 x 7.68 x 2.326)",
+  "car_base4x13": "no library part with a similar bounding box (2.72 x 1.486 x 10.4)",
+  "shuttle_engine": "no library part with a similar bounding box (5.661 x 1.92 x 4.937)",
+  "track": "no library part with a similar bounding box (1.28 x 2.104 x 10.302)",
+  "cylinder4x4_1h": "no library part with a similar bounding box (3.378 x 1.12 x 3.378)",
+  "door4x6_frame": "no library part with a similar bounding box (3.2 x 5.919 x 0.64)",
+  "hose_space": "no library part with a similar bounding box (3.209 x 2.211 x 5.962)",
+  "prop_large": "no library part with a similar bounding box (6.502 x 5.667 x 1.28)",
+  "space_tower_arm": "no library part with a similar bounding box (0.8 x 3.36 x 6.369)",
+  "track_arch": "no library part with a similar bounding box (2.4 x 2.24 x 11.36)",
+  "windscreen2x4": "no library part with a similar bounding box (3.2 x 2.24 x 1.6)",
+  "wing16x14": "no library part with a similar bounding box (12.8 x 0.32 x 11.2)"
+ },
+ "slab": [
+  "fat10x10",
+  "fat12x12",
+  "fat4x12",
+  "fat4x8",
+  "fat6x12",
+  "fat8x10",
+  "thin12x12",
+  "thin4x10",
+  "thin4x4",
+  "thin6x8",
+  "fat10x12",
+  "fat4x4",
+  "fat6x6",
+  "fat8x12",
+  "thin10x10",
+  "thin4x12",
+  "thin6x6",
+  "thin8x8",
+  "fat6x8",
+  "thin10x12",
+  "thin4x6",
+  "thin6x10",
+  "thin8x10",
+  "fat4x10",
+  "fat4x6",
+  "fat6x10",
+  "fat8x8",
+  "thin4x8",
+  "thin6x12",
+  "thin8x12"
+ ]
+}

@@ -1,0 +1,394 @@
+LEGO 3D - ATTRIBUTION
+
+The 3D geometry in this data pack is derived from the LDraw.org Parts Library (https://www.ldraw.org, https://library.ldraw.org), a library of LEGO(R) part models made by the LDraw
+community, and from models of the LDraw.org Official Model Repository (OMR, https://library.ldraw.org/omr), listed below.
+
+Licence: the Parts Library files are licensed under Creative Commons Attribution 2.0 (CC BY 2.0, "CCAL version 2.0") and/or Creative Commons Attribution 4.0 International (CC BY 4.0), as
+stated in each file's header (counts below), https://creativecommons.org/licenses/by/2.0/ and https://creativecommons.org/licenses/by/4.0/ (LDraw's summary: CAreadme.txt of the library).
+Creators: the authors named in the file headers, listed below; each part's page: https://library.ldraw.org/parts/ (search by part number).
+Modifications: the geometry was converted to a compact data format, flattened (sub-files expanded), scaled, rotated and fitted (per-axis scale and shift) to the proportions of a computer game's
+models, hidden faces removed, simplified into several levels of detail, normals recomputed, skinned to a skeleton by position rules and split into material groups. It is NOT the original LDraw
+geometry. No endorsement by LDraw.org or the authors is implied.
+LDraw(TM) is a trademark owned and licensed by the Estate of James Jessiman. LEGO(R) is a trademark of the LEGO Group, which does not sponsor, endorse or authorize this work.
+
+The pack contains NO pictures or meshes of the game "LEGO Island 2": those are read from the player's own game files in the browser and are never copied here.
+
+Licence lines found in the 947 files used:
+  887 x Licensed under CC BY 4.0 : see CAreadme.txt
+  50 x Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  10 x CCAL version 2.0
+
+Authors (58): Alex Taylor [anathema]; Andy Westrate [westrate]; Arne Hackstein; Bernd Munding; C.L.Rasmussen [johnny-thunder]; Chris Böhnke [KnightOfTarenta]; Chris Dee [cwdee]; Damien Roux [Darats]; Deanna Earley [DeannaEarley]; Dennis Osborn [DennisOsborn]; Donald Sutter [technog]; Evert-Jan Boer [ejboer]; Franklin W. Cain [fwcain]; Gerald Lasser [GeraldLasser]; Greg Teft [gregteft]; Guy Vivan [guyvivan]; J.C. Tchang [tchang]; Jaco van der Molen [Jaco]; James Jessiman; Johann Eisner [technicbasics]; John Riley [jriley]; John Van Zwieten [jvan]; LDraw.org Official Model Repository; Luis E. Fernandez [lfernand]; Lutz Uhlmann [El-Lutzo]; Magnus Forsberg [MagFors]; Marc Klein [marckl]; Mark Kennedy [mkennedy]; Massimo Maso [Sirio]; Max Martin Richter [MMR1988]; Merlijn Wissink [legolijntje]; Michael Heidemann [mikeheide]; Niels Karsdorp [nielsk]; Nils Schmidt [BlackBrick89]; Orion Pobursky [OrionP]; Owen Burgoyne [C3POwen]; Paul Easter [pneaster]; Philippe Hurbain [Philo]; Reinhard "Ben" Beneke [Ben_aus_BS]; Remco Braak [remco1974]; Rene Rechthaler [Blechtaler]; Rolf Osterthun [Rolf]; Ross Crawford [rosco]; Santeri Piippo [arezey]; Steffen [Steffen]; Steve Bliss [sbliss]; Sylvain Sauvage [SLS]; Takeshi Takahashi [RainbowDolphin]; Thomas Burger [grapeape]; Tim Gould [timgould]; Tim Lampmann [L4mpi]; Tomas Kralicek [RabbiT_CZ]; Tore Eriksson [Tore_Eriksson]; Ulrich Röder [UR]; Vincent Messenet [Cheenzo]; William Howard [WilliamH]; Willy Tschager [Holly-Wood]; [PTadmin]
+
+OMR set models (10):
+  6415 Res-Q Jet-Ski - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/6415-1
+  6666 Ambulance - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/6666-1
+  5920 Island Racer - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5920-1
+  6479 Emergency Response Centre (boat) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/6479-1
+  6479 Emergency Response Centre (helicopter) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/6479-1
+  6479 Emergency Response Centre (inflatable boat) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/6479-1
+  7750 Steam Engine (locomotive) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/7750-1
+  7750 Steam Engine (tender) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/7750-1
+  5935 Island Hopper (zone z22BIP, 1.33x) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
+  5935 Island Hopper - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
+
+Parts used (357):
+  parts/16599.dat - Minifig Helmet Classic with Thin Chin Guard Cracked - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/191925a.dat - Sticker  2.4 x  2 with White German Railways Logo and "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/191925b.dat - Sticker  0.8 x  2 with White "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2343.dat - Minifig Goblet - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2344.dat - ~Train Wheels Pin - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2348b.dat - Glass for Hinge Car Roof  4 x  4 Sunroof with Ridges - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2349a.dat - Hinge Car Roof  4 x  4 Sunroof without Ledges - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2357.dat - Brick  2 x  2 Corner - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2362b.dat - Panel  1 x  2 x  3 with Hollow Studs - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2375.dat - Hinge Bar 12 with Split Rod Holder - Thomas Burger [grapeape] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/2377.dat - Window  1 x  2 x  2 Plane - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2412b.dat - Tile  1 x  2 Grille with Groove - Guy Vivan [guyvivan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/2413.dat - Wing  4 x  9 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2419.dat - Plate  3 x  6 without Corners - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2421.dat - Propeller  3 Blade  4 Diameter - Lutz Uhlmann [El-Lutzo] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/2422.dat - Bracket  2 x  2 -  1 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2429.dat - Hinge Plate  1 x  4 Base - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2430.dat - Hinge Plate  1 x  4 Top - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2431.dat - Tile  1 x  4 with Groove - Santeri Piippo [arezey] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2432.dat - Tile  1 x  2 with Handle - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2433.dat - Hinge Bar  2 with 3 Fingers and Top Stud - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2436a.dat - Bracket  1 x  2 -  1 x  4 with Square Corners - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2437.dat - Windscreen  3 x  4 x  1.333 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2450.dat - Plate  3 x  3 without Corner - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2453b.dat - Brick  1 x  1 x  5 with Solid Stud - Merlijn Wissink [legolijntje] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/2456.dat - Brick  2 x  6 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2458.dat - Brick  1 x  2 with Pin - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2460.dat - Tile  2 x  2 with Pin - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2479.dat - Propeller  4 Blade  5 Diameter - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2513.dat - Car Mudguard  3 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2540.dat - Plate  1 x  2 with Handle - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2555.dat - Tile  1 x  1 with Clip - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2561.dat - Minifig Gun Musket - Franklin W. Cain [fwcain] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2562.dat - Minifig Gun Flintlock Pistol - Franklin W. Cain [fwcain] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2569.dat - Antenna  8H Whip - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2582.dat - Hinge Panel  2 x  4 x  3.333 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2584.dat - Hose Reel  2 x  2 Holder - Luis E. Fernandez [lfernand] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/2585.dat - Hose Reel  2 x  2 - Luis E. Fernandez [lfernand] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/2620.dat - Windscreen  4 x  4 x  3 with Hinge - Lutz Uhlmann [El-Lutzo] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/2625.dat - Boat Bow Plate  6 x  7 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2626.dat - Boat Base  6 x  6 - Jaco van der Molen [Jaco] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2654.dat - ~Moved to 2654a - [PTadmin] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2654a.dat - Dish  2 x  2 with Rim - Evert-Jan Boer [ejboer] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/266a.dat - ~Electric Lightbrick  2 x  2 Type 1 12V Case - Niels Karsdorp [nielsk] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/266ac01.dat - Electric Lightbrick  2 x  2 Type 1 12V (Complete) - Niels Karsdorp [nielsk] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/266b.dat - ~Electric Lightbrick  2 x  2 Type 2 12V Case - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/266bc01.dat - Electric Lightbrick  2 x  2 Type 2 12V with Clear Diffusor - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2674b.dat - Minifig Sword Greatsword with Capped Pommel - Philippe Hurbain [Philo] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/267a.dat - ~Electric Lightbrick  2 x  2 Type 1 Insert - Niels Karsdorp [nielsk] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/267b.dat - ~Electric Lightbrick  2 x  2 Type 2 Insert with Diffusor - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2723.dat - Technic Disc  3 x  3 with Axlehole - Thomas Burger [grapeape] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/2743.dat - Technic Brick  1 x  4 x  1.667 Wing Front - Luis E. Fernandez [lfernand] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/2873.dat - Hinge Tile  2 x  4 with Ribs - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2921.dat - Brick  1 x  1 with Handle - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2959.dat - ~Magnet Cylindrical Casing (Obsolete) - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/2959c01.dat - ~Magnet Cylindrical in Casing (Complete) (Obsolete) - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/29c.dat - Window  1 x  1 x  2 Classic with Short Sill - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/29cc01.dat - Window  1 x  1 x  2 Classic with Short Sill (Complete) - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3001.dat - Brick  2 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30010.dat - =Panel  1 x  2 x  1 with Square Corners - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3002.dat - Brick  2 x  3 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3003.dat - Brick  2 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30031.dat - Minifig Handlebars - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30039.dat - =Tile  1 x  1 with Groove - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3004.dat - Brick  1 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3005.dat - Brick  1 x  1 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3006.dat - Brick  2 x 10 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3007.dat - Brick  2 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3008.dat - Brick  1 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30086.dat - ~Boat Inflatable 12 x  6 x  1.333 Lower (Needs Work) - Guy Vivan [guyvivan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/30087.dat - ~Boat Inflatable 12 x  6 x  1.333 Upper (Needs Work) - Guy Vivan [guyvivan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/3009.dat - Brick  1 x  6 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30095.dat - Bar  7 x  3 with Quadruple Clips - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3010.dat - Brick  1 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30147.dat - Car Grille  1 x  2 x  2 Round Top with Lights - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30155.dat - Wheel Rim  8 x 18 with 12 Spokes and Peghole - C.L.Rasmussen [johnny-thunder] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/30165.dat - Brick  2 x  2 with Curved Top and  2 Studs on Top - Lutz Uhlmann [El-Lutzo] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/30167.dat - Minifig Hat Wide Brim Flat - Paul Easter [pneaster] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30181.dat - Brick  4 x 10 without Two Corners - John Riley [jriley] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/30185.dat - Window Bay  3 x  8 x  6 - Luis E. Fernandez [lfernand] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/30185c01.dat - Window Bay  3 x  8 x  6 with Trans Brown Glass - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30186.dat - Glass for Window Bay  3 x  8 x  6 - Luis E. Fernandez [lfernand] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/30192.dat - Minifig Tool Grappling Hook - Philippe Hurbain [Philo] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3020.dat - Plate  2 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3021.dat - Plate  2 x  3 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3022.dat - Plate  2 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3023.dat - ~Moved to 3023b - Orion Pobursky [OrionP] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3023b.dat - Plate  1 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3024.dat - Plate  1 x  1 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30260.dat - Roadsign Clip-on  2 x  2 Octagonal - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/30264.dat - ~Glass for Window  4 x 10 x  2 Slope Double - Ross Crawford [rosco] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30273.dat - Minifig Helmet with Chinstrap and Wide Brim - Paul Easter [pneaster] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3028.dat - Plate  6 x 12 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3029.dat - Plate  4 x 12 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3031.dat - Plate  4 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3032.dat - Plate  4 x  6 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3034.dat - Plate  2 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30343.dat - ~Window  4 x 10 x  2 Slope Double - Ross Crawford [rosco] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30343c01.dat - Window  4 x 10 x  2 Slope Double with Trans Dark Blue Glass - Ross Crawford [rosco] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3035.dat - Plate  4 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30355.dat - Wing  6 x 12 Left - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/30356.dat - Wing  6 x 12 Right - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/3036.dat - Plate  6 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30363.dat - Slope Brick 18  4 x  2 - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/30365.dat - Hinge Brick  1 x  2 Locking with Dual Finger On End - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/3037.dat - Slope Brick 45  2 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30383.dat - Hinge Plate  1 x  2 Locking with Single Finger On Top - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/3039.dat - Slope Brick 45  2 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3039pc6.dat - Slope Brick 45  2 x  2 with Radar Screen Pattern - Damien Roux [Darats] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3040b.dat - Slope Brick 45  2 x  1 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3045.dat - Slope Brick 45  2 x  2 Double Convex - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3062a.dat - Brick  1 x  1 Round with Solid Stud - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3062b.dat - Brick  1 x  1 Round with Hollow Stud - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3063b.dat - Brick  2 x  2 Corner Round with Stud Notch - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3068a.dat - Tile  2 x  2 without Groove - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3068b.dat - Tile  2 x  2 with Groove - Takeshi Takahashi [RainbowDolphin] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3069b.dat - Tile  1 x  2 with Groove - Santeri Piippo [arezey] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3069bp68.dat - Tile  1 x  2 with Red & Yellow Controls Pattern - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/3070a.dat - Tile  1 x  1 without Groove - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3070b.dat - Tile  1 x  1 with Groove - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3081c.dat - ~Window  1 x  2 x  2 Classic with Short Sill - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3081cc01.dat - Window  1 x  2 x  2 Classic with Short Sill (Complete) - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3082.dat - ~Window  1 x  2 x  2 Classic Glass - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3134.dat - Brick  1 x  2 with Cable Cutout - Takeshi Takahashi [RainbowDolphin] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3176.dat - Plate  3 x  2 with Hole - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/32028.dat - Plate  1 x  2 with Door Rail - Remco Braak [remco1974] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/32083.dat - Slope Brick 45  6 x  4 Double - Franklin W. Cain [fwcain] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3297.dat - Slope Brick 33  3 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3298.dat - Slope Brick 33  3 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3299.dat - Slope Brick 33  2 x  4 Double - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3300.dat - Slope Brick 33  2 x  2 Double - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/33054.dat - Minifig Mug - Philippe Hurbain [Philo] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3308a.dat - Arch  1 x  8 x  2 - Vincent Messenet [Cheenzo] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3460.dat - Plate  1 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3475a.dat - Plate  1 x  2 with Jet Engine and Smooth Hole - Michael Heidemann [mikeheide] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3475b.dat - Plate  1 x  2 with Jet Engine with Axle Hole - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3585.dat - Wing  7 x 12 Right - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3586.dat - Wing  7 x 12 Left - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3622.dat - Brick  1 x  3 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3623.dat - Plate  1 x  3 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3626b.dat - Minifig Head with Blocked Hollow Stud - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3641.dat - Tyre  6/ 50 x  8 Offset Tread - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3651.dat - Technic Connector (Pin/Bush) with 2 Studs - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3660.dat - ~Moved to 3660a - [PTadmin] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3660a.dat - ~Slope Brick 45  2 x  2 Inverted without Inner Stopper Ring (Obsolete) - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3665.dat - ~Moved to 3665a - [PTadmin] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3665a.dat - Slope Brick 45  2 x  1 Inverted without Inner Stopper Ring - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3666.dat - Plate  1 x  6 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3673.dat - Technic Pin - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3675.dat - Slope Brick 33  3 x  3 Double Convex - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3684c.dat - Slope Brick 75  2 x  2 x  3 with Solid Studs - Tomas Kralicek [RabbiT_CZ] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/3685.dat - Slope Brick 75  2 x  2 x  3 Double Convex - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3700.dat - Technic Brick  1 x  2 with Hole - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3701.dat - Technic Brick  1 x  4 with Holes - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3704.dat - Technic Axle  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3710.dat - Plate  1 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3713.dat - Technic Bush with Two Flanges - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3738.dat - Technic Plate  2 x  8 with Holes - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3747a.dat - Slope Brick 33  3 x  2 Inverted without Ribs between Studs - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3750.dat - ~Winch  2 x  4 x  2 Base - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3750c01.dat - Winch  2 x  4 x  2 Body - Sylvain Sauvage [SLS] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3751.dat - ~Winch  2 x  4 x  2 Top - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3752.dat - ~Winch  2 x  4 x  2 Drum - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3754.dat - Brick  1 x  6 x  5 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3788.dat - Car Mudguard  2 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3794.dat - ~Moved to 3794a - [PTadmin] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/379421.dat - ~_Plate  1 x  2 with 1 Stud Red (Obsolete) - [PTadmin] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3794a.dat - Plate  1 x  2 without Groove with 1 Centre Stud - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3794b.dat - Plate  1 x  2 with Groove with 1 Centre Stud - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3795.dat - Plate  2 x  6 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3815b.dat - Minifig Hips - Nils Schmidt [BlackBrick89] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3816.dat - ~Minifig Leg Right (Obsolete) - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3817.dat - ~Minifig Leg Left (Obsolete) - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3818.dat - Minifig Arm Right - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3819.dat - Minifig Arm Left - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3820.dat - Minifig Hand - Orion Pobursky [OrionP] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3821.dat - Door  1 x  3 x  1 Right - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3822.dat - Door  1 x  3 x  1 Left - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3823.dat - Windscreen  2 x  4 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3828.dat - ~Car Steering Wheel - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3829a.dat - ~Car Steering Wheel Stand - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3829c01.dat - Car Steering Stand and Wheel (Complete) - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3830.dat - Hinge Brick  1 x  4 Top - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3831.dat - Hinge Brick  1 x  4 Base - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3832.dat - Plate  2 x 10 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3833.dat - Minifig Construction Helmet - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3839a.dat - Plate  1 x  2 with Handles Type 1 - Bernd Munding - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3839b.dat - Plate  1 x  2 with Handles Type 2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3842b.dat - Minifig Helmet Classic with Thick Chin Guard and Visor Dimples - Willy Tschager [Holly-Wood] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3856.dat - Window  1 x  2 x  3 Shutter - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3861c.dat - Door  1 x  4 x  5 with 4 Panes and Reinforced Hinge - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3896.dat - Minifig Helmet Castle with Chin-Guard - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3901.dat - Minifig Hair Male - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3937.dat - Hinge  1 x  2 Base - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3938.dat - Hinge  1 x  2 Top - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3939.dat - Slope Brick 33  3 x  6 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3941.dat - Brick  2 x  2 Round without Reinforcement - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3957b.dat - Antenna  4H with Flat Top - Greg Teft [gregteft] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/3958.dat - Plate  6 x  6 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3963.dat - Brick  2 x  1 with Positioning Rockets - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4022.dat - Train Buffer Beam - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4023.dat - Train Coupling Type 1 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4023c01.dat - Train Coupling Type 1 with Magnet in Coupled Position - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4023c02.dat - Train Coupling Type 1 with Magnet in Uncoupled Position - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4033.dat - Train Window  1 x  4 x  3 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4033c01.dat - Train Window  1 x  4 x  3 with Trans-Clear Glass - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4034.dat - Glass for Train Window  1 x  4 x  3 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4070.dat - Brick  1 x  1 with Headlight - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4079.dat - Minifig Seat  2 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4081b.dat - Plate  1 x  1 with Clip Light Type 2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4083.dat - Bar  1 x  4 x  2 with Studs - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4085a.dat - Plate  1 x  1 with Clip Vertical (Thin C-Clip) - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4085b.dat - Plate  1 x  1 with Clip Vertical (Thin U-Clip) - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4085c.dat - Plate  1 x  1 with Clip Vertical (Thick U-Clip) - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4092a.dat - Train Bogie Plate with Long Pin - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4095.dat - Bar  6.6L with Stop - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4106.dat - ~=Magnet Cylindrical Casing (Obsolete) - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/41612.dat - Minifig Hair Long and Straight Parted in the Middle - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4162.dat - Tile  1 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4170.dat - ~Electric Light Prism  1 x  6 Holder - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4170c01.dat - Electric Light Prism  1 x  6 Holder (Complete) - Guy Vivan [guyvivan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/4171.dat - Electric Train Light Prism  1 x  3 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4175.dat - Plate  1 x  2 with Ladder - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4179.dat - ~Brick  2 x  4 for Train Wheels Top - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4180a.dat - ~Brick  2 x  4 for Train Wheels Base - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4180c01.dat - Brick  2 x  4 Black with Train Wheels Large (Complete) - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4181.dat - Train Door  1 x  4 x  5 Left - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4181c01.dat - Train Door  1 x  4 x  5 Left with TransClear Glass - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4182.dat - Train Door  1 x  4 x  5 Right - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4182c01.dat - Train Door  1 x  4 x  5 Right with TransClear Glass - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4183.dat - Glass for Train Door - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4209a.dat - Hose Reel  2 x  4 x  2 Holder with Solid Studs - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4213.dat - Hinge Car Roof  4 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4285b.dat - Dish  6 x  6 Inverted Webbed Type 2 - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4286.dat - Slope Brick 33  3 x  1 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4287.dat - ~Moved to 4287a - [PTadmin] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4287a.dat - Slope Brick 33  3 x  1 Inverted with Notch and Thick Front - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4287b.dat - Slope Brick 33  3 x  1 Inverted with Notch, Stud Blocker and Thick Front - Massimo Maso [Sirio] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4315.dat - Hinge Plate  1 x  4 with Car Roof Holder - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4318.dat - Boat Mast Hinged with 2 Fingers on Both Sides - Thomas Burger [grapeape] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/4343.dat - ~Door  1 x  4 x  5 Frame - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4344.dat - ~Door  1 x  4 x  5 Glass - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4347.dat - ~Window  1 x  4 x  5 with Fixed Glass - Frame - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4347c01.dat - Window  1 x  4 x  5 with Fixed Glass (Complete) - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4460a.dat - Slope Brick 75  2 x  1 x  3 with Open Stud - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4476.dat - Support  2 x  4 x  5 Stanchion Inclined - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4477.dat - Plate  1 x 10 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4486.dat - ~Door  1 x  4 x  5 with  6 Panes - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4486c01.dat - Door  1 x  4 x  5 Right with 6 Panes with TransClear Glass - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4488.dat - Plate  2 x  2 with 1 Wheel Pin - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/453c.dat - ~Window  1 x  4 x  2 Classic with Short Sill - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/453cc01.dat - Window  1 x  4 x  2 Classic with Short Sill (Complete) - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/458.dat - Tyre for Train Wheel for Electric Train Motor 12V - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4589.dat - Cone  1 x  1 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4590.dat - Plate  1 x  2 with  2 Offset Hollow Studs - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4592.dat - Hinge Control Stick Base - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4592c01.dat - ~Hinge Control Stick and Base (Complete) (Obsolete) - Franklin W. Cain [fwcain] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4593.dat - Hinge Control Stick - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4599.dat - ~Moved to 4599a - [PTadmin] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/459923.dat - ~_Tap  1 x  1 Blue (Obsolete) - Michael Heidemann [mikeheide] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4599a.dat - Tap  1 x  1 with Hole in Spout - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4623.dat - Plate  1 x  2 with Vertical Bar on Long Side and Long Arm - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4624.dat - Wheel Rim  6.4 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4625.dat - Hinge Tile  1 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4730.dat - Brick  2 x  2 with Pin - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4740.dat - Dish  2 x  2 Inverted - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4770.dat - Electric Light & Sound Coloured Globe - Thomas Burger [grapeape] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/4854.dat - Slope Brick 45  4 x  4 Double Inverted with Open Centre - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4856.dat - Wedge  6 x  4 Inverted - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4857.dat - Slope Brick 45  4 x  4 Double with Hinge - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4859.dat - Wing  3 x  4 with  1 x  2 Cutout without Stud Notches - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4865a.dat - Panel  1 x  2 x  1 with Square Corners - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4871.dat - Slope Brick 45  4 x  2 Double Inverted with Open Centre - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4872.dat - Windscreen  3 x  4 x  4 Inverted - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4873.dat - Bar  1 x  6 with Studs Open - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/48995.dat - Tile  2 x  3 Rounded with Hole - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/501a.dat - ~Electric Train Motor 12V with 2-Hole Plugs - Thomas Burger [grapeape] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/501ac01.dat - Electric Train Motor 12V with 2-Hole Sockets (Complete) - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/50303.dat - Wing  7 x  6 with Stud Notches - Michael Heidemann [mikeheide] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/50861.dat - Tyre  6/ 58 x 14 Offset Tread - Tim Gould [timgould] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/55295.dat - Minifig Tool Hammer - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/55297.dat - Minifig Tool Power Drill - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/55298.dat - Minifig Tool Screwdriver - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/57894.dat - Window  1 x  4 x  6 Frame with Three Panes - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/57895.dat - Glass for Window  1 x  4 x  6 - Michael Heidemann [mikeheide] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/59900.dat - Cone  1 x  1 with Stop - Michael Heidemann [mikeheide] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6014b.dat - Wheel Rim 12 x 11 with Notched Hole - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6014bc02.dat - Wheel Rim 12 x 11 with Notched Hole with Tyre 12/ 40 x 11 Wide with Centre Band - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6016.dat - Bar  1 x  4 x  3 Window - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6019.dat - Plate  1 x  1 with Clip Horizontal (Thick U-Clip) - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/60477.dat - Slope Brick 18  4 x  1 - J.C. Tchang [tchang] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/604a.dat - ~Window  1 x  6 x  3 Panorama with Solid Studs, Holes - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/604ac01.dat - Window  1 x  6 x  3 Panorama with Solid Studs, Holes (Complete) - J.C. Tchang [tchang] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6069.dat - Wedge  4 x  4 Triple - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6087.dat - Bracket  5 x  2 x  2.333 with Inside Rib - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6091.dat - Brick  2 x  1 x  1.333 with Curved Top - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6093a.dat - Minifig Hair Ponytail - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6111.dat - Brick  1 x 10 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6112.dat - Brick  1 x 12 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6140.dat - Bar  1 x  6 with Studs Closed - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6141.dat - Plate  1 x  1 Round - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6152a.dat - Windscreen  6 x  4 x  1.333 Airplane with Hollow Studs and Bottom Tabs - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6153.dat - ~Moved to 6153a - [PTadmin] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6153a.dat - Wedge  6 x  4 without Stud Notches - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6156.dat - Panel  1 x  4 x  3 with Fixed Transparent Light Blue Glass - Thomas Burger [grapeape] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/6157.dat - Plate  2 x  2 with 2 Wheel Pins Extended without Wishbones - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6159a.dat - ~Window  4 x  4 x  3 Roof with Centre Bar - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6159c01.dat - Window  4 x  4 x  3 Roof with Centre Bar with Fixed Transparent Light Blue Glass - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6160a.dat - ~Window  1 x  4 x  6 Frame - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6160c01.dat - Window  1 x  4 x  6 with Fixed Transparent Light Blue Glass - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6164.dat - ~Glass for Window  4 x  4 x  3 Roof with Centre Bar - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6187.dat - Bar  1 x  4 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6202.dat - ~Glass for Window  1 x  4 x  6 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6208.dat - =Slope Brick 33  3 x  6 - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6212.dat - Brick  4 x 10 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6215.dat - Brick  2 x  3 with Curved Top - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6216.dat - Brick  2 x  4 x  2 with Triple Curved Top - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6232.dat - Brick  2 x  2 with Pin and Axlehole - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6239.dat - Tail Shuttle  2 x  6 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6249.dat - Brick  2 x  4 with Pins - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6252.dat - Umbrella  8 x  8 with Curved Tabs - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6260.dat - Minifig Torso Skeleton with Thin Shoulder Pins - Dennis Osborn [DennisOsborn] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/6265.dat - Minifig Skeleton Arm - Franklin W. Cain [fwcain] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6266.dat - Minifig Skeleton Leg - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6564.dat - Wedge  3 x  2 Right - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6565.dat - Wedge  3 x  2 Left - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6583.dat - Plate  1 x  6 with Train Wagon End - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6636.dat - Tile  1 x  6 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/678.dat - Slope Homemaker Awning  2 x  6 - Arne Hackstein - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/70023.dat - ~Magnet Cylindrical (Obsolete) - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/73037.dat - Winch  2 x  4 x  2 with Light Grey Drum - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/73090b.dat - Brick  2 x  6 x  2 Weight with Plate Bottom - Deanna Earley [DeannaEarley] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/73194c01.dat - Door  1 x  4 x  5 Right with Trans Clear Glass - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/765.dat - ~Electric Plug (Type 4) Single - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/765c01.dat - Electric Plug (Type 4) Single (Complete) - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/765c02.dat - Electric Plug (Type 4) Single with Cable End - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/78256.dat - Plate  1 x  2 with Clip Vertical on End - Gerald Lasser [GeraldLasser] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/821c.dat - Garage Door Frame  1 x  6 x  4 - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/845.dat - ~Window  1 x  1 x  2 Classic Glass - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/849.dat - ~Window  1 x  4 x  2 Classic Glass - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/867.dat - Wheel Train for 12V Electric Motor - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/87697.dat - Tyre 12/ 40 x 11 Wide with Centre Band - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/88288.dat - Minifig Dagger - Philippe Hurbain [Philo] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/947a.dat - Train Steam Cylinder  2 x  2 x  1.667 Curved - Interior Smooth - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/95330.dat - Minifig Axe - Philippe Hurbain [Philo] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/954.dat - ~Glass for Window  1 x  4 x  5 with Fixed Glass - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/973.dat - Minifig Torso - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/98279.dat - Minifig Hat Campaign - Willy Tschager [Holly-Wood] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/993.dat - ~Electric Cable 3LDU Twin - Michael Heidemann [mikeheide] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/99301.dat - Slope Brick 33  3 x  3 Double Concave - Philippe Hurbain [Philo] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/994.dat - ~Electric Cable 3LDU Twin End for Plug Twin - Michael Heidemann [mikeheide] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/995.dat - ~Train Wheel Large with Pin Axle Hole - Reinhard "Ben" Beneke [Ben_aus_BS] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  parts/u8004a.dat - Mursten Brick  2 x  4 - J.C. Tchang [tchang] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/u9020.dat - ~Screw  6 x  5 Countersunk Slotted - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/u9076.dat - ~Glass for Window  1 x  6 x  3 Panorama - J.C. Tchang [tchang] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/u9130.dat - ~Electric Train 12V Power Pickup - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/u9146.dat - ~Pin for Electric Plug (Type 4) Single - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+
+Primitives and sub-parts used: 580 files (all under the same library licence; authors above).

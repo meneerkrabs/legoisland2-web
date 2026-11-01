@@ -1,0 +1,7166 @@
+{
+ "deny": {
+  "BKNG_HRcrown": "crown with a cloth veil: the library crown is another design (lumpy at any budget)",
+  "LKNG_HRcrown": "crown with a cloth veil: the library crown is another design (lumpy at any budget)",
+  "MAMA_HRhat": "mushroom hat: no library counterpart (the nearest part came out with holes)",
+  "PAPA_HRhat": "mushroom hat: no library counterpart (the nearest part came out with holes)",
+  "PIPP_HRhat": "hair + goggles in one piece: no library counterpart",
+  "TOBY_HRhair": "spiky hair: the library hairs are smooth",
+  "ADEY_HRhair": "spiky hair: the library hairs are smooth",
+  "BAR1_HRBow": "no library bow fits (the nearest part is a speargun)",
+  "PEPP_HRbag": "bag: the nearest backpack comes out as a flat slab",
+  "PizzaShield": "no library counterpart (the nearest shield came out as a mess)",
+  "SNAP_HRhat": "30 triangles: a part at that count is lumpier than the original",
+  "INFO_HRhat": "plain flat cap: the game's clean 12-sided prism looks better than the library police hat (retried at 3x the triangles in round 2: the brim and rim stay rumpled)",
+  "NICK_HRcap": "plain flat cap: the game's clean prism looks better than the library police hat (retried at 3x the triangles in round 2: still rumpled)",
+  "torch": "the library torch is much smaller (the game one is a big torch)",
+  "DOCK_HRhelmet": "no library counterpart (the nearest part is a movie helmet; the result is lumpy)",
+  "HATE_HRhelmet": "no library counterpart (the nearest part is a movie helmet; the result is lumpy)",
+  "STEV_HRhair": "two-colour long hair: the part leaves skin holes at the temples and the blue cap colour does not follow",
+  "ANDY_HRhair": "two-colour fringe: the draped blue bits land as scattered patches on the library hair",
+  "LARD_HRhair": "the library hair leaves a skin-coloured gap at the back",
+  "LARD_HRhair1": "the library hair leaves a skin-coloured gap at the back"
+ },
+ "prefer": {
+  "OBJT_Sword": [
+   "3847",
+   "18031",
+   "59",
+   "2674b",
+   "98370",
+   "76764",
+   "18034",
+   "95673",
+   "2674f",
+   "48495",
+   "18787"
+  ],
+  "OBJT_CEDsword": [
+   "3847",
+   "18031",
+   "59",
+   "2674b",
+   "98370",
+   "76764",
+   "18034",
+   "95673",
+   "2674f",
+   "48495",
+   "18787"
+  ],
+  "OBJT_Claymore": [
+   "3847",
+   "18031",
+   "59",
+   "2674b",
+   "98370",
+   "76764",
+   "18034",
+   "95673",
+   "2674f",
+   "48495",
+   "18787"
+  ],
+  "OBJT_Axe": [
+   "39802",
+   "95330",
+   "18788",
+   "95052"
+  ],
+  "OBJT_Dagger": [
+   "88288",
+   "2674c",
+   "95053",
+   "10053"
+  ],
+  "OBJT_Tankard": [
+   "33054",
+   "68495",
+   "38014"
+  ],
+  "OBJT_Chalice": [
+   "2343",
+   "6269"
+  ],
+  "OBJT_Pistol": [
+   "2562",
+   "30132",
+   "55707a"
+  ],
+  "OBJT_Rifle": [
+   "30141",
+   "2561"
+  ],
+  "OBJT_Drill": [
+   "55297"
+  ],
+  "OBJT_Spanner": [
+   "55299",
+   "55300",
+   "604551",
+   "604552",
+   "4006"
+  ],
+  "OBJT_Wrench": [
+   "55299",
+   "55300",
+   "604551",
+   "604553",
+   "604614"
+  ],
+  "OBJT_SHammer": [
+   "55295",
+   "604547"
+  ],
+  "OBJT_ScrewDriver": [
+   "55298",
+   "604550",
+   "4006"
+  ],
+  "OBJT_Broom": [
+   "4332",
+   "3836"
+  ],
+  "OBJT_DKLance": [
+   "6123",
+   "3849",
+   "43899",
+   "4497",
+   "93789"
+  ],
+  "OBJT_PEPLance": [
+   "3849",
+   "4497",
+   "93789",
+   "90391"
+  ],
+  "PizzaShield": [
+   "3876",
+   "59231",
+   "91884",
+   "75902"
+  ],
+  "lionshield": [
+   "3846",
+   "2586",
+   "48494",
+   "92747"
+  ],
+  "Bulls_shield": [
+   "2586",
+   "92747",
+   "3846",
+   "10049",
+   "22408"
+  ],
+  "SEAN_HRhat": [
+   "41334",
+   "10164"
+  ],
+  "CLIK_HRhat": [
+   "3834",
+   "3833"
+  ],
+  "JIMS_HRhair": [
+   "3901"
+  ],
+  "SCUL_HRhair": [
+   "3901"
+  ],
+  "XXX2hairHR": [
+   "3901"
+  ],
+  "ANDY_HRhair": [
+   "3901"
+  ],
+  "NANC_HRhat": [
+   "3629",
+   "15424",
+   "98279"
+  ],
+  "DAVE_HRhair": [
+   "3901",
+   "62810"
+  ],
+  "NUBB_HRhair": [
+   "3901",
+   "62810"
+  ],
+  "POST_HRhair": [
+   "3901",
+   "62810"
+  ]
+ },
+ "relax": {
+  "LARA_HRhair": {
+   "iou": 0.82,
+   "reason": "long straight hair: the thin strands cost IoU, the render matches"
+  }
+ },
+ "fits": {
+  "4b0e1adf60c5d0b6": {
+   "name": "ADEY_HRhair.msh",
+   "cands": [
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.02809806290063249,
+     "iou": 0.8803479406256428,
+     "p90": 0.04906672329308036
+    },
+    {
+     "part": "62810",
+     "title": "Minifig Hair Short, Tousled with Side Parting",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.030195401583354275,
+     "iou": 0.8869438909808105,
+     "p90": 0.051544935479490066
+    },
+    {
+     "part": "87991",
+     "title": "Minifig Hair Tousled with Side Parting",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03070145036240758,
+     "iou": 0.8883897010023056,
+     "p90": 0.06627292526648869
+    },
+    {
+     "part": "11264",
+     "title": "Minifig Hair Short with Laurel Wreath",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03118324524607498,
+     "iou": 0.883328273092228,
+     "p90": 0.056405668027233714
+    }
+   ]
+  },
+  "509081a777afe3a2": {
+   "name": "ALEX_HRhair.msh",
+   "cands": [
+    {
+     "part": "2640",
+     "title": "Minifig Hair Wavy Parted on Right with Loose Braid in Back",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04334205700450737,
+     "iou": 0.621391197685368,
+     "p90": 0.09243977142608806
+    },
+    {
+     "part": "88286",
+     "title": "Minifig Hair Female Ponytail with Long French Braid",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04529058434360778,
+     "iou": 0.6378071544224481,
+     "p90": 0.09349319450023977
+    },
+    {
+     "part": "62696",
+     "title": "Minifig Hair Ponytail with Long Bangs",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04575958367206573,
+     "iou": 0.6356727483461941,
+     "p90": 0.09545038385735573
+    },
+    {
+     "part": "69857",
+     "title": "Minifig Hair Curly with High Ponytail",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.05038061107067063,
+     "iou": 0.6110697329461239,
+     "p90": 0.10549847772307676
+    }
+   ]
+  },
+  "8f296d3d81d40208": {
+   "name": "ANDR_HRhair.msh",
+   "cands": [
+    {
+     "part": "16178",
+     "title": "Minifig Construction Helmet with Hair Ponytail",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03370324313446188,
+     "iou": 0.8173107387490619,
+     "p90": 0.06395819624403305
+    },
+    {
+     "part": "35660",
+     "title": "Minifig Hair with Ponytail and Baseball Cap",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03501647454158526,
+     "iou": 0.815507408655689,
+     "p90": 0.07969115506095266
+    },
+    {
+     "part": "59363",
+     "title": "Minifig Hair Long with French Braid",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.035161099018814125,
+     "iou": 0.7572945407165603,
+     "p90": 0.06675982783367682
+    },
+    {
+     "part": "2764",
+     "title": "Minifig Hair Na'vi, Wide with Braids, Smooth Front, and Bar at End",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.041480751723793334,
+     "iou": 0.6331135860247313,
+     "p90": 0.08139054818249555
+    }
+   ]
+  },
+  "b95d54078bbbadc6": {
+   "name": "ANDY_HRhair.msh",
+   "cands": [
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03698114969497629,
+     "iou": 0.8404837520998493,
+     "p90": 0.07768621180932907
+    },
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.038549210335738486,
+     "iou": 0.828190737760802,
+     "p90": 0.08323472599118158
+    }
+   ]
+  },
+  "8382be9ee1b5a581": {
+   "name": "BAR1_HRArrow.msh",
+   "cands": []
+  },
+  "e5e0e28a618ebc7b": {
+   "name": "BAR1_HRBow.msh",
+   "cands": [
+    {
+     "part": "4332",
+     "title": "Minifig Broom",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      -1,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03418655238978119,
+     "iou": 0.6467846669459573,
+     "p90": 0.12194732760824681
+    },
+    {
+     "part": "4332",
+     "title": "Minifig Broom",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      -1,
+      0
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.0356325915512942,
+     "iou": 0.5998582600195502,
+     "p90": 0.12113288196899624
+    },
+    {
+     "part": "2674d",
+     "title": "Minifig Weapon Axe Dwarven",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.029058040043869266,
+     "iou": 0.4433009633442702,
+     "p90": 0.10606710425005016
+    },
+    {
+     "part": "30088",
+     "title": "Minifig Speargun",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03460443995213496,
+     "iou": 0.5066760037348272,
+     "p90": 0.07163126521268552
+    },
+    {
+     "part": "30088",
+     "title": "Minifig Speargun",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03377520870666095,
+     "iou": 0.4685279909065076,
+     "p90": 0.07356289193770407
+    }
+   ]
+  },
+  "8bf21d9838ee6b88": {
+   "name": "BAR1_HRHelm.msh",
+   "cands": [
+    {
+     "part": "6122",
+     "title": "Minifig Helmet Castle with Dragon Crown Top",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.02780785823967113,
+     "iou": 0.8044389758750925,
+     "p90": 0.047221349203582605
+    },
+    {
+     "part": "6122",
+     "title": "Minifig Helmet Castle with Dragon Crown Top",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.030797517144547,
+     "iou": 0.8029124457642546,
+     "p90": 0.058618574582432706
+    },
+    {
+     "part": "89918",
+     "title": "Minifig Helmet Underwater Atlantis Portal Emperor",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.03266375068923037,
+     "iou": 0.7838896397832588,
+     "p90": 0.05780569436705779
+    },
+    {
+     "part": "3844",
+     "title": "Minifig Helmet Castle with Neck Protector",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.03602256941674789,
+     "iou": 0.7475197379657637,
+     "p90": 0.06497115258909653
+    },
+    {
+     "part": "95676",
+     "title": "Minifig Helmet Gladiator",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03882764784609848,
+     "iou": 0.7157190301917042,
+     "p90": 0.07971373718322501
+    }
+   ]
+  },
+  "dc336f49da335cad": {
+   "name": "BAR1_HRQuiver.msh",
+   "cands": []
+  },
+  "6f3eb62472fdccdf": {
+   "name": "BILL_HRhat.msh",
+   "cands": [
+    {
+     "part": "3833",
+     "title": "Minifig Construction Helmet",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.024942961329566363,
+     "iou": 0.9340991267538833,
+     "p90": 0.05146620773999749
+    },
+    {
+     "part": "30135",
+     "title": "Minifig Hat Kepi",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.032092453080249994,
+     "iou": 0.8857980695055879,
+     "p90": 0.06093641273160528
+    },
+    {
+     "part": "93219",
+     "title": "Minifig Baseball Cap with Button on Top",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.032206153552984056,
+     "iou": 0.8554214680483598,
+     "p90": 0.06054404831929102
+    },
+    {
+     "part": "3834",
+     "title": "Minifig Fire Helmet",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03501336292524375,
+     "iou": 0.7880047699892607,
+     "p90": 0.07210220687160049
+    }
+   ]
+  },
+  "6cd45ab6d74c5940": {
+   "name": "BKNG_HRcrown.msh",
+   "cands": [
+    {
+     "part": "71015",
+     "title": "Minifig Hat Crown",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03133408466746106,
+     "iou": 0.91714131302178,
+     "p90": 0.05000517444742738
+    },
+    {
+     "part": "57900",
+     "title": "Minifig Helmet Imperial AT-ST Pilot",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.035131143187586075,
+     "iou": 0.901420004426968,
+     "p90": 0.06416758404017811
+    },
+    {
+     "part": "60748",
+     "title": "Minifig Helmet Cap",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03493700113297558,
+     "iou": 0.8826679953707259,
+     "p90": 0.06062930451027394
+    },
+    {
+     "part": "3844",
+     "title": "Minifig Helmet Castle with Neck Protector",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.0417013004775039,
+     "iou": 0.8453937829940236,
+     "p90": 0.09442314230918376
+    }
+   ]
+  },
+  "a0c0d3a9188f0923": {
+   "name": "BSD1_HRhelmet.msh",
+   "cands": [
+    {
+     "part": "3896",
+     "title": "Minifig Helmet Castle with Chin-Guard",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.027762293376198337,
+     "iou": 0.9383474337119275,
+     "p90": 0.0480390793978912
+    },
+    {
+     "part": "30124b",
+     "title": "Minifig Helmet Standard",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03294333152262679,
+     "iou": 0.8651199575299119,
+     "p90": 0.057867563671147496
+    }
+   ]
+  },
+  "aabc0578c1f47360": {
+   "name": "BSD2_HRhelmet.msh",
+   "cands": [
+    {
+     "part": "6122",
+     "title": "Minifig Helmet Castle with Dragon Crown Top",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.030510424293504958,
+     "iou": 0.8128637081916367,
+     "p90": 0.057612811948561736
+    },
+    {
+     "part": "89918",
+     "title": "Minifig Helmet Underwater Atlantis Portal Emperor",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.033228678929355805,
+     "iou": 0.7787386086131064,
+     "p90": 0.06093546046130464
+    },
+    {
+     "part": "6122",
+     "title": "Minifig Helmet Castle with Dragon Crown Top",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03325736574952891,
+     "iou": 0.7450596494089781,
+     "p90": 0.05704779416326756
+    },
+    {
+     "part": "3844",
+     "title": "Minifig Helmet Castle with Neck Protector",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03573242632200041,
+     "iou": 0.7474224483912243,
+     "p90": 0.06412761728988274
+    },
+    {
+     "part": "95676",
+     "title": "Minifig Helmet Gladiator",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03936341027649851,
+     "iou": 0.710486482501499,
+     "p90": 0.08585756691847217
+    }
+   ]
+  },
+  "f52f596174693eef": {
+   "name": "Bulls_shield.msh",
+   "cands": [
+    {
+     "part": "10049",
+     "title": "Minifig Shield Broad with Spiked Bottom and Cutout Corner",
+     "rot": [
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.07019435034769422,
+     "iou": 0.49821406421818476,
+     "p90": 0.1628963270117428
+    },
+    {
+     "part": "10049",
+     "title": "Minifig Shield Broad with Spiked Bottom and Cutout Corner",
+     "rot": [
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.07015986023301934,
+     "iou": 0.4942849213635581,
+     "p90": 0.1624656101329405
+    },
+    {
+     "part": "22408",
+     "title": "Minifig Shield Pentagonal Castellated",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.07624596440284014,
+     "iou": 0.5335595538521094,
+     "p90": 0.17411844432773835
+    },
+    {
+     "part": "22408",
+     "title": "Minifig Shield Pentagonal Castellated",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.07674586993158498,
+     "iou": 0.5354893141646216,
+     "p90": 0.16644982805593433
+    },
+    {
+     "part": "3846",
+     "title": "Minifig Shield Triangular",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 0,
+     "score": 0.07968124358096519,
+     "iou": 0.45939795338289713,
+     "p90": 0.15480539123078585
+    },
+    {
+     "part": "3846",
+     "title": "Minifig Shield Triangular",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.08089174506314863,
+     "iou": 0.45769799978271636,
+     "p90": 0.15444851017723232
+    },
+    {
+     "part": "2586",
+     "title": "Minifig Shield Ovoid",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 0,
+     "score": 402161.63809041475,
+     "iou": 0.4895281257558635,
+     "p90": 0.20516694070465655
+    }
+   ]
+  },
+  "7aa1e74c39055c1e": {
+   "name": "CEDR_HRhelmet.msh",
+   "cands": [
+    {
+     "part": "6122",
+     "title": "Minifig Helmet Castle with Dragon Crown Top",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.03073467260039106,
+     "iou": 0.8128637081916367,
+     "p90": 0.05703750364186295
+    },
+    {
+     "part": "89918",
+     "title": "Minifig Helmet Underwater Atlantis Portal Emperor",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.033091011328421197,
+     "iou": 0.7787386086131064,
+     "p90": 0.06004331109092639
+    },
+    {
+     "part": "6122",
+     "title": "Minifig Helmet Castle with Dragon Crown Top",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03287855582897119,
+     "iou": 0.7450596494089781,
+     "p90": 0.05653608241646871
+    },
+    {
+     "part": "3844",
+     "title": "Minifig Helmet Castle with Neck Protector",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.03641469951063166,
+     "iou": 0.7474224483912243,
+     "p90": 0.06354395371417458
+    },
+    {
+     "part": "95676",
+     "title": "Minifig Helmet Gladiator",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03937540554886138,
+     "iou": 0.710486482501499,
+     "p90": 0.08629461164070008
+    }
+   ]
+  },
+  "daf6421b891ae254": {
+   "name": "CEDR_Page.msh",
+   "cands": [
+    {
+     "part": "13746",
+     "title": "Minifig Hat with Small Pin, Women's Fedora with Large Bow and Feather",
+     "rot": [
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 0,
+     "score": 0.05433655411567254,
+     "iou": 0.5800570836377315,
+     "p90": 0.12383538611137139
+    },
+    {
+     "part": "13746",
+     "title": "Minifig Hat with Small Pin, Women's Fedora with Large Bow and Feather",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.055703629220487036,
+     "iou": 0.5831222554653116,
+     "p90": 0.12643684924644336
+    },
+    {
+     "part": "17630",
+     "title": "Minifig Hair Straight Cut with Short Ponytail",
+     "rot": [
+      0,
+      0,
+      -1,
+      0,
+      1,
+      0,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.05623126231822114,
+     "iou": 0.5608460907495583,
+     "p90": 0.11867971902996197
+    },
+    {
+     "part": "17630",
+     "title": "Minifig Hair Straight Cut with Short Ponytail",
+     "rot": [
+      0,
+      0,
+      -1,
+      0,
+      1,
+      0,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.05859536219457466,
+     "iou": 0.5608460907495583,
+     "p90": 0.1199107910478786
+    },
+    {
+     "part": "98129",
+     "title": "Minifig Helmet Visor Samurai",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.06258085696872884,
+     "iou": 0.3876242877391601,
+     "p90": 0.15190773401172714
+    }
+   ]
+  },
+  "2881d3991f2934f5": {
+   "name": "CGOG_HRhat.msh",
+   "cands": [
+    {
+     "part": "62537",
+     "title": "Minifig Jester's Cap",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.039804765533650255,
+     "iou": 0.6981058797272902,
+     "p90": 0.08599443296167027
+    },
+    {
+     "part": "62537",
+     "title": "Minifig Jester's Cap",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.04483519611631541,
+     "iou": 0.6613604725923566,
+     "p90": 0.11160105685608775
+    },
+    {
+     "part": "95676",
+     "title": "Minifig Helmet Gladiator",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04317862777314172,
+     "iou": 0.6175858080689541,
+     "p90": 0.1012002535065446
+    },
+    {
+     "part": "30276",
+     "title": "Minifig Headdress with Hooked Beak and Feathers",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 0,
+     "score": 0.04295592595546004,
+     "iou": 0.5867142645738883,
+     "p90": 0.1145872815602198
+    },
+    {
+     "part": "89918",
+     "title": "Minifig Helmet Underwater Atlantis Portal Emperor",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.048310038497187555,
+     "iou": 0.6446216332494367,
+     "p90": 0.10686696832261162
+    }
+   ]
+  },
+  "459f17dc854edcc2": {
+   "name": "CLIK_HRhat.msh",
+   "cands": [
+    {
+     "part": "3833",
+     "title": "Minifig Construction Helmet",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.02460947735396133,
+     "iou": 0.9340991267538833,
+     "p90": 0.05007098702912326
+    },
+    {
+     "part": "3833",
+     "title": "Minifig Construction Helmet",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.02577388087432069,
+     "iou": 0.9061311838948467,
+     "p90": 0.056967592000420696
+    },
+    {
+     "part": "3834",
+     "title": "Minifig Fire Helmet",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03458672657457094,
+     "iou": 0.7880047699892607,
+     "p90": 0.0726089200017307
+    },
+    {
+     "part": "3834",
+     "title": "Minifig Fire Helmet",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.03564836551988925,
+     "iou": 0.7706846606037874,
+     "p90": 0.07147181888866903
+    }
+   ]
+  },
+  "ad76d46e9bb3815a": {
+   "name": "DARR_HRhair.msh",
+   "cands": [
+    {
+     "part": "93230",
+     "title": "Minifig Hair Swept Back with Pointed Ears",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.034274675788090424,
+     "iou": 0.8274987306215825,
+     "p90": 0.07123603591724001
+    },
+    {
+     "part": "11264",
+     "title": "Minifig Hair Short with Laurel Wreath",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.0357950464816532,
+     "iou": 0.8128946322173453,
+     "p90": 0.07517308874548062
+    },
+    {
+     "part": "26139",
+     "title": "Minifig Hair Short Wavy with Centre Parting",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03558233512778325,
+     "iou": 0.7917141871025661,
+     "p90": 0.08129733808373153
+    },
+    {
+     "part": "13251",
+     "title": "Minifig Hair Female with Elaborate Knot Bun",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.038506622134661425,
+     "iou": 0.8220005143665549,
+     "p90": 0.0857999861880064
+    }
+   ]
+  },
+  "2ff8922485744479": {
+   "name": "DAVE_HRhair.msh",
+   "cands": [
+    {
+     "part": "62810",
+     "title": "Minifig Hair Short, Tousled with Side Parting",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04000269584005906,
+     "iou": 0.8447630169107166,
+     "p90": 0.0885021082124452
+    },
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04054483438968153,
+     "iou": 0.8348964490394278,
+     "p90": 0.08249981876186394
+    }
+   ]
+  },
+  "74eb6ef7aaeaac60": {
+   "name": "DJAB_HRhair.msh",
+   "cands": [
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04209988880913005,
+     "iou": 0.8478297701799035,
+     "p90": 0.1095041266282437
+    },
+    {
+     "part": "30608",
+     "title": "Minifig Hair Flat Top",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.050446019647103456,
+     "iou": 0.8541616598415912,
+     "p90": 0.12885208035910942
+    },
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 0,
+     "score": 0.05548167352341385,
+     "iou": 0.8505790799928338,
+     "p90": 0.13372033773952657
+    },
+    {
+     "part": "11264",
+     "title": "Minifig Hair Short with Laurel Wreath",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 0,
+     "score": 0.05465372939949297,
+     "iou": 0.8304767636325657,
+     "p90": 0.14193491822298016
+    },
+    {
+     "part": "16178",
+     "title": "Minifig Construction Helmet with Hair Ponytail",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.05019796691600256,
+     "iou": 0.6524202374331461,
+     "p90": 0.18149627145398148
+    }
+   ]
+  },
+  "5c83afc08151fe6e": {
+   "name": "DOCK_HRhelmet.msh",
+   "cands": [
+    {
+     "part": "19916",
+     "title": "Minifig Helmet SW Darth Vader Upper Part",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.026945025351958415,
+     "iou": 0.8881605326135372,
+     "p90": 0.049681234846539274
+    },
+    {
+     "part": "30172",
+     "title": "Minifig Hat Pith Helmet",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03006305303197303,
+     "iou": 0.891667099342333,
+     "p90": 0.05518680308478829
+    }
+   ]
+  },
+  "4a8578c1465094aa": {
+   "name": "DRKK_HRhelmet.msh",
+   "cands": [
+    {
+     "part": "16599",
+     "title": "Minifig Helmet Classic with Thin Chin Guard Cracked",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03207297814784817,
+     "iou": 0.9209170387776614,
+     "p90": 0.053592620290868344
+    },
+    {
+     "part": "3842b",
+     "title": "Minifig Helmet Classic with Thick Chin Guard and Visor Dimples",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03262072582596836,
+     "iou": 0.9273837113687087,
+     "p90": 0.05139810732560801
+    },
+    {
+     "part": "50665",
+     "title": "Minifig Helmet Classic with Thin Chin Guard Unbroken",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.0324812749045852,
+     "iou": 0.9242410363592256,
+     "p90": 0.05142033103707731
+    },
+    {
+     "part": "3842a",
+     "title": "Minifig Helmet Classic with Thin Chin Guard and Visor Dimples",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.033283185091609165,
+     "iou": 0.9222695093705625,
+     "p90": 0.054826986961771046
+    }
+   ]
+  },
+  "ecbfa368cae047c0": {
+   "name": "DRKK_HRvisor.msh",
+   "cands": [
+    {
+     "part": "98128",
+     "title": "Minifig Helmet with Clip and Long Visor",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.04373809875951982,
+     "iou": 0.43258424440502524,
+     "p90": 0.11008443839418895
+    },
+    {
+     "part": "2594b",
+     "title": "Minifig Helmet Visor Pointed with Squared Nose",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 3,
+     "score": 0.04660053024867305,
+     "iou": 0.43785469682021355,
+     "p90": 0.13629254304755578
+    },
+    {
+     "part": "6122c01",
+     "title": "Minifig Helmet Castle w/ Dragon Crown Top Black w/ Dragon Plume",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 3,
+     "score": 0.05196721870090331,
+     "iou": 0.48715838534812966,
+     "p90": 0.14795154247965137
+    },
+    {
+     "part": "6122c01",
+     "title": "Minifig Helmet Castle w/ Dragon Crown Top Black w/ Dragon Plume",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.05014919991782662,
+     "iou": 0.45871249790112095,
+     "p90": 0.1518711364079045
+    },
+    {
+     "part": "6122c01",
+     "title": "Minifig Helmet Castle w/ Dragon Crown Top Black w/ Dragon Plume",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 2,
+     "score": 0.05017087616531586,
+     "iou": 0.45804980737759543,
+     "p90": 0.15192092041244135
+    }
+   ]
+  },
+  "851b6b013ae39901": {
+   "name": "HATE_HRhelmet.msh",
+   "cands": [
+    {
+     "part": "19916",
+     "title": "Minifig Helmet SW Darth Vader Upper Part",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.027066875034576707,
+     "iou": 0.8881605326135372,
+     "p90": 0.04862154432554576
+    },
+    {
+     "part": "30172",
+     "title": "Minifig Hat Pith Helmet",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.029855550803315138,
+     "iou": 0.891667099342333,
+     "p90": 0.054929961035925595
+    }
+   ]
+  },
+  "b3c93a2a06fc4261": {
+   "name": "HatesStick.msh",
+   "cands": []
+  },
+  "25bd3b9318a6aed9": {
+   "name": "HOGG_HRhelm.msh",
+   "cands": [
+    {
+     "part": "3842b",
+     "title": "Minifig Helmet Classic with Thick Chin Guard and Visor Dimples",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.0315984421765959,
+     "iou": 0.9237706744385056,
+     "p90": 0.05311040995330927
+    },
+    {
+     "part": "3842c",
+     "title": "Minifig Helmet Classic with Thick Chin Guard",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03205183714870087,
+     "iou": 0.9258449328911086,
+     "p90": 0.05321420436463146
+    },
+    {
+     "part": "50665",
+     "title": "Minifig Helmet Classic with Thin Chin Guard Unbroken",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03250865966208664,
+     "iou": 0.9286086033100864,
+     "p90": 0.05387422631611688
+    },
+    {
+     "part": "16599",
+     "title": "Minifig Helmet Classic with Thin Chin Guard Cracked",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03210636113585201,
+     "iou": 0.9090219002626743,
+     "p90": 0.051324338307370834
+    }
+   ]
+  },
+  "bafab01c4d51d914": {
+   "name": "HOGG_HRvisor.msh",
+   "cands": [
+    {
+     "part": "71016",
+     "title": "Minifig Helmet Visor Space",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.030784782013448416,
+     "iou": 0.7731082305650333,
+     "p90": 0.0649386111043508
+    },
+    {
+     "part": "89159",
+     "title": "Minifig Helmet Visor Large with Trapezoid Area on Top",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03383747460546122,
+     "iou": 0.7740598719849688,
+     "p90": 0.06919019030447973
+    },
+    {
+     "part": "57900",
+     "title": "Minifig Helmet Imperial AT-ST Pilot",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04339354429998464,
+     "iou": 0.6838500438152525,
+     "p90": 0.10780150428521282
+    },
+    {
+     "part": "6119b",
+     "title": "Minifig Helmet Visor Shielded with Antenna",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.05132352813948298,
+     "iou": 0.4836890064511398,
+     "p90": 0.12894826675037904
+    }
+   ]
+  },
+  "5845a425b41315cf": {
+   "name": "INFO_HRhat.msh",
+   "cands": [
+    {
+     "part": "15530",
+     "title": "Minifig Hat Police",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.029331234464416434,
+     "iou": 0.9050608194071174,
+     "p90": 0.05777138429187025
+    },
+    {
+     "part": "12895",
+     "title": "Minifig Captains Hat",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.02990933149051715,
+     "iou": 0.8878112183165362,
+     "p90": 0.05536829491335733
+    },
+    {
+     "part": "16497",
+     "title": "Minifig SW Imperial Officer Cap",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03359881521420303,
+     "iou": 0.7993507560815254,
+     "p90": 0.05980887817332659
+    },
+    {
+     "part": "87998",
+     "title": "Minifig Helmet Army",
+     "rot": [
+      0,
+      0,
+      -1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03556490154947194,
+     "iou": 0.8117564438003916,
+     "p90": 0.06253907592535597
+    }
+   ]
+  },
+  "e14989d306048f63": {
+   "name": "JACK_HRhair.msh",
+   "cands": [
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.0313780871015987,
+     "iou": 0.9183873600477562,
+     "p90": 0.06287826473892096
+    },
+    {
+     "part": "98726",
+     "title": "Minifig Hair Swept Right with Front Curl",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03371371169759269,
+     "iou": 0.9015200493451624,
+     "p90": 0.07487878072417438
+    },
+    {
+     "part": "11264",
+     "title": "Minifig Hair Short with Laurel Wreath",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.033943153602460155,
+     "iou": 0.8835408313295176,
+     "p90": 0.0657697275154054
+    },
+    {
+     "part": "62810",
+     "title": "Minifig Hair Short, Tousled with Side Parting",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03496881106177419,
+     "iou": 0.8828416009308016,
+     "p90": 0.07669299370742862
+    }
+   ]
+  },
+  "bc5cac07e43252a5": {
+   "name": "JIMS_HRhair.msh",
+   "cands": [
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03259726758922248,
+     "iou": 0.8663638481318445,
+     "p90": 0.06392835634718484
+    }
+   ]
+  },
+  "aa845a421a0b184d": {
+   "name": "JIMS_MRhair.msh",
+   "cands": [
+    {
+     "part": "98726",
+     "title": "Minifig Hair Swept Right with Front Curl",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03840198516152783,
+     "iou": 0.8579966979383434,
+     "p90": 0.08153461480552134
+    },
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.039630508951318505,
+     "iou": 0.8505790799928338,
+     "p90": 0.07630618222881934
+    },
+    {
+     "part": "35699",
+     "title": "Minifig Hair Smooth with Spiked Bangs",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04066178831419968,
+     "iou": 0.8481824714767621,
+     "p90": 0.0894392195925337
+    },
+    {
+     "part": "11264",
+     "title": "Minifig Hair Short with Laurel Wreath",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04100976290881127,
+     "iou": 0.8304767636325657,
+     "p90": 0.08290021025860352
+    }
+   ]
+  },
+  "10c6a3f3c401a487": {
+   "name": "JOHN_HRhat.msh",
+   "cands": [
+    {
+     "part": "30167",
+     "title": "Minifig Hat Wide Brim Flat",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.02976677139831901,
+     "iou": 0.8698324421721811,
+     "p90": 0.05866223769112059
+    },
+    {
+     "part": "3833",
+     "title": "Minifig Construction Helmet",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03006775374525567,
+     "iou": 0.8591052156725,
+     "p90": 0.06003495500412612
+    },
+    {
+     "part": "98279",
+     "title": "Minifig Hat Campaign",
+     "rot": [
+      0,
+      0,
+      -1,
+      0,
+      1,
+      0,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03430996326643607,
+     "iou": 0.820756954111605,
+     "p90": 0.06885979807961064
+    },
+    {
+     "part": "95674",
+     "title": "Minifig Hat Bowler",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03304270371506974,
+     "iou": 0.783982966279007,
+     "p90": 0.0603439543944276
+    }
+   ]
+  },
+  "6a241828b4f6bac9": {
+   "name": "LAR1_HRhelmet.msh",
+   "cands": [
+    {
+     "part": "30273",
+     "title": "Minifig Helmet with Chinstrap and Wide Brim",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.02585132127416258,
+     "iou": 0.9127818300199024,
+     "p90": 0.04444933963559261
+    }
+   ]
+  },
+  "d88d220beb7ef63a": {
+   "name": "LAR2_HRhelmet.msh",
+   "cands": [
+    {
+     "part": "30273",
+     "title": "Minifig Helmet with Chinstrap and Wide Brim",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.02584606972316122,
+     "iou": 0.9127818300199024,
+     "p90": 0.04442333760086917
+    }
+   ]
+  },
+  "1866a2ab0c810215": {
+   "name": "LARA_HRhair.msh",
+   "cands": [
+    {
+     "part": "41612",
+     "title": "Minifig Hair Long and Straight Parted in the Middle",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.027341518814332038,
+     "iou": 0.8252041374311542,
+     "p90": 0.05414072867596538
+    },
+    {
+     "part": "90396",
+     "title": "Minifig Hair Mid-Length Wavy with Centre Part",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.035214527817817975,
+     "iou": 0.7304316539632046,
+     "p90": 0.06558794549848648
+    },
+    {
+     "part": "2764",
+     "title": "Minifig Hair Na'vi, Wide with Braids, Smooth Front, and Bar at End",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.041427180054754716,
+     "iou": 0.6821522695871193,
+     "p90": 0.10783715579352872
+    },
+    {
+     "part": "10066",
+     "title": "Minifig Hair Orc with Ears",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04294537883754967,
+     "iou": 0.6809578263072558,
+     "p90": 0.11621527773888563
+    }
+   ]
+  },
+  "a3c0e9bba19ce909": {
+   "name": "LARD_HRhair.msh",
+   "cands": [
+    {
+     "part": "11264",
+     "title": "Minifig Hair Short with Laurel Wreath",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.0310320838346044,
+     "iou": 0.8619371270046973,
+     "p90": 0.06532800647112794
+    },
+    {
+     "part": "62810",
+     "title": "Minifig Hair Short, Tousled with Side Parting",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03107602086759953,
+     "iou": 0.8546560727018787,
+     "p90": 0.0642954716651126
+    },
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03106859193099393,
+     "iou": 0.8382400369786973,
+     "p90": 0.061724611988982346
+    },
+    {
+     "part": "35699",
+     "title": "Minifig Hair Smooth with Spiked Bangs",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03346418757206992,
+     "iou": 0.8541040544198517,
+     "p90": 0.07551400118395751
+    }
+   ]
+  },
+  "8a7e5fc94c168e8f": {
+   "name": "LICK_HRhair.msh",
+   "cands": [
+    {
+     "part": "6093a",
+     "title": "Minifig Hair Ponytail",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03148492180289769,
+     "iou": 0.8483719706641449,
+     "p90": 0.06852319897871266
+    },
+    {
+     "part": "93230",
+     "title": "Minifig Hair Swept Back with Pointed Ears",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03302757304698415,
+     "iou": 0.8231293745186424,
+     "p90": 0.06058014351965352
+    },
+    {
+     "part": "35660",
+     "title": "Minifig Hair with Ponytail and Baseball Cap",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03703336118271223,
+     "iou": 0.7347886338769057,
+     "p90": 0.06677879747072368
+    },
+    {
+     "part": "16178",
+     "title": "Minifig Construction Helmet with Hair Ponytail",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.038333585558308556,
+     "iou": 0.6864333650505839,
+     "p90": 0.08639513084381228
+    }
+   ]
+  },
+  "986abae3188cfb0e": {
+   "name": "lionshield.msh",
+   "cands": [
+    {
+     "part": "2586",
+     "title": "Minifig Shield Ovoid",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      0,
+      1,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.08234712506089183,
+     "iou": 0.46354062785701505,
+     "p90": 0.1674867152836557
+    },
+    {
+     "part": "92747",
+     "title": "Minifig Shield Oval",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      0,
+      -1,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.08357611540508961,
+     "iou": 0.4247001564434035,
+     "p90": 0.16252622965886832
+    },
+    {
+     "part": "3846",
+     "title": "Minifig Shield Triangular",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.09069139033759671,
+     "iou": 0.4909160639929871,
+     "p90": 0.16859078431936442
+    },
+    {
+     "part": "3846",
+     "title": "Minifig Shield Triangular",
+     "rot": [
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.08946219466035749,
+     "iou": 0.4462318089236866,
+     "p90": 0.19447146635852575
+    },
+    {
+     "part": "2586",
+     "title": "Minifig Shield Ovoid",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.09184192789718443,
+     "iou": 0.435259342893731,
+     "p90": 0.1767921556939398
+    }
+   ]
+  },
+  "d05949b66b4315fe": {
+   "name": "LKNG_HRcrown.msh",
+   "cands": [
+    {
+     "part": "71015",
+     "title": "Minifig Hat Crown",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03133408466746106,
+     "iou": 0.91714131302178,
+     "p90": 0.05000517444742738
+    },
+    {
+     "part": "57900",
+     "title": "Minifig Helmet Imperial AT-ST Pilot",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.035131143187586075,
+     "iou": 0.901420004426968,
+     "p90": 0.06416758404017811
+    },
+    {
+     "part": "60748",
+     "title": "Minifig Helmet Cap",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03493700113297558,
+     "iou": 0.8826679953707259,
+     "p90": 0.06062930451027394
+    },
+    {
+     "part": "3844",
+     "title": "Minifig Helmet Castle with Neck Protector",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.0417013004775039,
+     "iou": 0.8453937829940236,
+     "p90": 0.09442314230918376
+    }
+   ]
+  },
+  "4983fb03939f40e8": {
+   "name": "LQUN_HRhair.msh",
+   "cands": [
+    {
+     "part": "6093a",
+     "title": "Minifig Hair Ponytail",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03154585326686322,
+     "iou": 0.8910781323748317,
+     "p90": 0.07361366689805333
+    },
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.0319101461464351,
+     "iou": 0.819225967326723,
+     "p90": 0.06486778266694185
+    },
+    {
+     "part": "93230",
+     "title": "Minifig Hair Swept Back with Pointed Ears",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03389304322200525,
+     "iou": 0.8335671219578877,
+     "p90": 0.058383758585838205
+    },
+    {
+     "part": "11264",
+     "title": "Minifig Hair Short with Laurel Wreath",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.033492067587856354,
+     "iou": 0.8227073796343137,
+     "p90": 0.059668559056351135
+    }
+   ]
+  },
+  "eb22d138c9f6e0b6": {
+   "name": "LSD1_HRhelmet.msh",
+   "cands": [
+    {
+     "part": "30273",
+     "title": "Minifig Helmet with Chinstrap and Wide Brim",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.025963659722300185,
+     "iou": 0.910882434185452,
+     "p90": 0.0443220435575199
+    }
+   ]
+  },
+  "b25c3fca4d155944": {
+   "name": "LSD2_bugleHR.msh",
+   "cands": [
+    {
+     "part": "71342",
+     "title": "Minifig Bugle",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.04095380521475672,
+     "iou": 0.5150090566362118,
+     "p90": 0.14759443031021266
+    },
+    {
+     "part": "30175c01",
+     "title": "Minifig Helmet Samurai with Horn (Complete)",
+     "rot": [
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.06205860255564601,
+     "iou": 0.32511899396789073,
+     "p90": 0.1604896243169498
+    },
+    {
+     "part": "53450c01",
+     "title": "Minifig Helmet Viking with White Horns (Complete)",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      -1,
+      0,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.0633231212300901,
+     "iou": 0.3144894603693115,
+     "p90": 0.14480620839645725
+    },
+    {
+     "part": "71342",
+     "title": "Minifig Bugle",
+     "rot": [
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.06071515478020755,
+     "iou": 0.2733954933954934,
+     "p90": 0.13315764697691995
+    }
+   ]
+  },
+  "8191f32263f14c51": {
+   "name": "LSD2_HRhelmet.msh",
+   "cands": [
+    {
+     "part": "30273",
+     "title": "Minifig Helmet with Chinstrap and Wide Brim",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.025909955154447935,
+     "iou": 0.9127818300199024,
+     "p90": 0.04442688380492001
+    }
+   ]
+  },
+  "33e2f6ce47bd604f": {
+   "name": "MAIL_HRbag.msh",
+   "cands": [
+    {
+     "part": "30323",
+     "title": "Minifig Backpack with Sleeping Bag",
+     "rot": [
+      0,
+      -1,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.05367325215454847,
+     "iou": 0.6451451977608519,
+     "p90": 0.11241290411718895
+    },
+    {
+     "part": "30323",
+     "title": "Minifig Backpack with Sleeping Bag",
+     "rot": [
+      0,
+      -1,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.054742533062041215,
+     "iou": 0.6455027746108034,
+     "p90": 0.1292278983049861
+    },
+    {
+     "part": "4498",
+     "title": "Minifig Arrow Quiver",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      0,
+      1,
+      0
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.05559328249922699,
+     "iou": 0.4326134294657387,
+     "p90": 0.13190871053182365
+    },
+    {
+     "part": "4498",
+     "title": "Minifig Arrow Quiver",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      0,
+      1,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.05674439647216901,
+     "iou": 0.432260231167335,
+     "p90": 0.13197917600985118
+    },
+    {
+     "part": "30158",
+     "title": "Minifig Backpack Openable Open",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      -1,
+      0
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 1092708.362181911,
+     "iou": 0.5951541811796407,
+     "p90": 0.13313308574076457
+    }
+   ]
+  },
+  "fb035a0b8f7bf936": {
+   "name": "MAMA_HRhat.msh",
+   "cands": [
+    {
+     "part": "51283",
+     "title": "Minifig Helmet Round Fishbowl",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03285097482655671,
+     "iou": 0.9008514664143803,
+     "p90": 0.07183945318489461
+    },
+    {
+     "part": "2187",
+     "title": "Minifig Hat Ninja Wrap Smooth",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03594733095057752,
+     "iou": 0.8749616985448855,
+     "p90": 0.06356150885962275
+    },
+    {
+     "part": "15851",
+     "title": "Minifig Helmet Motorcycle with Open Face and Visor",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03568045416773141,
+     "iou": 0.8316639626822088,
+     "p90": 0.0699942457868615
+    },
+    {
+     "part": "30171b",
+     "title": "Minifig Cap Aviator",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03556702111596474,
+     "iou": 0.8300268519254206,
+     "p90": 0.07079235639807216
+    }
+   ]
+  },
+  "4746aee2c1fb469f": {
+   "name": "MATT_HAT.msh",
+   "cands": [
+    {
+     "part": "24073",
+     "title": "Minifig Headdress Bandage Wrapped",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03588316989643302,
+     "iou": 0.8305854431248605,
+     "p90": 0.07026820913552514
+    },
+    {
+     "part": "98381",
+     "title": "Minifig Hat Flat Chef",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.0367409860590207,
+     "iou": 0.8334934049538679,
+     "p90": 0.0736968326891882
+    },
+    {
+     "part": "24073",
+     "title": "Minifig Headdress Bandage Wrapped",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04202932568432107,
+     "iou": 0.8350012520958279,
+     "p90": 0.09077748896663146
+    }
+   ]
+  },
+  "cebdc481494944a8": {
+   "name": "MOSS_HRhair.msh",
+   "cands": [
+    {
+     "part": "62810",
+     "title": "Minifig Hair Short, Tousled with Side Parting",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03190498542297397,
+     "iou": 0.8237046052197282,
+     "p90": 0.053797351400222966
+    },
+    {
+     "part": "4530",
+     "title": "Minifig Hair Shoulder Length",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.033881102327454886,
+     "iou": 0.8212124930474435,
+     "p90": 0.0605359389159647
+    },
+    {
+     "part": "12893",
+     "title": "Minifig Hair Short with Bald Top",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03553319713736901,
+     "iou": 0.8340297975654826,
+     "p90": 0.06807458121597398
+    },
+    {
+     "part": "16175",
+     "title": "Minifig Construction Helmet with Hair Short",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03312919246665284,
+     "iou": 0.8029808464929603,
+     "p90": 0.05438852129423469
+    }
+   ]
+  },
+  "02d0df97c98369b2": {
+   "name": "NANC_HRhat.msh",
+   "cands": [
+    {
+     "part": "98279",
+     "title": "Minifig Hat Campaign",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.028848871167511825,
+     "iou": 0.8443226966799355,
+     "p90": 0.05137600599654319
+    }
+   ]
+  },
+  "c180a86839bd8ff9": {
+   "name": "NICK_HRcap.msh",
+   "cands": [
+    {
+     "part": "3624",
+     "title": "Minifig Police Hat",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.02727505777471132,
+     "iou": 0.9276006651305102,
+     "p90": 0.053246550997084904
+    },
+    {
+     "part": "39262",
+     "title": "Minifig Crown with 5 Points",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.0353680054189395,
+     "iou": 0.7663764261702406,
+     "p90": 0.0734047097648953
+    }
+   ]
+  },
+  "1c04f56635d3fce9": {
+   "name": "NUBB_HRhair.msh",
+   "cands": [
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03959586206807228,
+     "iou": 0.8505790799928338,
+     "p90": 0.07630631077738088
+    },
+    {
+     "part": "62810",
+     "title": "Minifig Hair Short, Tousled with Side Parting",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04133381708900214,
+     "iou": 0.8465787052409747,
+     "p90": 0.09384814752356595
+    }
+   ]
+  },
+  "065e0ce04b0d8eb3": {
+   "name": "OBJT_Axe.msh",
+   "cands": [
+    {
+     "part": "95330",
+     "title": "Minifig Axe",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.02436851272274204,
+     "iou": 0.7298841863124443,
+     "p90": 0.062945256795668
+    },
+    {
+     "part": "18788",
+     "title": "Minifig Axe Blocky",
+     "rot": [
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.029896378492571853,
+     "iou": 0.7492465849880299,
+     "p90": 0.10206120073958108
+    },
+    {
+     "part": "39802",
+     "title": "Minifig Axe with Pick End and Long Handle",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.02784119416235755,
+     "iou": 0.6941414141414142,
+     "p90": 0.06382680583140632
+    },
+    {
+     "part": "39802",
+     "title": "Minifig Axe with Pick End and Long Handle",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03815149461770097,
+     "iou": 0.7005628976994616,
+     "p90": 0.11439972472576831
+    },
+    {
+     "part": "18788",
+     "title": "Minifig Axe Blocky",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.02237287189799958,
+     "iou": 0.318686422134698,
+     "p90": 0.060144371216397596
+    }
+   ]
+  },
+  "07a3fa22706c45cc": {
+   "name": "OBJT_Broom.msh",
+   "cands": []
+  },
+  "b52f4aa112aed0b2": {
+   "name": "OBJT_CEDsword.msh",
+   "cands": [
+    {
+     "part": "2674b",
+     "title": "Minifig Sword Greatsword with Capped Pommel",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.029575505720594267,
+     "iou": 0.7380952380952381,
+     "p90": 0.08213177107507459
+    },
+    {
+     "part": "3847",
+     "title": "Minifig Sword Shortsword",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.030824416337864858,
+     "iou": 0.7348710990502035,
+     "p90": 0.07936163993834175
+    },
+    {
+     "part": "2674f",
+     "title": "Minifig Sword Small with Upturned Crossguard and Capped Pommel",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.032501360118872474,
+     "iou": 0.7054836288582419,
+     "p90": 0.0853505482533053
+    },
+    {
+     "part": "2674b",
+     "title": "Minifig Sword Greatsword with Capped Pommel",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 2,
+     "score": 0.03306151973070318,
+     "iou": 0.6869202226345084,
+     "p90": 0.08424996721240421
+    },
+    {
+     "part": "3847",
+     "title": "Minifig Sword Shortsword",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 2,
+     "score": 0.033653488159877655,
+     "iou": 0.6859848484848484,
+     "p90": 0.08375140347388518
+    },
+    {
+     "part": "2674f",
+     "title": "Minifig Sword Small with Upturned Crossguard and Capped Pommel",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 2,
+     "score": 0.03504008495418066,
+     "iou": 0.6626662666266626,
+     "p90": 0.08634599543988516
+    },
+    {
+     "part": "48495",
+     "title": "Minifig Sword with Angular Hilt",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.030482195175771148,
+     "iou": 0.5578195750609544,
+     "p90": 0.08461030772199808
+    },
+    {
+     "part": "59",
+     "title": "Minifig Sword Greatsword",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.031303233872894,
+     "iou": 0.5386111874027282,
+     "p90": 0.08701748934565554
+    },
+    {
+     "part": "18031",
+     "title": "Minifig Sword Longsword with Thick Guard",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.030695001150047044,
+     "iou": 0.5272317772317773,
+     "p90": 0.08025834089800375
+    },
+    {
+     "part": "98370",
+     "title": "Minifig Sword Longsword with Thin Guard",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.030188352757307513,
+     "iou": 0.5157917200170722,
+     "p90": 0.07967444305904144
+    },
+    {
+     "part": "48495",
+     "title": "Minifig Sword with Angular Hilt",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 2,
+     "score": 0.0329133371476214,
+     "iou": 0.5164257251413215,
+     "p90": 0.08601080228245203
+    },
+    {
+     "part": "59",
+     "title": "Minifig Sword Greatsword",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 2,
+     "score": 0.03404472662142329,
+     "iou": 0.49590762934814386,
+     "p90": 0.08815152232089661
+    }
+   ]
+  },
+  "5c2ab369b7c55882": {
+   "name": "OBJT_Chalice.msh",
+   "cands": [
+    {
+     "part": "2343",
+     "title": "Minifig Goblet",
+     "rot": [
+      0,
+      -1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03943290244461581,
+     "iou": 0.7670820416732517,
+     "p90": 0.09968668412465835
+    }
+   ]
+  },
+  "8251bb30a4deffdc": {
+   "name": "OBJT_Claymore.msh",
+   "cands": [
+    {
+     "part": "2674b",
+     "title": "Minifig Sword Greatsword with Capped Pommel",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.029740320133896714,
+     "iou": 0.7380952380952381,
+     "p90": 0.08405433201789778
+    },
+    {
+     "part": "3847",
+     "title": "Minifig Sword Shortsword",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.031024114109886283,
+     "iou": 0.7348710990502035,
+     "p90": 0.08024671987954264
+    },
+    {
+     "part": "2674f",
+     "title": "Minifig Sword Small with Upturned Crossguard and Capped Pommel",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03281676169431046,
+     "iou": 0.7054836288582419,
+     "p90": 0.08503195614771265
+    },
+    {
+     "part": "48495",
+     "title": "Minifig Sword with Angular Hilt",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.030676766113926075,
+     "iou": 0.5578195750609544,
+     "p90": 0.0851313122938869
+    },
+    {
+     "part": "18031",
+     "title": "Minifig Sword Longsword with Thick Guard",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.030471765304092718,
+     "iou": 0.5272317772317773,
+     "p90": 0.08133916042823097
+    },
+    {
+     "part": "59",
+     "title": "Minifig Sword Greatsword",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03142097243681366,
+     "iou": 0.5386111874027282,
+     "p90": 0.08734179868581293
+    },
+    {
+     "part": "98370",
+     "title": "Minifig Sword Longsword with Thin Guard",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03025271627056013,
+     "iou": 0.5157917200170722,
+     "p90": 0.07953644162887587
+    }
+   ]
+  },
+  "4dc655b154f925de": {
+   "name": "OBJT_Dagger.msh",
+   "cands": [
+    {
+     "part": "88288",
+     "title": "Minifig Dagger",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03162511382144704,
+     "iou": 0.7284994640943193,
+     "p90": 0.0830676232970948
+    },
+    {
+     "part": "95053",
+     "title": "Minifig Sword Small with Angular Guard",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03207742794934458,
+     "iou": 0.7103617977048016,
+     "p90": 0.08695028521652193
+    },
+    {
+     "part": "88288",
+     "title": "Minifig Dagger",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03400420352006924,
+     "iou": 0.6589067397878748,
+     "p90": 0.09059743080131835
+    },
+    {
+     "part": "2674c",
+     "title": "Minifig Sword Small with Curved Blade and Detailed Hilt",
+     "rot": [
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03611965916775901,
+     "iou": 0.5502552405778212,
+     "p90": 0.09190768650722365
+    },
+    {
+     "part": "95053",
+     "title": "Minifig Sword Small with Angular Guard",
+     "rot": [
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.03645369374416481,
+     "iou": 0.5321843582713147,
+     "p90": 0.08797258372300207
+    }
+   ]
+  },
+  "8ff8c11fea5a86de": {
+   "name": "OBJT_DKLance.msh",
+   "cands": [
+    {
+     "part": "43899",
+     "title": "Minifig Spear with Four Side Blades",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 4234354.423831548,
+     "iou": 0.33870943316220675,
+     "p90": 0.11639813625484871
+    },
+    {
+     "part": "6123",
+     "title": "Minifig Polearm Halberd",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 4311827.397789502,
+     "iou": 0.48542712673147453,
+     "p90": 0.1193296193577422
+    }
+   ]
+  },
+  "533afbcaef0ad363": {
+   "name": "OBJT_Drill.msh",
+   "cands": [
+    {
+     "part": "55297",
+     "title": "Minifig Tool Power Drill",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.02793754241163953,
+     "iou": 0.8238154149040892,
+     "p90": 0.07526564877932099
+    },
+    {
+     "part": "55297",
+     "title": "Minifig Tool Power Drill",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 2,
+     "score": 0.028489091782771654,
+     "iou": 0.7835190611748996,
+     "p90": 0.07560068070866333
+    },
+    {
+     "part": "55297",
+     "title": "Minifig Tool Power Drill",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.0359076825751894,
+     "iou": 0.7608488356564393,
+     "p90": 0.07064329923291233
+    },
+    {
+     "part": "55297",
+     "title": "Minifig Tool Power Drill",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 0,
+     "score": 0.07074115108776327,
+     "iou": 0.5953208918514652,
+     "p90": 0.1294719647498414
+    }
+   ]
+  },
+  "4aff0c7a39edaedf": {
+   "name": "OBJT_PEPLance.msh",
+   "cands": []
+  },
+  "e3020c95d158ac77": {
+   "name": "OBJT_Pistol.msh",
+   "cands": [
+    {
+     "part": "2562",
+     "title": "Minifig Gun Flintlock Pistol",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.028201024996561994,
+     "iou": 0.7426199175236402,
+     "p90": 0.05489867390322853
+    },
+    {
+     "part": "30132",
+     "title": "Minifig Gun Revolver",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04262702816209387,
+     "iou": 0.7058198650584208,
+     "p90": 0.10171306027266622
+    }
+   ]
+  },
+  "923ff23e3fabf159": {
+   "name": "OBJT_Rifle.msh",
+   "cands": [
+    {
+     "part": "2561",
+     "title": "Minifig Gun Musket",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      -1,
+      0,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.027986864240027134,
+     "iou": 0.7419234360410831,
+     "p90": 0.06741505885990587
+    },
+    {
+     "part": "2561",
+     "title": "Minifig Gun Musket",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      -1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.026010081328910164,
+     "iou": 0.5371386276558691,
+     "p90": 0.054794223609546264
+    }
+   ]
+  },
+  "9aa7ced4ad3b6584": {
+   "name": "OBJT_ScrewDriver.msh",
+   "cands": [
+    {
+     "part": "55298",
+     "title": "Minifig Tool Screwdriver",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.041318749097125435,
+     "iou": 0.7673081176730813,
+     "p90": 0.11671161933541425
+    },
+    {
+     "part": "4006",
+     "title": "Minifig Tool Spanner/Screwdriver",
+     "rot": [
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03689315805817329,
+     "iou": 0.7066035736400068,
+     "p90": 0.11028579438212151
+    }
+   ]
+  },
+  "db7828a5fe6a1806": {
+   "name": "OBJT_SHammer.msh",
+   "cands": [
+    {
+     "part": "55295",
+     "title": "Minifig Tool Hammer",
+     "rot": [
+      0,
+      -1,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.029642963009271356,
+     "iou": 0.7531432843116114,
+     "p90": 0.06034006926544156
+    },
+    {
+     "part": "604547",
+     "title": "Minifig Tool Hammer with 3-Rib Handle",
+     "rot": [
+      0,
+      -1,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03669251490519004,
+     "iou": 0.7073926882670052,
+     "p90": 0.07685332141458971
+    }
+   ]
+  },
+  "ed7b6c661ecd83dd": {
+   "name": "OBJT_Spanner.msh",
+   "cands": [
+    {
+     "part": "4006",
+     "title": "Minifig Tool Spanner/Screwdriver",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.043368789823573145,
+     "iou": 0.5205830025390695,
+     "p90": 0.11306617450846526
+    },
+    {
+     "part": "55299",
+     "title": "Minifig Tool Open End Wrench",
+     "rot": [
+      0,
+      1,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.047948409081082305,
+     "iou": 0.46591208947347057,
+     "p90": 0.10724429643104633
+    },
+    {
+     "part": "604552",
+     "title": "Minifig Tool Box Wrench with 3-Rib Handle",
+     "rot": [
+      0,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.048418916478124664,
+     "iou": 0.44922968490878934,
+     "p90": 0.10754287462713207
+    }
+   ]
+  },
+  "ef1d2d50df66ef6c": {
+   "name": "OBJT_Sword.msh",
+   "cands": [
+    {
+     "part": "2674b",
+     "title": "Minifig Sword Greatsword with Capped Pommel",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.029931397347832258,
+     "iou": 0.7380952380952381,
+     "p90": 0.0813744296637995
+    },
+    {
+     "part": "3847",
+     "title": "Minifig Sword Shortsword",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03082576056424776,
+     "iou": 0.7348710990502035,
+     "p90": 0.07805151641732033
+    },
+    {
+     "part": "2674b",
+     "title": "Minifig Sword Greatsword with Capped Pommel",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.03133211753599735,
+     "iou": 0.7013097072419106,
+     "p90": 0.08299362958323764
+    },
+    {
+     "part": "3847",
+     "title": "Minifig Sword Shortsword",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03198540947135931,
+     "iou": 0.699211743604267,
+     "p90": 0.08332149511574848
+    },
+    {
+     "part": "2674f",
+     "title": "Minifig Sword Small with Upturned Crossguard and Capped Pommel",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03312142578393549,
+     "iou": 0.7054836288582419,
+     "p90": 0.08412897520244988
+    },
+    {
+     "part": "2674f",
+     "title": "Minifig Sword Small with Upturned Crossguard and Capped Pommel",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03407475107476987,
+     "iou": 0.6682306940371457,
+     "p90": 0.08665072458750656
+    },
+    {
+     "part": "48495",
+     "title": "Minifig Sword with Angular Hilt",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03086016113955907,
+     "iou": 0.5578195750609544,
+     "p90": 0.08498139444932512
+    },
+    {
+     "part": "59",
+     "title": "Minifig Sword Greatsword",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03158444014286233,
+     "iou": 0.5386111874027282,
+     "p90": 0.08666001770086784
+    },
+    {
+     "part": "18031",
+     "title": "Minifig Sword Longsword with Thick Guard",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03133885774150265,
+     "iou": 0.5272317772317773,
+     "p90": 0.08139765455705353
+    },
+    {
+     "part": "98370",
+     "title": "Minifig Sword Longsword with Thin Guard",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03050263236656059,
+     "iou": 0.5157917200170722,
+     "p90": 0.07925945017813371
+    },
+    {
+     "part": "48495",
+     "title": "Minifig Sword with Angular Hilt",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.03193156924331711,
+     "iou": 0.5203753957485301,
+     "p90": 0.08609658996376857
+    },
+    {
+     "part": "59",
+     "title": "Minifig Sword Greatsword",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.033093877477781995,
+     "iou": 0.5013340956737183,
+     "p90": 0.0878636971244648
+    }
+   ]
+  },
+  "fbfdce3241ba8b75": {
+   "name": "OBJT_Tankard.msh",
+   "cands": [
+    {
+     "part": "33054",
+     "title": "Minifig Mug",
+     "rot": [
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03745913724422571,
+     "iou": 0.8469604095547765,
+     "p90": 0.07631951817784056
+    },
+    {
+     "part": "68495",
+     "title": "Minifig Cup Stein with Handle",
+     "rot": [
+      0,
+      -1,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04387254743759197,
+     "iou": 0.7870091133785874,
+     "p90": 0.08456198228536291
+    }
+   ]
+  },
+  "e4d9764987122da0": {
+   "name": "OBJT_Wrench.msh",
+   "cands": [
+    {
+     "part": "604614",
+     "title": "Minifig Tool Adjustable Wrench with 3-Rib Handle",
+     "rot": [
+      0,
+      1,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.046761645320980524,
+     "iou": 0.5605988800471559,
+     "p90": 0.1778124449946505
+    },
+    {
+     "part": "604553",
+     "title": "Minifig Tool 4-Way Lug Wrench",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.06543355537783593,
+     "iou": 0.5035137063586884,
+     "p90": 0.13428933684398675
+    }
+   ]
+  },
+  "fcfe0200b22f5cc3": {
+   "name": "PAPA_HRhat.msh",
+   "cands": [
+    {
+     "part": "51283",
+     "title": "Minifig Helmet Round Fishbowl",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03235220070300856,
+     "iou": 0.9011480675653095,
+     "p90": 0.07013034130483498
+    },
+    {
+     "part": "2187",
+     "title": "Minifig Hat Ninja Wrap Smooth",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03563738479798928,
+     "iou": 0.8752614140451908,
+     "p90": 0.06336410983500418
+    },
+    {
+     "part": "15851",
+     "title": "Minifig Helmet Motorcycle with Open Face and Visor",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03594310277804595,
+     "iou": 0.8319597180231634,
+     "p90": 0.06954928678810961
+    }
+   ]
+  },
+  "fbe3e34be8453ef6": {
+   "name": "PBAK_HRhair.msh",
+   "cands": [
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03199319391698937,
+     "iou": 0.9147637566601268,
+     "p90": 0.06315191990822473
+    },
+    {
+     "part": "21778",
+     "title": "Minifig Hair Coiled",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03366618723262237,
+     "iou": 0.9273830674246192,
+     "p90": 0.08962042071114316
+    },
+    {
+     "part": "98726",
+     "title": "Minifig Hair Swept Right with Front Curl",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03344687990401142,
+     "iou": 0.9025951468955601,
+     "p90": 0.07578891182378285
+    },
+    {
+     "part": "11264",
+     "title": "Minifig Hair Short with Laurel Wreath",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03391925244899075,
+     "iou": 0.8795400209971937,
+     "p90": 0.06597363390053507
+    }
+   ]
+  },
+  "d2c69ce20f5ba074": {
+   "name": "PEPJ_HRbag.msh",
+   "cands": [
+    {
+     "part": "12897",
+     "title": "Minifig Backpack Skydiver",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04141662535437403,
+     "iou": 0.6490407634226204,
+     "p90": 0.08142074652145793
+    },
+    {
+     "part": "2524",
+     "title": "Minifig Backpack Non-Opening",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04493947722378787,
+     "iou": 0.6910276047478398,
+     "p90": 0.12966931694280767
+    },
+    {
+     "part": "12897",
+     "title": "Minifig Backpack Skydiver",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.041705636782059304,
+     "iou": 0.6435006690905417,
+     "p90": 0.08536990513977384
+    },
+    {
+     "part": "2524",
+     "title": "Minifig Backpack Non-Opening",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 0,
+     "score": 0.04521923291788214,
+     "iou": 0.6831887196399119,
+     "p90": 0.13071898369691914
+    },
+    {
+     "part": "15406",
+     "title": "Minifig Backpack with Horizontal Pin Holes",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.056256002130379075,
+     "iou": 0.42350210808353267,
+     "p90": 0.15087238029556732
+    }
+   ]
+  },
+  "ac46fd1db2def274": {
+   "name": "PEPJ_HRhelm.msh",
+   "cands": [
+    {
+     "part": "16599",
+     "title": "Minifig Helmet Classic with Thin Chin Guard Cracked",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03260738778321046,
+     "iou": 0.9284814558713839,
+     "p90": 0.06357875397790598
+    },
+    {
+     "part": "50665",
+     "title": "Minifig Helmet Classic with Thin Chin Guard Unbroken",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03337677271083813,
+     "iou": 0.9257051596957573,
+     "p90": 0.061227705658814406
+    },
+    {
+     "part": "3842c",
+     "title": "Minifig Helmet Classic with Thick Chin Guard",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.033490090724602774,
+     "iou": 0.9186700178126562,
+     "p90": 0.06652981581292258
+    },
+    {
+     "part": "3842b",
+     "title": "Minifig Helmet Classic with Thick Chin Guard and Visor Dimples",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.0336547916569798,
+     "iou": 0.9169305092238326,
+     "p90": 0.06995683688573372
+    }
+   ]
+  },
+  "ff377dc624758363": {
+   "name": "PEPJ_HRvisor.msh",
+   "cands": [
+    {
+     "part": "11303c01",
+     "title": "Minifig Cap with Short Arched Peak and Black Headphones / Ear Protection",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.04582906633632094,
+     "iou": 0.5722488518960915,
+     "p90": 0.12582755191092185
+    },
+    {
+     "part": "30171b",
+     "title": "Minifig Cap Aviator",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.0430405860765826,
+     "iou": 0.5163262727924224,
+     "p90": 0.11544702484916064
+    },
+    {
+     "part": "15851",
+     "title": "Minifig Helmet Motorcycle with Open Face and Visor",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.04557173169230124,
+     "iou": 0.5073944415722939,
+     "p90": 0.12937854859944578
+    },
+    {
+     "part": "30370",
+     "title": "Minifig Helmet Star Wars Rebel Pilot",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.04693545689155264,
+     "iou": 0.5242306964173534,
+     "p90": 0.12798401867516998
+    },
+    {
+     "part": "35458",
+     "title": "Minifig Helmet Dirt Bike",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.047917048070700644,
+     "iou": 0.43122220780322373,
+     "p90": 0.1358426935230602
+    }
+   ]
+  },
+  "865fc0f75a7db4b7": {
+   "name": "PEPP_HRbag.msh",
+   "cands": [
+    {
+     "part": "2524",
+     "title": "Minifig Backpack Non-Opening",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.045426155739595,
+     "iou": 0.7221630181483514,
+     "p90": 0.1363605401314945
+    },
+    {
+     "part": "12897",
+     "title": "Minifig Backpack Skydiver",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.045633470202381524,
+     "iou": 0.6678194262723318,
+     "p90": 0.0923698542146006
+    },
+    {
+     "part": "15406",
+     "title": "Minifig Backpack with Horizontal Pin Holes",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.05607295828195884,
+     "iou": 0.4245252743265406,
+     "p90": 0.1516905885813306
+    },
+    {
+     "part": "2524",
+     "title": "Minifig Backpack Non-Opening",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.060220430002121544,
+     "iou": 0.45425526154002976,
+     "p90": 0.168795710446464
+    },
+    {
+     "part": "12897",
+     "title": "Minifig Backpack Skydiver",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.0589944802736706,
+     "iou": 0.4004881401777569,
+     "p90": 0.16316463037750417
+    }
+   ]
+  },
+  "8d966b9c58f2cdd0": {
+   "name": "PEPP_HRhat.msh",
+   "cands": [
+    {
+     "part": "4485b",
+     "title": "Minifig Cap with Long Flat Peak",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 0,
+     "score": 0.0371893623428592,
+     "iou": 0.7533262239017658,
+     "p90": 0.07433267683743984
+    },
+    {
+     "part": "16175",
+     "title": "Minifig Construction Helmet with Hair Short",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.04178444701847877,
+     "iou": 0.7093075965404424,
+     "p90": 0.09271993249711535
+    },
+    {
+     "part": "2514",
+     "title": "Minifig Hat Newsboy Cap",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.041567749349475255,
+     "iou": 0.6959670640344259,
+     "p90": 0.09890424870189343
+    },
+    {
+     "part": "24073",
+     "title": "Minifig Headdress Bandage Wrapped",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.04484455461054121,
+     "iou": 0.7217343932586119,
+     "p90": 0.09617749950228131
+    },
+    {
+     "part": "12894",
+     "title": "Minifig Hat Cone",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04835338493690666,
+     "iou": 0.6603112584790645,
+     "p90": 0.11906530681136447
+    }
+   ]
+  },
+  "920fcfe6ea426c06": {
+   "name": "PEPP_spacevisor.msh",
+   "cands": [
+    {
+     "part": "24073",
+     "title": "Minifig Headdress Bandage Wrapped",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04036055814100848,
+     "iou": 0.7219977950252764,
+     "p90": 0.10316128139711025
+    },
+    {
+     "part": "98381",
+     "title": "Minifig Hat Flat Chef",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04121837907621435,
+     "iou": 0.7091422496774511,
+     "p90": 0.10861540841898061
+    },
+    {
+     "part": "46303",
+     "title": "Minifig Helmet Skateboard",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04123250277861892,
+     "iou": 0.6931428605992607,
+     "p90": 0.10731159253978852
+    },
+    {
+     "part": "25973",
+     "title": "Minifig Headdress Bald Head with Tied Bandana",
+     "rot": [
+      0,
+      0,
+      -1,
+      0,
+      1,
+      0,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.047994080510458226,
+     "iou": 0.6716738148842406,
+     "p90": 0.09703238188676375
+    }
+   ]
+  },
+  "2406edd4803563e6": {
+   "name": "PEPP_spacevisordown.msh",
+   "cands": [
+    {
+     "part": "71016",
+     "title": "Minifig Helmet Visor Space",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.02563216181677833,
+     "iou": 0.8443736315797684,
+     "p90": 0.04445177124849992
+    },
+    {
+     "part": "89159",
+     "title": "Minifig Helmet Visor Large with Trapezoid Area on Top",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.029821979727261617,
+     "iou": 0.8472351557006865,
+     "p90": 0.05658916106502787
+    },
+    {
+     "part": "6090",
+     "title": "Minifig Helmet Visor Underwater",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03213898764487122,
+     "iou": 0.7082580749049944,
+     "p90": 0.05688462285329056
+    },
+    {
+     "part": "6119b",
+     "title": "Minifig Helmet Visor Shielded with Antenna",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.058553128481534815,
+     "iou": 0.5000985618301961,
+     "p90": 0.17146926601264503
+    }
+   ]
+  },
+  "7a02cf8ca0d02ee7": {
+   "name": "PHIL_HRhair.msh",
+   "cands": [
+    {
+     "part": "37784",
+     "title": "Minifig Hair Half Giant with Beard",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03621510057070379,
+     "iou": 0.7978655721150704,
+     "p90": 0.06583961087485223
+    },
+    {
+     "part": "16178",
+     "title": "Minifig Construction Helmet with Hair Ponytail",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.06020360738310574,
+     "iou": 0.7175602613854659,
+     "p90": 0.28044298437951
+    },
+    {
+     "part": "2764",
+     "title": "Minifig Hair Na'vi, Wide with Braids, Smooth Front, and Bar at End",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.06478923611745518,
+     "iou": 0.6492249124734765,
+     "p90": 0.30755742681859227
+    },
+    {
+     "part": "13784",
+     "title": "Minifig Hair Female Long with Braided Pigtails",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      -1,
+      0,
+      0
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.0632195180195313,
+     "iou": 0.5933603317543036,
+     "p90": 0.24256234676962996
+    }
+   ]
+  },
+  "c16fb3c4407b784d": {
+   "name": "PIPP_HRhat.msh",
+   "cands": [
+    {
+     "part": "15851",
+     "title": "Minifig Helmet Motorcycle with Open Face and Visor",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.033737065970953044,
+     "iou": 0.853691401638868,
+     "p90": 0.07653981977842776
+    },
+    {
+     "part": "30171b",
+     "title": "Minifig Cap Aviator",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03415189147654998,
+     "iou": 0.849739165909726,
+     "p90": 0.07139168032179052
+    },
+    {
+     "part": "46303",
+     "title": "Minifig Helmet Skateboard",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03272967129449965,
+     "iou": 0.8124027815869551,
+     "p90": 0.0686077570844254
+    },
+    {
+     "part": "15851",
+     "title": "Minifig Helmet Motorcycle with Open Face and Visor",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03393789421412705,
+     "iou": 0.8261692022189826,
+     "p90": 0.0647417147469303
+    },
+    {
+     "part": "13792",
+     "title": "Minifig Helmet Welding",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03582393270009703,
+     "iou": 0.8462737053112229,
+     "p90": 0.060246509202428286
+    }
+   ]
+  },
+  "5c45c6de1de8d3f7": {
+   "name": "PizzaShield.msh",
+   "cands": [
+    {
+     "part": "75902",
+     "title": "Minifig Shield Round Bowed",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      0,
+      1,
+      0
+     ],
+     "mirror": true,
+     "excluded": 2,
+     "score": 0.04960782631081796,
+     "iou": 0.5496278451220173,
+     "p90": 0.10780264285353837
+    },
+    {
+     "part": "75902",
+     "title": "Minifig Shield Round Bowed",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      0,
+      -1,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.0519354694057216,
+     "iou": 0.5545753275261472,
+     "p90": 0.11149258555723979
+    },
+    {
+     "part": "59231",
+     "title": "Minifig Shield Round Flat",
+     "rot": [
+      0,
+      0,
+      -1,
+      1,
+      0,
+      0,
+      0,
+      -1,
+      0
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.0741547582663035,
+     "iou": 0.39969543767368215,
+     "p90": 0.16957563533239323
+    }
+   ]
+  },
+  "b211b1c354597c5e": {
+   "name": "POST_HRhair.msh",
+   "cands": [
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04158209988509463,
+     "iou": 0.8053092393467925,
+     "p90": 0.08388263620716707
+    },
+    {
+     "part": "62810",
+     "title": "Minifig Hair Short, Tousled with Side Parting",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04339325452863501,
+     "iou": 0.8078825358237468,
+     "p90": 0.09347296250660576
+    }
+   ]
+  },
+  "3c32cfaa55d7888d": {
+   "name": "Rabbit_Helm.msh",
+   "cands": []
+  },
+  "b3d7695a867de312": {
+   "name": "RICH_HRhat.msh",
+   "cands": [
+    {
+     "part": "46303",
+     "title": "Minifig Helmet Skateboard",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03272681335243523,
+     "iou": 0.8383787080281149,
+     "p90": 0.050509727869992305
+    }
+   ]
+  },
+  "ce1e58fb869b9f07": {
+   "name": "RICK_HRhair.msh",
+   "cands": [
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.027514473637211732,
+     "iou": 0.9191849868201706,
+     "p90": 0.054977431204738574
+    },
+    {
+     "part": "11264",
+     "title": "Minifig Hair Short with Laurel Wreath",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.028489674730707234,
+     "iou": 0.9127981710116119,
+     "p90": 0.05762753201853807
+    },
+    {
+     "part": "98726",
+     "title": "Minifig Hair Swept Right with Front Curl",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.030844029663919317,
+     "iou": 0.9101835035877693,
+     "p90": 0.06871459295925565
+    },
+    {
+     "part": "62810",
+     "title": "Minifig Hair Short, Tousled with Side Parting",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.031399094238028134,
+     "iou": 0.9007772803692022,
+     "p90": 0.0655447103742566
+    }
+   ]
+  },
+  "85bf29dad741fe63": {
+   "name": "SCUL_HRhair.msh",
+   "cands": [
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03516419647212649,
+     "iou": 0.8678155131915061,
+     "p90": 0.07216053612680498
+    }
+   ]
+  },
+  "79a5f8a281d86bc1": {
+   "name": "SEAN_HRhat.msh",
+   "cands": [
+    {
+     "part": "10164",
+     "title": "Minifig Headdress Beanie with Pom Pom",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.046516701990117704,
+     "iou": 0.7975937606890273,
+     "p90": 0.08391769052796326
+    },
+    {
+     "part": "10164",
+     "title": "Minifig Headdress Beanie with Pom Pom",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04739320265752073,
+     "iou": 0.7960921175297587,
+     "p90": 0.08834972300216366
+    }
+   ]
+  },
+  "b7a7dcd539bb1013": {
+   "name": "SNAP_HRhat.msh",
+   "cands": [
+    {
+     "part": "3624",
+     "title": "Minifig Police Hat",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03481199427639757,
+     "iou": 0.8491416195466096,
+     "p90": 0.08644653117382949
+    },
+    {
+     "part": "4156",
+     "title": "Minifig Garrison Cap",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.0429939971848424,
+     "iou": 0.8350846461367346,
+     "p90": 0.10540543772501046
+    }
+   ]
+  },
+  "e1403ea08cb6134f": {
+   "name": "space_EVV.msh",
+   "cands": [
+    {
+     "part": "30202",
+     "title": "Minifig Helmet Underwater Stingray",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": 2,
+     "score": 0.045269176068623206,
+     "iou": 0.7679188467166131,
+     "p90": 0.10103627385578808
+    },
+    {
+     "part": "30202",
+     "title": "Minifig Helmet Underwater Stingray",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04555922647791666,
+     "iou": 0.7679188467166131,
+     "p90": 0.10103086293694098
+    },
+    {
+     "part": "40235",
+     "title": "Minifig Headdress Turban",
+     "rot": [
+      0,
+      0,
+      -1,
+      0,
+      1,
+      0,
+      -1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": 0,
+     "score": 0.04291775448164957,
+     "iou": 0.7319544298684728,
+     "p90": 0.08307755087665773
+    },
+    {
+     "part": "13792",
+     "title": "Minifig Helmet Welding",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 2,
+     "score": 0.048318205359791866,
+     "iou": 0.7855202645095823,
+     "p90": 0.12511709737303142
+    },
+    {
+     "part": "13792",
+     "title": "Minifig Helmet Welding",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.04841178461952966,
+     "iou": 0.7855202645095823,
+     "p90": 0.12870674454170844
+    }
+   ]
+  },
+  "dd5bf3be738a51f0": {
+   "name": "STEV_HRhair.msh",
+   "cands": [
+    {
+     "part": "41612",
+     "title": "Minifig Hair Long and Straight Parted in the Middle",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.031110272630252542,
+     "iou": 0.8466959699447533,
+     "p90": 0.06248936614013382
+    },
+    {
+     "part": "36806",
+     "title": "Minifig Hair Long Parted in Center",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.030552249283477308,
+     "iou": 0.8238584008236817,
+     "p90": 0.051258634265733106
+    },
+    {
+     "part": "38541",
+     "title": "Minifig Hair Long and Straight, Hat with Tassel",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03255370941863848,
+     "iou": 0.8344422110890921,
+     "p90": 0.05937120660320126
+    },
+    {
+     "part": "36806",
+     "title": "Minifig Hair Long Parted in Center",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.03545714038483997,
+     "iou": 0.708364711541491,
+     "p90": 0.06727105338769616
+    },
+    {
+     "part": "38541",
+     "title": "Minifig Hair Long and Straight, Hat with Tassel",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": 1,
+     "score": 0.03613787486334677,
+     "iou": 0.7069377907993194,
+     "p90": 0.07900874961142244
+    }
+   ]
+  },
+  "a5a9b0ad064a1b7d": {
+   "name": "TOBY_HRhair.msh",
+   "cands": [
+    {
+     "part": "35699",
+     "title": "Minifig Hair Smooth with Spiked Bangs",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03362751988330032,
+     "iou": 0.8512111426073744,
+     "p90": 0.08225126901336902
+    },
+    {
+     "part": "98726",
+     "title": "Minifig Hair Swept Right with Front Curl",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03356328486586848,
+     "iou": 0.8441294129412941,
+     "p90": 0.08176430565912492
+    },
+    {
+     "part": "62810",
+     "title": "Minifig Hair Short, Tousled with Side Parting",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03429450288004968,
+     "iou": 0.8464704762886864,
+     "p90": 0.0758462271319378
+    },
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.035858520517480716,
+     "iou": 0.828819027195529,
+     "p90": 0.07396503209761089
+    }
+   ]
+  },
+  "9e7996b3301d8290": {
+   "name": "torch.msh",
+   "cands": [
+    {
+     "part": "37775",
+     "title": "Minifig Candle Flame",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03744929213278655,
+     "iou": 0.7032972582972583,
+     "p90": 0.0692934822117256
+    },
+    {
+     "part": "3959",
+     "title": "Minifig Torch",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.039972232954795316,
+     "iou": 0.6820220841959972,
+     "p90": 0.10777314105313436
+    },
+    {
+     "part": "86208",
+     "title": "Minifig Torch without Grooves",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.045175809266742244,
+     "iou": 0.613169689163314,
+     "p90": 0.1286925247459775
+    }
+   ]
+  },
+  "52acea5f5a2d7073": {
+   "name": "TRI1_HRhat.msh",
+   "cands": [
+    {
+     "part": "12894",
+     "title": "Minifig Hat Cone",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.037847899254016486,
+     "iou": 0.7699897967944763,
+     "p90": 0.07476270442321713
+    },
+    {
+     "part": "60747",
+     "title": "Minifig Helmet Cap with Wings",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03451963039982011,
+     "iou": 0.6974990918295876,
+     "p90": 0.07463593929823618
+    },
+    {
+     "part": "30048",
+     "title": "Minifig Helmet Morion",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.040617609951106096,
+     "iou": 0.753241272382635,
+     "p90": 0.07481476280209388
+    },
+    {
+     "part": "61506",
+     "title": "Minifig Hat Fedora",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      -1
+     ],
+     "mirror": false,
+     "excluded": 1,
+     "score": 0.04817379702623658,
+     "iou": 0.6864855823614411,
+     "p90": 0.1338868590476448
+    },
+    {
+     "part": "6131",
+     "title": "Minifig Wizards Hat",
+     "rot": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      0
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.04669600379931753,
+     "iou": 0.5890155482482848,
+     "p90": 0.0966221366208049
+    }
+   ]
+  },
+  "838e72a4d4175dd2": {
+   "name": "TRI3_HRhair.msh",
+   "cands": [
+    {
+     "part": "6093a",
+     "title": "Minifig Hair Ponytail",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03121839880921932,
+     "iou": 0.8572395574645112,
+     "p90": 0.0634135571027079
+    },
+    {
+     "part": "2633",
+     "title": "Minifig Hair Long with Parted Bangs Swept Back in Bun with Pin Hole in Back",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03311296425665899,
+     "iou": 0.791647456302465,
+     "p90": 0.06546549307573976
+    },
+    {
+     "part": "93230",
+     "title": "Minifig Hair Swept Back with Pointed Ears",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.03484908298863979,
+     "iou": 0.8129053156524089,
+     "p90": 0.06320839233991665
+    },
+    {
+     "part": "35660",
+     "title": "Minifig Hair with Ponytail and Baseball Cap",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.037247350425937145,
+     "iou": 0.741276160777082,
+     "p90": 0.0667178881781667
+    }
+   ]
+  },
+  "dfffdc9dd0433b38": {
+   "name": "VALS_HRhair.msh",
+   "cands": [
+    {
+     "part": "6093a",
+     "title": "Minifig Hair Ponytail",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03148493084906172,
+     "iou": 0.8483719706641449,
+     "p90": 0.06852321288025925
+    },
+    {
+     "part": "93230",
+     "title": "Minifig Hair Swept Back with Pointed Ears",
+     "rot": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": false,
+     "excluded": -1,
+     "score": 0.033027580752476124,
+     "iou": 0.8231293745186424,
+     "p90": 0.060580137143303465
+    },
+    {
+     "part": "35660",
+     "title": "Minifig Hair with Ponytail and Baseball Cap",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03703336931673954,
+     "iou": 0.7347886338769057,
+     "p90": 0.06677882243063446
+    },
+    {
+     "part": "16178",
+     "title": "Minifig Construction Helmet with Hair Ponytail",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03833358596108997,
+     "iou": 0.6864333650505839,
+     "p90": 0.08639515531596989
+    }
+   ]
+  },
+  "a3897dbfffb8797f": {
+   "name": "XXX2hairHR.msh",
+   "cands": [
+    {
+     "part": "3901",
+     "title": "Minifig Hair Male",
+     "rot": [
+      -1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+     ],
+     "mirror": true,
+     "excluded": -1,
+     "score": 0.03755163807446324,
+     "iou": 0.8510598779043134,
+     "p90": 0.0757710182974107
+    }
+   ]
+  }
+ }
+}

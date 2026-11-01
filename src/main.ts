@@ -10,6 +10,8 @@ import { openModStore } from './mods/store.ts';
 import { loadActiveMods } from './mods/manage.ts';
 import { ModdedFiles, ModLayer, withMods } from './mods/overlay.ts';
 import { hd, hdLazyForGame } from './mods/hd.ts';
+import { attachLego3d, lego3dOptions } from './mods/lego3d/hook.ts';
+import { createLego3dOption } from './mods/lego3d/ui.ts';
 import { createHdOption, hdJoinsGame, showHdBadge } from './mods/hdui.ts';
 import type { ActiveMod } from './mods/overlay.ts';
 import { EffectMap, reportPatches } from './mods/effects.ts';
@@ -129,6 +131,7 @@ async function startScreen() {
   // HD-textures: checked by default on capable devices; starts the background install when wanted (docs/re/mods.md)
   const hdOption = await createHdOption(hdGateFor(lib));
   options.append(hdOption.element);
+  options.append(createLego3dOption());   // LEGO 3D: off by default
   if (hdOption.wanted() && !hd.running) void hd.start(hdGateFor(lib)());
 
   // mods: the executable is only read here when that costs nothing (own ISO, dev copy, a download that is already stored)
@@ -262,6 +265,7 @@ async function applyMods(files: GameFiles, params: URLSearchParams, debugMenu: b
     const lazy = await hdLazyForGame(currentPrefs(`?${params.toString()}`).hd);   // the HD pack read on demand (src/mods/hdremote.ts): only when it was fetched here before and the option is not off
     if ((hd.running || lazy) && !(out instanceof ModdedFiles)) out = new ModdedFiles(out, new ModLayer([]));   // the HD pack is being installed / fetched per zone: it joins this layer (an empty layer changes nothing)
     if (lazy && out instanceof ModdedFiles) out.lazy = lazy;
+    if (currentPrefs(`?${params.toString()}`).lego3d) out = await attachLego3d(out, (await import('./mods/lego3d/packurl.ts')).packUrl, lego3dOptions(`?${params.toString()}`));   // LEGO 3D (docs/re/lego3d.md): off = the files stay as they are
     if (out instanceof ModdedFiles) (window as unknown as { __le2Mods?: unknown }).__le2Mods = { layer: out.layer, files: out, mods: active.map((m) => m.title) };
     return out;
   } catch (e) {

@@ -154,12 +154,16 @@ export class BrickLibrary {
   readonly morph: Archive | null;
   private lods = new Map<string, BrickLod | null>();
   private models = new Map<string, BrickModelData | null>();
+  /** LEGO 3D mod only: first-colour vertex counts of replaced LOD meshes (`lego3d/bricksplit.json` of the Bricks archive: { "<brick>_<lod file>": n }); null = the member does not exist (the original's rule applies) */
+  private lego3dSplit: Record<string, number> | null = null;
 
   constructor(pe: Pe, bricks: Archive, morph: Archive | null) {
     this.pe = pe; this.bricks = bricks; this.morph = morph;
     this.dicts = brickDictionaries(pe);
     const e = bricks.find('brickset.txt');
     const text = e ? new TextDecoder('latin1').decode(bricks.read(e)) : '';
+    const sp = bricks.find('lego3d/bricksplit.json');
+    if (sp) { try { this.lego3dSplit = JSON.parse(new TextDecoder().decode(bricks.read(sp))) as Record<string, number>; } catch { this.lego3dSplit = null; } }
     for (const line of text.split(/\r\n|\r|\n/)) {
       const p = parseBrickSetLine(line);
       if (!p) continue;
@@ -210,6 +214,8 @@ export class BrickLibrary {
 
   /** FUN_0044d420's split argument: the number of vertices of LOD `l` drawn in the first colour */
   splitOf(t: BrickType, l: number): number {
+    const f = t.lodFile[l];
+    if (this.lego3dSplit && f !== null && f !== undefined) { const v = this.lego3dSplit[`${t.name.toLowerCase()}_${f}`]; if (typeof v === 'number') return v; }   // a replaced mesh (LEGO 3D): its own first-colour count
     const p = t.splitPatch[l];
     if (p !== null && p !== undefined) return p;
     return (this.meshOf(t, l)?.vertexCount ?? 0) - t.secondColour;

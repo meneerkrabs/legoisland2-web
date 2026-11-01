@@ -42,6 +42,12 @@ opgehaald (het eiland is ongeveer 65 MB) en in je browser bewaard, in plaats van
 die nog niet klaar is begint met de originele plaatjes en is de volgende keer scherper, en uitvinken stopt het en biedt aan wat bewaard is te verwijderen. Uit = precies het originele
 beeld. Niets van het pakket staat hier. Details: [docs/re/mods.md](docs/re/mods.md).
 
+**LEGO 3D** (extra van de port, **standaard uit**: het originele beeld blijft de standaard): een vinkje op het beginscherm dat het spel opbouwt uit echte LEGO-onderdelen van de
+[LDraw](https://www.ldraw.org)-bibliotheek (CC BY 4.0 / CCAL 2.0): de minifiguren (lichaam, hoofd, handen, haar en hoeden waar een onderdeel bestaat), de stenenbibliotheek, echte 3D-noppen op
+de noppenplaten, 4x scherpe nop- en muurplaatjes en zeven LDraw-setmodellen (jetski, ambulance, Island Racer, ...). Het wordt **in je browser** samengesteld uit een klein gegevenspakket (ongeveer
+1 MB, uit LDraw afgeleid, met `ATTRIBUTION.txt`) plus je eigen spelbestanden; niets van het spel wordt gehost en niets verlaat je browser. Het houdt het spelen nooit tegen (geen pakket op tijd =
+het originele spel), zwakke apparaten krijgen een waarschuwing en uitvinken verwijdert wat bewaard is. Details en cijfers: [docs/re/lego3d.md](docs/re/lego3d.md).
+
 De **Mod-catalogus** (in het mods-onderdeel) laat de bekende community-mods met één klik toevoegen, met de namen van de makers en een link naar hun oorspronkelijke topic op
 Rock Raiders United. **Geen enkele mod staat in deze repo of op de website**: bij "Toevoegen" haalt je browser de mod rechtstreeks op bij de plek waar de maker hem publiceerde
 (MEGA, Rock Raiders United, GitHub, archive.org; de laatste drie via dezelfde doorgeefserver als de ISO). Niets staat vanzelf aan. "IXS-look" wordt in je browser gemaakt van

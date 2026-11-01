@@ -17,6 +17,8 @@ export interface FileSource {
   zoneBoundary?(): void;
   /** before an archive's overrides are applied: lets lazily fetched mod files (the HD pack read on demand from archive.org, src/mods/hdremote.ts) be fetched / decided for this archive */
   prepareOverrides?(name: string): Promise<void>;
+  /** LEGO 3D (src/mods/lego3d): after the mods' own files, generated members are put into the archive (only set when the option is on) */
+  generateOverrides?(name: string, archive: Archive, other: (name: string) => Promise<Archive | null>): Promise<void>;
 }
 
 export class GameData {
@@ -68,12 +70,14 @@ export class GameData {
     const have = this.overlays.get(key);
     if (have) return have;
     const list = this.files?.archiveOverrides?.(name) ?? [];
-    if (!list.length) return Promise.resolve();
+    const gen = this.files?.generateOverrides;
+    if (!list.length && !gen) return Promise.resolve();
     const p = (async () => {
       for (const o of list) {
         // (not `o.done?.(a.override(...))`: for an entry without `done` that skips the override altogether)
         try { const replaced = a.override(o.path, await o.load()); o.done?.(replaced); } catch (e) { console.warn(`mod-bestand ${o.path} niet geladen, het spelbestand blijft`, e); }   // a missing / damaged stored file must not stop the zone
       }
+      if (gen) { try { await gen(name, a, (n) => this.rawArchive(n).catch(() => null)); } catch (e) { console.warn(`LEGO 3D: ${name} niet toegepast`, e); } }
     })();
     this.overlays.set(key, p);
     return p;

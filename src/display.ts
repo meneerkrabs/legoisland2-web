@@ -6,11 +6,12 @@
 //   debugMenu  the original's story-checkpoint list in the front end's main menu in place of "Credits" (the Mod Manager's "Debug Mode"), docs/re/mods.md
 //   restored   the optional mode "Herstelde inhoud" (restored content, docs/re/restore-plan.md; default OFF: with it off the game is exactly the original)
 //   hd         the HD Texture Pack (src/mods/hd.ts) on / off; null = never chosen (the default then depends on the device, `hdDefault`). An explicit choice always wins.
+//   lego3d     "LEGO 3D" (src/mods/lego3d, docs/re/lego3d.md): the LEGO-model look generated in the browser from an LDraw-derived data pack; default OFF (the original look stays the default)
 //   restoredOff the individual restored features (src/restore/flag.ts `RESTORE_FEATURES`) the player switched off again; all on by default
-// URL parameters override them for one session: `?hd=1|0`, `?wide=1|0`, `?intro=0`, `?debug=1`, `?restored=1|0`, `?restoredoff=a,b`.
+// URL parameters override them for one session: `?hd=1|0`, `?lego3d=1|0|<generators>`, `?wide=1|0`, `?intro=0`, `?debug=1`, `?restored=1|0`, `?restoredoff=a,b`.
 
 export type DisplayMode = '4:3' | 'wide';
-export interface Prefs { mode: DisplayMode; skipIntro: boolean; debugMenu: boolean; restored: boolean; restoredOff: string[]; hd: boolean | null }
+export interface Prefs { mode: DisplayMode; skipIntro: boolean; debugMenu: boolean; restored: boolean; restoredOff: string[]; hd: boolean | null; lego3d: boolean }
 const KEY = 'le2-display';
 
 export const ASPECT_ORIGINAL = 4 / 3;
@@ -22,8 +23,8 @@ function storage(): Storage | null {
 export function storedPrefs(): Prefs {
   try {
     const v = JSON.parse(storage()?.getItem(KEY) ?? 'null') as Partial<Prefs> | null;
-    return { mode: v?.mode === 'wide' ? 'wide' : '4:3', skipIntro: v?.skipIntro === true, debugMenu: v?.debugMenu === true, restored: v?.restored === true, restoredOff: Array.isArray(v?.restoredOff) ? v.restoredOff.filter((x) => typeof x === 'string') : [], hd: typeof v?.hd === 'boolean' ? v.hd : null };
-  } catch { return { mode: '4:3', skipIntro: false, debugMenu: false, restored: false, restoredOff: [], hd: null }; }
+    return { mode: v?.mode === 'wide' ? 'wide' : '4:3', skipIntro: v?.skipIntro === true, debugMenu: v?.debugMenu === true, restored: v?.restored === true, restoredOff: Array.isArray(v?.restoredOff) ? v.restoredOff.filter((x) => typeof x === 'string') : [], hd: typeof v?.hd === 'boolean' ? v.hd : null, lego3d: v?.lego3d === true };
+  } catch { return { mode: '4:3', skipIntro: false, debugMenu: false, restored: false, restoredOff: [], hd: null, lego3d: false }; }
 }
 
 export function storePrefs(p: Partial<Prefs>) {
@@ -41,6 +42,8 @@ export function currentPrefs(search = globalThis.location?.search ?? ''): Prefs 
   if (r === '1') p.restored = true; else if (r === '0') p.restored = false;
   const h = q.get('hd');
   if (h === '1') p.hd = true; else if (h === '0') p.hd = false;
+  const l3 = q.get('lego3d');
+  if (l3 === '0') p.lego3d = false; else if (l3 !== null) p.lego3d = true;   // '1' or a list of generators (src/mods/lego3d/hook.ts `lego3dOptions`)
   const ro = q.get('restoredoff');
   if (ro !== null) p.restoredOff = ro.split(',').filter((x) => x !== '');
   return p;

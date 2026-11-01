@@ -1,0 +1,440 @@
+{
+ "_doc": "Decisions after looking at the QA sheets (tools/lego3d/brick-sheets.mjs) for the bricks that the automatic rule (brick-table.mjs: box <= 0.045, mean <= 0.02, far <= 8 %) does not pass or that pass but look wrong. accept = same element, deviations are details of the game's simplified model; reject = reason (documented in the report).",
+ "accept": {
+  "arch2x8x1": "same arch; LDraw's hollow deck shows from below",
+  "car_grill": "same grille shape; the game's bars are simpler",
+  "dish2x2": "same dish; the stud is a hollow stud in LDraw",
+  "fat2x1_hinge_pin": "same hinge brick; the knuckles are simpler in the game",
+  "flat1x1": "tile; the game's has a bevel",
+  "flat2x1": "tile; the game's has a bevel",
+  "flat4x1": "tile; the game's has a bevel",
+  "flat6x1": "tile; the game's has a bevel",
+  "flat8x1": "tile; the game's has a bevel",
+  "grill2x1": "same grille tile",
+  "support_angle": "same stanchion; the game's cross bars are simpler",
+  "thin5x2_zbend": "same bracket",
+  "window_shuttle": "same windscreen shape",
+  "windscreen3x4": "same windscreen shape",
+  "windscreen4x4x3_hinge": "same windscreen shape",
+  "wing3x3_thin": "same plate",
+  "wing6x3": "same plate",
+  "wing9x4": "same wing plate",
+  "wing7x12_left": "same wing plate",
+  "wing7x12_right": "same wing plate",
+  "lever": "same lever; the game's ends are rounder",
+  "prop_small_base2x2": "same plate",
+  "shutter": "same shutter; the game's has no slats",
+  "thin3x2_rounded": "same plate",
+  "thin1x2_jet": "same jet plate",
+  "thin_2x1_offset": "same plate",
+  "thin2x1_hook": "same plate with bar; the bar is 0.05 longer",
+  "thin2x2_upright": "same bracket",
+  "balcony01": "same railing plate",
+  "bar4x3_window": "same window bars",
+  "car_mudguard_str": "same mudguard",
+  "garage_door_frame": "same frame",
+  "parasol": "same umbrella",
+  "police_car_box": "same hose-reel holder box",
+  "tap1x1": "same tap; 0.047 box (0.002 over)",
+  "thin6x6_boatbow": "same boat plate",
+  "thin6x7_boatbow": "same boat plate",
+  "thin4x2_hinge": "same hinge plate",
+  "thin4x1_hinge_door": "same hinge plate",
+  "wedge4x4_triple": "same wedge",
+  "mast": "same mast",
+  "klaxon": "same element; the game's rockets are simpler",
+  "fat10x1": "same brick, 0.08 shorter in the game: the body is fitted, the studs stay on the grid",
+  "fat12x1": "same brick, 0.08 shorter in the game: the body is fitted, the studs stay on the grid",
+  "roadsign_oct": "same sign; the game's has two slots"
+ },
+ "fitScale": [
+  "fat10x1",
+  "fat12x1"
+ ],
+ "reject": {
+  "camera_body": "no LDraw counterpart: the game's camera body is a custom shape",
+  "car_dash": "no LDraw counterpart: the game's dashboard is a custom shape",
+  "car_engine": "no LDraw counterpart: custom engine block",
+  "car_seat": "no LDraw counterpart: custom seat",
+  "car_boot": "no LDraw counterpart: custom boot",
+  "chair": "no LDraw counterpart: custom chair",
+  "dingy_pummel": "no LDraw counterpart: custom dinghy fender",
+  "dingy_prop": "the LDraw hinge bar does not reproduce the game's propeller shaft (artefacts)",
+  "fat1x1_headlight": "LDraw's headlight brick has a recess with a stud, the game's a lamp bump",
+  "fat2x2_pin": "pin 0.08 longer than the game's (box error 0.08)",
+  "fat2x1_pin": "pin 0.08 longer than the game's (box error 0.08)",
+  "fat1x2_45slopeinvert": "LDraw's inverted slopes have a stepped top with hollow studs; the game's are flat-topped",
+  "fat1x2_45slopeinvert_cnr": "as fat1x2_45slopeinvert",
+  "fat1x3_33slopeinvert": "as fat1x2_45slopeinvert",
+  "fat2x2_45slopeinvert": "as fat1x2_45slopeinvert",
+  "fat2x3_33slopeinvert": "as fat1x2_45slopeinvert",
+  "fat3x3_33slopeinvert": "the nearest part (4161, a normal slope) has 3 of the game's 9 studs at the wrong height: not an inverted double slope",
+  "fat4x3_33slopeinvert": "no LDraw part with this shape (double inverted slope)",
+  "fat4x2_dbinv45": "no LDraw part with this shape (double inverted slope)",
+  "fat6x6_boatbow": "LDraw's boat base is hollow with other ribs than the game's solid bow",
+  "fat4x4_18slope_cnr": "no LDraw part with this shape",
+  "wedge4x4_triple_but": "the game's wedge has a recess (button) that the LDraw wedge does not",
+  "wedge6x4_invert": "no LDraw part with this shape",
+  "hook": "no LDraw counterpart: the game's hook is a custom anchor shape",
+  "handlebar": "no LDraw counterpart",
+  "lever_base": "the LDraw control-stick base does not match the game's dome",
+  "l_s_globe": "the LDraw control-stick base does not match the game's globe",
+  "hemisphere4x4": "the LDraw hemisphere is a cratered rock",
+  "hemisphere4x4_base": "no LDraw part with this shape",
+  "wheel01": "the LDraw wheel has a tyre tread and another width (box 0.08); the game's is a plain chunky tyre",
+  "wheel02": "the puck 44848 has the shape (mean 0.04) but no hub colour (the second colour would be lost); the integral-tyre wheel 6600 is mean 0.12",
+  "winch": "no LDraw counterpart",
+  "winch_wheel": "no LDraw counterpart",
+  "loudhailer": "no LDraw counterpart",
+  "hose_nozzle": "no LDraw counterpart: the game's nozzle is a custom shape",
+  "roof2x1_sloped": "the game's roof is a hipped pyramid, LDraw's a plain slope",
+  "roof4x2_sloped": "the game's roof is a hipped pyramid, LDraw's a plain slope",
+  "roof2x2_sloped_cnr": "the game's roof is a hipped pyramid, LDraw's a plain slope",
+  "car_base4x10": "LDraw's car base has rows of studs and tubes the game's simplified base does not",
+  "car_mudguard": "LDraw's slope has no arch cut-out",
+  "wing4x4": "the game's wing is a trapezoid plate, LDraw's a plain plate with a hinge",
+  "flat1x4_tophinge": "box error 0.069: the hinge height differs",
+  "bar7x3_clips": "clips differ in size (mean 0.02, box 0.018)",
+  "fat1x1_6h": "the LDraw pillar is round with a base, the game's square",
+  "fat1x1_roundhole": "the game's has a hole in the stud, LDraw's hollow stud is solid here",
+  "door4x3_window": "the game's door is a frame with a pane; no LDraw door with this shape",
+  "door4x6_1pane": "no LDraw door with this shape",
+  "door4x5_1pane": "two-colour door (frame + pane): LDraw's door frame is thinner and its pane a separate glass part",
+  "door4x5_4pane": "two-colour door (frame + panes): the panes are not a separate colour in the LDraw door",
+  "door4x5_6pane": "two-colour door (frame + panes): the panes are not a separate colour in the LDraw door",
+  "fat2x2_clips": "no LDraw counterpart",
+  "thin2x2_hole": "LDraw's closest part (plate with rubber foot) is another element",
+  "wedge6x4": "the LDraw wedge has 6 studs on its top, the game's 4: not the same element",
+  "windscreen6x3": "the LDraw slope has 2 studs on its top, the game's 6: not the same element",
+  "hinge2x2_top": "the LDraw hinge plate has 4 studs, the game's 2",
+  "fat6x2_45dslope_": "the LDraw slope has studs on both decks, the game's on one: the stud layout and the triangle budget do not fit",
+  "shutter": "the LDraw shutter has 400+ triangles of slats against the game's flat panel (72): over the budget at a useful accuracy",
+  "window2x4x3_sloped": "LDraw windscreen 2352 has no glass part: the game's pane (second colour) would have no counterpart",
+  "window1x4x3_shut": "a compound (window with two opened shutters): no single library part (best: mean 0.073, box 0.011) and the frames have no glass",
+  "window_info_cornersolid": "4737 (outward sloping panel) is another element (mean 0.111) and has no glass part for the game's pane",
+  "window_info_straight": "4741 (outward sloping window) has no glass part in the library: the pane would be lost; mean 0.108, looked at: open frame only",
+  "window1x4x4_1pane": "no window 1x4x4 with glass in the library (40527 + a 1x3x3 glass leaves the lower part open: looked at, wrong)",
+  "window6x2_45dslope": "78522 is a curved slope, the game's is flat (mean 0.12)",
+  "fat2x2_eye": "the eye is a print in LDraw (no geometry): the plain brick would lose the game's second colour (68 vertices)",
+  "fat1x1_eye": "the eye is a print in LDraw (no geometry): the plain brick would lose the game's second colour (34 vertices)"
+ },
+ "cls": {
+  "window_bay": {
+   "parts": [
+    "30185c01"
+   ],
+   "flags": "trans,fit",
+   "cls": "window",
+   "note": "bay window: LDraw frame + brown glass; the glass is the second colour",
+   "title": ""
+  },
+  "window1x4x3": {
+   "parts": [
+    "4033c01"
+   ],
+   "flags": "trans,fit",
+   "cls": "window",
+   "note": "train window 1x4x3 with its glass pane (second colour); the game has more mullions in some variants",
+   "title": ""
+  },
+  "window1x4x3_": {
+   "parts": [
+    "4033c01"
+   ],
+   "flags": "trans,fit",
+   "cls": "window",
+   "note": "train window 1x4x3 with its glass pane (second colour); the game has more mullions in some variants",
+   "title": ""
+  },
+  "window1x4x3_1pane": {
+   "parts": [
+    "4033c01"
+   ],
+   "flags": "trans,fit",
+   "cls": "window",
+   "note": "train window 1x4x3 with its glass pane (second colour); the game has more mullions in some variants",
+   "title": ""
+  },
+  "window4x6_3pane": {
+   "parts": [
+    "57894",
+    "57895!"
+   ],
+   "flags": "fit",
+   "cls": "window",
+   "note": "window frame with three panes + its glass",
+   "title": ""
+  },
+  "window4x6_1pane": {
+   "parts": [
+    "6160c01"
+   ],
+   "flags": "trans,fit",
+   "cls": "window",
+   "note": "window 1x4x6 with fixed glass",
+   "title": ""
+  },
+  "window4x4x3sloped_2pane": {
+   "parts": [
+    "6159c01"
+   ],
+   "flags": "trans,fit",
+   "cls": "window",
+   "note": "sloped roof window with centre bar and glass",
+   "title": ""
+  },
+  "window1x4x5_1pane": {
+   "parts": [
+    "4347c01"
+   ],
+   "flags": "trans,fit",
+   "cls": "window",
+   "note": "window 1x4x5 with fixed glass",
+   "title": ""
+  },
+  "window4x2": {
+   "parts": [
+    "453cc01"
+   ],
+   "flags": "trans,fit",
+   "cls": "window",
+   "note": "window 1x4x2 classic with sill and glass",
+   "title": ""
+  },
+  "window6x3": {
+   "parts": [
+    "604ac01"
+   ],
+   "flags": "trans,fit",
+   "cls": "window",
+   "note": "panorama window 1x6x3 with glass",
+   "title": ""
+  },
+  "window_space_roof": {
+   "parts": [
+    "30343c01"
+   ],
+   "flags": "trans,fit",
+   "cls": "window",
+   "note": "double slope window 4x10x2 with glass",
+   "title": ""
+  },
+  "window_bay_mantle": {
+   "parts": [
+    "30181"
+   ],
+   "flags": "fit",
+   "cls": "window",
+   "note": "brick 4x10 without two corners = the base of the bay window",
+   "title": ""
+  },
+  "door4x5_4pane": {
+   "parts": [
+    "3861c",
+    "4344!"
+   ],
+   "flags": "fit",
+   "cls": "door",
+   "note": "door 1x4x5 with 4 panes + door glass",
+   "title": ""
+  },
+  "door4x5_6pane": {
+   "parts": [
+    "4486c01"
+   ],
+   "flags": "trans,fit",
+   "cls": "door",
+   "note": "door 1x4x5 with 6 panes and glass",
+   "title": ""
+  },
+  "door4x5_1pane": {
+   "parts": [
+    "73194c01"
+   ],
+   "flags": "trans,fit",
+   "cls": "door",
+   "note": "door 1x4x5 with glass",
+   "title": ""
+  },
+  "fat1x2_45slopeinvert": {
+   "parts": [
+    "3665a"
+   ],
+   "flags": "",
+   "cls": "slope",
+   "note": "inverted slope 45 2x1; one stud sits in a pocket in LDraw (the game has a flat deck)",
+   "title": ""
+  },
+  "fat2x2_45slopeinvert": {
+   "parts": [
+    "3660a"
+   ],
+   "flags": "",
+   "cls": "slope",
+   "note": "inverted slope 45 2x2; the two front studs sit in a pocket in LDraw (the game has a flat deck)",
+   "title": ""
+  },
+  "fat1x3_33slopeinvert": {
+   "parts": [
+    "4287b"
+   ],
+   "flags": "",
+   "cls": "slope",
+   "note": "inverted slope 33 3x1",
+   "title": ""
+  },
+  "fat2x3_33slopeinvert": {
+   "parts": [
+    "3747a"
+   ],
+   "flags": "",
+   "cls": "slope",
+   "note": "inverted slope 33 3x2",
+   "title": ""
+  },
+  "fat4x2_dbinv45": {
+   "parts": [
+    "4871"
+   ],
+   "flags": "",
+   "cls": "slope",
+   "note": "double inverted slope 45 4x2 with open centre",
+   "title": ""
+  },
+  "flat1x4_tophinge": {
+   "parts": [
+    "4625"
+   ],
+   "flags": "fit",
+   "cls": "hinge",
+   "note": "hinge tile 1x4; the hinge is 0.069 lower than in the game, the body is fitted",
+   "title": ""
+  },
+  "fat2x2_pin": {
+   "parts": [
+    "4730"
+   ],
+   "flags": "",
+   "cls": "pin",
+   "note": "brick 2x2 with pin; the pin is 0.08 longer than the game's and has friction ridges",
+   "title": ""
+  },
+  "fat2x1_pin": {
+   "parts": [
+    "2458"
+   ],
+   "flags": "",
+   "cls": "pin",
+   "note": "brick 1x2 with pin; the pin is 0.08 longer than the game's",
+   "title": ""
+  },
+  "fat1x1_headlight": {
+   "parts": [
+    "4070"
+   ],
+   "flags": "",
+   "cls": "other",
+   "note": "headlight brick: LDraw has the lamp recess, the game a moulded round lamp",
+   "title": ""
+  },
+  "fat1x1_roundhole": {
+   "parts": [
+    "3062b"
+   ],
+   "flags": "",
+   "cls": "other",
+   "note": "round brick 1x1; its stud is hollow in LDraw (built solid), the game's has a hole",
+   "title": ""
+  },
+  "car_steeringwheel": {
+   "parts": [
+    "3829c01"
+   ],
+   "flags": "",
+   "cls": "other",
+   "note": "steering stand and wheel; the stand is the second colour",
+   "title": ""
+  },
+  "lever_base": {
+   "parts": [
+    "4592"
+   ],
+   "flags": "nostud",
+   "cls": "other",
+   "note": "control stick base (faceted dome with notch)",
+   "title": ""
+  },
+  "l_s_globe": {
+   "parts": [
+    "4592"
+   ],
+   "flags": "nostud",
+   "cls": "other",
+   "note": "control stick base used as the globe (faceted dome)",
+   "title": ""
+  },
+  "shutter": {
+   "parts": [
+    "3856"
+   ],
+   "flags": "b1=2.5,bc1=1",
+   "cls": "door",
+   "note": "window shutter 1x2x3 with slats (the game has a flat panel)",
+   "title": ""
+  },
+  "bar7x3_clips": {
+   "parts": [
+    "30095"
+   ],
+   "flags": "",
+   "cls": "other",
+   "note": "bar 7x3 with four clips; the clips are slightly different in size",
+   "title": ""
+  },
+  "dingy_prop": {
+   "parts": [
+    "2433"
+   ],
+   "flags": "mc0=2e-5,b0=0",
+   "cls": "other",
+   "note": "hinge bar with three fingers and a stud (propeller shaft); fine decimation keeps the grooves clean",
+   "title": ""
+  },
+  "wheel01": {
+   "parts": [
+    "6014bc02"
+   ],
+   "flags": "fit",
+   "cls": "wheel",
+   "note": "wheel rim with tyre 12/40x11 (centre band): the tyre is the second colour; the real tyre has a tread, the game's is smooth",
+   "title": ""
+  },
+  "car_mudguard": {
+   "parts": [
+    "2513"
+   ],
+   "flags": "",
+   "cls": "other",
+   "note": "car mudguard 3x4 with the arch cut-out",
+   "title": ""
+  },
+  "fat6x6_boatbow": {
+   "parts": [
+    "2626"
+   ],
+   "flags": "",
+   "cls": "other",
+   "note": "boat base 6x6 (the underside is closed like the game's solid bow)",
+   "title": ""
+  },
+  "car_seat": {
+   "parts": [
+    "6216"
+   ],
+   "flags": "fit",
+   "cls": "other",
+   "note": "brick 2x4x2 with triple curved top (the seat back)",
+   "title": ""
+  }
+ }
+}

@@ -101,8 +101,9 @@ export class LDrawLib {
       for (const l of p.lines) {
         if (l.k === 1) {
           if (skip && skip.test(l.file.replace(/\\/g, '/').toLowerCase())) continue;
-          const sub = this.resolve(l.file, res);
-          if (!sub) { (opts.missing ??= new Set()).add(l.file); continue; }
+          const collect = opts.collect && opts.collect.re.test(l.file.replace(/\\/g, '/').toLowerCase());
+          const sub = collect ? null : this.resolve(l.file, res);
+          if (!sub && !collect) { (opts.missing ??= new Set()).add(l.file); continue; }
           const m = l.m; // x y z a b c d e f g h i
           const S = [m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[0], m[1], m[2]]; // rotation rows then translation
           // compose: child matrix S inside parent M: p' = M * (S * p)
@@ -112,6 +113,7 @@ export class LDrawLib {
             M[6] * S[0] + M[7] * S[3] + M[8] * S[6], M[6] * S[1] + M[7] * S[4] + M[8] * S[7], M[6] * S[2] + M[7] * S[5] + M[8] * S[8],
             M[0] * S[9] + M[1] * S[10] + M[2] * S[11] + M[9], M[3] * S[9] + M[4] * S[10] + M[5] * S[11] + M[10], M[6] * S[9] + M[7] * S[10] + M[8] * S[11] + M[11],
           ];
+          if (collect) { opts.collect.out.push({ file: l.file.replace(/\\/g, '/').toLowerCase(), m: C, col: l.col === 16 || l.col === 24 ? col : l.col, flip: (det < 0) !== (l.inv ? !invert : invert) }); continue; }   // opts.collect = { re, out: [] }: placements (not geometry) of the sub-files that match, composed to the root frame (3x3 rows + translation)
           walk(sub, C, l.col === 16 || l.col === 24 ? col : l.col, l.inv ? !invert : invert, depth + 1);
         } else if (l.k === 3) emit([l.v[0], l.v[1], l.v[2]], [l.v[3], l.v[4], l.v[5]], [l.v[6], l.v[7], l.v[8]], l.col, l.ccw);
         else { const v = l.v; emit([v[0], v[1], v[2]], [v[3], v[4], v[5]], [v[6], v[7], v[8]], l.col, l.ccw); emit([v[0], v[1], v[2]], [v[6], v[7], v[8]], [v[9], v[10], v[11]], l.col, l.ccw); }

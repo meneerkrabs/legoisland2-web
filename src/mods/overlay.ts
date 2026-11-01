@@ -4,6 +4,7 @@
 // `LEGO eiland 2.exe` the first time the engine reads them. The files themselves stay in the store until something asks for them (`GameData` loads the files of an
 // archive when it opens it and lets go of a zone's files when the zone ends), so a pack of gigabytes does not have to fit in memory at once.
 import type { GameFiles, MediaFile } from '../files.ts';
+import type { Archive } from '../formats/archive.ts';
 import { normalizePath } from '../files.ts';
 import type { LoadState } from '../engine/bytesource.ts';
 import type { PatchLine } from './package.ts';
@@ -81,6 +82,9 @@ export class ModdedFiles implements GameFiles {
   private pending: ActiveMod[] = [];
 
   constructor(base: GameFiles, layer: ModLayer) { this.base = base; this.layer = layer; }
+
+  /** LEGO 3D (src/mods/lego3d/hook.ts): puts generated members into an archive after the mods' own files; unset (the original game) unless the option is on */
+  generateOverrides?: (name: string, archive: Archive, other: (name: string) => Promise<Archive | null>) => Promise<void>;
 
   /** the HD pack read on demand (src/mods/hdremote.ts): complete archives of it replace members like a mod's files (below the mods' own: those win) */
   lazy: HdLazy | null = null;
