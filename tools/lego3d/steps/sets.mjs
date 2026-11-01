@@ -2,7 +2,7 @@
 //   sh tools/m4-snapshot-server.sh 5742
 //   MOD=<mod folder> PREFIX=after sh tools/m5-botslot.sh node tools/browse.mjs "http://localhost:5742/" tools/lego3d/steps/sets.mjs --profile /tmp/le2-sets --size 800x600 --out /tmp/l3d/w2/shots
 //   OFF=1 PREFIX=before ...   (baseline: the page opens with &mods=off)
-// env: MOVE=n (n shots of the running vehicle, GAP ticks apart), RM=1 (remove the imported LEGO 3D mod: baseline with the same other mods), MOD (import the folder; replaces an earlier copy of the same title), OFF, ZONE (default z02LGI), PREFIX, SCENES="REC:dist:ang1/ang2/...;REC2:..." (default list below), PERF=1 (render ms per scene)
+// env: FREEZE=A,B (records whose AI is switched off before the scenes), MOVE=n (n shots of the running vehicle, GAP ticks apart), RM=1 (remove the imported LEGO 3D mod: baseline with the same other mods), MOD (import the folder; replaces an earlier copy of the same title), OFF, ZONE (default z02LGI), PREFIX, SCENES="REC:dist:ang1/ang2/...;REC2:..." (default list below), PERF=1 (render ms per scene)
 import { island } from '../../steps/lib-island.mjs';
 const DEF = 'AMBU:13:0.9/3.9;JSKI:11:4.0/1.2;SPD0:13:0.9/3.9;RHEL:16:0.9/3.9;SPBT:15:0.9/3.9;DNGY:9:0.9/3.9;TRNL:20:0.9/3.9';
 export default async (h) => {
@@ -30,6 +30,7 @@ export default async (h) => {
   await S.skipCutscenes();
   log('active mods:', JSON.stringify(await evaluate(() => window.__le2Mods && window.__le2Mods.mods)));
   const stat = () => evaluate(() => { const i = window.__zone.gr.info; return { draws: i.draws, triangles: i.triangles }; });
+  if (process.env.FREEZE) await evaluate((names) => { const w = window.__zone.world; for (const n of names) { const r = w.records.find((x) => x.name === n); if (r?.ctrl) r.ctrl.flags &= ~2; } }, process.env.FREEZE.split(','));   // FREEZE=TRNL,TRNT,TRNC: the whole consist stands still
   for (const sc of (process.env.SCENES ?? DEF).split(';')) {
     const [name, dist, angs, camh = '0.35', lookh = '0.25'] = sc.split(':');   // camh / lookh: camera / target height as a fraction of dist
     for (const ang of (angs ?? '0.9').split('/')) {

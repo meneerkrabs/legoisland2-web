@@ -12,7 +12,7 @@ import { generator as studs } from './studs.ts';
 
 export type { GenEnv, Generator } from './types.ts';
 /** bump when generator CODE changes in a way that changes its output (part of the cache key of the generated members, with the pack's version): a pack rebuilt with the same date or an app update with old caches must not serve old results */
-export const GEN_VERSION = 3;
+export const GEN_VERSION = 4;
 export const GENERATORS: readonly Generator[] = [textures, bricks, characters, sets, studs];
 
 export interface GenResult {

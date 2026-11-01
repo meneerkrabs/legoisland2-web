@@ -12,8 +12,10 @@ import { decodeMesh, hashMember } from '../meshpack.ts';
 import { writeMsh } from '../mshio.ts';
 import type { MshOutGroup } from '../mshio.ts';
 
+const TABLES = ['', '.b'];
 const GAP = 0.4, DECAL_LIFT = 0.03, DECAL_REACH = 0.2, PIC_DEPTH = 0.4;   // a decal is pulled onto hull within 0.2 only: further away (an open cockpit side) it stays where the game has it, not on an interior face
-export interface SetMeshEntry { member: string; hash: string; blob: string; kinds: string[]; tris: number; game: number; set: string; gap?: number }
+/** hold: boxes (x0 y0 z0 x1 y1 z1, in the group's own frame) of triangles of group `g` that always stay the player's own (round wheel discs inside a brick-built chassis): measured numbers only */
+export interface SetMeshEntry { member: string; hash: string; blob: string; kinds: string[]; tris: number; game: number; set: string; gap?: number; hold?: { g: number; box: number[] }[] }
 export interface SetTable { v: number; archive: string; meshes: SetMeshEntry[] }
 
 type V3 = [number, number, number];
@@ -208,10 +210,16 @@ function groupData(m: Msh, g: number) {
 
 export const generator: Generator = {
   id: 'sets',
-  applies: (name, pack) => pack.has(`sets/arch/${name.toLowerCase()}.json`),
+  applies: (name, pack) => TABLES.some((t) => pack.has(`sets/arch/${name.toLowerCase()}${t}.json`)),
   async run(env) {
-    let table: SetTable;
-    try { table = await env.pack.json<SetTable>(`sets/arch/${env.name.toLowerCase()}.json`); } catch (e) { env.log(`no set table: ${String(e)}`); return; }
+    // two tables per archive: the vehicles built from OMR set models (`<archive>.json`) and the brick-built reconstructions / the other fitted models (`<archive>.b.json`, section 16 of docs/re/lego3d.md)
+    const table: SetTable = { v: 1, archive: env.name, meshes: [] };
+    for (const t of TABLES) {
+      const n = `sets/arch/${env.name.toLowerCase()}${t}.json`;
+      if (!env.pack.has(n)) continue;
+      try { table.meshes.push(...(await env.pack.json<SetTable>(n)).meshes); } catch (e) { env.log(`no set table ${n}: ${String(e)}`); }
+    }
+    if (!table.meshes.length) return;
     let replaced = 0, left = 0, missing = 0, trisBefore = 0, trisAfter = 0;
     for (const e of table.meshes) {
       const cur = env.read(e.member);
@@ -285,19 +293,39 @@ export const generator: Generator = {
           }
           const nv = gpos.length / 3, uv = new Float32Array(nv * 2);
           if (bg.flags & 1) {   // a picture on this group: the UV of the nearest point of the player's own group
-            const tris: { a: V3; b: V3; c: V3; i: [number, number, number] }[] = [];
+            const tris: { a: V3; b: V3; c: V3; i: [number, number, number]; n: V3 }[] = [];
             for (let i = 0; i < d.ni; i += 3) {
               const ids = [0, 1, 2].map((k) => m.indices[d.fi + i + k] + d.fv) as [number, number, number];
               const P = ids.map((v) => [m.positions[v * 3], m.positions[v * 3 + 1], m.positions[v * 3 + 2]] as V3);
-              tris.push({ a: P[0], b: P[1], c: P[2], i: ids });
+              const n = cross(sub(P[1], P[0]), sub(P[2], P[0])), l = Math.hypot(n[0], n[1], n[2]) || 1;
+              tris.push({ a: P[0], b: P[1], c: P[2], i: ids, n: [n[0] / l, n[1] / l, n[2] / l] });
             }
+            const facing = e.set.startsWith('bldg:');   // brick-built walls: the uv comes from the nearest point on a triangle that faces the same way (the thickness / top faces of the player's panel have other uvs)
             const aff = pieces.length ? null : fitUvAffine(m.positions, m.uvs, d.fv, d.nv);
+            // a brick-built wall of a textured colour (the carriage's green panels: the game models the ribs as geometry): one texel colour, the median uv of the player's group, instead of a smeared stretch of the texture
+            if (facing && e.kinds[gi] === 'uv') {
+              const us: number[] = [], ws: number[] = [];
+              for (let q = 0; q < d.nv; q++) { us.push(m.uvs[(d.fv + q) * 2]); ws.push(m.uvs[(d.fv + q) * 2 + 1]); }
+              us.sort((x, y) => x - y); ws.sort((x, y) => x - y);
+              const mu = us[us.length >> 1] ?? 0.5, mw = ws[ws.length >> 1] ?? 0.5;
+              for (let v = 0; v < nv; v++) { uv[v * 2] = mu; uv[v * 2 + 1] = mw; }
+              groups.push({ flags: og.flags, pos: gpos, nrm: fixNormals(gpos, gnrm, gidx), uv, idx: gidx });
+              const M0 = mats[gi];
+              for (let i = 0; i < gidx.length; i += 3) {
+                const P = [0, 1, 2].map((k) => { const v = gidx[i + k], q: V3 = [gpos[v * 3], gpos[v * 3 + 1], gpos[v * 3 + 2]]; return M0 ? xform(M0, q) : q; });
+                const n = cross(sub(P[1], P[0]), sub(P[2], P[0])), l = Math.hypot(n[0], n[1], n[2]) || 1;
+                hull.push({ a: P[0], b: P[1], c: P[2], n: [n[0] / l, n[1] / l, n[2] / l] });
+              }
+              continue;
+            }
             for (let v = 0; v < nv; v++) {
               const p: V3 = [gpos[v * 3], gpos[v * 3 + 1], gpos[v * 3 + 2]];
               const pa = pieceUv.get(v) ?? aff;
               if (pa) { const q = pa.f(p); uv[v * 2] = q[0]; uv[v * 2 + 1] = q[1]; continue; }
               let best = 1e30, bu = 0.5, bv = 0.5;
-              for (const t of tris) {
+              const vn: V3 = [gnrm[v * 3], gnrm[v * 3 + 1], gnrm[v * 3 + 2]];
+              for (let pass = 0; pass < 2 && best >= 1e29; pass++) for (const t of tris) {
+                if (pass === 0 && facing && dot(t.n, vn) < 0.5) continue;
                 const r = closestOnTri(p, t.a, t.b, t.c);
                 if (r.d2 < best) { best = r.d2; bu = m.uvs[t.i[0] * 2] * r.w[0] + m.uvs[t.i[1] * 2] * r.w[1] + m.uvs[t.i[2] * 2] * r.w[2]; bv = m.uvs[t.i[0] * 2 + 1] * r.w[0] + m.uvs[t.i[1] * 2 + 1] * r.w[1] + m.uvs[t.i[2] * 2 + 1] * r.w[2]; }
               }
@@ -362,20 +390,22 @@ export const generator: Generator = {
             // per connected piece of the player's group: when at least half of its triangles have no new surface within the gap (a tall antenna the set's shorter one does not reach, a lid) the WHOLE piece
             // stays the player's (no floating fragments); a piece that the new hull mostly covers is left to the new hull
             const nt = d.ni / 3, parent = Array.from({ length: nt }, (_, i) => i), find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
-            const at = new Map<string, number>(), unc: boolean[] = [];
+            const at = new Map<string, number>(), unc: boolean[] = [], heldT: boolean[] = [];
             for (let t = 0; t < nt; t++) {
               const ids = [0, 1, 2].map((k) => m.indices[d.fi + t * 3 + k] + d.fv);
               const L = ids.map((v) => [m.positions[v * 3], m.positions[v * 3 + 1], m.positions[v * 3 + 2]] as V3), W = L.map((q) => (M ? xform(M, q) : q));
               const c: V3 = [(W[0][0] + W[1][0] + W[2][0]) / 3, (W[0][1] + W[1][1] + W[2][1]) / 3, (W[0][2] + W[1][2] + W[2][2]) / 3];
               const pts: V3[] = [c, ...W.map((q): V3 => [c[0] + (q[0] - c[0]) * 0.7, c[1] + (q[1] - c[1]) * 0.7, c[2] + (q[2] - c[2]) * 0.7])];
-              unc.push(!pts.some((q) => ti.near(q, e.gap ?? GAP)));
+              const held = e.hold?.some((h) => h.g === gi && c[0] >= h.box[0] && c[1] >= h.box[1] && c[2] >= h.box[2] && c[0] <= h.box[3] && c[1] <= h.box[4] && c[2] <= h.box[5]) ?? false;
+              heldT.push(held);
+              unc.push(held || !pts.some((q) => ti.near(q, e.gap ?? GAP)));
               for (const q of L) { const key = `${Math.round(q[0] * 1000)},${Math.round(q[1] * 1000)},${Math.round(q[2] * 1000)}`; const o = at.get(key); if (o === undefined) at.set(key, t); else parent[find(t)] = find(o); }
             }
             const tot = new Map<number, number>(), un = new Map<number, number>();
             for (let t = 0; t < nt; t++) { const r = find(t); tot.set(r, (tot.get(r) ?? 0) + 1); if (unc[t]) un.set(r, (un.get(r) ?? 0) + 1); }
             for (let t = 0; t < nt; t++) {
               const r = find(t);
-              if ((un.get(r) ?? 0) < 0.5 * tot.get(r)!) continue;
+              if (!heldT[t] && (un.get(r) ?? 0) < 0.5 * tot.get(r)!) continue;
               const ids = [0, 1, 2].map((k) => m.indices[d.fi + t * 3 + k] + d.fv), base = pos.length / 3;
               for (const v of ids) { pos.push(m.positions[v * 3], m.positions[v * 3 + 1], m.positions[v * 3 + 2]); nrm.push(m.normals[v * 3], m.normals[v * 3 + 1], m.normals[v * 3 + 2]); uvs.push(m.uvs[v * 2], m.uvs[v * 2 + 1]); }
               idx.push(base, base + 1, base + 2); filled++;

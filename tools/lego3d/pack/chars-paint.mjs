@@ -7,6 +7,7 @@
 // A footprint = the triangles of the original decal group (bind pose, world axes) of a print that faces front (+z) or back (-z).
 // A host triangle belongs to it when its centroid projects perpendicularly into a footprint triangle whose surface is within ZTOL there and whose normal agrees with the host's. Bands around
 // an arm and soles stay overlays (body.ts decalGroup: the vertices ride their host triangle exactly). Where footprints overlap the one of the higher group (drawn later = on top) wins.
+import { distSqPointTri } from '../../../src/mods/lego3d/geom/measure.ts';
 export const ZTOL = 0.14;
 const AGREE = 0.35;
 const FACING = 0.5;
@@ -41,7 +42,7 @@ export function footprints(B, roles, wraps = false) {
  * surface normals) is cut by ONE plane (a least-squares fit through the loop: its segments would give one slightly different plane each); the edges of any other loop (a print: the loop lies in the
  * surface) give one plane each, through the edge and containing the surface normal there = the side wall of the footprint. Equal planes (within 0.005) once.
  */
-function boundaryPlanes(tris, ns, loose = false) {
+function boundaryPlanes(tris, ns, loose = false, groups = null, flat = false) {
   const key = (p) => `${Math.round(p[0] * 1e4)},${Math.round(p[1] * 1e4)},${Math.round(p[2] * 1e4)}`;
   const m = new Map();
   tris.forEach((t, ti) => {
@@ -49,10 +50,11 @@ function boundaryPlanes(tris, ns, loose = false) {
       const a = t[k], b = t[(k + 1) % 3];
       if (Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-5) continue;
       const ka = key(a), kb = key(b), id = ka < kb ? ka + '|' + kb : kb + '|' + ka, e = m.get(id);
-      if (e) e.n++; else m.set(id, { n: 1, a, b, ka, kb, nrm: ns[ti] });
+      if (e) { e.n++; e.g2 = groups ? groups[ti] : 0; } else m.set(id, { n: 1, a, b, ka, kb, nrm: ns[ti], g: groups ? groups[ti] : 0 });
     }
   });
   const edges = [...m.values()].filter((e) => e.n === 1);
+  const seams = groups ? [...m.values()].filter((e) => e.n === 2 && e.g !== e.g2) : [];   // the border between two decal groups of one band: its own wall
   // chain into loops
   const at = new Map(); edges.forEach((e, i) => { for (const k of [e.ka, e.kb]) (at.get(k) ?? at.set(k, []).get(k)).push(i); });
   const used = new Set(), loops = [];
@@ -86,12 +88,19 @@ function boundaryPlanes(tris, ns, loose = false) {
       const along = loop.reduce((s, e) => s + Math.abs(e.nrm[0] * pn[0] + e.nrm[1] * pn[1] + e.nrm[2] * pn[2]), 0) / loop.length;
       ring = dev < 0.1 && along < 0.4;
     }
+    if (process.env.CHARS_DEBUG_RING) console.log(`    loop of ${loop.length} edges, ring ${ring}, centre ${c.map((x) => x.toFixed(2))}`);
+    if (ring && flat && Math.abs(pn[1]) > 0.9) { push([0, 1, 0], c[1]); continue; }   // a band's edge ring becomes a HORIZONTAL plane (the arm loft gets a ring there: no slivers; the original's tilt is 0.03 over the band)
     if (ring) { push(pn, pn[0] * c[0] + pn[1] * c[1] + pn[2] * c[2]); continue; }
     for (const e of loop) {
       const q = unit(cross3(sub3(e.b, e.a), e.nrm));
       if (Math.hypot(...q) < 0.5) continue;
       push(q, q[0] * e.a[0] + q[1] * e.a[1] + q[2] * e.a[2]);
     }
+  }
+  for (const e of seams) {
+    const q = unit(cross3(sub3(e.b, e.a), e.nrm));
+    if (Math.hypot(...q) < 0.5) continue;
+    push(q, q[0] * e.a[0] + q[1] * e.a[1] + q[2] * e.a[2]);
   }
   return planes;
 }
@@ -110,13 +119,50 @@ function splitPoly(poly, pl) {
   return [L.length >= 3 ? L : null, R.length >= 3 ? R : null];
 }
 
+/**
+ * A band that wraps a limb (Pepper's arm bands) is made of several decal groups that share their edges (a back strip and the strips around the front). Cut by the walls of each group alone it
+ * got ragged edges (every one of its ragged boundary segments its own plane). Groups that share an edge form ONE band: its outer boundary (two closed rings, top and bottom) is cut by ONE plane
+ * each, the borders between the groups by one wall each (`boundaryPlanes` with `groups`).
+ */
+function bandPlanes(fps) {
+  const key = (p) => `${Math.round(p[0] * 1e4)},${Math.round(p[1] * 1e4)},${Math.round(p[2] * 1e4)}`;
+  const parent = fps.map((_, i) => i), find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const owner = new Map();
+  fps.forEach((f, i) => { for (const t of f.tris) for (const p of t) { const k = key(p), o = owner.get(k); if (o === undefined) owner.set(k, i); else parent[find(i)] = find(o); } });
+  const out = new Map();
+  const clusters = new Map(); fps.forEach((f, i) => { const r = find(i); (clusters.get(r) ?? clusters.set(r, []).get(r)).push(f); });
+  for (const list of clusters.values()) {
+    if (list.length < 2 || !list.some((f) => f.kind === 'wrap')) continue;
+    const tris = [], ns = [], gs = [];
+    for (const f of list) f.tris.forEach((t, k) => { tris.push(t); ns.push(f.ns[k]); gs.push(f.g); });
+    const planes = boundaryPlanes(tris, ns, false, gs, true);
+    // between its two horizontal edge rings every triangle of a host part belongs to the band (tagTri): the group is the one of the nearest band triangle
+    const flat = planes.filter((q) => q.n[0] === 0 && q.n[1] === 1 && q.n[2] === 0).map((q) => q.off).sort((a, b) => a - b);
+    const band = flat.length === 2 ? { tris, ns, gs, ylo: flat[0], yhi: flat[1] } : null;
+    for (const f of list) out.set(f, { planes, band });
+  }
+  return out;
+}
 /** footprints prepared for cutting / tagging: highest group first, with their cut planes and a bounding box padded by ZTOL */
+/** the heights (y) of the horizontal edge rings of the bands (see bandPlanes): the arm lofts get a ring at each */
+export function bandLevels(fps) {
+  const ys = [];
+  for (const { planes } of bandPlanes(fps.filter((f) => f.kind !== 'other')).values()) for (const q of planes) if (q.n[0] === 0 && q.n[1] === 1 && q.n[2] === 0 && !ys.some((y) => Math.abs(y - q.off) < 0.005)) ys.push(+q.off.toFixed(3));
+  return ys.sort((a, b) => a - b);
+}
+/** the decal groups that form painted bands (their stretch is also compared to the original WITHOUT the band: the band is an overlay in the game's mesh, see chars.mjs score) */
+export function bandGroups(fps) {
+  const g = [];
+  for (const [f, v] of bandPlanes(fps.filter((x) => x.kind !== 'other'))) if (v.band) g.push(f.g);
+  return g;
+}
 export function prepFootprints(fps) {
+  const bands = bandPlanes(fps.filter((f) => f.kind !== 'other'));
   return fps.filter((f) => f.kind !== 'other').sort((a, b) => b.g - a.g).map((f) => {
     const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
     for (const t of f.tris) for (const p of t) for (let c = 0; c < 3; c++) { lo[c] = Math.min(lo[c], p[c] - ZTOL); hi[c] = Math.max(hi[c], p[c] + ZTOL); }
     const area = f.tris.reduce((s, P) => s + Math.hypot(...cross3(sub3(P[1], P[0]), sub3(P[2], P[0]))) / 2, 0);
-    return { ...f, planes: boundaryPlanes(f.tris, f.ns, f.kind === 'wrap'), box: { lo, hi }, area };
+    return { ...f, planes: bands.get(f)?.planes ?? boundaryPlanes(f.tris, f.ns, f.kind === 'wrap'), band: bands.get(f)?.band ?? null, box: { lo, hi }, area };
   });
 }
 const triBox = (P) => ({ lo: [0, 1, 2].map((c) => Math.min(P[0][c], P[1][c], P[2][c])), hi: [0, 1, 2].map((c) => Math.max(P[0][c], P[1][c], P[2][c])) });
@@ -146,7 +192,18 @@ export function cutSoup(soup, use) {
  */
 export function tagTri(P, use) {
   const n = faceN(P), c = [(P[0][0] + P[1][0] + P[2][0]) / 3, (P[0][1] + P[1][1] + P[2][1]) / 3, (P[0][2] + P[1][2] + P[2][2]) / 3];
+  const seen = new Set();
   for (const f of use) {
+    if (f.band && !seen.has(f.band)) {
+      seen.add(f.band);
+      const b = f.band;
+      if (c[1] >= b.ylo - 1e-6 && c[1] <= b.yhi + 1e-6) {
+        let best = -1, bd = 1e9;
+        for (let k = 0; k < b.tris.length; k++) { if (n[0] * b.ns[k][0] + n[1] * b.ns[k][1] + n[2] * b.ns[k][2] <= AGREE) continue; const d = distSqPointTri(c, b.tris[k][0], b.tris[k][1], b.tris[k][2]); if (d < bd) { bd = d; best = k; } }
+        if (best >= 0 && bd < (ZTOL + 0.06) ** 2) return b.gs[best];
+      }
+    }
+    if (f.band) continue;   // a band is decided by its slab only
     for (let k = 0; k < f.tris.length; k++) {
       const fn = f.ns[k];
       if (n[0] * fn[0] + n[1] * fn[1] + n[2] * fn[2] <= AGREE) continue;

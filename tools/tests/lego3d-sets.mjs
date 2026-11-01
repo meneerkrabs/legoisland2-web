@@ -63,6 +63,7 @@ export default {
     let checked = 0, replaced = 0, trisO = 0, trisN = 0, bytes = 0, ms = 0, worstRadius = 0, worstCentre = 0, worstDecal = 0;
     const perModel = {};
     for (const tn of tables) {
+      if (tn.endsWith('.b.json')) continue;   // the brick-built reconstructions have their own test (lego3d-bldg.mjs)
       const table = await pack.json(tn), arch = ctx.archives.find((a) => a.name.toLowerCase() === table.archive.toLowerCase());
       if (!arch) { notes.push(`${table.archive}: archive not in the data folder, skipped`); continue; }
       const t0 = Date.now();
@@ -71,6 +72,7 @@ export default {
       const gen = (m) => [...r.files.keys()].find((k) => k.toLowerCase() === m.toLowerCase());
       const sc = scenes ? scenes(arch.name) : null;
       const tableMembers = new Set(table.meshes.map((e) => e.member.toLowerCase()));
+      for (const t2 of tables) if (t2.endsWith('.b.json')) { const b2 = await pack.json(t2); if (b2.archive.toLowerCase() === table.archive.toLowerCase()) for (const e2 of b2.meshes) tableMembers.add(e2.member.toLowerCase()); }   // the second table's members are written by the same generator
       // the member set: only the table's meshes
       for (const k of r.files.keys()) { if (!tableMembers.has(k.toLowerCase())) failures.push(`${arch.name}: unexpected output member ${k}`); if (/\.col$|waypoint/i.test(k)) failures.push(`${arch.name}: wrote ${k}`); }
       // the far LOD of every record's model (the one its .col is made from) is never replaced
@@ -175,7 +177,7 @@ export default {
       else for (const [k, v] of r.files) { const w = r2.files.get(k); if (!w || hashMember(w) !== hashMember(v)) { failures.push(`${arch.name}: not deterministic: ${k}`); break; } }
     }
     for (const a of ctx.archives) {
-      if (tables.some((t) => t.endsWith(`/${a.name.toLowerCase()}.json`))) continue;
+      if (tables.some((t) => t.endsWith(`/${a.name.toLowerCase()}.json`) || t.endsWith(`/${a.name.toLowerCase()}.b.json`))) continue;
       const rr = await generateArchive(pack, a.name, a, async () => null, ['sets']);
       if (rr.files.size) failures.push(`${a.name}: the sets generator wrote ${rr.files.size} members without a table`);
       checked++; break;

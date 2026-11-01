@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Before / after sheets of a game mesh and its generated replacement (pack -> generator -> .msh, the browser's path): per view the game (left) and the replacement (right), flat group colours of
 // the player's own textures, world space (MATL applied), back-face culling on for the replacement (magenta = back faces would show: only with --nocull).
-//   node tools/lego3d/set-sheets.mjs OUT.png zone Mesh.Msh [Mesh2.Msh ...] [--views v1,v2]
+//   node tools/lego3d/set-sheets.mjs OUT.png zone Mesh.Msh [Mesh2.Msh ...] [--views v1,v2] [--pack FILE] [--groups] [--nocull] [--size N] [--view yaw,pitch/yaw,pitch] [--box x0,y0,z0,x1,y1,z1]
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +20,7 @@ const opt = (n, d) => { const i = args.indexOf(n); return i < 0 ? d : args[i + 1
 const SIZE = +opt('--size', 230), VSEL = opt('--views', '0,1,2,3').split(',').map(Number);
 const names = args.slice(2).filter((x, i, arr) => !x.startsWith('--') && !(arr[i - 1] ?? '').startsWith('--'));
 const a = archive(zone), sc = scene(zone);
-const pack = Pack.open(new Uint8Array(fs.readFileSync(path.join(here, '../../src/mods/lego3d/data/lego3d.pack'))));
+const pack = Pack.open(new Uint8Array(fs.readFileSync(opt('--pack', path.join(here, '../../src/mods/lego3d/data/lego3d.pack')))));
 const r = await generateArchive(pack, zone, a, async () => null, ['sets']);
 const VIEWS = opt('--view', '') ? opt('--view', '').split('/').map((v) => v.split(',').map(Number)) : [[35, 25], [215, 25], [90, 10], [0, 80], [130, 35], [320, 35]].filter((_, i) => VSEL.includes(i));   // --view yaw,pitch/yaw,pitch
 const rows = [];

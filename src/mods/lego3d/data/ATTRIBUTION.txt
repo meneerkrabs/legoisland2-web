@@ -13,12 +13,12 @@ LDraw(TM) is a trademark owned and licensed by the Estate of James Jessiman. LEG
 
 The pack contains NO pictures or meshes of the game "LEGO Island 2": those are read from the player's own game files in the browser and are never copied here.
 
-Licence lines found in the 947 files used:
-  887 x Licensed under CC BY 4.0 : see CAreadme.txt
-  50 x Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+Licence lines found in the 949 files used:
+  888 x Licensed under CC BY 4.0 : see CAreadme.txt
+  51 x Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   10 x CCAL version 2.0
 
-Authors (58): Alex Taylor [anathema]; Andy Westrate [westrate]; Arne Hackstein; Bernd Munding; C.L.Rasmussen [johnny-thunder]; Chris Böhnke [KnightOfTarenta]; Chris Dee [cwdee]; Damien Roux [Darats]; Deanna Earley [DeannaEarley]; Dennis Osborn [DennisOsborn]; Donald Sutter [technog]; Evert-Jan Boer [ejboer]; Franklin W. Cain [fwcain]; Gerald Lasser [GeraldLasser]; Greg Teft [gregteft]; Guy Vivan [guyvivan]; J.C. Tchang [tchang]; Jaco van der Molen [Jaco]; James Jessiman; Johann Eisner [technicbasics]; John Riley [jriley]; John Van Zwieten [jvan]; LDraw.org Official Model Repository; Luis E. Fernandez [lfernand]; Lutz Uhlmann [El-Lutzo]; Magnus Forsberg [MagFors]; Marc Klein [marckl]; Mark Kennedy [mkennedy]; Massimo Maso [Sirio]; Max Martin Richter [MMR1988]; Merlijn Wissink [legolijntje]; Michael Heidemann [mikeheide]; Niels Karsdorp [nielsk]; Nils Schmidt [BlackBrick89]; Orion Pobursky [OrionP]; Owen Burgoyne [C3POwen]; Paul Easter [pneaster]; Philippe Hurbain [Philo]; Reinhard "Ben" Beneke [Ben_aus_BS]; Remco Braak [remco1974]; Rene Rechthaler [Blechtaler]; Rolf Osterthun [Rolf]; Ross Crawford [rosco]; Santeri Piippo [arezey]; Steffen [Steffen]; Steve Bliss [sbliss]; Sylvain Sauvage [SLS]; Takeshi Takahashi [RainbowDolphin]; Thomas Burger [grapeape]; Tim Gould [timgould]; Tim Lampmann [L4mpi]; Tomas Kralicek [RabbiT_CZ]; Tore Eriksson [Tore_Eriksson]; Ulrich Röder [UR]; Vincent Messenet [Cheenzo]; William Howard [WilliamH]; Willy Tschager [Holly-Wood]; [PTadmin]
+Authors (59): Alex Taylor [anathema]; Andy Westrate [westrate]; Arne Hackstein; Bernd Munding; C.L.Rasmussen [johnny-thunder]; Chris Böhnke [KnightOfTarenta]; Chris Dee [cwdee]; Damien Roux [Darats]; Deanna Earley [DeannaEarley]; Dennis Osborn [DennisOsborn]; Donald Sutter [technog]; Evert-Jan Boer [ejboer]; Franklin W. Cain [fwcain]; Gerald Lasser [GeraldLasser]; Greg Teft [gregteft]; Guy Vivan [guyvivan]; J.C. Tchang [tchang]; Jaco van der Molen [Jaco]; James Jessiman; Johann Eisner [technicbasics]; John Riley [jriley]; John Van Zwieten [jvan]; LDraw.org Official Model Repository; Luis E. Fernandez [lfernand]; Lutz Uhlmann [El-Lutzo]; Magnus Forsberg [MagFors]; Marc Klein [marckl]; Mark Kennedy [mkennedy]; Martin G Cormier; Massimo Maso [Sirio]; Max Martin Richter [MMR1988]; Merlijn Wissink [legolijntje]; Michael Heidemann [mikeheide]; Niels Karsdorp [nielsk]; Nils Schmidt [BlackBrick89]; Orion Pobursky [OrionP]; Owen Burgoyne [C3POwen]; Paul Easter [pneaster]; Philippe Hurbain [Philo]; Reinhard "Ben" Beneke [Ben_aus_BS]; Remco Braak [remco1974]; Rene Rechthaler [Blechtaler]; Rolf Osterthun [Rolf]; Ross Crawford [rosco]; Santeri Piippo [arezey]; Steffen [Steffen]; Steve Bliss [sbliss]; Sylvain Sauvage [SLS]; Takeshi Takahashi [RainbowDolphin]; Thomas Burger [grapeape]; Tim Gould [timgould]; Tim Lampmann [L4mpi]; Tomas Kralicek [RabbiT_CZ]; Tore Eriksson [Tore_Eriksson]; Ulrich Röder [UR]; Vincent Messenet [Cheenzo]; William Howard [WilliamH]; Willy Tschager [Holly-Wood]; [PTadmin]
 
 OMR set models (10):
   6415 Res-Q Jet-Ski - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/6415-1
@@ -32,7 +32,7 @@ OMR set models (10):
   5935 Island Hopper (zone z22BIP, 1.33x) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
   5935 Island Hopper - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
 
-Parts used (357):
+Parts used (359):
   parts/16599.dat - Minifig Helmet Classic with Thin Chin Guard Cracked - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925a.dat - Sticker  2.4 x  2 with White German Railways Logo and "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925b.dat - Sticker  0.8 x  2 with White "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -129,6 +129,7 @@ Parts used (357):
   parts/3029.dat - Plate  4 x 12 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3031.dat - Plate  4 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3032.dat - Plate  4 x  6 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/3033.dat - Plate  6 x 10 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3034.dat - Plate  2 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/30343.dat - ~Window  4 x 10 x  2 Slope Double - Ross Crawford [rosco] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/30343c01.dat - Window  4 x 10 x  2 Slope Double with Trans Dark Blue Glass - Ross Crawford [rosco] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -250,6 +251,7 @@ Parts used (357):
   parts/4092a.dat - Train Bogie Plate with Long Pin - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4095.dat - Bar  6.6L with Stop - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4106.dat - ~=Magnet Cylindrical Casing (Obsolete) - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/41539.dat - Plate  8 x  8 - Martin G Cormier - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   parts/41612.dat - Minifig Hair Long and Straight Parted in the Middle - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4162.dat - Tile  1 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4170.dat - ~Electric Light Prism  1 x  6 Holder - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt

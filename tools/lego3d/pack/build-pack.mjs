@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Builds the LEGO 3D data pack (src/mods/lego3d/pack.ts) from the LDraw library (+ the OMR set models, + the game folder for MEASURING fits only: the pack holds numbers and
 // LDraw-derived geometry, never the game's meshes or pictures). docs/re/lego3d.md section 8.
-//   node tools/lego3d/pack/build-pack.mjs [--only chars,bricks,textures,sets,studs] [--merge-only] [--out FILE]
+//   node tools/lego3d/pack/build-pack.mjs [--only chars,bricks,textures,sets,bldg,studs] [--merge-only] [--out FILE]
 // Each builder tools/lego3d/pack/<id>.mjs exports  async function build(ctx)  and writes its blobs with ctx.put(name, bytes|string) and the LDraw files it used with ctx.use(infos)
 // (a Map file -> { title, author, license } as LDrawLib.flatten returns in `infos`) or ctx.useSet({ set, title, author, license, url, file }). The blobs of a builder go to
 // <WORK>/pack-parts/<id>/ (so builders can be run one at a time); the merge step writes the pack (default src/mods/lego3d/data/lego3d.pack) and ATTRIBUTION.txt next to it.
@@ -16,7 +16,7 @@ import { writeAttribution } from './attribution.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf(n); return i < 0 ? d : args[i + 1]; };
-export const BUILDERS = ['textures', 'bricks', 'chars', 'sets', 'studs'];
+export const BUILDERS = ['textures', 'bricks', 'chars', 'sets', 'bldg', 'studs'];
 const only = (opt('--only', '') || '').split(',').filter(Boolean);
 const OUT = opt('--out', path.join(here, '../../../src/mods/lego3d/data/lego3d.pack'));
 const PARTS = path.join(WORK, 'pack-parts');

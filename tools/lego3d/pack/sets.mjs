@@ -38,8 +38,14 @@ function parseTgaLazy(bytes) {
 
 export async function build(ctx) {
   const only = process.env.SETS_ONLY ? process.env.SETS_ONLY.split(',') : null;
+  const { blobs, byArch, report } = await buildSpecs(ctx, SETS, { only });
+  return { blobs, byArch, report };
+}
+
+/** builds the given set specs (same record format as sets-table.mjs SETS): returns { blobs, byArch, report }; the caller writes the table (`sets/arch/<archive>.json`, or `.b.json` for the second table) */
+export async function buildSpecs(ctx, specs, { only = null } = {}) {
   const blobs = new Map(), byArch = {}, report = [];
-  for (const spec of SETS) {
+  for (const spec of specs) {
     if (only && !only.includes(spec.key)) continue;
     const om = loadOmr(spec.set, { skipFiles: spec.skip, entry: spec.entry });
     ctx.log(`${spec.key}: ${om.instances.length} part instances`);
@@ -120,7 +126,5 @@ export async function build(ctx) {
     }
     ctx.useSet({ set: spec.set, title: spec.title, author: 'LDraw.org Official Model Repository', license: 'CCAL version 2.0', url: `https://library.ldraw.org/omr/sets/${spec.set}-1`, file: `${spec.set}-1.mpd` });
   }
-  for (const [name, b] of blobs) ctx.put(name, b);
-  for (const [zone, list] of Object.entries(byArch)) ctx.put(`sets/arch/${zone.toLowerCase()}.json`, JSON.stringify({ v: 1, archive: zone, meshes: list }));
-  fs.writeFileSync(path.join(WORK, 'sets-report.json'), JSON.stringify(report, null, 1));
+  return { blobs, byArch, report };
 }

@@ -37,3 +37,4 @@ export const LOD_POLICY = [
   { res: 'low', studs: 0, budget: 1.0, costs: [1e-1, 2.5e-1] },
   { res: 'low', studs: 0, budget: 1.0, costs: [2e-1, 4e-1] },
 ];
+

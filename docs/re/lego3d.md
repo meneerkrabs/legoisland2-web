@@ -290,11 +290,11 @@ Built by `tools/lego3d/pack/chars*.mjs` (builder, node) and assembled at run tim
 | body (hash) | characters | HR | MR | LR | SLR | BGR | how |
 |---|---|---|---|---|---|---|---|
 | MFG (241310a8..) | 69 | 552 -> 448 | 278 -> 216 | 234 -> 216 | 156 -> 144 | 110 -> 96 | per-part loft, painted decals |
-| PEPP (Pepper) | 2 | 552 -> 717 | 278 -> 278 | 234 -> 220 | 152 original kept | - | per-part loft, prints painted into the surface |
+| PEPP (Pepper) | 2 | 552 -> 544 (round 3; 813 before) | 278 -> 278 | 234 -> 220 | 152 original kept | - | per-part loft, prints painted into the surface |
 | BB (Brickster-bots) | 4 | 762 -> 464 | 498 -> 216 | 302 -> 216 | 234 -> 216 | 126 -> 112 | per-part loft |
 | Space_pep_white | 3 | 552 -> 546 | - | - | - | - | like PEPP, overlay groups left out |
-| SKEL_HR (skeleton) | 1 | 1098 -> 871 | | | | | LDraw skeleton parts 6260 / 6265 / 6266, rigid per region |
-| MUMM_HR (mummy guards) | 1 (15 models) | 1098 -> 871 | | | | | same skeleton shape |
+| SKEL_HR (skeleton) | 1 | 1098 -> 2562 (round 3; 871 before) | | | | | LDraw skeleton parts 6260 / 6265 / 6266 taken apart into rigid pieces, see Round 3 |
+| MUMM_HR (mummy guards) | 1 (15 models) | 1098 -> 2534 | | | | | same skeleton shape |
 | MUM_HRbody (diver, PEPD rig) | 1 | ORIGINAL | | | | | non-human skeleton / different rig: kept |
 
 Every LOD <= the original's triangle count (tests assert it per member); the only HR above the original is PEPP (717 vs 552, 1.30x) because the prints are painted into the surface (see below). Measured frame cost of that is in the performance section: the CPU skinning of PEPP_HR is 42 us against 39 us (+8 %, 1170 vertices against 1656), i.e. nothing.
@@ -324,7 +324,7 @@ Skinning of the rich bodies over all 509 clips (median / p90 / max, original -> 
 
 Tried and rejected in round 2 (measured): painting the wrap decals (Pepper's arm bands) at HR: PEPP_HR becomes 1078 triangles but its max stretch is 3.38 against the original's 3.32 (p90 2.23 vs 2.38): "no worse than the original" fails, so the arm band stays an overlay at HR. HR gear at 3x instead of 2x: the INFO / NICK flat caps (the two 'rumpled' denials) still come out rumpled (looked at in the engine), and 3x for all accepted HR gear triples their cost (8070 -> 19612 triangles) for no visible gain; reverted to 2x, the two caps are denied again with that reason. Run-time path (`?lego3d=1`, whole generator set): the z02LGI opening cutscene (INFO with the cap, then Pepper) and the plaza scenes look the same as the baseline except for the known differences; the frame time of those scenes is dominated by the bricks generator (111k vs 34k triangles in the plaza), not the characters.
 
-Weak spots found in round 2 (not fixed): the skeleton's rib cage is too small and sits low (the neck tube shows above it); it was also not enriched. The arm band of Pepper is still an overlay with jagged edges at HR. Hips of the robots are a plain plate (the original has a crotch gap).  (The MR shoe toe step was missing in the first rich build; fixed with leg ring cap 8 and jump rings.)
+Weak spots found in round 2 (the skeleton and the arm band are fixed in round 3, below): the skeleton's rib cage is too small and sits low (the neck tube shows above it); it was also not enriched. The arm band of Pepper is still an overlay with jagged edges at HR. Hips of the robots are a plain plate (the original has a crotch gap).  (The MR shoe toe step was missing in the first rich build; fixed with leg ring cap 8 and jump rings.)
 
 ### Skinning, no worse than the original (all clips of every rig used), round 1 (decimated) numbers
 
@@ -346,9 +346,9 @@ Weak spots found in round 2 (not fixed): the skeleton's rib cage is too small an
 | BB_SLR | 234 -> 216 | 1.23 / 1.47 / 2.43 | 1.12 / 1.27 / 1.72 |
 | BB_BGR | 126 -> 112 | 1.25 / 1.50 / 2.47 | 1.10 / 1.24 / 1.56 |
 | Space_pep_white | 552 -> 546 | 1.85 / 2.43 / 4.35 | 1.24 / 1.57 / 1.99 |
-| SKEL_HR / MUMM_HR | 1098 -> 871 | 1.13 / 2.01 / 2.66 | 1.40 / 1.78 / 2.47 |
+| SKEL_HR / MUMM_HR | 1098 -> 871 (round 3: 2562) | 1.13 / 2.01 / 2.66 | 1.40 / 1.78 / 2.47 (round 3: 1.07 / 1.25 / 1.27) |
 
-Worse than the original: only the skeleton MEDIAN (1.40 against 1.13; p90 and max are better). The skeleton is rigid per region with a short linear blend band at each joint; the original has no blend at all, so its median edge is a bind length edge. Nothing tears (max stretch below the original everywhere). PEPP_LR p90 1.53 vs 1.51 is noise level.
+Worse than the original in round 1: only the skeleton MEDIAN (1.40 against 1.13; p90 and max are better; fixed in round 3). The skeleton is rigid per region with a short linear blend band at each joint; the original has no blend at all, so its median edge is a bind length edge. Nothing tears (max stretch below the original everywhere). PEPP_LR p90 1.53 vs 1.51 is noise level.
 
 Decals hidden behind the surface (`decal-check.mjs`, area share of the decal that is occluded over the poses, median / p90 / max): PEPP_HR original 16.9 / 42.8 / 73.5 %, mod 16.6 / 46.5 / 62.3 %; PEPP_MR 11.1 / 26.4 / 34.9 -> 7.3 / 19.2 / 58.3; PEPP_LR 10.5 / 27.8 / 36.9 -> 5.1 / 19.3 / 69.6 (the maxima are single frames of the extreme arm clips; the original has them too). MFG and BB have no decal groups.
 
@@ -359,6 +359,14 @@ Decals hidden behind the surface (`decal-check.mjs`, area share of the decal tha
 ### Skeleton and mummy
 
 SKEL_HR / MUMM_HR are flat white single-group rigid models on the MFIG rig. The LDraw minifig skeleton parts (torso with ribs and pelvis 6260, arm 6265, leg 6266) are fitted to the regions of the game body (best of the 24 rotations by chamfer distance after a box fit); arms and legs are lofts (K 8 / 6 points, 7 / 8 levels, a ring on each side of the joint band), the torso is decimated with the joint planes locked. Rigid per region, blend band `ramp` each side of the joint (torso 0.18, arms 0.12, legs 0.12).
+
+### Round 3: arm band and skeleton
+
+**Pepper's arm band (HR).** Cause of the jagged band: the band is two decal groups of the game's mesh (g6 = the back strip, g8 = the strips around the front and sides, textures 381 / 383) that share their edges; at HR g8 stayed an overlay draped on the 12-sided loft arm (original band: 10 quads, outer face slanted with the arm), and its ragged boundary, cut by one plane per boundary segment, never lined up with the loft. Painting it as a wrap (as at MR / LR) failed the old way for the same reason (every ragged segment its own cut plane: 1078 triangles with zigzag edges). Now (`chars-paint.mjs` `bandPlanes`, `bandLevels`, `bandGroups`; `chars.mjs`): decal groups that share an edge form ONE band; its two closed edge rings are cut by one HORIZONTAL plane each (the original's tilt is 0.03 over the band width), the group border by one wall; the arm loft gets a ring exactly at both heights (`buildLodGeometry` `bandY`), and every triangle of a host part between the two planes is tagged with the group of its nearest band triangle (`tagTri`), so the band is a clean strip of quads with no overlay shell, no z fight and welded edges. Wraps are painted at every LOD now (HR too). Scoring (`score`) compares a painted band's stretch also with the original WITHOUT the band (the stricter bar).
+Numbers (all 8336 poses): PEPP_HR 552 -> 544 triangles (813 before), stretch median / p90 / max 1.16 / 1.45 / 2.01 against the original 1.85 / 2.43 / 4.35 (band included in both) and against 1.80 / 2.38 / 3.32 for the original without the band; round 2 had 1.30 / 1.58 / 2.81 with the overlay left out of the measurement. MR / LR unchanged (332 / 220 triangles, 1.08 / 1.50 / 2.20 and 1.09 / 1.53 / 2.18). Looked at: raster close-ups (`scratch/round3/band-orig.png` / `band-C.png`, the band in red / blue) and in the engine (`scratch/round3/shots/newB-z02LGI-PEPP-58_10-three2.0-L0.png` against `orgB-...`): a clean grey ring around the sleeve.
+
+**Skeleton / mummy.** Cause of "too thin", the small rib cage and the stretch: the first build box-fitted the whole 6260 part (neck tube and shoulder pins included) to the torso region, which squeezed the ribs low and left the tube above them; arms and legs were lofts (blobby, spiky); every region had a soft ramp (median 1.40). Now `chars-skel.mjs` takes the LDraw parts apart into their rigid pieces (components): rib frame + spine rod -> bone 8, pelvis -> bone 0 (coil rings, neck tube, shoulder pins dropped: the game has none), arm clip + rod / collar + shaft (hand block dropped: the game's hand is its own mesh), leg clip + shaft + collar / foot block; each piece is warped by anchor levels (where the game's pieces start and end, read off the game's mesh) and half widths measured per level, so every piece is as wide and deep as the game's (rib frame +-0.65 x +-0.255, thigh bulb 0.46 x 0.52, collar, foot 0.60 x 0.70 ...; the silhouette per 0.1 slab agrees within about 0.05 everywhere; the arms follow the lean of the game's arm). Skin: every piece rigid on its bone (the game's elbow bone sits exactly on the collar's top face), only the shaft between the leg's collar block and the foot is a soft bridge (as the game's own 0.07 bridge). A soft arm rod measured 1.25 median, so the rod stays rigid (the elbow hinges at the collar like the LEGO part). Stretch over all 509 clips: median / p90 / max 1.07 / 1.25 / 1.27 against the original's 1.13 / 2.01 / 2.66 (SKEL_HR and MUMM_HR). Triangles 1098 -> 2562 (mummy 2534), HR only (the game has no other LOD, so no LOD pop); allowed up to 2.6x (`SKEL_LIMIT`). Tests lego3d-chars / audit / lod pass (32 pairs).
+Honest leftovers: 2.3x the original's triangles for 15 mummy guards in z18MMP (about 38k instead of 16k); the arm clip is the LDraw fork (open at the top, the game has a closed bullet cap; the shoulder pins that would sit in it are dropped); the elbow shows a hinge wedge in strongly bent poses; the ribs get the original's smooth normals (a glossy gradient like the original).
 
 ### Heads
 
@@ -399,13 +407,12 @@ Headless before / after galleries (every character record of a zone, game camera
 ### Weak spots (honest list)
 
 - Fixed in round 2: BB torso gloss (chamfered rings give flat vertex normals), shoe toe step of the legs, mouth / chin of the heads. Still open: BB legs are a little brighter than the original.
-- Arms are slimmer than the original at HR (the LDraw arm is thinner than the game's); the arm-band overlay of Pepper is slightly detached at HR.
+- Arms are slimmer than the original at HR (the LDraw arm is thinner than the game's); (Pepper's arm band is painted into the arm from round 3).
 - Hips and legs are plain lofts without the original's small bevels; the bottom of the torso loses a tiny gradient.
 - Head height is a little shorter than the game's (chin about 0.05 higher); the mouth and chin print are in place.
 - A small notch at the cape / shoulder of INFO (original cape mesh, not ours).
 - Legs of light trousers (z50LTC) show a thin dark seam line down the front where the two leg halves meet; the leg split line of the original is not reproduced.
 - PEPP_SLR, 22 hands and 10 heads are original (above).
-- Skeleton median stretch 1.40 vs 1.13.
 - Performance numbers were taken with a loaded machine.
 
 ### Files
@@ -589,7 +596,7 @@ LOD 0 ends at 2.5-4.5x (z07 boat 4.2x, heli z02LGI 4.5x). Measured with the game
 * Browser (headless, muted, snapshot server 5742, `tools/lego3d/steps/*.mjs`, images `(scratch folder, not in the repo)`): game vs replacement from 2 angles for the ambulance, jet ski, speedster, helicopter, speedboat, locomotive, tender (`m-*.png`); the ambulance DRIVING (6 frames: wheels spin and steer, Pepper in the cab: `mv.png`), the speedster driving and the train running (`mv2.png`), Pepper RIDING the jet ski, the boat and the helicopter (Ctrl at the vehicle, Space: `ride2.png`, `ride4.png`; the jet ski has Pepper's seat where the original has it: the same picture as the original), the z38PAR plane in its loop (`z38.png`: colours match: red body, grey wings, black canopy). z22BIP could not be driven by a bot (the zone needs its story); checked in the software sheets only (`set-sheets.mjs`).
 
 ### Not done / weak (honest)
-* **Buildings (rescue, garage), airstrip seaplanes, dinghy stay the game's** (evidence above). The tender is a hybrid.
+* **Buildings (rescue, garage), airstrip seaplanes**: rebuilt in section 16 (brick reconstructions, round 3). The dinghy stays a set build; the tender is a hybrid.
 * **Far LODs are mostly the game's** (only jet ski 1-2, ambulance 1, speedster 1 replaced); the replaced ones are 2.2-4.9x the game's counts, not <= 1x (evidence above); the closed-shell decimation was tried and is worse.
 * **Close-ups (< 7 units) show roughness**: slivers at plate edges, thin black strands (a linkage on the speedster), the decals of the speedboat read mirrored when seen from behind through the open cockpit, the heli's canopy decals are busy, the ambulance rear bumper has small shards. The game's chase cameras stay beyond 10 units.
 * The heli main rotor's blades are the player's own kept blade quads (+ the set's hub): checked in 2 frames only.
@@ -647,8 +654,8 @@ LOD 0 ends at 2.5-4.5x (z07 boat 4.2x, heli z02LGI 4.5x). Measured with the game
 * **Performance (`sets.mjs PERF=1`, render call + gl.finish, headless swiftshader, 2 rounds back to back, baseline `lego3d=0` / `lego3d=sets`)**: triangles per frame 36.5k -> 42.5k (ambulance), 34.7k -> 55.3k (jet ski + the Res-Q dock), 39.0k -> 43.4k / 46.1k (speedster), 37.8k -> 56.7k / 57.7k (heli), 32.5k -> 51.6k (boat), 34.9k -> 53.4k / 53.9k (dinghy), 37.3k -> 62.8k / 62.9k (locomotive: +25k triangles); the median render call is the same within noise in all 14 pairs: ambulance 2.1 / 2.1 against 2.3 / 2.1 ms (round 1 / 2, off / on: 2.3 -> 2.5, 2.1 -> 2.1), jet ski 1.5 -> 1.6, 1.4 -> 1.3, speedster 2.2 -> 2.3, 2.0 -> 2.0, heli 1.6 -> 1.5, 1.4 -> 1.3, boat 1.6 -> 1.3, 1.3 -> 1.3, dinghy 1.6 -> 1.3, 1.3 -> 1.4, loco 1.9 -> 1.5, 1.5 -> 1.8 (the raster is software here; on a GPU the triangles are free; the CPU lighting per vertex is what scales: 60k triangles ~ 35k vertices ~ 1 ms at 30 ns / vertex, only while the locomotive is in view).
 
 **Weak / not done (round 2).**
-* **Carriage (`loco_carriage_lod*`) NOT built**: it is a game-made open flat wagon with stake panels that is in no set model; the only candidate, `wheelcase A` (7750 bogie, 22 instances), fits the chassis at chamfer 0.237 (uniform scale 1.035: 0.236; wheelcase B 0.262 / 0.209 with a free axis) and is 11.96 long against the game's 14.23: a bogie from the set cannot give a good looking wagon without inventing the layout.
-* Buildings stay the game's (convincing measured fit not found; unchanged evidence above).
+* **Carriage (`loco_carriage_lod*`): built in section 16 (as bricks, not from the set).** The round-2 finding:  it is a game-made open flat wagon with stake panels that is in no set model; the only candidate, `wheelcase A` (7750 bogie, 22 instances), fits the chassis at chamfer 0.237 (uniform scale 1.035: 0.236; wheelcase B 0.262 / 0.209 with a free axis) and is 11.96 long against the game's 14.23: a bogie from the set cannot give a good looking wagon without inventing the layout.
+* Buildings: see section 16 (measured why the set fit fails; brick reconstructions built).
 * The Res-Q boat, locomotive and z38PAR plane at LOD 0 are big (9.5k, 21k, 28k triangles): fine for a GPU, 12.6x / 32x the game's; the stud prisms (394 on the z38 plane, 321 on the loco at 12 sides) are most of the z38 plane's count.
 * Close-ups under ~7 units from below still show the speedster's strand, the busy underside of the z22BIP fuselage, the heli canopy decals, and the ambulance bumper; the picture-depth / decal-reach fix was re-shot for the speedboat only.
 * The pack build is slow (19 min) because of the shell remeshes; they could be cached by their inputs if the part is rebuilt often.
@@ -680,12 +687,71 @@ Characters: CPU skinning per mesh at or below the original at every LOD (section
 
 ## 15. What is not done, and open items
 
-* **Sets**: the 6479 Res-Q centre and 6397 Gas N' Wash buildings, the airstrip seaplane and the 7750 carriage stay the game's (redesigns / game-made, no good fit: section 13). Far LODs of the locomotive, speedboat, tender and helicopter are closed-shell remeshes at about 3x the game's counts.
+* **Sets**: the Res-Q centre, the Gas N' Wash garage, the airstrip seaplane and the train carriage are NOT set models (measured, section 16) and are rebuilt as brick reconstructions of the game's own massing (section 16); the dinghy-style leftovers of section 13 are unchanged. Far LODs of the locomotive, speedboat, tender and helicopter are closed-shell remeshes at about 3x the game's counts.
 * **Bricks**: 159 of 257 bricks replaced (317 of 693 meshes), the rest stays original with a reason each (`docs/re/lego3d-tables.md`): hipped roofs, eye prints, cars' custom parts, 8 windows and 3 doors whose pane / frame has no LDraw counterpart.
 * **Textures**: 138 pictures (134 stud plates + 4 walls) instead of the pilot's 139; z15SSH #62 (baked cast shadows) stays the game's; green panels, tiles and grilles are painted surfaces, not LEGO parts.
 * **Studs**: single-LOD models (jetties, bridge sections) carry their studs at every distance (a distance-LOD hook is specified in section 12 but not built: about +0.2 ms); 43 far-LOD meshes keep only the painted studs.
-* **Characters**: skeleton / mummy body not enriched (its median stretch is 1.40 against 1.13), 10 heads, the LR / SLR / BGR block hands and the hook, 217 of 265 hair / hat / accessory contents (cloth, capes, crowns, spiky hair, shields ...) stay the game's; Pepper's arm band stays an overlay (jagged at HR); robot hips are a plain plate.
+* **Characters**: 10 heads, the LR / SLR / BGR block hands and the hook, 217 of 265 hair / hat / accessory contents (cloth, capes, crowns, spiky hair, shields ...) stay the game's; robot hips are a plain plate.
 * **The pilot's stud hook** (`src/mods/lego3d/studs.ts` and 3 lines in `src/zones/z02LGI/index.ts`) is inert (it needs `lego3d/studs.json`, which no generator writes) and can be deleted together with the 3 lines.
 * **Cache invalidation**: the cache key is `GEN_VERSION` (`gen/index.ts`, bump when generator code changes its output) + the pack's version (date + index hash) + a fingerprint of the archive's member list + the generator switches. A developer who changes generator code without bumping it sees stale caches (use a fresh profile).
 * **Building the pack** needs the LDraw library and the OMR files (`~/Documents/legoeiland2-extract/ldraw`), the game folder (for measuring) and Blender (textures); the sets part takes about 19 minutes (shell remeshes). The pack in the repository is the build used for the numbers above.
 * **Hosting check**: the Vite build emits the pack and `ATTRIBUTION.txt` as hashed assets (`dist/assets/lego3d-*.pack`); the live site was not redeployed from here.
+
+## 16. Brick-built reconstructions: the Res-Q centre, the Gas N' Wash garage, the train carriage, the airstrip seaplane (generator `sets`, second table; pack part `bldg`)
+
+The four models the vehicle rounds left out (docs section 13: "no good fit"). Asked: find out WHY the set fit failed, then build a proper replacement that keeps collision and waypoints untouched; choose between (a) a better-fit set model, (b) a brick-built
+reconstruction (the game's own masses voxelised onto an LDraw brick grid, real bricks), (c) the game's massing plus LEGO detail, by measurement; quality gate: silhouette IoU against the game's own mesh >= 0.9 from 4+ views, no floating parts, colour match, screenshots looked at.
+
+### 16.1 Why the set fit failed (measured, `fit` helpers of `setlib.mjs`, scratch scripts in `~/Documents/legoeiland2-extract/lego3d/scratch`)
+
+* **The game's buildings are the game's own, simplified massing of the sets' buildings, not scaled copies.** Every coordinate of `rescue_LOD1` / `garage_LOD1` is a multiple of 0.08 on a grid of 0.4 (stud) x 0.16 (plate) x 0.4 = the brick library's grid
+  (S = 0.02 per LDU, the vehicles use 0.04), the baseplates of the sets are not in the meshes, the extras (pumps, signs, the dumpster) lie elsewhere, the proportions differ (the garage building is 25 deep x 12.5 high; set 6397's `building.ldr` is 32 x 13 with its baseplate).
+  The pilot fitted the WHOLE set including the baseplate with one uniform scale.
+* Measured with the baseplate / ground parts removed, all 24 rotations (+ mirror), then a free per-axis scale on the truncated chamfer (vehicles: 0.10-0.17): **Res-Q** (`base.ldr`, parts above the ground deck) best 0.33 (a degenerate squash of 0.3 in z), 0.35 mirrored, uniform 0.43-0.46; **garage** (`building.ldr` without `309p03` / `4187`) uniform S = 0.04: 0.426 (0.417 mirrored in x or z), scales 0.8 / 1.2 / 1.3 of S: 0.436 / 0.414 / 0.408. No rotation / scale / mirror gets near a vehicle-like fit (the composition matches by eye: three sloped roof sections on black ribs and white walls, the roof deck on four black legs with the round bay and the dish; the details do not).
+* **Airstrip seaplane**: IS the 5935 Island Hopper (`plane.ldr`) at scale 1.00 (axes 1.00 / 1.03 / 1.01), rotation (-1,0,0,0,1,0,0,0,-1), but only its static groups 3-10 fit (chamfer 0.22 with the outer wings left out, 0.33 with the whole set): **its wings are the game's moving groups 11-20 (MATL translation = the hinge at x = +-7.03, y 4.06), modelled folded UP in the bind pose**; the earlier pilot compared the plane with the horizontal wings. Built as the set model (`SETS_B`, tried: pack `bldg` first version, fit + `buildMeshGroups`) it reaches a silhouette IoU of only **0.77 min / 0.87 mean (LOD 1), 0.72 / 0.80 (LOD 3)**: the set is an open frame (floats ride lower, the tail boom is a thin beam, the fuselage is hollow) where the game has solid massing.
+* **Carriage**: in no set (section 13: wheelcase A 11.96 long against 14.23, chamfer 0.237); the game's is an open wagon (deck, four stake panels, buffer beams, two axles).
+
+### 16.2 The choice: (b) for all four, with (c) for what a brick cannot say
+
+(a) is out by measurement (above: chamfer 0.33-0.46, IoU 0.77). (c) (keep the massing, add LEGO detail) would score IoU 1.0 but it is not brick-built. **(b)**: the game's flat-colour static groups are voxelised and rebuilt from bricks; **(c) remains for every group that is not a flat colour mass**: pictures and decals (the Octan sign, the door pictures), translucent panes, the groups with a MATL matrix (moving doors, the radar dish, the sliding arm, the seaplane's props and folded wings: GTOM / MATL are the player's own, the game animates them), thin parts (the antenna, the wheel discs) stay the player's own triangles. Collision (`.col`, made from each record's last LOD: `rescue_LOD5`, `garage_LOD5`, `loco_carriage_lod5`, `airstrip_seaplane_LOD5`), waypoints, records are never written.
+
+**How it is built** (`tools/lego3d/bldg.mjs`, builder `tools/lego3d/pack/bldg.mjs`, run time `src/mods/lego3d/gen/sets.ts` unchanged in principle: a second table `sets/arch/<archive>.b.json` in the same format):
+1. Mass groups = static (identity MATL), opaque, flat colour (4x4 texture), >= 12 triangles (carriage: textured allowed, >= 6; seaplane: groups thinner than 0.6 left out) of every LOD but the last.
+2. **Voxelise** onto the brick grid (stud 0.4 x plate 0.16 x 0.4; carriage the same): a cell belongs to the group whose surface it lies directly BEHIND (centre at most 0.75 of a stud behind a front face, projection inside that triangle: the game's surfaces are open, there is no inside/outside by parity), enclosed hollows are filled. The grid offset is searched per LOD on a 4^3 lattice for the best silhouette IoU against the game's surface (the plane-alignment guess is the start).
+3. **Cover with real bricks**: per column the runs are cut into bricks (3 plates) and plates, then greedy rectangles of the LDraw sizes (bricks 1x1..2x8: 3005 3004 3622 3010 3009 3008 3003 3002 3001 2456 3007; plates up to 6x12: 3024 3023 3623 3710 3666 3460 3022 3021 3020 3795 3034 3031 3032 3035 3958 3036 41539 3033 3028), the long side alternating per layer (the parts list in the report / ATTRIBUTION; Res-Q LOD 1 = 840 bricks, garage 2008, carriage 273, airstrip plane ~880).
+4. **Emit** the outer surface of the union of the bricks: faces merged into rectangles per plane (the seams of one colour are invisible at this scale), a real LDraw stud (radius 6 / height 4 LDU on the 20 / 8 grid) on every exposed top cell, 6 sides (8 on the carriage, 4 on the seaplane), except the interior of big flat areas (smooth tiles: studs stay on a one-cell rim); no studs from the LODs that start at 100 units (the airstrip plane's LOD 2 starts at 30 and keeps them).
+5. At run time: decals are lifted onto the new surface, the player's pictures / panes / moving parts are kept byte-identical, pieces of the player's group the new bricks do not cover (antenna, thin parts) stay (gap filling, unchanged); the new table field `hold` (boxes of triangles that always stay: the carriage's four wheel discs, which are round) is the one addition; textured brick walls (the carriage's green panels, whose ribs the game models as geometry) get the median texel of the player's group, other textured groups the uv of the nearest FACING triangle.
+
+### 16.3 Measured (post-generator, the browser's path, 9 views, 512 px; `node tools/lego3d/bldg-iou.mjs zone Mesh.Msh ...`, test `tools/tests/lego3d-bldg.mjs`, gate >= 0.9 for every replaced LOD)
+
+| model (LOD from) | game tris -> new | silhouette IoU min / mean |
+|---|---|---|
+| Res-Q centre LOD 1 (0) / 2 (100) / 3 (150) / 4 (190) | 1609 -> 16.3k / 1034 -> 1.9k / 458 -> 1.5k / 180 -> 0.9k | 0.968 / 0.982, 0.966 / 0.983, 0.934 / 0.955, 0.944 / 0.961 |
+| garage LOD 1 / 2 / 3 / 4 | 2195 -> 46.2k / 1499 -> 3.1k / 769 -> 2.2k / 298 -> 1.2k | 0.976 / 0.982, 0.983 / 0.987, 0.977 / 0.987, 0.968 / 0.977 |
+| carriage LOD 1 / 2 / 3 / 4 | 790 -> 11.7k / 478 -> 1.2k / 254 -> 0.7k / 102 -> 0.6k | 0.931 / 0.950, 0.937 / 0.950, 0.922 / 0.934, 0.955 / 0.966 |
+| airstrip seaplane z14OSD (z23DIP alike) LOD 1 / 2 / 3 / 4 | 938 -> 14.1k / 812 -> 13.5k / 553 -> 3.5k / 292 -> 2.7k | 0.928 / 0.960, 0.930 / 0.958, 0.927 / 0.956, 0.923 / 0.956 |
+
+(The thickness factor 0.75 of a stud and the per-LOD offset search each moved the minima by +0.03 .. +0.06 against the first build: seaplane LOD 4 0.822 -> 0.923.) Test also checks per mesh: group count / order / flags, GTOM + MATL, kept groups and decal topology identical, `hold` triangles present, outward winding, unit normals, finite UVs, culling sphere within 20 % (centre 0.2 radii), world box within 0.5 units, <= 60k triangles, deterministic, foreign member left alone, no `.col` written, the record's last LOD never listed.
+
+**Cost** (headless Chromium, SwiftShader, 800 x 600, quiet machine, `steps/sets.mjs PERF=1 FREEZE=...`, render call + `gl.finish`, median / p90 ms; "off" = `lego3d=0`, "no sets" = every generator but `sets`, "on" = everything):
+
+| scene | triangles off / no sets / on | render ms off | no sets | on |
+|---|---|---|---|---|
+| Res-Q centre, 30 units | 35.4k / 92.0k / 123.5k (+31.5k from the building) | 1.2 / 1.3 | 1.6 / 1.7 | 1.6 / 1.8 |
+| garage, 36 units | 38.5k / 116.0k / 161.9k (+45.9k) | 1.5 / 1.6 | 1.9 / 2.1 | 1.9 / 2.1 |
+| train carriage + tender + locomotive, 13 units | 39.0k / 105.9k / 138.9k (+33.1k incl. the vehicles of section 13) | 1.4 / 1.5 | 1.8 / 1.9 | 1.8 / 1.9 |
+
+The sets generator costs no measurable render time here (the rasteriser is software; the CPU lighting per vertex is what scales: the garage's 46k triangles are about 1 ms on a slow machine). Pack: 2.15 -> 3.13 MB (+0.98 MB: the new meshes 0.9 MB), generation in the browser per archive a few ms more.
+
+**Screenshots looked at** (headless, muted, `tools/lego3d/steps/sets.mjs`, `sets-zone.mjs`; originals with `lego3d=0` beside them): the Res-Q centre from three angles and from 70 units (black roof deck on four legs, yellow front bay with the game's blue panes, the radar dish and antenna the game's own, studs on the rim of the roofs), the garage from three angles and 80 units (white walls, red sloped roof sections stepped in plates, the Octan picture on the wall, the pump island with its studded forecourt), the carriage beside the tender (studded red deck, brick buffers, the game's wheel discs, green panels), the airstrip seaplane in z14OSD (red hull of bricks, folded wing panels of the game, blue props). Sheets by `tools/lego3d/set-sheets.mjs --pack FILE` and the IoU masks.
+
+### 16.4 Deviations, weak spots (honest)
+* **Not the set's detail**: the Res-Q centre and the garage are the game's massing in bricks, not set 6479 / 6397 parts: no window frames / door frames from LDraw (the game's panes and door pictures stay), stairs where the game's roofs and the round bay slope (voxel steps of 0.16 high x 0.4), no slope bricks, the underside of roofs flat (no anti-studs). Seams between bricks of one colour are invisible (flat shading, one texel colour).
+* **The carriage is built at 0.4 / 0.16 (the buildings' brick scale), not at the 0.8 / 0.32 stud pitch of the locomotive and tender** (the 7750 set at 0.04): at 0.8 the best silhouette IoU was 0.84-0.91 (thin deck and rails vanish), at 0.4 it is 0.92-0.96; its studs are half the size of the locomotive's. The wheel discs, axles of the bogies and the buffers' ends stay the game's (round).
+* **The seaplane's wings, props and the radar dish / door / sliding arm of the Res-Q centre / the garage's car-wash doors stay the game's** (moving groups; the animation turns them, rebuilding them as bricks would need per-group pivots: not done). The seaplane's LOD 4 / the far LODs hold the IoU only by the ground rule above (>= 0.92); its LOD 1 / 2 are 14k triangles (studs of the 0.4 grid) against 0.9k.
+* The garage LOD 1 is 46k triangles (2400 studs x 12-16); reducing the studs to 4 sides would save 14k (not done: looked at, 6 sides read better at 600 px).
+* Textured brick walls get one texel colour; the carriage panels lost the game's ribs (they are geometry in the game).
+* `?lego3d=-sets` now removes these four as well (one generator); there is no switch for the second table alone.
+
+### 16.5 Files
+`tools/lego3d/bldg.mjs` (voxeliser, brick covering, surface emitter, offset search), `tools/lego3d/iou.mjs` (silhouette IoU), `tools/lego3d/ldcolors.mjs` (LDraw colours for the sheets), `tools/lego3d/bldg-iou.mjs` (the gate as a tool), `tools/lego3d/pack/bldg.mjs` (builder `bldg`, `node tools/lego3d/pack/build-pack.mjs --only bldg`, 35-50 s; spec list `BLDG`), `tools/lego3d/pack/sets.mjs` (`buildSpecs` split out), `tools/lego3d/set-sheets.mjs` (`--pack`), `src/mods/lego3d/gen/sets.ts` (second table `.b.json`, `hold`, facing-uv, median texel for brick walls), `tools/tests/lego3d-bldg.mjs`, `tools/tests/lego3d-sets.mjs` (skips the second table), `tools/lego3d/steps/sets.mjs` (`FREEZE=`), `GEN_VERSION` 4.

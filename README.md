@@ -45,7 +45,7 @@ textures and is sharper the next time, and unchecking stops it and offers to rem
 
 **LEGO 3D** (port extra, **on by default**; off on weak devices): a start-screen checkbox that rebuilds the game from real LEGO parts of the [LDraw](https://www.ldraw.org)
 library (CC BY 4.0 / CCAL 2.0): the minifigs (bodies, heads, hands, hair and hats where a part exists), the brick library, real 3D studs on the stud plates, 4x stud / brick-wall pictures and
-seven LDraw set models (jet ski, ambulance, Island Racer, ...). It is assembled **in your browser** from a small data pack (about 1 MB, LDraw-derived, with `ATTRIBUTION.txt`) plus your own
+seven LDraw set models (jet ski, ambulance, Island Racer, ...) and brick-built versions of the island's Res-Q centre and Gas N' Wash garage, the train carriage and the airstrip seaplane. It is assembled **in your browser** from a small data pack (about 1 MB, LDraw-derived, with `ATTRIBUTION.txt`) plus your own
 game files; nothing of the game is hosted, nothing of it leaves your browser. It never blocks play (no pack in time = the original game), weak devices get a warning, unchecking removes
 what was cached. Details and numbers: [docs/re/lego3d.md](docs/re/lego3d.md).
 

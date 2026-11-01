@@ -5,7 +5,7 @@ import { loadBody, ringSkin, ringRule, simplifyRings, thinRings, skinError, BONE
 import { PARTS, fitsOf, partTris, cleanPart, decimateSoup, weldSoup, indexedToSoup, lib } from './chars-body.mjs';
 import { splitAtPlane } from '../geom.mjs';
 import { loft, shapeLevels } from './chars-loft.mjs';
-import { footprints, cutSoup, tagTri, prepFootprints, triArea } from './chars-paint.mjs';
+import { footprints, cutSoup, tagTri, prepFootprints, bandLevels, bandGroups, triArea } from './chars-paint.mjs';
 import { buildSkeleton, packSkeleton, SKEL_PARTS } from './chars-skel.mjs';
 import { decimate } from '../../../src/mods/lego3d/geom/decimate.ts';
 import { mergeFlat, meshDeviation } from './chars-geom.mjs';
@@ -127,7 +127,7 @@ export const LOFT_LADDER = [
   { K: { arm: 4, other: 4 }, tol: 0.1, max: { hips: 2, torso: 2, leg: 2, arm: 2 } },
   { K: { arm: 3, other: 4 }, tol: 0.1, max: { hips: 2, torso: 2, leg: 2, arm: 2 } },
 ];
-export function buildLodGeometry(spec, B, fits, rules, lod, target, res = 'std', L = null) {
+export function buildLodGeometry(spec, B, fits, rules, lod, target, res = 'std', L = null, bandY = []) {
   const soups = {}, partPlanes = {};
   const total = Object.values(SHARE).reduce((s, x) => s + x, 0);
   for (const id of Object.keys(PARTS)) {
@@ -143,7 +143,8 @@ export function buildLodGeometry(spec, B, fits, rules, lod, target, res = 'std',
       const kind = id.startsWith('arm') ? 'arm' : id.startsWith('leg') ? 'leg' : id;
       const cap = L2.max[kind];
       // the skin planes first (they carry the deformation), then the shape levels by importance, up to `cap` levels in all
-      for (const y of mine) if (y > lo + 0.02 && y < hi - 0.02 && lv.size < cap) lv.add(y);
+      if (kind === 'arm') for (const y of bandY) if (y > lo + 0.02 && y < hi - 0.02) lv.add(y);   // the edge rings of a painted band (chars-paint.mjs bandLevels): the loft has a ring exactly there
+      for (const y of mine) if (y > lo + 0.02 && y < hi - 0.02 && lv.size < cap + bandY.length && (!bandY.length || ![...lv].some((q) => Math.abs(q - y) < 0.02))) lv.add(y);
       if ((L2.shapeAll || L2.jumps) && kind === 'leg') {   // steps of the shoe (toe cap, sole): a ring just below and just above every jump of the cross-section, or the loft slants the step into a ramp
         const sl = shapeLevels(tris, lo, hi, L2.tol);
         for (let i = 0; i + 1 < sl.ys.length; i++) { let j = 0; for (let c = 0; c < 4; c++) j = Math.max(j, Math.abs(sl.bb[i + 1][c] - sl.bb[i][c])); if (j > 0.05 && lv.size < cap + 4) { lv.add(+sl.ys[i].toFixed(3)); lv.add(+sl.ys[i + 1].toFixed(3)); } }
@@ -225,12 +226,13 @@ export async function build(ctx) {
       if (process.env.CHARS_ONLY && !process.env.CHARS_ONLY.split(',').includes(`${name}-${li}`)) continue;   // dev loop only (with a dummy ctx, see chars-try.mjs): never for the real pack build
       const member = `Meshes/${spec.lods[li]}.msh`, origBytes = A.read(A.find(member));
       const origTris = parseMsh(origBytes).indices.length / 3;
-      const limit = li === 0 ? spec.hrLimit : li === 1 ? Math.round(origTris * 1.5) : origTris;   // LOD > 0: at most the original's triangles; HR: spec.hrLimit (docs/re/lego3d.md: about 2x)
+      const limit = process.env.CHARS_LIMIT ? +process.env.CHARS_LIMIT : li === 0 ? spec.hrLimit : li === 1 ? Math.round(origTris * 1.5) : origTris;   // LOD > 0: at most the original's triangles; HR: spec.hrLimit (docs/re/lego3d.md: about 2x)
       let best = null;
       // decal groups are PAINTED onto the rebuilt surface (the triangles inside their footprint carry the decal's group, role 'S'); only decals that face up / down (soles) stay overlays ('D')
-      const fps = footprints(loadBody(spec.zone, spec.lods[li] + '.msh'), spec.roles[li], !!process.env.CHARS_NOWRAP === false && li > 0);
+      const fps = footprints(loadBody(spec.zone, spec.lods[li] + '.msh'), spec.roles[li], !process.env.CHARS_NOWRAP);
+      const bandY = bandLevels(fps), bands = bandGroups(fps);
       const attempt = (rules, target, L, tag) => {
-        const { soups, partPlanes } = buildLodGeometry(spec, B, fits, rules, li, target, 'std', L);
+        const { soups, partPlanes } = buildLodGeometry(spec, B, fits, rules, li, target, 'std', L, bandY);
         const pk = packGeometry(spec, rules, soups, fps, partPlanes);
         const blob = encodeBody(pk);
         // a decal group that found no host triangle stays an overlay ('D', draped by the assembler)
@@ -250,7 +252,10 @@ export async function build(ctx) {
         // "no worse than the original": a candidate whose p90 / max stretch exceeds the ORIGINAL's (same groups, same poses) pays dearly; among the rest the one that follows the original's deformation best wins
         const og = (origStretch[solidGroups.join()] ??= edgeStretch(origBytes, POSES, solidGroups));
         r.orig = og;
-        return 50 * (Math.max(0, st.max / og.max - 1) + Math.max(0, st.p90 / og.p90 - 1)) + 10 * Math.max(0, r.dev.extra95) + 0.05 * st.max; };
+        // a painted band (Pepper's arm band: an overlay in the game's mesh, whose own stretch is part of `og`) must also be no worse than the original WITHOUT it: the stricter of the two bars
+        const plain = solidGroups.filter((g) => !bands.includes(g)), og0 = bands.length ? (origStretch[plain.join()] ??= edgeStretch(origBytes, POSES, plain)) : og;
+        const bar = { max: Math.min(og.max, og0.max), p90: Math.min(og.p90, og0.p90) };
+        return 50 * (Math.max(0, st.max / bar.max - 1) + Math.max(0, st.p90 / bar.p90 - 1)) + 10 * Math.max(0, r.dev.extra95) + 0.05 * st.max; };
       const origStretch = {};
       const cands = [];
       if (li === 0) {
@@ -274,6 +279,7 @@ export async function build(ctx) {
       }
       for (const c of cands) c.score = score(c);
       cands.sort((x, y) => x.score - y.score);
+      if (process.env.CHARS_VERBOSE) for (const c of cands) ctx.log(`  cand rings<=${c.maxRings} gap ${c.minGap ?? 0}: score ${c.score.toFixed(2)} st ${c.st.median.toFixed(2)}/${c.st.p90.toFixed(2)}/${c.st.max.toFixed(2)} orig ${c.orig.median.toFixed(2)}/${c.orig.p90.toFixed(2)}/${c.orig.max.toFixed(2)} drift ${c.dev.extra95.toFixed(4)} tris ${c.total}`);
       if (cands.length) { best = cands[0]; ctx.log(`${name} ${spec.lods[li]}: skin rings<=${best.maxRings}${best.minGap ? ' gap ' + best.minGap : ''} chosen: stretch median/p90/max ${best.st.median.toFixed(2)}/${best.st.p90.toFixed(2)}/${best.st.max.toFixed(2)}, drift from the posed original (p95, beyond the bind-pose fit error) ${best.dev.extra95.toFixed(3)} (candidates stretch/drift ${cands.map((c) => `${c.maxRings}${c.minGap ? 'g' : ''}:${c.st.max.toFixed(1)}/${c.dev.extra95.toFixed(2)}`).join(' ')}), ${best.total} triangles`); }
       if (!best) { ctx.log(`${name} ${spec.lods[li]}: NO solution within the original's ${limit} triangles: stays the game's mesh`); tables.skipped.push(`${name}-${li}`); tables.kept.bodies.push(`${spec.lods[li]} (${origTris} triangles: no loft with its prints fits the budget)`); continue; }
       if (process.env.CHARS_DUMP) { (await import('node:fs')).mkdirSync(process.env.CHARS_DUMP, { recursive: true }); (await import('node:fs')).writeFileSync(`${process.env.CHARS_DUMP}/${spec.lods[li]}.msh`, best.res.bytes); }
@@ -438,6 +444,7 @@ function decalHosts(origBytes, pk, roles, rig) {
 
 // ---------------------------------------------------------------- skeleton / mummy bodies
 /** SKEL_HR / MUMM_HR: LDraw skeleton parts (chars-skel.mjs), rigid skin per region with a 50 / 50 ring at each joint plane; HR only (the game has no other LOD of them) */
+const SKEL_LIMIT = 2.6;   // the skeleton is HR only and not capped at the original's triangles (rule of round 2: no ceiling for what is seen close); at most 2.6x
 function buildSkeletons(ctx, tables, inv, rig) {
   const done = new Set(), rows = [];
   for (const o of inv.models) {
@@ -445,17 +452,17 @@ function buildSkeletons(ctx, tables, inv, rig) {
     if (!p?.hash || !/^(SKEL|MUMM)_HR\.msh$/i.test(p.name) || done.has(p.hash)) continue;
     done.add(p.hash);
     const A = archive(o.zone), orig = A.read(A.find(p.member)), origTris = parseMsh(orig).indices.length / 3;
-    const sk = buildSkeleton(o.zone, p.name, origTris * 0.9);
+    const sk = buildSkeleton(o.zone, p.name);
     if (!sk) { rows.push(`${p.name}: no region`); continue; }
     const blob = encodeBody(packSkeleton(sk));
     const roles = 'S', res = assembleBody(orig, decodeBody(blob), rig, { roles, hosts: [null], tol: 0.1, minEdge: 0.3, maxDepth: 0 });
-    if (!res || res.stats.solidTris > origTris) { rows.push(`${p.name}: NOT replaced (${res?.stats.solidTris} triangles, limit ${origTris})`); continue; }
+    if (!res || res.stats.solidTris > SKEL_LIMIT * origTris) { rows.push(`${p.name}: NOT replaced (${res?.stats.solidTris} triangles, limit ${SKEL_LIMIT * origTris})`); continue; }
     const key = `skel${done.size}-0`;
     ctx.put(`chars/body/${key}.bin`, blob);
-    tables.bodies[key] = { layout: 'skel', lod: 0, limit: origTris, origTris, tris: res.stats.solidTris, roles, painted: [], blob: `chars/body/${key}.bin`, hosts: [null], parts: SKEL_PARTS.map((x) => x.id), partPlanes: null, decal: { tol: 0.1, minEdge: 0.3, maxDepth: 0 } };
+    tables.bodies[key] = { layout: 'skel', lod: 0, limit: Math.round(SKEL_LIMIT * origTris), origTris, tris: res.stats.solidTris, roles, painted: [], blob: `chars/body/${key}.bin`, hosts: [null], parts: SKEL_PARTS.map((x) => x.id), partPlanes: null, decal: { tol: 0.1, minEdge: 0.3, maxDepth: 0 } };
     ((tables.members[p.member.toLowerCase()] ??= {})[p.hash] = key);
-    rows.push(`${p.name}: ${origTris} -> ${res.stats.solidTris} (parts ${SKEL_PARTS.map((x) => `${x.id} ${sk[x.id].tris.length / 9}`).join(', ')})`);
-    ctx.use(lib.flatten('6260.dat', { res: 'low' }).infos); ctx.use(lib.flatten('6265.dat', { res: 'std' }).infos); ctx.use(lib.flatten('6266.dat', { res: 'std' }).infos);
+    rows.push(`${p.name}: ${origTris} -> ${res.stats.solidTris} (pieces ${sk.pieces.map((x) => `${SKEL_PARTS[x.part].id} ${x.tris.length / 9}`).join(', ')})`);
+    ctx.use(lib.flatten('6260.dat', { res: 'std' }).infos); ctx.use(lib.flatten('6265.dat', { res: 'std' }).infos); ctx.use(lib.flatten('6266.dat', { res: 'std' }).infos);
   }
   ctx.log(`skeleton bodies: ${rows.join('; ')}`);
 }

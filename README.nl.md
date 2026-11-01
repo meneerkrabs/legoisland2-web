@@ -44,7 +44,7 @@ beeld. Niets van het pakket staat hier. Details: [docs/re/mods.md](docs/re/mods.
 
 **LEGO 3D** (extra van de port, **standaard aan**; op zwakke apparaten uit): een vinkje op het beginscherm dat het spel opbouwt uit echte LEGO-onderdelen van de
 [LDraw](https://www.ldraw.org)-bibliotheek (CC BY 4.0 / CCAL 2.0): de minifiguren (lichaam, hoofd, handen, haar en hoeden waar een onderdeel bestaat), de stenenbibliotheek, echte 3D-noppen op
-de noppenplaten, 4x scherpe nop- en muurplaatjes en zeven LDraw-setmodellen (jetski, ambulance, Island Racer, ...). Het wordt **in je browser** samengesteld uit een klein gegevenspakket (ongeveer
+de noppenplaten, 4x scherpe nop- en muurplaatjes en zeven LDraw-setmodellen (jetski, ambulance, Island Racer, ...) en uit stenen opgebouwde versies van het Res-Q-centrum en het benzinestation van het eiland, de treinwagon en het vliegveldzeevliegtuig. Het wordt **in je browser** samengesteld uit een klein gegevenspakket (ongeveer
 1 MB, uit LDraw afgeleid, met `ATTRIBUTION.txt`) plus je eigen spelbestanden; niets van het spel wordt gehost en niets verlaat je browser. Het houdt het spelen nooit tegen (geen pakket op tijd =
 het originele spel), zwakke apparaten krijgen een waarschuwing en uitvinken verwijdert wat bewaard is. Details en cijfers: [docs/re/lego3d.md](docs/re/lego3d.md).
 
