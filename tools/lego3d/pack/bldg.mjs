@@ -8,6 +8,7 @@ import path from 'node:path';
 import { archive, scene, memberOf, textureOf, WORK } from '../lib.mjs';
 import { gameGroups } from '../setlib.mjs';
 import { voxelise, packBricks, emitSurface, signedVolume, soupOfBuf, searchOffset } from '../bldg.mjs';
+import { fitSlopes, surfaceIndex, fitFrames, paneRects, components6, partContacts } from '../bldg-parts.mjs';
 import { parseMsh } from '../../../src/formats/msh.ts';
 import { encodeMesh, hashMember } from '../../../src/mods/lego3d/meshpack.ts';
 
@@ -16,13 +17,13 @@ const thickF = (spec, li) => (Array.isArray(spec.thickF) ? spec.thickF[Math.min(
 
 /** the models: per archive the LOD meshes to replace in LOD order (the last LOD of a record is its .col source and is never listed) */
 export const BLDG = [
-  { key: 'rescue', title: 'Res-Q Emergency Response Centre (the game\'s own massing)', zone: 'z02LGI', meshes: ['rescue_LOD1', 'rescue_LOD2', 'rescue_LOD3', 'rescue_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [6, 0, 0, 0], tile: 1 },
+  { key: 'rescue', title: 'Res-Q Emergency Response Centre (the game\'s own massing)', zone: 'z02LGI', meshes: ['rescue_LOD1', 'rescue_LOD2', 'rescue_LOD3', 'rescue_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [6, 0, 0, 0], tile: 1, under: [true, false] },
   { key: 'seaplane_strip_z14', title: 'Island Hopper seaplane of the airstrip (the game\'s own massing)', zone: 'z14OSD', meshes: ['airstrip_seaplane_LOD1', 'airstrip_seaplane_LOD2', 'airstrip_seaplane_LOD3', 'airstrip_seaplane_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [4, 4, 0, 0], tile: 1, minThick: 0.6 },
   { key: 'seaplane_strip_z23', title: 'Island Hopper seaplane of the airstrip (the game\'s own massing)', zone: 'z23DIP', meshes: ['airstrip_seaplane_LOD1', 'airstrip_seaplane_LOD2', 'airstrip_seaplane_LOD3', 'airstrip_seaplane_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [4, 4, 0, 0], tile: 1, minThick: 0.6 },
   // the carriage: at the locomotive's / tender's brick scale (stud 0.8, plate 0.32 = the 7750 set at 0.04); the wheel discs stay the game's (round)
   { key: 'carriage', title: 'Passenger-less carriage wagon of the steam train (the game\'s own massing, 7750 brick scale)', zone: 'z02LGI', meshes: ['loco_carriage_lod1', 'loco_carriage_lod2', 'loco_carriage_lod3', 'loco_carriage_lod4'], pitch: [0.4, 0.16, 0.4], studs: [8, 0, 0, 0], tile: 0, minTris: 6, textured: true, thickF: [0.75, 0.75, 0.75, 1.05],
     hold: [[1.7, -0.05, 2.5, 2.7, 2.35, 5.3], [1.7, -0.05, -5.3, 2.7, 2.35, -2.5], [-2.7, -0.05, 2.5, -1.7, 2.35, 5.3], [-2.7, -0.05, -5.3, -1.7, 2.35, -2.5]] },
-  { key: 'garage', title: 'Gas N\' Wash garage (the game\'s own massing)', zone: 'z02LGI', meshes: ['garage_LOD1', 'garage_LOD2', 'garage_LOD3', 'garage_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [6, 0, 0, 0], tile: 1 },
+  { key: 'garage', title: 'Gas N\' Wash garage (the game\'s own massing)', zone: 'z02LGI', meshes: ['garage_LOD1', 'garage_LOD2', 'garage_LOD3', 'garage_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [6, 0, 0, 0], tile: 1, under: [true, false] },
 ];
 
 const flatCache = new Map();
@@ -87,12 +88,22 @@ export async function buildMesh({ a, msh, tl, spec, li, offset }) {
   }
   let minY = 1e9; for (const g of mass) for (let i = 1; i < g.tris.length; i += 3) minY = Math.min(minY, g.tris[i]);
   const vox = voxelise(massSoups.map((t) => ({ tris: t })), { pitch: spec.pitch, thick: spec.thick ?? spec.pitch[0] * thickF(spec, li), offset, minY: minY - 1e-3 });
+  const placements = [], comp0 = components6(vox);
+  // window frames in the openings of the game's translucent panes (the panes themselves stay the game's, behind the frames)
+  if (spec.frames !== false && li < 2) {
+    const panes = gg.filter((g) => !mass.includes(g) && ((g.kind === 'colour' && (g.flags & 3)) || (g.kind === 'decal' && (g.flags & 2))));
+    const comps = panes.flatMap((g) => components(g.tris));
+    placements.push(...fitFrames(vox, paneRects(comps).rects, { log: spec.log }));
+  }
+  if (spec.slopes !== false) placements.push(...fitSlopes(vox, { surf: surfaceIndex(massSoups), log: spec.log, dbg: spec.dbg }));   // real LDraw slope bricks where the game's surface slopes (the cells leave the voxel model)
+  const comp1 = components6(vox), contacts = partContacts(vox, placements);
   const bricks = packBricks(vox);
   const studSides = spec.studs[Math.min(li, spec.studs.length - 1)];
-  const geo = emitSurface(vox, { studSides, studs: studSides > 0, tileRadius: spec.tile ?? 1 });
+  const geo = emitSurface(vox, { studSides, studs: studSides > 0, tileRadius: spec.tile ?? 1, placements, under: spec.under?.[Math.min(li, spec.under.length - 1)] ? { bricks, rim: 0.06, depth: 0.12 } : null });
   const groups = [], kinds = [], bom = {}, hold = [];
   if (spec.hold) mass.forEach((g) => { for (const b of spec.hold) hold.push({ g: g.index, box: b }); });
   for (const b of bricks) { const k = `${b.kind}:${b.part}`; bom[k] = (bom[k] ?? 0) + 1; }
+  for (const pl of placements) { const k = `part:${pl.part}`; bom[k] = (bom[k] ?? 0) + 1; }
   let tris = 0;
   gg.forEach((g, gi) => {
     const mi = mass.indexOf(g), buf = mi >= 0 ? geo.get(mi) : null;
@@ -100,11 +111,11 @@ export async function buildMesh({ a, msh, tl, spec, li, offset }) {
       if (buf.pos.length / 3 > 65535) throw new Error(`${spec.key} LOD ${li} group ${gi}: ${buf.pos.length / 3} vertices (limit 65535): fewer stud sides / more tiles`);
       if (windingErrors(buf) > 0) throw new Error(`${spec.key} LOD ${li} group ${gi}: triangles wound against their normals`);
       const flat = isFlat(a, tl[g.index] ?? -1);
-      groups.push({ kind: 0, flags: flat ? 0 : 1, pos: buf.pos, nrm: buf.nrm, idx: buf.idx });
+      groups.push({ kind: 0, flags: flat ? 0 : 1, pos: buf.pos, nrm: buf.nrm, idx: buf.idx, partFrom: buf.partFrom });
       kinds.push(flat ? 'flat' : 'uv'); tris += buf.idx.length / 3;
     } else { groups.push({ kind: 1 }); kinds.push(g.kind === 'decal' ? 'decal' : 'keep'); }
   });
-  return { groups, kinds, tris, bom, vox, mass, gg, offset: vox.offset, bricks: bricks.length, hold };
+  return { groups, kinds, tris, bom, vox, mass, gg, offset: vox.offset, bricks: bricks.length + placements.length, placements, hold, assembly: { before: comp0.components, after: comp1.components, parts: placements.length, loose: contacts.loose, resting: contacts.below } };
 }
 
 export async function build(ctx) {
@@ -122,8 +133,8 @@ export async function build(ctx) {
       for (const k of Object.keys(r.bom)) usedParts.add(k.split(':')[1]);
       const blob = encodeMesh(r.groups), bh = hashMember(blob), bname = `sets/b/${bh}.bin`;
       blobs.set(bname, blob);
-      (byArch[spec.zone] ??= []).push({ member, hash: hashMember(bytes), blob: bname, kinds: r.kinds, tris: r.tris, game: msh.indices.length / 3, set: `bldg:${spec.key}`, gap: spec.gap ?? 0.45, ...(r.hold.length ? { hold: r.hold } : {}) });
-      report.push({ key: spec.key, mesh: nm, lodFrom: part.lod, game: msh.indices.length / 3, mine: r.tris, groups: r.kinds.join(','), bricks: r.bricks, bom: r.bom, offset: r.offset });
+      (byArch[spec.zone] ??= []).push({ member, hash: hashMember(bytes), blob: bname, kinds: r.kinds, tris: r.tris, game: msh.indices.length / 3, set: `bldg:${spec.key}`, gap: spec.gap ?? 0.45, asm: r.assembly, parts: r.placements.map((p) => `${p.part}@${p.i},${p.j},${p.k}r${p.r}g${p.g}`), ...(r.hold.length ? { hold: r.hold } : {}) });
+      report.push({ key: spec.key, mesh: nm, lodFrom: part.lod, game: msh.indices.length / 3, mine: r.tris, groups: r.kinds.join(','), bricks: r.bricks, bom: r.bom, offset: r.offset, assembly: r.assembly });
       ctx.log(`${spec.zone}/${nm} (LOD from ${part.lod}): ${msh.indices.length / 3} -> ${r.tris} triangles, ${r.bricks} bricks, kinds ${r.kinds.join(',')}`);
     }
   }

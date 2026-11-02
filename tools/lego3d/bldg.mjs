@@ -8,6 +8,7 @@
 //   const bricks = packBricks(vox)                                                      // [{ g, kind: 'brick' | 'plate', i, j, k, w, l, part }]  (cells i,k in x,z; j in y)
 //   const geo = emitBricks(vox, bricks, { studSides: 6 })                               // per group slot: { pos, nrm, idx }
 import { TriGrid } from './geomx.mjs';
+import { placedTriangles, placedStuds } from './bldg-parts.mjs';
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
@@ -195,11 +196,27 @@ function stud(P, N, I, cx, y0, cz, r, h, sides) {
  * (the seams between the bricks of one colour are invisible at the game's scale, so the surface of a wall is one rectangle, as the union of the bricks' outer boxes is), plus a real stud (LDraw stud.dat:
  * radius 6 / height 4 LDU on the 20 / 8 LDU grid) on every exposed top cell except the interior of big flat areas (smooth tiles). Returns Map group -> { pos, nrm, idx } (outward winding).
  */
-export function emitSurface(vox, { studSides = 6, studs = true, tileRadius = 1 } = {}) {
-  const { origin, pitch, dims, label, filler, idx } = vox;
+export function emitSurface(vox, { studSides = 6, studs = true, tileRadius = 1, placements = [], under = null } = {}) {
+  const { origin, pitch, dims, label, filler, idx, claim } = vox;
   const [nx, ny, nz] = dims;
-  const solid = (i, j, k) => i >= 0 && j >= 0 && k >= 0 && i < nx && j < ny && k < nz && (label[idx(i, j, k)] >= 0 || filler[idx(i, j, k)] === 1);
+  const solid = (i, j, k) => i >= 0 && j >= 0 && k >= 0 && i < nx && j < ny && k < nz && (label[idx(i, j, k)] >= 0 || filler[idx(i, j, k)] === 1 || (claim !== undefined && claim[idx(i, j, k)] > 0));
   const X = (i) => origin[0] + i * pitch[0], Y = (j) => origin[1] + j * pitch[1], Z = (k) => origin[2] + k * pitch[2];
+  // undersides: every brick / plate whose whole bottom lies over air gets a shallow tray (rim + recessed ceiling), so a roof shows its plates from below
+  let trayCells = null;
+  const trays = [];
+  if (under) {
+    trayCells = new Set();
+    let lowJ = ny;
+    for (let c = 0; c < label.length; c++) if (label[c] >= 0) lowJ = Math.min(lowJ, Math.floor(c / (nx * nz)));
+    for (const b of under.bricks) {
+      if (b.j <= lowJ) continue;
+      let ok = true;
+      for (let dk = 0; dk < b.l && ok; dk++) for (let di = 0; di < b.w; di++) if (solid(b.i + di, b.j - 1, b.k + dk)) { ok = false; break; }
+      if (!ok) continue;
+      for (let dk = 0; dk < b.l; dk++) for (let di = 0; di < b.w; di++) trayCells.add((b.j * nz + b.k + dk) * nx + b.i + di);
+      trays.push(b);
+    }
+  }
   const buf = new Map();
   const get = (g) => { let b = buf.get(g); if (!b) buf.set(g, b = { P: [], N: [], I: [] }); return b; };
   // faces[d][g]: Map plane -> Set of u * 65536 + v ; d: 0 +x, 1 -x, 2 +y, 3 -y, 4 +z, 5 -z
@@ -211,7 +228,7 @@ export function emitSurface(vox, { studSides = 6, studs = true, tileRadius = 1 }
     if (!solid(i + 1, j, k)) add(0, g, i + 1, k, j);
     if (!solid(i - 1, j, k)) add(1, g, i, k, j);
     if (!solid(i, j + 1, k)) add(2, g, j + 1, i, k);
-    if (!solid(i, j - 1, k)) add(3, g, j, i, k);
+    if (!solid(i, j - 1, k) && !(trayCells && trayCells.has((j * nz + k) * nx + i))) add(3, g, j, i, k);
     if (!solid(i, j, k + 1)) add(4, g, k + 1, i, j);
     if (!solid(i, j, k - 1)) add(5, g, k, i, j);
   }
@@ -262,8 +279,41 @@ export function emitSurface(vox, { studSides = 6, studs = true, tileRadius = 1 }
       stud(P, N, I, (X(i) + X(i + 1)) / 2, Y(j + 1), (Z(k) + Z(k + 1)) / 2, r, h, studSides);
     }
   }
+  for (const b of trays) {
+    const { P, N, I } = get(b.g), x0 = X(b.i), x1 = X(b.i + b.w), z0 = Z(b.k), z1 = Z(b.k + b.l), y0 = Y(b.j), rim = under.rim, dep = under.depth;
+    const q = (a, bb, c, d, n) => quadOut(P, N, I, a, bb, c, d, n);
+    const ix0 = x0 + rim, ix1 = x1 - rim, iz0 = z0 + rim, iz1 = z1 - rim, yc = y0 + dep;
+    const D = [0, -1, 0];
+    q([x0, y0, z0], [x1, y0, z0], [x1, y0, iz0], [x0, y0, iz0], D); q([x0, y0, iz1], [x1, y0, iz1], [x1, y0, z1], [x0, y0, z1], D);
+    q([x0, y0, iz0], [ix0, y0, iz0], [ix0, y0, iz1], [x0, y0, iz1], D); q([ix1, y0, iz0], [x1, y0, iz0], [x1, y0, iz1], [ix1, y0, iz1], D);
+    q([ix0, yc, iz0], [ix1, yc, iz0], [ix1, yc, iz1], [ix0, yc, iz1], D);
+    q([ix0, y0, iz0], [ix1, y0, iz0], [ix1, yc, iz0], [ix0, yc, iz0], [0, 0, 1]); q([ix0, y0, iz1], [ix1, y0, iz1], [ix1, yc, iz1], [ix0, yc, iz1], [0, 0, -1]);
+    q([ix0, y0, iz0], [ix0, y0, iz1], [ix0, yc, iz1], [ix0, yc, iz0], [1, 0, 0]); q([ix1, y0, iz0], [ix1, y0, iz1], [ix1, yc, iz1], [ix1, yc, iz0], [-1, 0, 0]);
+  }
+  // real parts (slope bricks, window frames): their own triangles (flat normals) in the colour group they replace, studs of the part at the part's stud positions
+  const partStart = new Map();   // per group: first index of the parts' triangles (the voxel faces and studs come before)
+  for (const pl of placements) {
+    const { P, N, I } = get(pl.g), soup = placedTriangles(vox, pl);
+    if (!partStart.has(pl.g)) partStart.set(pl.g, I.length);
+    for (let o = 0; o < soup.length; o += 9) {
+      const ux = soup[o + 3] - soup[o], uy = soup[o + 4] - soup[o + 1], uz = soup[o + 5] - soup[o + 2], vx = soup[o + 6] - soup[o], vy = soup[o + 7] - soup[o + 1], vz = soup[o + 8] - soup[o + 2];
+      const n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx], l = Math.hypot(n[0], n[1], n[2]);
+      if (l < 1e-12) continue;
+      const b = P.length / 3;
+      for (let q = 0; q < 3; q++) { P.push(soup[o + q * 3], soup[o + q * 3 + 1], soup[o + q * 3 + 2]); N.push(n[0] / l, n[1] / l, n[2] / l); }
+      I.push(b, b + 1, b + 2);
+    }
+    if (studs) {
+      const r = pitch[0] * STUD_R, h = pitch[1] * STUD_H;
+      for (const [x, y, z] of placedStuds(vox, pl)) {
+        const i = Math.floor((x - origin[0]) / pitch[0]), j = Math.floor((y - origin[1]) / pitch[1] + 1e-6), k = Math.floor((z - origin[2]) / pitch[2]);
+        if (solid(i, j, k)) continue;
+        stud(P, N, I, x, y, z, r, h, studSides);
+      }
+    }
+  }
   const out = new Map();
-  for (const [g, b] of buf) out.set(g, { pos: Float32Array.from(b.P), nrm: Float32Array.from(b.N), idx: Uint32Array.from(b.I) });
+  for (const [g, b] of buf) out.set(g, { pos: Float32Array.from(b.P), nrm: Float32Array.from(b.N), idx: Uint32Array.from(b.I), partFrom: partStart.get(g) ?? b.I.length });
   return out;
 }
 

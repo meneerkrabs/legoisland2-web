@@ -59,6 +59,13 @@ export default {
         const key = gen(e.member);
         if (!key) { failures.push(`${tag}: not replaced although it matches the pack's hash`); continue; }
         meshes++;
+        // assembly (docs section 16.6): real parts sit on the grid (integer cells by construction), none loose (every part touches solid cells), none overlap (distinct cells), no new islands
+        if (e.asm) {
+          if (e.asm.loose) failures.push(`${tag}: ${e.asm.loose} part(s) touch nothing`);
+          if (e.asm.after > e.asm.before) failures.push(`${tag}: parts split the model (${e.asm.before} -> ${e.asm.after} components)`);
+          const cells = new Set();
+          for (const p of e.parts ?? []) { const m = p.match(/^(\w+)@(-?\d+),(-?\d+),(-?\d+)r(\d)g(\d+)$/); if (!m) { failures.push(`${tag}: part entry ${p}`); continue; } const k = m.slice(2, 5).join(','); if (cells.has(k)) failures.push(`${tag}: two parts at ${k}`); cells.add(k); }
+        }
         const om = parseMsh(orig), nm = parseMsh(r.files.get(key)), prob = validateMsh(nm);
         if (prob.length) { failures.push(`${tag}: invalid msh: ${prob.slice(0, 2).join('; ')}`); continue; }
         if (nm.groups.length !== om.groups.length) { failures.push(`${tag}: ${nm.groups.length} groups, the game's has ${om.groups.length}`); continue; }
