@@ -297,11 +297,12 @@ export class TouchControls {
     const centered = this.hidden;   // hidden buttons: the picture is centred again
     let mode: 'strip' | 'side' | 'overlay' = 'overlay';
     let u = base;
-    // 1. portrait: the free strip under the picture
-    const stripTop = sf.t + ch, stripH = H - sf.b - stripTop;
+    // 1. portrait: a compact panel at the bottom (camera row right above the action block); the picture is centred in the space above it
+    const blockOf = (uu: number) => { const z = sizes(uu); return 0.35 * uu + z.actH + 0.2 * uu + z.camH + 0.35 * uu; };
+    let blockH = 0;
     if (portrait && !this.hidden) {
-      const s = sizes(base);
-      if (stripH >= s.pad + s.camH + base * 0.9 && cw <= W) mode = 'strip';
+      const free = H - sf.t - sf.b - ch;
+      for (let uu = base; uu >= 40 && cw <= W; uu -= 2) if (free >= blockOf(uu)) { mode = 'strip'; u = uu; blockH = blockOf(uu); break; }
     }
     // 2. landscape: the margins beside the 4:3 picture
     const ml = (W - cw) / 2;
@@ -312,20 +313,22 @@ export class TouchControls {
       if (su >= 34 && H - sf.t - sf.b >= s.pad + s.camH + su * 0.8) { mode = 'side'; u = su; }
     }
     this.mode = mode;
-    this.host.wrap.classList.toggle('tc-top', mode === 'strip' && !centered);
+    void centered;
     this.host.wrap.style.paddingTop = mode === 'strip' ? `${sf.t}px` : '';
+    this.host.wrap.style.paddingBottom = mode === 'strip' ? `${blockH + sf.b}px` : '';
     setU(u);
     const s = sizes(u);
     const pad = g.pad, act = g.act, cam = g.cam, pill = g.pill, tab = g.tab;
     place(tab, sf.l + 8, H - sf.b - u * 0.8 - 8);
     if (this.hidden) return;
     if (mode === 'strip') {
-      const bottom = H - sf.b - 0.35 * u;
-      place(pad, sf.l + 0.35 * u + Math.max(0, (W - sf.l - sf.r - s.pad - s.actW - 0.7 * u) * 0.12), bottom - s.pad);
-      place(act, W - sf.r - 0.35 * u - s.actW - Math.max(0, (W - sf.l - sf.r - s.pad - s.actW - 0.7 * u) * 0.12), bottom - s.actH);
-      const topRow = stripTop + 0.3 * u;
-      place(cam, sf.l + 0.35 * u, topRow);
-      place(pill, W - sf.r - 0.35 * u - s.pill, topRow);
+      const bottom = H - sf.b - 0.35 * u, spare = Math.max(0, (W - sf.l - sf.r - s.pad - s.actW - 0.7 * u) * 0.12);
+      const padX = sf.l + 0.35 * u + spare, actX = W - sf.r - 0.35 * u - s.actW - spare;
+      place(pad, padX, bottom - s.pad);
+      place(act, actX, bottom - s.actH);
+      const camTop = bottom - s.actH - 0.2 * u - s.camH;
+      place(cam, actX + s.actW - s.camW, camTop);
+      place(pill, padX, camTop + (s.camH - 0.7 * u) / 2);
     } else if (mode === 'side') {
       const lx = sf.l + (ml - sf.l - s.pad) / 2;
       const rightX = W - ml + (ml - sf.r - s.actW) / 2;
@@ -351,7 +354,7 @@ export class TouchControls {
     for (const c of this.cleanups) c();
     this.host.input.touch = null;
     this.host.wrap.classList.remove('tc-on', 'tc-top');
-    this.host.wrap.style.paddingTop = '';
+    this.host.wrap.style.paddingTop = ''; this.host.wrap.style.paddingBottom = '';
     this.root.remove(); this.style.remove();
   }
 }
