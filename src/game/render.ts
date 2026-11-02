@@ -19,6 +19,7 @@ import { PASS_LOG } from './world.ts';
 import { pickFogCall } from './fogphases.ts';
 import { frustumPlanes, visibleFlags } from '../fx/particles/sprites.ts';
 import { PARTITIONS } from '../render/partition.ts';
+import { FAR_PREFIX, farMeshes } from '../render/farmesh.ts';
 import { runDrawHooks } from './controller.ts';
 import { blobShadowPoints, markerPoints, markerVisible, shadowGate, SHADOW_HANDLED, SHADOW_RAY_LENGTH, SHADOW_RAY_MASK, SHADOW_RAY_RADIUS } from './shadow.ts';
 import type { ShadowRay } from './shadow.ts';
@@ -35,7 +36,7 @@ interface SceneNodeApi { place(rec: GameRecord, eye: ArrayLike<number>, drawEye:
 interface PassSetup { pass: number; far: number; fogOn: boolean; fogEnd: number }
 /** one replayed pass: its own dt, camera and far / fog set-up (null = nobody logged it: the current one) */
 interface PassInfo { dt: number; eye: [number, number, number]; setup: PassSetup | null }
-interface Part { meshPath: string | null; texList: number[]; lod: number; mesh?: MeshGpu | null; slot: number; mode: number; shiny?: boolean }
+interface Part { meshPath: string | null; texList: number[]; lod: number; mesh?: MeshGpu | null; /** LEGO 3D: the stud-less twin of a single-LOD mesh (undefined = not looked up yet) */ far?: MeshGpu | null; slot: number; mode: number; shiny?: boolean }
 interface Attach { bone: number; slot: number; parts: Part[] }
 /** a skinned mesh of one record that is re-posed every frame */
 interface Dyn { gpu: MeshGpu; sv: Svwl; pos: Float32Array; nrm: Float32Array }
@@ -402,6 +403,20 @@ export class GameRenderer {
     return part.mesh;
   }
 
+  /** LEGO 3D option only: the stud-less twin `lego3d/far/<member>` of a part's mesh (null when there is none) */
+  private farMesh(part: Part): MeshGpu | null {
+    if (part.far !== undefined) return part.far;
+    part.far = null;
+    if (part.meshPath) {
+      const p = part.meshPath.split('\\');
+      if (p[1]?.toLowerCase() === this.archive.name.toLowerCase()) {
+        part.far = this.renderer.mesh(this.archive, FAR_PREFIX + p.slice(2).join('/'));
+        if (part.far && part.shiny) this.renderer.setShiny(part.far, true);
+      }
+    }
+    return part.far;
+  }
+
   private svwlOf(m: MeshGpu): Svwl | null {
     if (this.svwls.has(m)) return this.svwls.get(m)!;
     let sv: Svwl | null = null;
@@ -581,6 +596,8 @@ export class GameRenderer {
       let part = rv.parts[pi], m = this.partMesh(part);
       if (!m) { for (const q of rv.parts) { const mm = this.partMesh(q); if (mm) { part = q; m = mm; break; } } }
       if (!m) continue;
+      // LEGO 3D option only: a single-LOD mesh with 3D studs draws its stud-less twin when even its nearest point is far enough for a stud to be under a pixel high (farMeshes.on stays false without the option)
+      if (farMeshes.on && rv.parts.length === 1 && !rv.kind && !rec.anim && cdist - rv.radius * rv.scale >= farMeshes.studHeight * (r.viewRect.h / 2) / Math.tan(setup.fov / 2)) { const fm = this.farMesh(part); if (fm) m = fm; }
       let world_: Float32Array = mat;
       // the sky dome / sea plane of the zone carry the original's scene nodes (src/island/ambient/seabed.ts: FUN_004267d2 / FUN_00426a43): they own the state the save game holds and move their record
       // with the CURRENT camera, once per pass of the loop. A record without such a node (the viewer's models) keeps the renderer's own placement.

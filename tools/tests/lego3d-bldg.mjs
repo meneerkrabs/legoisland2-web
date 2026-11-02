@@ -37,7 +37,7 @@ export default {
       const exePath = path.join(ctx.dataRoot, 'LEGO eiland 2.exe');
       if (fs.existsSync(exePath)) { const pe = new Pe(new Uint8Array(fs.readFileSync(exePath))), starts = pe.functionStarts(); scenes = (z) => extractZone(pe, z, undefined, starts); }
     } catch (e) { notes.push(`scene tables unavailable: ${e}`); }
-    let checked = 0, meshes = 0, worstIou = 1, trisO = 0, trisN = 0;
+    let checked = 0, meshes = 0, worstIou = 1, trisO = 0, trisN = 0, glassPieces = 0;
     const per = [];
     for (const tn of tables) {
       const table = await pack.json(tn), arch = ctx.archives.find((a) => a.name.toLowerCase() === table.archive.toLowerCase());
@@ -77,6 +77,22 @@ export default {
         e.kinds.forEach((k, g) => {
           const a = slice(om, om.groups[g]), b = slice(nm, nm.groups[g]);
           if (k === 'keep') { if (!same([...a.pos], [...b.pos]) || !same([...a.idx], [...b.idx]) || !same([...a.uv], [...b.uv])) failures.push(`${tag}: kept group ${g} changed`); }
+          else if (k === 'glass') {   // the player's group stays byte-identical as the first part of the group, real glass pieces (outward wound, unit normals, finite UV) are appended behind it (docs section 16.8)
+            const nv0 = a.pos.length / 3, ni0 = a.idx.length;
+            if (b.pos.length <= a.pos.length || b.idx.length <= a.idx.length) { failures.push(`${tag}: glass group ${g} has no glass pieces`); return; }
+            if (!same([...a.pos], [...b.pos.slice(0, a.pos.length)]) || !same([...a.nrm], [...b.nrm.slice(0, a.nrm.length)]) || !same([...a.uv], [...b.uv.slice(0, a.uv.length)]) || !same([...a.idx], [...b.idx.slice(0, ni0)])) failures.push(`${tag}: glass group ${g}: the game's own triangles changed`);
+            for (let v = nv0; v < b.pos.length / 3; v++) { const l = Math.hypot(b.nrm[v * 3], b.nrm[v * 3 + 1], b.nrm[v * 3 + 2]); if (!(l > 0.9 && l < 1.1)) { failures.push(`${tag}: glass group ${g} has a non-unit normal`); break; } }
+            for (let i = nv0 * 2; i < b.uv.length; i++) if (!Number.isFinite(b.uv[i])) { failures.push(`${tag}: glass group ${g} has a non-finite UV`); break; }
+            let wrong = 0, n = 0;
+            for (let t = ni0; t < b.idx.length; t += 3, n++) {
+              const i0 = b.idx[t] * 3, i1 = b.idx[t + 1] * 3, i2 = b.idx[t + 2] * 3;
+              const u = [b.pos[i1] - b.pos[i0], b.pos[i1 + 1] - b.pos[i0 + 1], b.pos[i1 + 2] - b.pos[i0 + 2]], v = [b.pos[i2] - b.pos[i0], b.pos[i2 + 1] - b.pos[i0 + 1], b.pos[i2 + 2] - b.pos[i0 + 2]];
+              const nn = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+              if (nn[0] * b.nrm[i0] + nn[1] * b.nrm[i0 + 1] + nn[2] * b.nrm[i0 + 2] < -1e-12) wrong++;
+            }
+            if (wrong) failures.push(`${tag}: glass group ${g}: ${wrong} of ${n} glass triangles wound against their normals`);
+            glassPieces += n;
+          }
           else if (k === 'decal') { if (!same([...a.idx], [...b.idx]) || !same([...a.uv], [...b.uv]) || a.pos.length !== b.pos.length) failures.push(`${tag}: decal group ${g} topology / UV changed`); }
           else {
             if (!b.idx.length) { failures.push(`${tag}: group ${g} is empty`); return; }
@@ -139,6 +155,7 @@ export default {
       if (r2.files.size !== r.files.size) failures.push(`${arch.name}: second run produced another member count`);
       else for (const [k, v] of r.files) { const w = r2.files.get(k); if (!w || hashMember(w) !== hashMember(v)) { failures.push(`${arch.name}: not deterministic: ${k}`); break; } }
     }
+    notes.push(`${glassPieces} glass triangles over the sloped panes`);
     notes.push(`${meshes} meshes in ${tables.length} archives (${trisO} -> ${trisN} triangles), worst silhouette IoU ${worstIou.toFixed(3)}`);
     notes.push(per.join(' | '));
     return { checked, failures, notes };

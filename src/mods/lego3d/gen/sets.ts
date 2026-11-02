@@ -215,6 +215,7 @@ export const generator: Generator = {
     // two tables per archive: the vehicles built from OMR set models (`<archive>.json`) and the brick-built reconstructions / the other fitted models (`<archive>.b.json`, section 16 of docs/re/lego3d.md)
     const table: SetTable = { v: 1, archive: env.name, meshes: [] };
     for (const t of TABLES) {
+      if (t === '.b' ? env.options.has('-bldg') : env.options.has('-vehicles')) continue;   // `?lego3d=-bldg`: no brick-built buildings / carriage / seaplane; `-vehicles`: only those (debugging switches)
       const n = `sets/arch/${env.name.toLowerCase()}${t}.json`;
       if (!env.pack.has(n)) continue;
       try { table.meshes.push(...(await env.pack.json<SetTable>(n)).meshes); } catch (e) { env.log(`no set table ${n}: ${String(e)}`); }
@@ -260,6 +261,15 @@ export const generator: Generator = {
           const og = m.groups[gi], d = groupData(m, gi), bg = blob[gi];
           if (bg.kind === 1) {   // the player's group, unchanged
             groups.push({ flags: og.flags, pos: m.positions.slice(d.fv * 3, (d.fv + d.nv) * 3), nrm: m.normals.slice(d.fv * 3, (d.fv + d.nv) * 3), uv: m.uvs.slice(d.fv * 2, (d.fv + d.nv) * 2), idx: Array.from(m.indices.subarray(d.fi, d.fi + d.ni)) });
+            continue;
+          }
+          if (e.kinds[gi] === 'glass') {   // the player's group stays as it is, real glass pieces (pack geometry) are appended behind the same texture: the pane the game draws (nearly invisible in its own flags) gets a body
+            const gp = Array.from(m.positions.slice(d.fv * 3, (d.fv + d.nv) * 3)), gn = Array.from(m.normals.slice(d.fv * 3, (d.fv + d.nv) * 3)), gu = Array.from(m.uvs.slice(d.fv * 2, (d.fv + d.nv) * 2));
+            const gx = Array.from(m.indices.subarray(d.fi, d.fi + d.ni)), base = gp.length / 3, u0 = m.uvs[d.fv * 2] ?? 0.5, v0 = m.uvs[d.fv * 2 + 1] ?? 0.5;
+            for (let v = 0; v < bg.pos.length / 3; v++) { gp.push(bg.pos[v * 3], bg.pos[v * 3 + 1], bg.pos[v * 3 + 2]); gn.push(bg.nrm[v * 3], bg.nrm[v * 3 + 1], bg.nrm[v * 3 + 2]); gu.push(u0, v0); }
+            for (let i = 0; i < bg.idx.length; i++) gx.push(base + bg.idx[i]);
+            groups.push({ flags: og.flags, pos: Float32Array.from(gp), nrm: Float32Array.from(gn), uv: Float32Array.from(gu), idx: gx });
+            env.stats.glassTriangles = (env.stats.glassTriangles ?? 0) + bg.idx.length / 3;
             continue;
           }
           let gpos: Float32Array = bg.pos, gnrm: Float32Array = bg.nrm, gidx: ArrayLike<number> = bg.idx;

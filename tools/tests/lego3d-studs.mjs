@@ -24,7 +24,7 @@ export default {
     if (!fs.existsSync(PACK)) return { checked: 0, failures, notes: ['LEGO 3D pack absent (node tools/lego3d/pack/build-pack.mjs --only textures,studs): skipped'] };
     const pack = Pack.open(new Uint8Array(fs.readFileSync(PACK)));
     if (!pack.names('studs/arch/').length) return { checked: 0, failures, notes: ['pack has no studs part: skipped'] };
-    let checked = 0, meshes = 0, studs = 0, tris = 0, skipped = 0, worstTri = 0, worstMs = 0, bytes = 0;
+    let farTwins = 0, checked = 0, meshes = 0, studs = 0, tris = 0, skipped = 0, worstTri = 0, worstMs = 0, bytes = 0;
     const per = [];
     const bySides = {};
     for (const a of ctx.archives) {
@@ -52,6 +52,11 @@ export default {
         if (!out) { skipped++; continue; }
         meshes++;
         const m0 = parseMsh(src);
+        // far twin (docs section 12, round 3; src/render/farmesh.ts): a single-LOD, un-skinned mesh with studs gets the player's own bytes as `lego3d/far/<member>`; nothing else does
+        const farKey = [...r.files.keys()].find((k) => k.toLowerCase() === `lego3d/far/${hit.path}`.toLowerCase());
+        const farBytes = farKey ? r.files.get(farKey) : null;
+        if (e.s === 1 && !m0.svwl && (r.stats.studs?.['stud-far'] ?? 0) > 0 && farBytes) { farTwins++; if (farBytes.length !== src.length || fnv1a(farBytes) !== e.h) failures.push(`${a.name} ${e.m}: the far twin is not the game's own mesh`); }
+        if (farBytes && (e.s !== 1 || m0.svwl)) failures.push(`${a.name} ${e.m}: a far twin for a mesh with levels of detail / a skeleton`);
         let m1;
         try { m1 = parseMsh(out); } catch (err) { failures.push(`${a.name} ${e.m}: result does not parse: ${err.message}`); continue; }
         for (const p of validateMsh(m1)) failures.push(`${a.name} ${e.m}: validateMsh: ${p}`);
@@ -182,6 +187,7 @@ export default {
       if (b1.bytes && (!b2.bytes || fnv1a(b1.bytes) !== fnv1a(b2.bytes))) failures.push('bakeMesh is not deterministic');
     }
     notes.push(`${meshes} meshes baked (${skipped} left out by the rules / budget), ${studs} studs, +${tris} triangles, +${(bytes / 1e6).toFixed(2)} MB of mesh data, largest mesh +${worstTri} triangles; sides ${JSON.stringify(bySides)}; slowest archive ${worstMs} ms`);
+    notes.push(`${farTwins} single-LOD meshes carry a stud-less far twin`);
     notes.push(per.join(' | '));
     return { checked, failures, notes };
   },

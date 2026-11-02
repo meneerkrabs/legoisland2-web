@@ -17,6 +17,10 @@ import { parseMsh, groupMatrices } from '../../../formats/msh.ts';
 import type { Msh } from '../../../formats/msh.ts';
 import type { Generator } from './types.ts';
 import { fnv1a } from './surf.ts';
+import { FAR_PREFIX } from '../../../render/farmesh.ts';
+
+/** a single-LOD mesh gets a stud-less far twin from this many studs on (fewer: nothing to gain) */
+const FAR_MIN_STUDS = 40;
 
 export interface StudMeshEntry {
   /** member path as the archive spells it */
@@ -439,7 +443,7 @@ export const generator: Generator = {
   applies: (name, pack) => pack.has(`studs/arch/${name.toLowerCase()}.json`),
   async run(env) {
     const table = await env.pack.json<StudTable>(`studs/arch/${env.name.toLowerCase()}.json`);
-    let meshes = 0, studs = 0, tris = 0, skipped = 0, bytes = 0;
+    let meshes = 0, studs = 0, tris = 0, skipped = 0, bytes = 0, far = 0;
     const t0 = Date.now();
     for (const e of table.meshes) {
       const hit = env.archive.find(e.m);
@@ -451,9 +455,11 @@ export const generator: Generator = {
         const r = bakeMesh(cur, e, table, env.options.has('s0') ? 0 : env.options.has('s4') ? 4 : env.options.has('s6') ? 6 : RULES.singleMaxSides, env.options.has('hard'));
         if (!r.bytes) { env.log(`${e.m}: ${r.why}`); skipped++; continue; }
         env.put(hit.path, r.bytes);
+        // a model with one level of detail draws its studs at every distance: the player's own mesh goes along as the stud-less twin the renderer switches to once a stud is under a pixel high (src/render/farmesh.ts; not for skinned meshes)
+        if (e.s === 1 && r.studs >= FAR_MIN_STUDS && !parseMsh(cur).svwl) { env.put(FAR_PREFIX + hit.path, cur); far++; }
         meshes++; studs += r.studs; tris += r.tris; bytes += r.bytes.length - cur.length;
       } catch (err) { env.log(`${e.m}: ${(err as Error).message}`); skipped++; }
     }
-    env.stats['stud-meshes'] = meshes; env.stats.studs = studs; env.stats['stud-triangles'] = tris; env.stats['stud-skipped'] = skipped; env.stats['stud-bytes'] = bytes; env.stats['stud-ms'] = Date.now() - t0;
+    env.stats['stud-meshes'] = meshes; env.stats.studs = studs; env.stats['stud-triangles'] = tris; env.stats['stud-skipped'] = skipped; env.stats['stud-far'] = far; env.stats['stud-bytes'] = bytes; env.stats['stud-ms'] = Date.now() - t0;
   },
 };

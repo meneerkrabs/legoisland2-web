@@ -5,6 +5,7 @@ import type { Archive } from '../../formats/archive.ts';
 import { Pack } from './pack.ts';
 import { generateArchive, GEN_VERSION } from './gen/index.ts';
 import { writeWhole } from '../../opfsio.ts';
+import { FAR_PREFIX, farMeshes } from '../../render/farmesh.ts';
 
 export const CACHE_NAME = 'le2-lego3d';          // Cache Storage: the downloaded pack
 export const OPFS_DIR = 'le2-lego3d';            // OPFS: generated members per archive
@@ -126,7 +127,7 @@ export class Lego3dRuntime {
         if (r.log.length) console.info(`LEGO 3D ${name}: ${r.log.slice(0, 5).join('; ')}`);
       }
       let bytes = 0;
-      for (const [m, b] of files) { archive.override(m, b); bytes += b.length; }
+      for (const [m, b] of files) { archive.override(m, b); bytes += b.length; if (m.startsWith(FAR_PREFIX)) farMeshes.on = true; }
       if (files.size) this.report.archives[name] = { files: files.size, bytes, cached, ms: Date.now() - t0, by };
     } catch (e) {
       this.report.failed.push(name);

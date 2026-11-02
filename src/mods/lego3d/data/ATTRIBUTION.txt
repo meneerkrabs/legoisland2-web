@@ -13,8 +13,8 @@ LDraw(TM) is a trademark owned and licensed by the Estate of James Jessiman. LEG
 
 The pack contains NO pictures or meshes of the game "LEGO Island 2": those are read from the player's own game files in the browser and are never copied here.
 
-Licence lines found in the 962 files used:
-  900 x Licensed under CC BY 4.0 : see CAreadme.txt
+Licence lines found in the 963 files used:
+  901 x Licensed under CC BY 4.0 : see CAreadme.txt
   52 x Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   10 x CCAL version 2.0
 
@@ -32,7 +32,7 @@ OMR set models (10):
   5935 Island Hopper (zone z22BIP, 1.33x) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
   5935 Island Hopper - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
 
-Parts used (367):
+Parts used (368):
   parts/16599.dat - Minifig Helmet Classic with Thin Chin Guard Cracked - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925a.dat - Sticker  2.4 x  2 with White German Railways Logo and "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925b.dat - Sticker  0.8 x  2 with White "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -284,6 +284,7 @@ Parts used (367):
   parts/4347.dat - ~Window  1 x  4 x  5 with Fixed Glass - Frame - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4347c01.dat - Window  1 x  4 x  5 with Fixed Glass (Complete) - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4445.dat - Slope Brick 45  2 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4448.dat - Glass for Window  4 x  4 x  3 Roof - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4460a.dat - Slope Brick 75  2 x  1 x  3 with Open Stud - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4476.dat - Support  2 x  4 x  5 Stanchion Inclined - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4477.dat - Plate  1 x 10 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt

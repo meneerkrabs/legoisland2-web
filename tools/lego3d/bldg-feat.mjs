@@ -1,7 +1,10 @@
 // Round 5 of the brick-built reconstructions (docs/re/lego3d.md section 16.7): features that are NOT in the game's massing as a surface to voxelise but that a builder would build from real parts: the doors
 // (a brick-built leaf in the moving group's own frame, jambs / lintel / threshold in the wall), and the sloped roof windows / skylights (slope-brick frames around the game's translucent panes).
 // Node only; reads the game's groups to MEASURE (leaf box, hinge, pane rectangle), the output is geometry made of LDraw part dimensions on the buildings' grid.
+import path from 'node:path';
 import { loadPart, orient } from './parts.mjs';
+import { LDrawLib } from './ldraw.mjs';
+import { LDRAW } from './lib.mjs';
 import { emitSurface, packBricks } from './bldg.mjs';
 
 const identityRot = (m) => !m || [0, 1, 2].every((r) => [0, 1, 2].every((c) => Math.abs(m[r * 4 + c] - (r === c ? 1 : 0)) < 1e-5));
@@ -170,6 +173,30 @@ const FRAME_SLOPES = [[8, '4445'], [4, '3037'], [2, '3039'], [1, '3040b']];
  * The sloped rectangular panes of a mesh (up-facing, 25 .. 70 degrees, a flat quad): { ax (0 | 2: the horizontal axis the pane falls along), sgn (+1: it falls towards +ax), a0 / a1 (coordinates along ax of the lower /
  * upper edge), b0 / b1 (lateral extent), y0 / y1 (heights of the lower / upper edge), slope (rise per unit run) }. `comps`: components() of the translucent groups.
  */
+/** the tilted flat quads of larger translucent pieces (a hipped skylight: two sloped ends + vertical sides): per normal the group of exactly 2 triangles that face up at 25 .. 70 degrees becomes a comp of its own */
+export function tiltedQuads(comps) {
+  const out = [];
+  for (const c of comps) {
+    if (c.n <= 2) { out.push(c); continue; }
+    if (Math.max(...c.size) < 2.0) continue;   // small lamps (the beacon's 0.8 dome) are not windows
+    const by = new Map(), t = c.soup;
+    for (let o = 0; o < t.length; o += 9) {
+      const u = [t[o + 3] - t[o], t[o + 4] - t[o + 1], t[o + 5] - t[o + 2]], v = [t[o + 6] - t[o], t[o + 7] - t[o + 1], t[o + 8] - t[o + 2]];
+      const q = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]], l = Math.hypot(...q);
+      if (l < 1e-9) continue;
+      const k = q.map((x) => (x / l).toFixed(2)).join(','), e = by.get(k) ?? by.set(k, { ny: q[1] / l, o: [] }).get(k);
+      e.o.push(o);
+    }
+    for (const e of by.values()) {
+      if (e.o.length !== 2 || e.ny < 0.3 || e.ny > 0.93) continue;
+      const soup = new Float32Array(18), lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
+      e.o.forEach((o, j) => { for (let k = 0; k < 9; k++) { soup[j * 9 + k] = t[o + k]; lo[k % 3] = Math.min(lo[k % 3], t[o + k]); hi[k % 3] = Math.max(hi[k % 3], t[o + k]); } });
+      out.push({ ...c, soup, n: 2, lo, hi, size: hi.map((h, i) => h - lo[i]), part: true });
+    }
+  }
+  return out;
+}
+
 export function slopedPanes(comps) {
   const out = [];
   for (const c of comps) {
@@ -200,13 +227,13 @@ export function slopedPanes(comps) {
 }
 
 /** the orientation r (quarter turns) of a slope part whose 2-stud fall line runs along `ax` with the sloped stud on the side the pane falls to (sgn), and its lateral width: null when none fits */
-function slopeTurn(id, ax, sgn, width) {
+function slopeTurn(id, ax, sgn, width, alongN = 2) {
   const p0 = loadPart(id);
   for (let r = 0; r < 4; r++) {
     const op = orient(p0, r);
     const along = ax === 2 ? op.d : op.w, lateral = ax === 2 ? op.w : op.d;
-    if (along !== 2 || lateral !== width) continue;
-    const at = (a) => op.top[ax === 2 ? a * op.w : a], outer = sgn > 0 ? 1 : 0, inner = 1 - outer;
+    if (along !== alongN || lateral !== width) continue;
+    const at = (a) => op.top[ax === 2 ? a * op.w : a], outer = sgn > 0 ? alongN - 1 : 0, inner = alongN - 1 - outer;
     if (at(outer) < at(inner) - 0.5) return r;
   }
   return null;
@@ -220,7 +247,7 @@ function slopeTurn(id, ax, sgn, width) {
  * voxel model and so do the cells of that colour inside the frame's zone above the sill (the stairs the game's thin frame ring made of the voxel model). `colour(pane)`: the mass slot the frame takes.
  * Returns [{ part, r, i, j, k, g, w, d, h, frame: 'roof' }].
  */
-export function fitRoofWindows(vox, panes, colour, { log = null } = {}) {
+export function fitRoofWindows(vox, panes, colour, { log = null, windowPart = null } = {}) {
   const [nx, ny, nz] = vox.dims, { label, idx, origin, pitch } = vox;
   vox.claim ??= new Int32Array(label.length);
   const claim = vox.claim, out = [];
@@ -234,15 +261,15 @@ export function fitRoofWindows(vox, panes, colour, { log = null } = {}) {
     rows.get(key).panes.push(p);
   }
   let id = 5000;
-  const place = (part, r, c, j, g) => {   // c: [i, k] of the min corner
+  const place = (part, r, c, j, g, force = false) => {   // c: [i, k] of the min corner
     const op = orient(loadPart(part), r), cells = [];
     for (let jj = 0; jj < op.h; jj++) for (let kk = 0; kk < op.d; kk++) for (let ii = 0; ii < op.w; ii++) {
       const i = c[0] + ii, k = c[1] + kk, jc = j + jj;
       if (!inb(i, jc, k)) return null;
       const cell = idx(i, jc, k);
       if (claim[cell] > 0) return null;
-      if (op.fill[(jj * op.d + kk) * op.w + ii]) { if (label[cell] >= 0 && label[cell] !== g) return null; cells.push(cell); }
-      else if (label[cell] >= 0 && label[cell] !== g) return null;
+      if (op.fill[(jj * op.d + kk) * op.w + ii]) { if (!force && label[cell] >= 0 && label[cell] !== g) return null; cells.push(cell); }
+      else if (!force && label[cell] >= 0 && label[cell] !== g) return null;
     }
     id++;
     for (let jj = 0; jj < op.h; jj++) for (let kk = 0; kk < op.d; kk++) for (let ii = 0; ii < op.w; ii++) {
@@ -278,6 +305,18 @@ export function fitRoofWindows(vox, panes, colour, { log = null } = {}) {
       return list;
     };
     const before = out.length;
+    if (windowPart) {   // the 2 x 4447 comparison of section 16.8: rows of the roof window part (4 x 4 studs, 9 plates, the glass 4448 inside it is roofGlass), one on top of the other, side by side over the run
+      let over = 0;
+      for (const [c0, c1] of runs) for (let m = 0; m < windowPart.rows; m++) for (let c = c0; c + 3 <= c1 + 1; c += 4) {
+        const r = slopeTurn(windowPart.id, ax, sgn, 4, 4);
+        if (r === null) { log?.('roof window part: no turn'); continue; }
+        const kStart = kOuter - sgn * 3 * m, kMin = sgn > 0 ? kStart - 3 : kStart;
+        const pl = place(windowPart.id, r, ax === 2 ? [c, kMin] : [kMin, c], j0 + 9 * m, g, true);
+        if (!pl) log?.('roof window part: does not fit'); else over++;
+      }
+      log?.(`roof window parts: ${over} x ${windowPart.id}`);
+      continue;
+    }
     for (const [c0, c1] of runs) {
       for (let m = 0; m < M; m++) {
         const jb = j0 + 3 * m, kSlope = kOuter - sgn * m;
@@ -308,5 +347,208 @@ export function fitRoofWindows(vox, panes, colour, { log = null } = {}) {
     }
     log?.(`roof windows (${ps.length}) axis ${ax} sgn ${sgn}: ${M} studs run, chain from plate row ${j0}, ${out.length - before} bricks`);
   }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------------- roof window glass
+
+let glassLib = null, glassCache = null;
+/**
+ * The real LDraw glass 4448 ("Glass for Window 4 x 4 x 3 Roof") in its own slab frame, in grid units (0.02 per LDU): u across the width (centred), v up the slope (0 at the lower edge), t along the slab's up-facing
+ * normal (0 at its underside). Returns { tris (9 floats per triangle, winding as LDraw's), width, length, thick } or the cached copy.
+ */
+export function loadGlass(id = '4448') {
+  if (glassCache?.id === id) return glassCache;
+  glassLib ??= new LDrawLib(path.join(LDRAW, 'lib/ldraw'));
+  const f = glassLib.flatten(`${id}.dat`, { res: 'low' }), t = f.tris;
+  // the slab's up-facing big face: the largest-area triangle group whose normal points up (LDraw y is down)
+  const groups = new Map();
+  for (let o = 0; o < t.length; o += 9) {
+    const e1 = [t[o + 3] - t[o], t[o + 4] - t[o + 1], t[o + 5] - t[o + 2]], e2 = [t[o + 6] - t[o], t[o + 7] - t[o + 1], t[o + 8] - t[o + 2]];
+    const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]], l = Math.hypot(...n);
+    if (l < 1e-9) continue;
+    const k = n.map((v) => (v / l).toFixed(2)).join(','), g = groups.get(k) ?? { a: 0, n: n.map((v) => v / l) };
+    g.a += l / 2; groups.set(k, g);
+  }
+  let best = null;
+  for (const g of groups.values()) if (g.n[1] < -0.3 && (!best || g.a > best.a)) best = g;
+  const nrm = best.n;                                // LDraw frame, up-facing (y negative)
+  let up = [0, nrm[2], -nrm[1]];                     // up the slope: perpendicular to the normal in the plane x = 0, pointing up (negative y)
+  if (up[1] > 0) up = [0, -up[1], -up[2]];
+  const ul = Math.hypot(...up); up = up.map((v) => v / ul);
+  let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9, t0 = 1e9, t1 = -1e9;
+  const P = (x, y, z) => [x, y * up[1] + z * up[2], y * nrm[1] + z * nrm[2]];
+  for (let i = 0; i < t.length; i += 3) { const q = P(t[i], t[i + 1], t[i + 2]); u0 = Math.min(u0, q[0]); u1 = Math.max(u1, q[0]); v0 = Math.min(v0, q[1]); v1 = Math.max(v1, q[1]); t0 = Math.min(t0, q[2]); t1 = Math.max(t1, q[2]); }
+  const out = new Float32Array(t.length), S = 0.02, uc = (u0 + u1) / 2;
+  for (let i = 0; i < t.length; i += 3) { const q = P(t[i], t[i + 1], t[i + 2]); out[i] = (q[0] - uc) * S; out[i + 1] = (q[1] - v0) * S; out[i + 2] = (q[2] - t0) * S; }
+  // the (u, v, t) frame is right-handed iff the LDraw triple (x, up, n) is: orientation sign of the frame, so the caller can fix the winding after mapping
+  glassCache = { id, tris: out, width: (u1 - u0) * S, length: (v1 - v0) * S, thick: (t1 - t0) * S, infos: f.infos };
+  return glassCache;
+}
+
+/** Sutherland-Hodgman: keep the part of a convex polygon (arrays of [u, v, t]) where f(p) >= 0 (f affine) */
+function clipPoly(poly, f) {
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length], fa = f(a), fb = f(b);
+    if (fa >= 0) out.push(a);
+    if ((fa >= 0) !== (fb >= 0)) { const k = fa / (fa - fb); out.push([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k]); }
+  }
+  return out;
+}
+
+/**
+ * Real LDraw glass (4448) in the sloped panes of a mesh: per pane the glass slab tiled over its rectangle (the pane is 2 x 1.9 glasses: width / 1.48 across, length / 1.595 up the slope, the last piece of
+ * each row / column cut to the pane's edge), lying `lift` above the pane's plane (the game's pane stays under it: the pane is nearly invisible in the game's flags, the glass has a body). Returns
+ * { gi -> { pos, nrm (flat normals), idx } } in the mesh's frame, winding outward; `count`: the number of glass pieces.
+ */
+export function roofGlass(panes, { lift = 0.015, id = '4448' } = {}) {
+  const gl = loadGlass(id), by = new Map();
+  let count = 0;
+  for (const p of panes) {
+    if (p.comp.gi === undefined) continue;
+    const lat = p.lat, ax = p.ax, d = Math.sign(p.a1 - p.a0) || 1, run = Math.abs(p.a1 - p.a0), rise = p.y1 - p.y0, L = Math.hypot(run, rise);
+    const es = [0, 0, 0]; es[ax] = d * run / L; es[1] = rise / L;           // up the slope
+    const el = [0, 0, 0]; el[lat] = 1;                                      // across
+    const en = p.n;                                                         // up-facing normal
+    const W = p.b1 - p.b0, nu = Math.max(1, Math.ceil(W / gl.width - 1e-6)), nv = Math.max(1, Math.ceil(L / gl.length - 1e-6));
+    const o = [0, 0, 0]; o[ax] = p.a0; o[1] = p.y0; o[lat] = p.b0;           // the lower corner (b0 side) of the pane
+    const buf = by.get(p.comp.gi) ?? by.set(p.comp.gi, { pos: [], nrm: [], idx: [] }).get(p.comp.gi);
+    for (let iu = 0; iu < nu; iu++) for (let iv = 0; iv < nv; iv++) {
+      const w = W / nu, uc = (iu + 0.5) * w, v0 = iv * gl.length, v1 = Math.min(L, (iv + 1) * gl.length);
+      const polys = [], cuts = [[], [], []];   // cut points per clip plane: +u, -u, +v (the caps close the clipped slab)
+      const planes = [(q) => w / 2 - q[0], (q) => q[0] + w / 2, (q) => (v1 - v0) - q[1]];
+      for (let t = 0; t < gl.tris.length; t += 9) {
+        let poly = [0, 1, 2].map((k) => [gl.tris[t + k * 3], gl.tris[t + k * 3 + 1], gl.tris[t + k * 3 + 2]]);
+        for (let pi = 0; pi < 3 && poly.length >= 3; pi++) {
+          poly = clipPoly(poly, planes[pi]);
+          if (poly.length >= 3) for (const q of poly) if (Math.abs(planes[pi](q)) < 1e-7) cuts[pi].push(q);
+        }
+        if (poly.length >= 3) polys.push(poly);
+      }
+      // caps: the convex hull of the cut points of each plane (the slab's cross-section is a thin parallelogram), wound outward in the glass frame, reversed when the part's own winding is inward
+      const outward = glassWinding(gl);
+      const axes = [[1, 2], [1, 2], [0, 2]], dirs = [1, -1, 1], capAx = [0, 0, 1];
+      cuts.forEach((pts, pi) => {
+        if (pts.length < 3) return;
+        const [ia, ib] = axes[pi], h = hull2(pts.map((q) => [q[ia], q[ib]]));
+        if (h.length < 3) return;
+        const ca = capAx[pi], mk = (pq) => { const q = [0, 0, 0]; q[ia] = pq[0]; q[ib] = pq[1]; q[ca] = pi === 0 ? w / 2 : pi === 1 ? -w / 2 : v1 - v0; return q; };
+        for (let k = 1; k < h.length - 1; k++) {
+          let tri = [mk(h[0]), mk(h[k]), mk(h[k + 1])];
+          const e1 = [tri[1][0] - tri[0][0], tri[1][1] - tri[0][1], tri[1][2] - tri[0][2]], e2 = [tri[2][0] - tri[0][0], tri[2][1] - tri[0][1], tri[2][2] - tri[0][2]];
+          const nc = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+          const want = dirs[pi] * (outward ? 1 : -1);
+          if (nc[ca] * want < 0) tri = [tri[0], tri[2], tri[1]];
+          polys.push(tri);
+        }
+      });
+      const start = buf.pos.length / 3, tris = [];
+      for (const poly of polys) for (let k = 1; k < poly.length - 1; k++) tris.push([poly[0], poly[k], poly[k + 1]]);
+      // (u, v, t) -> the pane: lateral from b0, up the slope, along the normal (+ lift above the plane)
+      const map = (q) => [0, 1, 2].map((c) => o[c] + (c === lat ? 0 : 0) + el[c] * (uc + q[0]) + es[c] * (v0 + q[1]) + en[c] * (q[2] + lift));
+      const mapped = tris.map((tr) => tr.map(map));
+      let vol = 0;   // handedness of the mapping: the full (closed) glass decides whether the winding flips
+      for (let t = 0; t < gl.tris.length; t += 9) { const [a, b, c] = [0, 1, 2].map((k) => map([gl.tris[t + k * 3], gl.tris[t + k * 3 + 1], gl.tris[t + k * 3 + 2]])); vol += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6; }
+      const flip = vol < 0;
+      for (const m of mapped) {
+        const [a, b, c] = flip ? [m[0], m[2], m[1]] : m;
+        const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]], l = Math.hypot(...n);
+        if (l < 1e-12) continue;
+        const base = buf.pos.length / 3;
+        for (const q of [a, b, c]) { buf.pos.push(q[0], q[1], q[2]); buf.nrm.push(n[0] / l, n[1] / l, n[2] / l); }
+        buf.idx.push(base, base + 1, base + 2);
+      }
+      void start; count++;
+    }
+  }
+  const out = new Map();
+  for (const [gi, b] of by) out.set(gi, { pos: Float32Array.from(b.pos), nrm: Float32Array.from(b.nrm), idx: Uint32Array.from(b.idx) });
+  return { groups: out, count };
+}
+
+/** convex hull (monotone chain) of 2D points, counter-clockwise, duplicates removed */
+function hull2(pts) {
+  const p = [...new Map(pts.map((q) => [`${q[0].toFixed(6)},${q[1].toFixed(6)}`, q])).values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  for (const q of p) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 1e-12) lo.pop(); lo.push(q); }
+  for (const q of [...p].reverse()) { while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 1e-12) up.pop(); up.push(q); }
+  return [...lo.slice(0, -1), ...up.slice(0, -1)];
+}
+
+/** is the glass part's own winding outward in its (u, v, t) frame (positive signed volume)? */
+function glassWinding(gl) {
+  let vol = 0;
+  for (let t = 0; t < gl.tris.length; t += 9) { const a = [gl.tris[t], gl.tris[t + 1], gl.tris[t + 2]], b = [gl.tris[t + 3], gl.tris[t + 4], gl.tris[t + 5]], c = [gl.tris[t + 6], gl.tris[t + 7], gl.tris[t + 8]]; vol += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6; }
+  return vol > 0;
+}
+
+// ---------------------------------------------------------------------------------------------------- rotunda diagonals (round-cornered stairs)
+
+/**
+ * The 45-degree vertical walls of the rotunda are a staircase of one-stud steps on the integer grid. Try (docs section 16.8): the outer corner of every step becomes a 1 x 1 round brick (3062b, stacked, 6141
+ * round plates for the remainder) so the stair reads as a row of rounded steps. The corner cells are found where the game's own surface is a vertical 45-degree wall (the cell centre within 0.35 of such a
+ * triangle) and the cell has exactly two perpendicular open sides (+ the open diagonal). Parts take their cells (claim) like every other part. Returns [{ part, r, i, j, k, g, w, d, h, frame: 'round' }].
+ */
+export function fitRoundCorners(vox, massSoups, { log = null, brick = '3062b', plate = '6141', reach = 0.35 } = {}) {
+  const [nx, ny, nz] = vox.dims, { label, filler, idx, origin, pitch } = vox;
+  vox.claim ??= new Int32Array(label.length);
+  const claim = vox.claim, out = [], tris = [];
+  for (const soup of massSoups) for (let o = 0; o < soup.length; o += 9) {
+    const a = [soup[o], soup[o + 1], soup[o + 2]], b = [soup[o + 3], soup[o + 4], soup[o + 5]], c = [soup[o + 6], soup[o + 7], soup[o + 8]];
+    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]], l = Math.hypot(...n);
+    if (l < 1e-9) continue;
+    const q = n.map((x) => x / l);
+    if (Math.abs(q[1]) < 0.1 && Math.abs(Math.abs(q[0]) - 0.7071) < 0.12 && Math.abs(Math.abs(q[2]) - 0.7071) < 0.12) tris.push({ a, b, c });
+  }
+  const inb = (i, j, k) => i >= 0 && j >= 0 && k >= 0 && i < nx && j < ny && k < nz;
+  const air = (i, j, k) => !inb(i, j, k) || (label[idx(i, j, k)] < 0 && filler[idx(i, j, k)] === 0 && claim[idx(i, j, k)] === 0);
+  const solid = (i, j, k) => inb(i, j, k) && label[idx(i, j, k)] >= 0 && claim[idx(i, j, k)] === 0;
+  const corner = (i, j, k) => {
+    if (!solid(i, j, k)) return false;
+    const ax = [air(i - 1, j, k), air(i + 1, j, k)], az = [air(i, j, k - 1), air(i, j, k + 1)];
+    if (ax[0] === ax[1] || az[0] === az[1]) return false;      // exactly one open side along each axis
+    const di = ax[0] ? -1 : 1, dk = az[0] ? -1 : 1;
+    return air(i + di, j, k + dk);
+  };
+  const near = (i, k) => {
+    const p = [origin[0] + (i + 0.5) * pitch[0], 0, origin[2] + (k + 0.5) * pitch[2]];
+    for (const t of tris) {
+      // distance in plan: the triangles are vertical, so compare in x / z with the triangle's own y range ignored by taking the nearest point of its plan segment
+      const seg = [[t.a, t.b], [t.b, t.c], [t.c, t.a]];
+      for (const [s, e] of seg) { const d = [e[0] - s[0], e[2] - s[2]], L2 = d[0] * d[0] + d[1] * d[1]; if (L2 < 1e-9) continue; const w = Math.max(0, Math.min(1, ((p[0] - s[0]) * d[0] + (p[2] - s[2]) * d[1]) / L2)); if (Math.hypot(p[0] - (s[0] + d[0] * w), p[2] - (s[2] + d[1] * w)) <= reach) return true; }
+    }
+    return false;
+  };
+  const take = (part, i, j, k, g) => {
+    const cell = idx(i, j, k);
+    const op = loadPart(part);
+    for (let jj = 0; jj < op.h; jj++) if (!(inb(i, j + jj, k) && label[idx(i, j + jj, k)] === g && claim[idx(i, j + jj, k)] === 0)) return null;
+    const id = 7000 + out.length;
+    for (let jj = 0; jj < op.h; jj++) { label[idx(i, j + jj, k)] = -1; claim[idx(i, j + jj, k)] = id; }
+    void cell;
+    const pl = { part, r: 0, i, j, k, g, w: 1, d: 1, h: op.h, frame: 'round' };
+    out.push(pl);
+    return pl;
+  };
+  for (let k = 0; k < nz; k++) for (let i = 0; i < nx; i++) {
+    if (!tris.length) break;
+    let j = 0;
+    while (j < ny) {
+      if (!corner(i, j, k)) { j++; continue; }
+      const g = label[idx(i, j, k)];
+      let e = j; while (e + 1 < ny && corner(i, e + 1, k) && label[idx(i, e + 1, k)] === g) e++;
+      if (e - j + 1 >= 3 && near(i, k)) {
+        let c = j;
+        while (c <= e) { const left = e - c + 1; const pl = left >= 3 ? take(brick, i, c, k, g) : take(plate, i, c, k, g); if (!pl) { c++; continue; } c += pl.h; }
+      }
+      j = e + 1;
+    }
+  }
+  log?.(`round corners: ${out.length} parts`);
   return out;
 }

@@ -9,7 +9,7 @@ import { archive, scene, memberOf, textureOf, WORK } from '../lib.mjs';
 import { gameGroups } from '../setlib.mjs';
 import { voxelise, packBricks, emitSurface, signedVolume, soupOfBuf, searchOffset } from '../bldg.mjs';
 import { fitSlopes, surfaceIndex, fitFrames, paneRects, components6, partContacts } from '../bldg-parts.mjs';
-import { findLeaves, buildLeaf, fitDoorFrames, slopedPanes, fitRoofWindows } from '../bldg-feat.mjs';
+import { findLeaves, buildLeaf, fitDoorFrames, slopedPanes, fitRoofWindows, roofGlass, tiltedQuads, fitRoundCorners } from '../bldg-feat.mjs';
 import { parseMsh } from '../../../src/formats/msh.ts';
 import { encodeMesh, hashMember } from '../../../src/mods/lego3d/meshpack.ts';
 
@@ -24,7 +24,7 @@ export const BLDG = [
   // the carriage: at the locomotive's / tender's brick scale (stud 0.8, plate 0.32 = the 7750 set at 0.04); the wheel discs stay the game's (round)
   { key: 'carriage', title: 'Passenger-less carriage wagon of the steam train (the game\'s own massing, 7750 brick scale)', zone: 'z02LGI', meshes: ['loco_carriage_lod1', 'loco_carriage_lod2', 'loco_carriage_lod3', 'loco_carriage_lod4'], pitch: [0.4, 0.16, 0.4], studs: [8, 0, 0, 0], tile: 0, minTris: 6, textured: true, thickF: [0.75, 0.75, 0.75, 1.05],
     hold: [[1.7, -0.05, 2.5, 2.7, 2.35, 5.3], [1.7, -0.05, -5.3, 2.7, 2.35, -2.5], [-2.7, -0.05, 2.5, -1.7, 2.35, 5.3], [-2.7, -0.05, -5.3, -1.7, 2.35, -2.5]] },
-  { key: 'garage', title: 'Gas N\' Wash garage (the game\'s own massing)', zone: 'z02LGI', meshes: ['garage_LOD1', 'garage_LOD2', 'garage_LOD3', 'garage_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [6, 0, 0, 0], tile: 1, under: [true, false] },
+  { key: 'garage', title: 'Gas N\' Wash garage (the game\'s own massing)', zone: 'z02LGI', meshes: ['garage_LOD1', 'garage_LOD2', 'garage_LOD3', 'garage_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [4, 0, 0, 0], tile: 1, under: [true, false] },
 ];
 
 const flatCache = new Map();
@@ -91,7 +91,7 @@ export async function buildMesh({ a, msh, tl, spec, li, offset }) {
   const vox = voxelise(massSoups.map((t) => ({ tris: t })), { pitch: spec.pitch, thick: spec.thick ?? spec.pitch[0] * thickF(spec, li), offset, minY: minY - 1e-3 });
   const placements = [], comp0 = components6(vox);
   // doors (docs section 16.7): the moving leaves are rebuilt from bricks in their own frame, the jambs / lintel / threshold of their openings from 1 x N parts in the wall
-  let leaves = [];
+  let leaves = [], glass = { groups: new Map(), count: 0 };
   if (spec.doors !== false && li < 2) {
     leaves = findLeaves(gg, (g) => isFlat(a, tl[g.index] ?? -1));
     const zmid = vox.origin[2] + (vox.dims[2] * vox.pitch[2]) / 2;
@@ -101,12 +101,12 @@ export async function buildMesh({ a, msh, tl, spec, li, offset }) {
   // window frames in the openings of the game's translucent panes (the panes themselves stay the game's, behind the frames)
   if (spec.frames !== false && li < 2) {
     const panes = gg.filter((g) => !mass.includes(g) && ((g.kind === 'colour' && (g.flags & 3)) || (g.kind === 'decal' && (g.flags & 2))));
-    const comps = panes.flatMap((g) => components(g.tris));
+    const comps = panes.flatMap((g) => components(g.tris).map((c) => ({ ...c, gi: g.index })));
     const pr = paneRects(comps);
     placements.push(...fitFrames(vox, pr.rects, { log: spec.log }));
     // sloped roof windows (docs section 16.7): slope-brick frames around the game's sloped panes, in the colour of the game's frame ring around them
     if (spec.roofWindows !== false) {
-      const sp = slopedPanes(pr.other);
+      const sp = slopedPanes(tiltedQuads(pr.other));
       const colourOf = (p) => {
         const ctr = [(p.comp.lo[0] + p.comp.hi[0]) / 2, (p.comp.lo[1] + p.comp.hi[1]) / 2, (p.comp.lo[2] + p.comp.hi[2]) / 2];
         let best = -1, bs = 0;
@@ -123,22 +123,31 @@ export async function buildMesh({ a, msh, tl, spec, li, offset }) {
         });
         return best < 0 ? null : best;
       };
-      placements.push(...fitRoofWindows(vox, sp, colourOf, { log: spec.log }));
+      placements.push(...fitRoofWindows(vox, sp, colourOf, { log: spec.log, windowPart: process.env.BLDG_RWPART ? { id: '4447', rows: +process.env.BLDG_RWPART } : null }));
+      if (spec.glass !== false) glass = roofGlass(sp);   // real LDraw glass (4448) over the game's sloped panes (the pane stays under it)
     }
   }
   if (spec.slopes !== false) placements.push(...fitSlopes(vox, { surf: surfaceIndex(massSoups), log: spec.log, dbg: spec.dbg }));   // real LDraw slope bricks where the game's surface slopes (the cells leave the voxel model)
+  if (process.env.BLDG_ROUND || spec.roundCorners) placements.push(...fitRoundCorners(vox, massSoups, { log: spec.log }));   // experiment of section 16.8
   const comp1 = components6(vox), contacts = partContacts(vox, placements);
   const bricks = packBricks(vox);
   const studSides = spec.studs[Math.min(li, spec.studs.length - 1)];
-  const geo = emitSurface(vox, { studSides, studs: studSides > 0, tileRadius: spec.tile ?? 1, placements, under: spec.under?.[Math.min(li, spec.under.length - 1)] ? { bricks, rim: 0.06, depth: 0.12 } : null });
+  const geo = emitSurface(vox, { studSides, studs: studSides > 0, tileRadius: spec.tile ?? 1, placements, under: !process.env.BLDG_NOUNDER && spec.under?.[Math.min(li, spec.under.length - 1)] ? { bricks, rim: 0.06, depth: 0.12 } : null });
   const leafBuilds = leaves.map((lf) => ({ lf, b: buildLeaf(vox, lf, { studSides: Math.max(4, studSides) }) }));
   const groups = [], kinds = [], bom = {}, hold = [];
   for (const { b } of leafBuilds) { for (const k of b.bricks) { const kk = `${k.kind}:${k.part}`; bom[kk] = (bom[kk] ?? 0) + 1; } for (const pl of b.placements) { const kk = `part:${pl.part}`; bom[kk] = (bom[kk] ?? 0) + 1; } }
+  if (glass.count) bom['part:4448'] = glass.count;
   if (spec.hold) mass.forEach((g) => { for (const b of spec.hold) hold.push({ g: g.index, box: b }); });
   for (const b of bricks) { const k = `${b.kind}:${b.part}`; bom[k] = (bom[k] ?? 0) + 1; }
   for (const pl of placements) { const k = `part:${pl.part}`; bom[k] = (bom[k] ?? 0) + 1; }
   let tris = 0;
   gg.forEach((g, gi) => {
+    if (glass.groups.has(gi)) {   // the game's pane group stays; the glass pieces are appended to it at run time (kind 'glass')
+      const gb = glass.groups.get(gi);
+      groups.push({ kind: 0, flags: 0, pos: gb.pos, nrm: gb.nrm, idx: gb.idx });
+      kinds.push('glass'); tris += gb.idx.length / 3;
+      return;
+    }
     const mi = mass.indexOf(g), lb = leafBuilds.find((x) => x.lf.g === gi), buf = lb ? lb.b.geo.get(0) : mi >= 0 ? geo.get(mi) : null;
     if (buf && buf.idx.length > 0) {
       if (buf.pos.length / 3 > 65535) throw new Error(`${spec.key} LOD ${li} group ${gi}: ${buf.pos.length / 3} vertices (limit 65535): fewer stud sides / more tiles`);
@@ -154,8 +163,11 @@ export async function buildMesh({ a, msh, tl, spec, li, offset }) {
 export async function build(ctx) {
   const report = [], byArch = {}, blobs = new Map(), usedParts = new Set(['stud']);
   const only = (process.env.BLDG_ONLY ?? '').split(',').filter(Boolean);   // development: BLDG_ONLY=rescue,garage builds just these models (the pack of such a build is incomplete)
-  for (const spec of BLDG) {
-    if (only.length && !only.includes(spec.key)) continue;
+  for (const spec0 of BLDG) {
+    if (only.length && !only.includes(spec0.key)) continue;
+    // development: BLDG_STUDS=garage:4,rescue:6 overrides the stud sides of LOD 1 (the comparison of section 16.8)
+    const ov = Object.fromEntries((process.env.BLDG_STUDS ?? '').split(',').filter(Boolean).map((x) => x.split(':')));
+    const spec = ov[spec0.key] !== undefined ? { ...spec0, studs: [+ov[spec0.key], ...spec0.studs.slice(1)] } : spec0;
     const a = archive(spec.zone), sc = scene(spec.zone);
     let offset = null;
     for (let li = 0; li < spec.meshes.length; li++) {
