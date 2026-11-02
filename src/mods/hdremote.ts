@@ -11,6 +11,7 @@ import { HdFiller, lockName } from './hdfill.ts';
 import type { FillMsg, FillReq, IndexFile, Manifest } from './hdfill.ts';
 import { listZip } from './zip.ts';
 import type { ZipEntry, ZipSource } from './zip.ts';
+import { writeWhole } from '../opfsio.ts';
 
 export { HdRemoteError };
 export const HD_ITEM = 'lego-island-2-hd-textures';
@@ -76,9 +77,7 @@ async function readJson<T>(dir: FileSystemDirectoryHandle, name: string): Promis
   try { return JSON.parse(await (await (await dir.getFileHandle(name)).getFile()).text()) as T; } catch { return null; }
 }
 async function writeJson(dir: FileSystemDirectoryHandle, name: string, v: unknown) {
-  const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
-  await w.write(JSON.stringify(v));
-  await w.close();
+  await writeWhole(await dir.getFileHandle(name, { create: true }), JSON.stringify(v));
 }
 async function heldLocks(): Promise<Set<string>> {
   try { return new Set(((await (globalThis as { navigator?: Navigator }).navigator?.locks?.query?.())?.held ?? []).map((l) => l.name ?? '')); } catch { return new Set(); }

@@ -15,6 +15,7 @@ import { megaOpen, megaStream } from './mega.ts';
 import { IXS_FILES, IXS_LOOK_FILES, buildIxsLook, readIxsBanks } from './ixslook.ts';
 import { installLockHeld } from './store.ts';
 import type { ModStore } from './store.ts';
+import { openWritable } from '../opfsio.ts';
 
 /** the byte-range relay (nginx on krokantekrab; CORS only for this site and the dev ports 5498 / 5499) */
 export const RELAY_BASE = 'https://le2.143-47-181-190.sslip.io';
@@ -206,9 +207,9 @@ export async function tempFile(): Promise<TempFile> {
     try {
       const dir = await (await nav.storage.getDirectory()).getDirectoryHandle(TMP, { create: true });
       const name = `dl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+      const w = await openWritable(await dir.getFileHandle(name, { create: true }));
       return {
-        write: (c) => w.write(c as unknown as BufferSource),
+        write: (c) => w.write(c),
         finish: async () => { await w.close(); return (await dir.getFileHandle(name)).getFile(); },
         discard: async () => { await w.abort().catch(() => { /* closed already */ }); await dir.removeEntry(name).catch(() => { /* gone */ }); },
       };

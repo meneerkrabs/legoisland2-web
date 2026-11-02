@@ -18,6 +18,7 @@ import type { InstalledMod, ModStore } from './store.ts';
 import { storePrefs } from '../display.ts';
 import { HdLazy, PRIORITY, hdZipUrl } from './hdremote.ts';
 import type { LazyProgress } from './hdremote.ts';
+import { looksMobile } from '../compat.ts';
 
 export const HD_ID = 'hd-texture';
 export const hdEntry = (): CatalogueEntry => CATALOGUE.find((e) => e.id === HD_ID)!;
@@ -36,6 +37,8 @@ export interface CapabilityEnv {
   mobileHint?: boolean;
   touchPrimary: boolean;
   deviceMemory?: number;
+  /** `navigator.hardwareConcurrency`; only judged when the browser does not tell its memory (Safari, Firefox) */
+  cores?: number;
   persistent: boolean;
   /** free bytes in the browser's storage (null: unknown) */
   room: number | null;
@@ -49,6 +52,9 @@ export function judgeCapability(e: CapabilityEnv, needs = HD_NEEDS): HdCapabilit
   if (e.deviceMemory !== undefined && e.deviceMemory < 8) {
     return { ok: false, reason: `Standaard uit: dit apparaat meldt weinig geheugen (${e.deviceMemory} GB) en het eiland gebruikt met de HD-textures ongeveer 450 MB meer.` };
   }
+  if (e.deviceMemory === undefined && e.cores !== undefined && e.cores <= 2) {
+    return { ok: false, reason: 'Standaard uit: dit apparaat heeft weinig processorkernen en meldt zijn geheugen niet; het eiland gebruikt met de HD-textures ongeveer 450 MB meer.' };
+  }
   if (!e.persistent) return { ok: false, reason: 'Standaard uit: deze browser kan de HD-textures niet bewaren (geen bestandsopslag beschikbaar).' };
   if (e.room !== null && e.room < needs) {
     return { ok: false, reason: `Standaard uit: de opslag van deze browser heeft te weinig ruimte (${mbs(Math.max(0, e.room))} vrij, ongeveer ${mbs(needs)} nodig). Een privé- of tijdelijk venster heeft weinig ruimte.` };
@@ -59,10 +65,10 @@ export function judgeCapability(e: CapabilityEnv, needs = HD_NEEDS): HdCapabilit
 /** the capability of this device; `override` is only for tests (`?hdcaps=mobile|lowmem|noroom`, see `capsOverride`) */
 export async function hdCapability(store: ModStore, needs = HD_NEEDS): Promise<HdCapability> {
   const nav = globalThis.navigator as Navigator & { deviceMemory?: number; userAgentData?: { mobile?: boolean } };
-  const coarse = (() => { try { return globalThis.matchMedia?.('(pointer: coarse)').matches === true && (nav.maxTouchPoints ?? 0) > 0; } catch { return false; } })();
+  const coarse = looksMobile(nav);   // touch-first pointer, Client Hints, user agent, an iPad that reports itself as a Mac
   let room: number | null = null;
   try { const est = await nav.storage?.estimate?.(); if (est?.quota) room = est.quota - (est.usage ?? 0); } catch { /* unknown */ }
-  const env: CapabilityEnv = { userAgent: nav.userAgent ?? '', mobileHint: nav.userAgentData?.mobile === true, touchPrimary: coarse, deviceMemory: nav.deviceMemory, persistent: store.persistent, room };
+  const env: CapabilityEnv = { userAgent: nav.userAgent ?? '', mobileHint: nav.userAgentData?.mobile === true, touchPrimary: coarse, deviceMemory: nav.deviceMemory, cores: nav.hardwareConcurrency, persistent: store.persistent, room };
   return judgeCapability({ ...env, ...capsOverride() }, needs);
 }
 /** test hook: `?hdcaps=mobile|lowmem|noroom` pretends to be such a device (the real checks stay in `judgeCapability`) */

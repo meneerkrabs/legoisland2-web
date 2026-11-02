@@ -16,6 +16,7 @@ import { InstallShieldCab } from './engine/installshield.ts';
 import { IsoVfs } from './engine/vfs.ts';
 import { GrowingSource, LoadState, blobSource, sliceSource, type ByteSource } from './engine/bytesource.ts';
 import { CachedSource, HttpRangeSource } from './engine/rangesource.ts';
+import { openWritable, writeWhole } from './opfsio.ts';
 import {
   blobMedia, CAB_FILES, CAB_TOTAL, cabFileRefs, fetchMedia, FileSet, locateCabDir, locateInstalledDir, movieInfo, sourceMedia,
   type FileRef, type GameFiles, type MediaFile, type Progress,
@@ -129,7 +130,7 @@ export async function addIso(file: Blob, onProgress?: (fraction: number) => void
   const iso = await IsoVfs.open(file);
   if (locateCabDir(iso.list()) === null) throw new Error('Deze ISO is niet de cd van LEGO Eiland 2 (data1.hdr, data1.cab en data2.cab ontbreken).');
   const h = await (await opfsDir('isos')).getFileHandle('le2.iso', { create: true });
-  const w = await h.createWritable();
+  const w = await openWritable(h);
   const CHUNK = 8 << 20;
   try {
     for (let o = 0; o < file.size; o += CHUNK) {
@@ -279,9 +280,9 @@ interface Sink {
 
 async function opfsSink(dir: FileSystemDirectoryHandle, name: string): Promise<Sink> {
   const h = await dir.getFileHandle(name, { create: true });
-  const w = await h.createWritable();
+  const w = await openWritable(h);
   return {
-    write: (c) => w.write(c as Uint8Array<ArrayBuffer>),
+    write: (c) => w.write(c),
     close: async () => {
       await w.close();
       return h.getFile();
@@ -411,9 +412,7 @@ async function pumpData2(first: ReadableStreamDefaultReader<Uint8Array>, growing
       growing.finish(file);
       try {
         const h = await dir!.getFileHandle('complete.json', { create: true });
-        const w = await h.createWritable();
-        await w.write(JSON.stringify({ item: item.item, time: Date.now() }));
-        await w.close();
+        await writeWhole(h, JSON.stringify({ item: item.item, time: Date.now() }));
       } catch (e) { console.warn('kon de download niet als compleet markeren', e); }
     }
     loading.update(total, total);

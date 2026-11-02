@@ -39,6 +39,8 @@ import type { MenuContext } from './menuui.ts';
 import { readRowTables } from './menudraw.ts';
 import { localiseKeyNames, readKeyNames } from './dik.ts';
 import type { PointerState } from './menu.ts';
+import { installTouch } from '../touch/controls.ts';
+import type { TouchControls } from '../touch/controls.ts';
 
 export type ZoneRunner = (shell: Shell, zone: ZoneInfo) => Promise<number>;
 const runners = new Map<string, ZoneRunner>();
@@ -96,7 +98,18 @@ export class Shell {
   readonly input: InputMapper;
   readonly keyNames: Map<number, string>;
   readonly keyBits: number[];
-  readonly pointer: PointerState = { x: -100, y: -100, down: false, moved: false };
+  /**
+   * the pointer of the menus (mouse and finger). A press is kept `down` until the menu engine has had a chance to see it: it polls once per tick, a tap (touch) can be over before the next tick
+   * (the input mapper's sample count `updates` and 300 ms at the most)
+   */
+  readonly pointer: PointerState = (() => {
+    const p = { x: -100, y: -100, raw: false, at: 0, n: 0, moved: false, sh: null as Shell | null,
+      get down() { return this.raw || (performance.now() - this.at < 300 && (this.sh?.input.updates ?? 0) < this.n + 3); },
+      set down(v: boolean) { this.raw = v; if (v) { this.at = performance.now(); this.n = this.sh?.input.updates ?? 0; } } };
+    return p;
+  })();
+  /** the on-screen buttons of the touch layer (src/touch), null when the device has none / the option is off */
+  touch: TouchControls | null = null;
   menu!: MenuUi;
   live: LiveGame | null = null;
   /** a loaded save waiting for the zone it belongs to (applied by `applyPendingLoad` after that zone's set-up) */
@@ -128,6 +141,7 @@ export class Shell {
     this.keyTable = readKeyTable(pe);
     this.keyBits = this.keyTable.map((k) => k.bit);
     this.input = new InputMapper(this.keyTable);
+    (this.pointer as unknown as { sh: Shell }).sh = this;
     this.styleEl = document.createElement('style');
   }
 
@@ -179,6 +193,7 @@ export class Shell {
     installCheats(sh.pe, sh.input, { sdreams: () => sh.vars.set(VAR_SDREAMS, 1), fsmAdvance: () => sh.story.jump(sh.vars.get(0x58) + 1) });   // the typed cheat codes (FUN_004375a8), polled with the input
     installScreenshot(sh.input, sh.canvas);   // F10
     sh.attachPointer();
+    sh.touch = installTouch({ input: sh.input, wrap, canvas });
     sh.menu = new MenuUi(sh.menuContext(), sh.rawPages);
     return sh;
   }
@@ -199,6 +214,7 @@ export class Shell {
     const { w, h } = canvasBox(this.displayMode, innerWidth, innerHeight);
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
+    this.touch?.layout();
   }
   /** switch between 4:3 and widescreen while running (the 3D scene follows at the next frame, the 2D area is re-centred by `Ui2D.begin`) */
   setDisplayMode(mode: DisplayMode) {
@@ -218,8 +234,14 @@ export class Shell {
       this.pointer.moved = true;
     };
     c.addEventListener('pointermove', at);
-    c.addEventListener('pointerdown', (e) => { at(e); this.pointer.down = true; void audio.unlock().catch(() => { /* ignore */ }); });
-    addEventListener('pointerup', () => { this.pointer.down = false; });
+    c.addEventListener('pointerdown', (e) => {
+      at(e); this.pointer.down = true;
+      if (e.pointerType === 'touch') e.preventDefault();   // no emulated mouse events (a tap would be a left mouse button = the camera's zoom)
+      void audio.unlock().catch(() => { /* ignore */ });
+    });
+    const up = () => { this.pointer.down = false; };
+    addEventListener('pointerup', (e) => { up(); if (e.pointerType === 'touch') void audio.unlock().catch(() => { /* ignore */ }); });   // Safari only counts the end of a touch as a user action
+    addEventListener('pointercancel', up);
     addEventListener('keydown', () => { void audio.unlock().catch(() => { /* ignore */ }); });
   }
 
@@ -384,13 +406,18 @@ export class Shell {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([b as BlobPart], { type: 'application/octet-stream' }));
       a.download = slotFileName(slot);
+      a.style.display = 'none'; document.body.append(a);   // in the document: older Firefox ignores the click of a detached link
       a.click();
+      a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     } else if (e.code === 'KeyI') {
       const inp = document.createElement('input');
       inp.type = 'file'; inp.accept = '.lgo';
+      inp.style.display = 'none'; document.body.append(inp);   // Safari drops the change event of a picker that is not in the document (and garbage collected)
+      inp.oncancel = () => inp.remove();
       inp.onchange = async () => {
         const f = inp.files?.[0];
+        inp.remove();
         if (!f) return;
         try { const w = await this.importSlot(slot, new Uint8Array(await f.arrayBuffer())); if (w.length) alert(`Let op: ${w.join(' ')} Het spel wordt toch geladen, zoals het origineel dat doet.`); } catch (err) { console.warn('import failed', err); alert(`Dit is geen geldig bewaard spel: ${err instanceof Error ? err.message : err}`); }
       };

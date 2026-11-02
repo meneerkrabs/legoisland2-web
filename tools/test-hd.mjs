@@ -2,6 +2,7 @@
 // The device check of the start-screen option "HD-textures" (src/mods/hd.ts judgeCapability): which devices get the box checked by default.
 //   node tools/test-hd.mjs
 import { judgeCapability, HD_NEEDS, HD_NEEDS_LAZY } from '../src/mods/hd.ts';
+import { isIPadOs, looksMobile } from '../src/compat.ts';
 
 const fail = [];
 const expect = (name, cond, extra = '') => { console.log(cond ? 'ok  ' : 'FAIL', name, extra); if (!cond) fail.push(name); };
@@ -21,5 +22,14 @@ expect('500 MB free: off for both sources', !ok({ room: 500e6 }, HD_NEEDS_LAZY).
 expect('2 GB free: on for archive.org on demand, off for the MEGA whole pack', ok({ room: 2e9 }, HD_NEEDS_LAZY).ok && !ok({ room: 2e9 }, HD_NEEDS).ok);
 expect('unknown quota: on', ok({ room: null }).ok);
 expect('the reasons are Dutch and say it can still be turned on', !ok({ deviceMemory: 4 }).ok && /Standaard uit/.test(ok({ deviceMemory: 4 }).reason));
+// browsers without deviceMemory / userAgentData (Safari, Firefox): few cores and no memory report -> off; an iPad that reports itself as a Mac is a tablet
+expect('no memory report and 2 cores: off', !ok({ deviceMemory: undefined, cores: 2 }).ok);
+expect('no memory report and 8 cores: on', ok({ deviceMemory: undefined, cores: 8 }).ok);
+expect('a memory report wins over the cores (Chromium)', ok({ deviceMemory: 8, cores: 2 }).ok);
+const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+expect('iPadOS (Macintosh UA, 5 touch points) is a tablet', isIPadOs({ userAgent: mac, maxTouchPoints: 5 }) && looksMobile({ userAgent: mac, maxTouchPoints: 5 }));
+expect('a real Mac (0 touch points) is not', !isIPadOs({ userAgent: mac, maxTouchPoints: 0 }) && !looksMobile({ userAgent: mac, maxTouchPoints: 0 }));
+expect('Firefox desktop is not', !looksMobile({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:157.0) Gecko/20100101 Firefox/157.0', maxTouchPoints: 0 }));
+expect('client hints mobile is', looksMobile({ userAgent: 'x', maxTouchPoints: 0, userAgentData: { mobile: true } }));
 console.log(fail.length ? `${fail.length} failed` : 'all ok');
 process.exit(fail.length ? 1 : 0);

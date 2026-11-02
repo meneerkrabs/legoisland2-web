@@ -7,11 +7,14 @@
 //   restored   the optional mode "Herstelde inhoud" (restored content, docs/re/restore-plan.md; default OFF: with it off the game is exactly the original)
 //   hd         the HD Texture Pack (src/mods/hd.ts) on / off; null = never chosen (the default then depends on the device, `hdDefault`). An explicit choice always wins.
 //   lego3d     "LEGO 3D" (src/mods/lego3d, docs/re/lego3d.md): the LEGO-model look generated in the browser from an LDraw-derived data pack; default ON (off on weak devices, where the original look is used)
+//   touch      "Touchbesturing" (src/touch): auto / on / off; touchHidden: the player hid the on-screen buttons (the little tab stays)
 //   restoredOff the individual restored features (src/restore/flag.ts `RESTORE_FEATURES`) the player switched off again; all on by default
-// URL parameters override them for one session: `?hd=1|0`, `?lego3d=1|0|<generators>`, `?wide=1|0`, `?intro=0`, `?debug=1`, `?restored=1|0`, `?restoredoff=a,b`.
+// URL parameters override them for one session: `?hd=1|0`, `?lego3d=1|0|<generators>`, `?wide=1|0`, `?intro=0`, `?debug=1`, `?restored=1|0`, `?restoredoff=a,b`, `?touch=1|0`.
 
 export type DisplayMode = '4:3' | 'wide';
-export interface Prefs { mode: DisplayMode; skipIntro: boolean; debugMenu: boolean; restored: boolean; restoredOff: string[]; hd: boolean | null; lego3d: boolean }
+/** "Touchbesturing" (src/touch): on-screen buttons; auto = shown on touch-first devices */
+export type TouchMode = 'auto' | 'on' | 'off';
+export interface Prefs { mode: DisplayMode; skipIntro: boolean; debugMenu: boolean; restored: boolean; restoredOff: string[]; hd: boolean | null; lego3d: boolean; touch: TouchMode; touchHidden: boolean }
 const KEY = 'le2-display';
 
 export const ASPECT_ORIGINAL = 4 / 3;
@@ -23,8 +26,8 @@ function storage(): Storage | null {
 export function storedPrefs(): Prefs {
   try {
     const v = JSON.parse(storage()?.getItem(KEY) ?? 'null') as Partial<Prefs> | null;
-    return { mode: v?.mode === 'wide' ? 'wide' : '4:3', skipIntro: v?.skipIntro === true, debugMenu: v?.debugMenu === true, restored: v?.restored === true, restoredOff: Array.isArray(v?.restoredOff) ? v.restoredOff.filter((x) => typeof x === 'string') : [], hd: typeof v?.hd === 'boolean' ? v.hd : null, lego3d: typeof v?.lego3d === 'boolean' ? v.lego3d : true };
-  } catch { return { mode: '4:3', skipIntro: false, debugMenu: false, restored: false, restoredOff: [], hd: null, lego3d: true }; }
+    return { mode: v?.mode === 'wide' ? 'wide' : '4:3', skipIntro: v?.skipIntro === true, debugMenu: v?.debugMenu === true, restored: v?.restored === true, restoredOff: Array.isArray(v?.restoredOff) ? v.restoredOff.filter((x) => typeof x === 'string') : [], hd: typeof v?.hd === 'boolean' ? v.hd : null, lego3d: typeof v?.lego3d === 'boolean' ? v.lego3d : true, touch: v?.touch === 'on' || v?.touch === 'off' ? v.touch : 'auto', touchHidden: v?.touchHidden === true };
+  } catch { return { mode: '4:3', skipIntro: false, debugMenu: false, restored: false, restoredOff: [], hd: null, lego3d: true, touch: 'auto', touchHidden: false }; }
 }
 
 export function storePrefs(p: Partial<Prefs>) {
@@ -44,6 +47,8 @@ export function currentPrefs(search = globalThis.location?.search ?? ''): Prefs 
   if (h === '1') p.hd = true; else if (h === '0') p.hd = false;
   const l3 = q.get('lego3d');
   if (l3 === '0') p.lego3d = false; else if (l3 !== null) p.lego3d = true;   // '1' or a list of generators (src/mods/lego3d/hook.ts `lego3dOptions`)
+  const t = q.get('touch');
+  if (t === '1') p.touch = 'on'; else if (t === '0') p.touch = 'off';
   const ro = q.get('restoredoff');
   if (ro !== null) p.restoredOff = ro.split(',').filter((x) => x !== '');
   return p;

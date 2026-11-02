@@ -4,6 +4,7 @@
 import type { Archive } from '../../formats/archive.ts';
 import { Pack } from './pack.ts';
 import { generateArchive, GEN_VERSION } from './gen/index.ts';
+import { writeWhole } from '../../opfsio.ts';
 
 export const CACHE_NAME = 'le2-lego3d';          // Cache Storage: the downloaded pack
 export const OPFS_DIR = 'le2-lego3d';            // OPFS: generated members per archive
@@ -119,8 +120,7 @@ export class Lego3dRuntime {
           try {
             const kb = new TextEncoder().encode(key), blob = await packFiles(files), out = new Uint8Array(2 + kb.length + blob.length);
             new DataView(out.buffer).setUint16(0, kb.length, true); out.set(kb, 2); out.set(blob, 2 + kb.length);
-            const w = await (await dir.getFileHandle(fname, { create: true })).createWritable();
-            await w.write(out as BufferSource); await w.close();
+            await writeWhole(await dir.getFileHandle(fname, { create: true }), out);
           } catch { /* no room / no OPFS: generated again next time */ }
         }
         if (r.log.length) console.info(`LEGO 3D ${name}: ${r.log.slice(0, 5).join('; ')}`);

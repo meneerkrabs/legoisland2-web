@@ -221,7 +221,7 @@ export class Renderer {
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     const gl = canvas.getContext('webgl2', { antialias: true, alpha: false, preserveDrawingBuffer: true });
-    if (!gl) throw new Error('WebGL2 not available');
+    if (!gl) throw new Error('Deze browser kan WebGL 2 niet starten (niet ondersteund of hardwareversnelling staat uit). Gebruik een recente Chrome, Edge, Firefox of Safari.');
     this.gl = gl;
     this.prog = compile(gl, VS, FS);
     this.lineProg = compile(gl, LINE_VS, LINE_FS);

@@ -3,6 +3,7 @@
 // A mod applies at the next start of the game when it is enabled; where two mods replace the same file the later one in the list wins.
 // `MemoryModStore` is the same interface in memory (node tests; the fallback for browsers without OPFS: the mods then last for this session only).
 import type { PatchLine } from './package.ts';
+import { openWritable, writeWhole } from '../opfsio.ts';
 
 export interface StoredPatch { offset: number; bytes: string; original?: string; line: number }
 /** where a mod came from, when it was not picked by the user: the catalogue (credits are shown in the list) */
@@ -150,9 +151,7 @@ export class OpfsModStore implements ModStore {
     try { return JSON.parse(await (await (await dir.getFileHandle('mod.json')).getFile()).text()) as InstalledMod; } catch { return null; }
   }
   private async writeJson(dir: FileSystemDirectoryHandle, m: InstalledMod) {
-    const w = await (await dir.getFileHandle('mod.json', { create: true })).createWritable();
-    await w.write(JSON.stringify(m));
-    await w.close();
+    await writeWhole(await dir.getFileHandle('mod.json', { create: true }), JSON.stringify(m));
   }
 
   async list(): Promise<InstalledMod[]> {
@@ -177,8 +176,8 @@ export class OpfsModStore implements ModStore {
       id,
       addFile: async (path, size, data) => {
         const key = keyOf(files.length + 1);
-        const w = await (await dir.getFileHandle(key, { create: true })).createWritable();
-        try { await drain(data, size, (c) => w.write(c as unknown as BufferSource)); await w.close(); } catch (e) { await w.abort().catch(() => { /* ignore */ }); throw e; }
+        const w = await openWritable(await dir.getFileHandle(key, { create: true }));
+        try { await drain(data, size, (c) => w.write(c)); await w.close(); } catch (e) { await w.abort().catch(() => { /* ignore */ }); throw e; }
         files.push({ path, size, key });
       },
       commit: async (meta) => { const m = finish(id, seq, meta, files); await this.writeJson(dir, m); this.writing.delete(id); return m; },

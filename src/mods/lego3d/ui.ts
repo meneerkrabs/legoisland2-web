@@ -2,6 +2,7 @@
 // an explicit stored choice (`lego3d` in `le2-display`, `?lego3d=1|0` for one visit), a note, never blocks play, a guard that warns on weak devices, unchecking removes what was cached.
 import { currentPrefs, storePrefs } from '../../display.ts';
 import { removeLego3dCache } from './runtime.ts';
+import { looksMobile } from '../../compat.ts';
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, unknown> = {}, ...kids: (Node | string)[]): HTMLElementTagNameMap[K] => {
   const n = Object.assign(document.createElement(tag), props) as HTMLElementTagNameMap[K];
@@ -19,7 +20,7 @@ export function judgeLego3d(e: Lego3dEnv): { ok: boolean; reason: string } {
 }
 export function lego3dCapability(): { ok: boolean; reason: string } {
   const nav = globalThis.navigator as Navigator & { deviceMemory?: number; userAgentData?: { mobile?: boolean } };
-  const coarse = (() => { try { return globalThis.matchMedia?.('(pointer: coarse)').matches === true && (nav.maxTouchPoints ?? 0) > 0; } catch { return false; } })();
+  const coarse = looksMobile(nav);   // see src/compat.ts: iPadOS reports a Mac, Safari / Firefox have no userAgentData
   const v = new URLSearchParams(globalThis.location?.search ?? '').get('hdcaps');   // the same test switch as the HD option
   return judgeLego3d({ userAgent: nav.userAgent ?? '', mobileHint: nav.userAgentData?.mobile === true, touchPrimary: coarse || v === 'mobile', deviceMemory: v === 'lowmem' ? 2 : nav.deviceMemory, cores: nav.hardwareConcurrency });
 }

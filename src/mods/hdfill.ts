@@ -3,6 +3,7 @@
 // inflating touches the game's main thread (a busy main thread made every stream hop cost a frame); `HdFiller` is plain code and can also run on the main thread as a fallback.
 // At most 4 range requests are in flight at once, in the order of a rank (a zone that waits for its textures, then the archives of PRIORITY, then the rest).
 import { HdRemoteError, aborted, isQuota, readRange } from './hdnet.ts';
+import { openWritable } from '../opfsio.ts';
 import { entryStream } from './zip.ts';
 import type { ZipEntry, ZipSource } from './zip.ts';
 
@@ -33,8 +34,7 @@ async function openSink(fh: FileSystemFileHandle): Promise<{ write(c: Uint8Array
       abort() { try { h.close(); } catch { /* closed */ } },
     };
   }
-  const w = await fh.createWritable();
-  return { write: (c) => w.write(c as unknown as BufferSource), close: () => w.close(), abort: () => w.abort().catch(() => { /* closed */ }) };
+  return openWritable(fh);
 }
 
 export class HdFiller {

@@ -219,6 +219,10 @@ export class SoundEngine {
       // Web Audio looks along -Z of its own right-handed system; our +Z forward becomes -Z after the flip, so pass the flipped vectors as they are
       l.forwardX.value = front.x; l.forwardY.value = front.y; l.forwardZ.value = front.z * f;
       l.upX.value = up.x; l.upY.value = up.y; l.upZ.value = up.z * f;
+    } else {   // Firefox has no AudioParams on the listener, only the old setters
+      const old = l as unknown as { setPosition(x: number, y: number, z: number): void; setOrientation(fx: number, fy: number, fz: number, ux: number, uy: number, uz: number): void };
+      old.setPosition(pos.x, pos.y, pos.z * f);
+      old.setOrientation(front.x, front.y, front.z * f, up.x, up.y, up.z * f);
     }
   }
 

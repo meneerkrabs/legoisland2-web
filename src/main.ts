@@ -12,6 +12,7 @@ import { ModdedFiles, ModLayer, withMods } from './mods/overlay.ts';
 import { hd, hdLazyForGame } from './mods/hd.ts';
 import { attachLego3d, lego3dOptions } from './mods/lego3d/hook.ts';
 import { createLego3dOption } from './mods/lego3d/ui.ts';
+import { compatNotice } from './compat.ts';
 import { createHdOption, hdJoinsGame, showHdBadge } from './mods/hdui.ts';
 import type { ActiveMod } from './mods/overlay.ts';
 import { EffectMap, reportPatches } from './mods/effects.ts';
@@ -115,12 +116,16 @@ async function startScreen() {
   const modeSelect = el('select', { id: 'le2-mode' }, el('option', { value: '4:3', textContent: '4:3 (origineel)' }), el('option', { value: 'wide', textContent: 'breedbeeld' }));
   modeSelect.value = prefs.mode;
   modeSelect.onchange = () => storePrefs({ mode: modeSelect.value as '4:3' | 'wide' });
+  const touchSelect = el('select', { id: 'le2-touch' }, el('option', { value: 'auto', textContent: 'automatisch' }), el('option', { value: 'on', textContent: 'aan' }), el('option', { value: 'off', textContent: 'uit' }));
+  touchSelect.value = prefs.touch;
+  touchSelect.onchange = () => storePrefs({ touch: touchSelect.value as 'auto' | 'on' | 'off' });
   const checkbox = (id: string, text: string, title: string, on: boolean, set: (v: boolean) => void) => {
     const c = el('input', { type: 'checkbox', id, checked: on });
     c.onchange = () => set(c.checked);
     return el('label', { title }, c, ` ${text}`);
   };
   const options = el('div', { className: 'note bdb-opts' },
+    el('label', { title: 'Knoppen op het scherm (pijltjes, Alt, Shift, Spatie, Ctrl, Enter, Esc en de camera) voor telefoon en tablet. Automatisch = aan op een apparaat dat je met je vinger bedient; tijdens het spelen zijn ze te verbergen' }, 'Touchbesturing: ', touchSelect),
     el('label', { title: 'Breedbeeld toont aan de zijkanten meer van de 3D-wereld; menu\'s, films en schermen blijven 4:3' }, 'Beeld: ', modeSelect),
     checkbox('le2-skipintro', 'Introfilms overslaan', 'De openingsfilms van het spel niet afspelen', prefs.skipIntro, (v) => storePrefs({ skipIntro: v })),
     checkbox('le2-debug', 'Debugmenu', 'Zet het verhaalpuntenmenu van de ontwikkelaars in het hoofdmenu in de plaats van "Credits" (docs/re/mods.md); toont ook de Ontwikkelaarshoek (toets `, docs/re/devcorner.md)', prefs.debugMenu, (v) => { storePrefs({ debugMenu: v }); const b = document.getElementById('le2-devcorner'); if (b) b.hidden = !v; }),
@@ -143,12 +148,14 @@ async function startScreen() {
     },
   });
 
+  const compat = await compatNotice();
   const screen = el('div', { className: 'bdb-start' },
     el('h1', { textContent: GAME_TITLE }),
-    el('div', { className: 'books' }, el('button', { textContent: 'Spelen', title: SOURCE_NAMES[lib.source], onclick: () => start() }),
+    el('div', { className: 'books' }, el('button', { textContent: 'Spelen', title: SOURCE_NAMES[lib.source], disabled: compat.fatal, onclick: () => start() }),
       el('button', { id: 'le2-devcorner', textContent: 'Ontwikkelaarshoek', title: 'Debugmodus: het spel starten met de Ontwikkelaarshoek open (daarna opent de toets ` hem overal)', hidden: !prefs.debugMenu, onclick: () => start(true) })),
     track,
     status,
+    ...(compat.element ? [compat.element] : []),   // src/compat.ts: only when this browser lacks something
     options,
     el('div', { className: 'note', innerHTML: note }),
     el('details', { className: 'note' },

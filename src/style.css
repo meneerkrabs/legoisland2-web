@@ -75,3 +75,9 @@ html, body { margin: 0; height: 100%; background: #000; color: #eee; font-family
 .bdb-hdnote.bdb-warn { opacity: 1; }
 .bdb-hdtrack { width: min(60vw, 20rem); height: .45rem; margin: .3rem auto 0; }
 .le2-hdbadge { bottom: 2.6rem; }
+/* finger-first devices: bigger targets on the start screen */
+@media (pointer: coarse) {
+  .bdb-start button, .bdb-start select, .bdb-start summary { min-height: 44px; }
+  .bdb-start input[type=checkbox] { width: 1.3rem; height: 1.3rem; }
+  .bdb-start .bdb-opts { max-width: 100vw; box-sizing: border-box; padding: 0 .5rem; }
+}

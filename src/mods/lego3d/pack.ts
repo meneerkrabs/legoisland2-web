@@ -2,10 +2,16 @@
 // ATTRIBUTION.txt beside it). It contains nothing of the game's own pictures or meshes; the browser (or node) combines it with the player's own archives (src/mods/lego3d/gen/*).
 // Layout: "LG3P" u32 version, u32 indexLength, index JSON (utf-8) = { v, built, files: { name: [offset, storedLength, rawLength, method] } }, then the blobs
 // (method 0 = stored, 8 = raw deflate). Written by tools/lego3d/pack/packfile.mjs, read here (browser: DecompressionStream, node 18+: the same global).
+import { inflateRaw } from '../../engine/inflate.ts';
 export const PACK_VERSION = 1;
 export interface PackIndex { v: number; built: string; files: Record<string, [number, number, number, number]> }
 
-async function inflate(data: Uint8Array): Promise<Uint8Array> {
+async function inflate(data: Uint8Array, rawLength: number): Promise<Uint8Array> {
+  if (typeof DecompressionStream === 'undefined') {   // Safari before 16.4: the synchronous decoder of the cabinet reader (the index knows the inflated size)
+    const out = new Uint8Array(rawLength);
+    inflateRaw(data, 0, data.length, out, 0);
+    return out;
+  }
   const ds = new DecompressionStream('deflate-raw');
   const w = ds.writable.getWriter();
   void w.write(data as BufferSource).then(() => w.close()).catch(() => { /* surfaces on the read side */ });
@@ -50,7 +56,7 @@ export class Pack {
       const e = this.index.files[name];
       if (!e) return Promise.reject(new Error(`LEGO 3D pack: no "${name}"`));
       const raw = this.bytes.subarray(this.base + e[0], this.base + e[0] + e[1]);
-      p = e[3] === 0 ? Promise.resolve(raw) : inflate(raw);
+      p = e[3] === 0 ? Promise.resolve(raw) : inflate(raw, e[2]);
       this.cache.set(name, p);
     }
     return p;

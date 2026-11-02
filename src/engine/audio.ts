@@ -16,7 +16,7 @@ class AudioSystem {
   private current: { src: AudioBufferSourceNode; done: Promise<void>; finished: boolean; resolve: () => void } | null = null;
 
   constructor() {
-    this.ctx = new AudioContext();
+    this.ctx = new (globalThis.AudioContext ?? (globalThis as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();   // (Safari before 14.1 only has the prefixed one)
     this.master = this.ctx.createGain();
     this.master.connect(this.ctx.destination);
     // ?mute=1 silences everything (used for automated browser tests)
@@ -25,7 +25,8 @@ class AudioSystem {
 
   /** Must be called from a user gesture once (browser autoplay policy). */
   async unlock() {
-    if (this.ctx.state !== 'running') await this.ctx.resume();
+    // Safari: resume() outside a user gesture can stay pending for ever; the game must not wait for it (the next key / click tries again, shell.ts)
+    if (this.ctx.state !== 'running') await Promise.race([this.ctx.resume(), new Promise<void>((r) => setTimeout(r, 1500))]);
   }
 
   decode(buf: ArrayBuffer): Promise<AudioBuffer> {

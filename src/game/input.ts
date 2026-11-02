@@ -110,6 +110,11 @@ export class InputMapper {
   latchTaps = false;
   /** the cheat-code detector (FUN_004375a8): polled once per tick with FUN_00437fdf's result */
   cheats: { poll(code: number): void } | null = null;
+  /**
+   * the on-screen touch layer (src/touch): asked once per `update()` (the tick's sample) for the logical button bits that are held (the same bits as the key table: 1 .. 0x10000, `ESC` = pause)
+   * and the mouse buttons (DirectInput index bit mask: 1 left = zoom out, 2 right = zoom in of the chase camera). `updates` is the sample count, so the layer can hold a tap until the game has seen it.
+   */
+  touch: { sample(updates: number): { bits: number; mouse: number } } | null = null;
   /** F10 went down (the original sets DAT_00986e28 while the key is held; the screenshot is taken after the frame has been drawn) */
   onScreenshot: (() => void) | null = null;
 
@@ -343,10 +348,12 @@ export class InputMapper {
   update() {
     this.updates++;
     const s = this.takeSample();
+    const t = this.touch?.sample(this.updates) ?? null;
+    if (t) for (let i = 0; i < 5; i++) if (t.mouse & (1 << i)) s.mouse.add(i);
     this.lastSample = s;
     this.latched.clear(); this.mouseLatched.clear();
     const keyDown = (c: string) => s.keys.has(c);
-    let m = this.virtual;
+    let m = this.virtual | ((t?.bits ?? 0) & 0x3ffff);
     // the key table: the current key of an entry always, its fixed key while the entry's flag is set
     for (const b of this.bindings) {
       if (this.isDown(b.code, s)) m |= b.bit;
@@ -358,7 +365,7 @@ export class InputMapper {
       m |= padStickBits(gp.axes[0] ?? 0, gp.axes[1] ?? 0);
       s.pad.forEach((down, i) => { if (down && i < PAD_BUTTON_BITS.length) m |= PAD_BUTTON_BITS[i]; });
     }
-    if (keyDown('Escape') || this.escFromUnlock) m = B.ESC;
+    if (keyDown('Escape') || this.escFromUnlock || ((t?.bits ?? 0) & B.ESC) !== 0) m = B.ESC;
     this.escFromUnlock = false;
     // F10: the screenshot key (every mode)
     const f10 = keyDown('F10');
