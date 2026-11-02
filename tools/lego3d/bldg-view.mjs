@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Looks at a brick-built reconstruction offline (software rasteriser, colour = the game's texel colour of the group; translucent groups are drawn too):
-//   node tools/lego3d/bldg-view.mjs out.png zone Mesh [--orig] [--pack FILE] [--views 35/25,215/25] [--size 500] [--box x0,y0,z0,x1,y1,z1]
+//   node tools/lego3d/bldg-view.mjs out.png zone Mesh [--orig] [--pack FILE] [--views 35/25,215/25] [--size 500] [--box x0,y0,z0,x1,y1,z1] [--open G:deg[,G2:deg]]
+// --open turns the group G (and every group with the same MATL translation: its pane) about the vertical axis of its hinge (the MATL translation) by deg degrees, as the game's door node turns it (docs section 16.7)
 // default: the generated mesh (pack -> generator, the browser's path); --orig the game's own mesh; --box zooms to a world box (close-ups).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,6 +18,7 @@ const flag = (n) => { const i = a.indexOf(n); if (i < 0) return false; a.splice(
 const orig = flag('--orig'), packFile = opt('--pack', path.join(here, '../../src/mods/lego3d/data/lego3d.pack')), size = +opt('--size', 500);
 const views = opt('--views', '35/25,215/25,125/30,0/90').split(',').map((s) => { const [az, el] = s.split('/').map(Number); return { az, el: el ?? 0 }; });
 const box = opt('--box', null)?.split(',').map(Number);
+const open = (opt('--open', '') || '').split(',').filter(Boolean).map((t) => t.split(':').map(Number));
 const [out, zone, nm] = a;
 const arch = archive(zone), sc = scene(zone);
 const idx = sc.meshPaths.findIndex((x) => x.toLowerCase().endsWith(`\\${nm.toLowerCase()}.msh`)), member = memberOf(sc.meshPaths[idx]);
@@ -29,6 +31,11 @@ if (!orig) {
   if (key) bytes = r.files.get(key); else console.log('not replaced');
 }
 const m = parseMsh(bytes), gm = groupMatrices(m);
+for (const [og, deg] of open) {
+  const base = gm[og]; if (!base) continue;
+  const c = Math.cos((deg * Math.PI) / 180), sn = Math.sin((deg * Math.PI) / 180);
+  gm.forEach((M, gi) => { if (M && M[12] === base[12] && M[13] === base[13] && M[14] === base[14]) { const R = Float32Array.from(M); R[0] = c; R[2] = -sn; R[8] = sn; R[10] = c; gm[gi] = R; } });
+}
 const xf = (M, p) => (M ? [p[0] * M[0] + p[1] * M[4] + p[2] * M[8] + M[12], p[0] * M[1] + p[1] * M[5] + p[2] * M[9] + M[13], p[0] * M[2] + p[1] * M[6] + p[2] * M[10] + M[14]] : p);
 const parts = m.groups.map((g, gi) => {
   const pos = new Float32Array(g.vertexCount * 3);

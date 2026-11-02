@@ -151,10 +151,10 @@ export function placedTriangles(vox, pl) {
   return Float32Array.from(out);
 }
 
-/** world positions of the part's studs [[x, y, z]] (y = the surface the stud stands on) */
+/** world positions of the part's studs [[x, y, z, dir]] (y = the surface the stud stands on; dir = the stud's axis, (0, 1, 0) upright) */
 export function placedStuds(vox, pl) {
   const part = orient(loadPart(pl.part), pl.r), { origin, pitch } = vox;
-  return part.studs.map(([x, z, y]) => [origin[0] + pl.i * pitch[0] + x, origin[1] + pl.j * pitch[1] + y, origin[2] + pl.k * pitch[2] + z]);
+  return part.studs.map(([x, z, y, dir]) => [origin[0] + pl.i * pitch[0] + x, origin[1] + pl.j * pitch[1] + y, origin[2] + pl.k * pitch[2] + z, dir ?? [0, 1, 0]]);
 }
 
 // ---------------------------------------------------------------------------------------------------- the game's slanted surfaces as evidence

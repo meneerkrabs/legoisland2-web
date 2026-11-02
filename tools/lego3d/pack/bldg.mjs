@@ -9,6 +9,7 @@ import { archive, scene, memberOf, textureOf, WORK } from '../lib.mjs';
 import { gameGroups } from '../setlib.mjs';
 import { voxelise, packBricks, emitSurface, signedVolume, soupOfBuf, searchOffset } from '../bldg.mjs';
 import { fitSlopes, surfaceIndex, fitFrames, paneRects, components6, partContacts } from '../bldg-parts.mjs';
+import { findLeaves, buildLeaf, fitDoorFrames, slopedPanes, fitRoofWindows } from '../bldg-feat.mjs';
 import { parseMsh } from '../../../src/formats/msh.ts';
 import { encodeMesh, hashMember } from '../../../src/mods/lego3d/meshpack.ts';
 
@@ -89,24 +90,56 @@ export async function buildMesh({ a, msh, tl, spec, li, offset }) {
   let minY = 1e9; for (const g of mass) for (let i = 1; i < g.tris.length; i += 3) minY = Math.min(minY, g.tris[i]);
   const vox = voxelise(massSoups.map((t) => ({ tris: t })), { pitch: spec.pitch, thick: spec.thick ?? spec.pitch[0] * thickF(spec, li), offset, minY: minY - 1e-3 });
   const placements = [], comp0 = components6(vox);
+  // doors (docs section 16.7): the moving leaves are rebuilt from bricks in their own frame, the jambs / lintel / threshold of their openings from 1 x N parts in the wall
+  let leaves = [];
+  if (spec.doors !== false && li < 2) {
+    leaves = findLeaves(gg, (g) => isFlat(a, tl[g.index] ?? -1));
+    const zmid = vox.origin[2] + (vox.dims[2] * vox.pitch[2]) / 2;
+    for (const lf of leaves) { const zc = (lf.box.lo[2] + lf.box.hi[2]) / 2; lf.outer = Math.sign(lf.pane ? zc - (lf.pane.box.lo[2] + lf.pane.box.hi[2]) / 2 : zc - zmid) || 1; }
+    placements.push(...fitDoorFrames(vox, leaves, { log: spec.log }));
+  }
   // window frames in the openings of the game's translucent panes (the panes themselves stay the game's, behind the frames)
   if (spec.frames !== false && li < 2) {
     const panes = gg.filter((g) => !mass.includes(g) && ((g.kind === 'colour' && (g.flags & 3)) || (g.kind === 'decal' && (g.flags & 2))));
     const comps = panes.flatMap((g) => components(g.tris));
-    placements.push(...fitFrames(vox, paneRects(comps).rects, { log: spec.log }));
+    const pr = paneRects(comps);
+    placements.push(...fitFrames(vox, pr.rects, { log: spec.log }));
+    // sloped roof windows (docs section 16.7): slope-brick frames around the game's sloped panes, in the colour of the game's frame ring around them
+    if (spec.roofWindows !== false) {
+      const sp = slopedPanes(pr.other);
+      const colourOf = (p) => {
+        const ctr = [(p.comp.lo[0] + p.comp.hi[0]) / 2, (p.comp.lo[1] + p.comp.hi[1]) / 2, (p.comp.lo[2] + p.comp.hi[2]) / 2];
+        let best = -1, bs = 0;
+        massSoups.forEach((t, s) => {
+          let area = 0;
+          for (let o = 0; o < t.length; o += 9) {
+            const u = [t[o + 3] - t[o], t[o + 4] - t[o + 1], t[o + 5] - t[o + 2]], v = [t[o + 6] - t[o], t[o + 7] - t[o + 1], t[o + 8] - t[o + 2]];
+            const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]], l = Math.hypot(...n);
+            if (l < 1e-9 || (n[0] * p.n[0] + n[1] * p.n[1] + n[2] * p.n[2]) / l < 0.95) continue;
+            const c = [(t[o] + t[o + 3] + t[o + 6]) / 3, (t[o + 1] + t[o + 4] + t[o + 7]) / 3, (t[o + 2] + t[o + 5] + t[o + 8]) / 3];
+            if (Math.hypot(c[0] - ctr[0], c[1] - ctr[1], c[2] - ctr[2]) < 2.2) area += l / 2;
+          }
+          if (area > bs) { bs = area; best = s; }
+        });
+        return best < 0 ? null : best;
+      };
+      placements.push(...fitRoofWindows(vox, sp, colourOf, { log: spec.log }));
+    }
   }
   if (spec.slopes !== false) placements.push(...fitSlopes(vox, { surf: surfaceIndex(massSoups), log: spec.log, dbg: spec.dbg }));   // real LDraw slope bricks where the game's surface slopes (the cells leave the voxel model)
   const comp1 = components6(vox), contacts = partContacts(vox, placements);
   const bricks = packBricks(vox);
   const studSides = spec.studs[Math.min(li, spec.studs.length - 1)];
   const geo = emitSurface(vox, { studSides, studs: studSides > 0, tileRadius: spec.tile ?? 1, placements, under: spec.under?.[Math.min(li, spec.under.length - 1)] ? { bricks, rim: 0.06, depth: 0.12 } : null });
+  const leafBuilds = leaves.map((lf) => ({ lf, b: buildLeaf(vox, lf, { studSides: Math.max(4, studSides) }) }));
   const groups = [], kinds = [], bom = {}, hold = [];
+  for (const { b } of leafBuilds) { for (const k of b.bricks) { const kk = `${k.kind}:${k.part}`; bom[kk] = (bom[kk] ?? 0) + 1; } for (const pl of b.placements) { const kk = `part:${pl.part}`; bom[kk] = (bom[kk] ?? 0) + 1; } }
   if (spec.hold) mass.forEach((g) => { for (const b of spec.hold) hold.push({ g: g.index, box: b }); });
   for (const b of bricks) { const k = `${b.kind}:${b.part}`; bom[k] = (bom[k] ?? 0) + 1; }
   for (const pl of placements) { const k = `part:${pl.part}`; bom[k] = (bom[k] ?? 0) + 1; }
   let tris = 0;
   gg.forEach((g, gi) => {
-    const mi = mass.indexOf(g), buf = mi >= 0 ? geo.get(mi) : null;
+    const mi = mass.indexOf(g), lb = leafBuilds.find((x) => x.lf.g === gi), buf = lb ? lb.b.geo.get(0) : mi >= 0 ? geo.get(mi) : null;
     if (buf && buf.idx.length > 0) {
       if (buf.pos.length / 3 > 65535) throw new Error(`${spec.key} LOD ${li} group ${gi}: ${buf.pos.length / 3} vertices (limit 65535): fewer stud sides / more tiles`);
       if (windingErrors(buf) > 0) throw new Error(`${spec.key} LOD ${li} group ${gi}: triangles wound against their normals`);
@@ -115,12 +148,14 @@ export async function buildMesh({ a, msh, tl, spec, li, offset }) {
       kinds.push(flat ? 'flat' : 'uv'); tris += buf.idx.length / 3;
     } else { groups.push({ kind: 1 }); kinds.push(g.kind === 'decal' ? 'decal' : 'keep'); }
   });
-  return { groups, kinds, tris, bom, vox, mass, gg, offset: vox.offset, bricks: bricks.length + placements.length, placements, hold, assembly: { before: comp0.components, after: comp1.components, parts: placements.length, loose: contacts.loose, resting: contacts.below } };
+  return { groups, kinds, tris, bom, vox, mass, gg, offset: vox.offset, bricks: bricks.length + placements.length + leafBuilds.reduce((s2, x) => s2 + x.b.bricks.length + x.b.placements.length, 0), placements, hold, leaves: leafBuilds.map(({ lf, b }) => ({ g: lf.g, pane: lf.pane?.g ?? null, hinge: lf.hinge, outer: lf.outer, opening: lf.opening ? [lf.opening.widthStuds, lf.opening.heightPlates] : null, bricks: b.bricks.length, parts: b.placements.map((p) => p.part), components: components6(b.vox).components, tris: b.geo.get(0)?.idx.length / 3, ...b.info })), assembly: { before: comp0.components, after: comp1.components, parts: placements.length, loose: contacts.loose, resting: contacts.below } };
 }
 
 export async function build(ctx) {
   const report = [], byArch = {}, blobs = new Map(), usedParts = new Set(['stud']);
+  const only = (process.env.BLDG_ONLY ?? '').split(',').filter(Boolean);   // development: BLDG_ONLY=rescue,garage builds just these models (the pack of such a build is incomplete)
   for (const spec of BLDG) {
+    if (only.length && !only.includes(spec.key)) continue;
     const a = archive(spec.zone), sc = scene(spec.zone);
     let offset = null;
     for (let li = 0; li < spec.meshes.length; li++) {
@@ -133,7 +168,7 @@ export async function build(ctx) {
       for (const k of Object.keys(r.bom)) usedParts.add(k.split(':')[1]);
       const blob = encodeMesh(r.groups), bh = hashMember(blob), bname = `sets/b/${bh}.bin`;
       blobs.set(bname, blob);
-      (byArch[spec.zone] ??= []).push({ member, hash: hashMember(bytes), blob: bname, kinds: r.kinds, tris: r.tris, game: msh.indices.length / 3, set: `bldg:${spec.key}`, gap: spec.gap ?? 0.45, asm: r.assembly, parts: r.placements.map((p) => `${p.part}@${p.i},${p.j},${p.k}r${p.r}g${p.g}`), ...(r.hold.length ? { hold: r.hold } : {}) });
+      (byArch[spec.zone] ??= []).push({ member, hash: hashMember(bytes), blob: bname, kinds: r.kinds, tris: r.tris, game: msh.indices.length / 3, set: `bldg:${spec.key}`, gap: spec.gap ?? 0.45, asm: r.assembly, ...(r.leaves.length ? { leaves: r.leaves } : {}), parts: r.placements.map((p) => `${p.part}@${p.i},${p.j},${p.k}r${p.r}g${p.g}`), ...(r.hold.length ? { hold: r.hold } : {}) });
       report.push({ key: spec.key, mesh: nm, lodFrom: part.lod, game: msh.indices.length / 3, mine: r.tris, groups: r.kinds.join(','), bricks: r.bricks, bom: r.bom, offset: r.offset, assembly: r.assembly });
       ctx.log(`${spec.zone}/${nm} (LOD from ${part.lod}): ${msh.indices.length / 3} -> ${r.tris} triangles, ${r.bricks} bricks, kinds ${r.kinds.join(',')}`);
     }

@@ -44,7 +44,8 @@ export function loadPart(id, { res = 'low', maxCost = 4e-4 } = {}) {
   const m = simplify(solid, { maxCost, crease: 35 });
   const tris = new Float32Array(m.idx.length * 3);
   for (let i = 0; i < m.idx.length; i++) { tris[i * 3] = m.pos[m.idx[i] * 3]; tris[i * 3 + 1] = m.pos[m.idx[i] * 3 + 1]; tris[i * 3 + 2] = m.pos[m.idx[i] * 3 + 2]; }
-  const studs = collect.out.map((s) => [(s.m[9] - gx0) * S, (s.m[11] - gz0) * S, (ymax - s.m[10]) * S]);
+  // [x, z, y, dir]: `dir` = the stud's axis in the grid frame ((0, 1, 0) for the usual upright stud; a side stud of 87087 / 4070 points along z): LDraw up is -y, the grid's y is flipped
+  const studs = collect.out.map((s) => [(s.m[9] - gx0) * S, (s.m[11] - gz0) * S, (ymax - s.m[10]) * S, [-s.m[1], s.m[4], -s.m[7]].map((v) => Math.round(v * 1e3) / 1e3 + 0)]);
   const part = { id: String(id), title: f.info.title, w, d, h, tris, studs, infos: f.infos, raw: f.tris.length / 9 };
   heightfield(part);
   cache.set(key, part);
@@ -98,7 +99,7 @@ function quarter(p) {
   const W = p.w * PITCH[0], w = p.d, d = p.w;
   const tris = new Float32Array(p.tris.length);
   for (let i = 0; i < tris.length; i += 3) { tris[i] = p.tris[i + 2]; tris[i + 1] = p.tris[i + 1]; tris[i + 2] = W - p.tris[i]; }
-  const studs = p.studs.map(([x, z, y]) => [z, W - x, y]);
+  const studs = p.studs.map(([x, z, y, d]) => [z, W - x, y, d ? [d[2], d[1], -d[0] + 0] : d]);
   const top = new Float32Array(w * d), fill = new Uint8Array(w * d * p.h);
   for (let k = 0; k < p.d; k++) for (let i = 0; i < p.w; i++) {
     const ni = k, nk = p.w - 1 - i;   // (x, z) -> (z, W - x)

@@ -13,8 +13,8 @@ LDraw(TM) is a trademark owned and licensed by the Estate of James Jessiman. LEG
 
 The pack contains NO pictures or meshes of the game "LEGO Island 2": those are read from the player's own game files in the browser and are never copied here.
 
-Licence lines found in the 960 files used:
-  898 x Licensed under CC BY 4.0 : see CAreadme.txt
+Licence lines found in the 962 files used:
+  900 x Licensed under CC BY 4.0 : see CAreadme.txt
   52 x Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   10 x CCAL version 2.0
 
@@ -32,7 +32,7 @@ OMR set models (10):
   5935 Island Hopper (zone z22BIP, 1.33x) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
   5935 Island Hopper - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
 
-Parts used (366):
+Parts used (367):
   parts/16599.dat - Minifig Helmet Classic with Thin Chin Guard Cracked - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925a.dat - Sticker  2.4 x  2 with White German Railways Logo and "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925b.dat - Sticker  0.8 x  2 with White "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -383,6 +383,7 @@ Parts used (366):
   parts/845.dat - ~Window  1 x  1 x  2 Classic Glass - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/849.dat - ~Window  1 x  4 x  2 Classic Glass - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/867.dat - Wheel Train for 12V Electric Motor - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/87087.dat - Brick  1 x  1 with Stud on 1 Side - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/87697.dat - Tyre 12/ 40 x 11 Wide with Centre Band - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/88288.dat - Minifig Dagger - Philippe Hurbain [Philo] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/947a.dat - Train Steam Cylinder  2 x  2 x  1.667 Curved - Interior Smooth - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -400,4 +401,4 @@ Parts used (366):
   parts/u9130.dat - ~Electric Train 12V Power Pickup - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/u9146.dat - ~Pin for Electric Plug (Type 4) Single - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
 
-Primitives and sub-parts used: 584 files (all under the same library licence; authors above).
+Primitives and sub-parts used: 585 files (all under the same library licence; authors above).

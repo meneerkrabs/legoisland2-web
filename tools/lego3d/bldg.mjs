@@ -191,12 +191,30 @@ function stud(P, N, I, cx, y0, cz, r, h, sides) {
   for (let s = 1; s < sides - 1; s++) I.push(capBase, capBase + s + 1, capBase + s);
 }
 
+/** a stud prism along an arbitrary unit axis `dir` (base at (cx, cy, cz)); the ring winds as in stud() so a (0, 1, 0) axis gives the same triangles */
+function studAlong(P, N, I, cx, cy, cz, dir, r, h, sides) {
+  const dl = Math.hypot(dir[0], dir[1], dir[2]), d = [dir[0] / dl, dir[1] / dl, dir[2] / dl];
+  const a = Math.abs(d[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1];
+  const dd = a[0] * d[0] + a[1] * d[1] + a[2] * d[2];
+  let u = [a[0] - dd * d[0], a[1] - dd * d[1], a[2] - dd * d[2]];
+  const ul = Math.hypot(...u); u = [u[0] / ul, u[1] / ul, u[2] / ul];
+  const v = [u[1] * d[2] - u[2] * d[1], u[2] * d[0] - u[0] * d[2], u[0] * d[1] - u[1] * d[0]];   // u x d: then u x v = -d, the vertical stud's ring order
+  const base = P.length / 3;
+  const ring = (s) => { const an = (s / sides) * 2 * Math.PI, c = Math.cos(an), sn = Math.sin(an); return [u[0] * c + v[0] * sn, u[1] * c + v[1] * sn, u[2] * c + v[2] * sn]; };
+  for (let s = 0; s < sides; s++) { const q = ring(s); P.push(cx + r * q[0], cy + r * q[1], cz + r * q[2]); N.push(q[0], q[1], q[2]); }
+  for (let s = 0; s < sides; s++) { const q = ring(s); P.push(cx + r * q[0] + h * d[0], cy + r * q[1] + h * d[1], cz + r * q[2] + h * d[2]); N.push(q[0], q[1], q[2]); }
+  const capBase = P.length / 3;
+  for (let s = 0; s < sides; s++) { const q = ring(s); P.push(cx + r * q[0] + h * d[0], cy + r * q[1] + h * d[1], cz + r * q[2] + h * d[2]); N.push(d[0], d[1], d[2]); }
+  for (let s = 0; s < sides; s++) { const t = (s + 1) % sides; I.push(base + s, base + sides + s, base + sides + t, base + s, base + sides + t, base + t); }
+  for (let s = 1; s < sides - 1; s++) I.push(capBase, capBase + s + 1, capBase + s);
+}
+
 /**
  * Emits the outer surface of the brick model: per group, the faces of solid cells whose neighbour across the face is neither solid nor enclosed hollow, merged into maximal rectangles per plane
  * (the seams between the bricks of one colour are invisible at the game's scale, so the surface of a wall is one rectangle, as the union of the bricks' outer boxes is), plus a real stud (LDraw stud.dat:
  * radius 6 / height 4 LDU on the 20 / 8 LDU grid) on every exposed top cell except the interior of big flat areas (smooth tiles). Returns Map group -> { pos, nrm, idx } (outward winding).
  */
-export function emitSurface(vox, { studSides = 6, studs = true, tileRadius = 1, placements = [], under = null } = {}) {
+export function emitSurface(vox, { studSides = 6, studs = true, tileRadius = 1, placements = [], under = null, studFilter = null } = {}) {
   const { origin, pitch, dims, label, filler, idx, claim } = vox;
   const [nx, ny, nz] = dims;
   const solid = (i, j, k) => i >= 0 && j >= 0 && k >= 0 && i < nx && j < ny && k < nz && (label[idx(i, j, k)] >= 0 || filler[idx(i, j, k)] === 1 || (claim !== undefined && claim[idx(i, j, k)] > 0));
@@ -274,7 +292,7 @@ export function emitSurface(vox, { studSides = 6, studs = true, tileRadius = 1, 
     };
     for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
       const g = label[idx(i, j, k)];
-      if (g < 0 || solid(i, j + 1, k) || interior(i, j, k, g)) continue;
+      if (g < 0 || solid(i, j + 1, k) || interior(i, j, k, g) || (studFilter && !studFilter(i, j, k))) continue;
       const { P, N, I } = get(g);
       stud(P, N, I, (X(i) + X(i + 1)) / 2, Y(j + 1), (Z(k) + Z(k + 1)) / 2, r, h, studSides);
     }
@@ -305,7 +323,8 @@ export function emitSurface(vox, { studSides = 6, studs = true, tileRadius = 1, 
     }
     if (studs) {
       const r = pitch[0] * STUD_R, h = pitch[1] * STUD_H;
-      for (const [x, y, z] of placedStuds(vox, pl)) {
+      for (const [x, y, z, dir] of placedStuds(vox, pl)) {
+        if (Math.abs(dir[1]) < 0.9) { studAlong(P, N, I, x, y, z, dir, r, h, studSides); continue; }   // a side stud (87087 / 4070): stands on a vertical face, nothing to test above it
         const i = Math.floor((x - origin[0]) / pitch[0]), j = Math.floor((y - origin[1]) / pitch[1] + 1e-6), k = Math.floor((z - origin[2]) / pitch[2]);
         if (solid(i, j, k)) continue;
         stud(P, N, I, x, y, z, r, h, studSides);
