@@ -42,6 +42,13 @@ opgehaald (het eiland is ongeveer 65 MB) en in je browser bewaard, in plaats van
 die nog niet klaar is begint met de originele plaatjes en is de volgende keer scherper, en uitvinken stopt het en biedt aan wat bewaard is te verwijderen. Uit = precies het originele
 beeld. Niets van het pakket staat hier. Details: [docs/re/mods.md](docs/re/mods.md).
 
+**Taal / Language** (extra van de port, standaard **Nederlands** = het spel precies zoals het is): "English" speelt het spel met de teksten, lettertypen en stemmen van de Engelse uitgave
+(*LEGO Island 2: The Brickster's Revenge*). De code van het spel blijft die van het Nederlandse programma; de taalbestanden van de Engelse uitgave (tekstentabellen, lettertypen, 1793 stemfragmenten,
+een stemgeluid) worden over het Nederlandse spel gelegd, want de twee schijven zijn voor de rest byte voor byte gelijk (alle zones, plaatjes, films). Ze komen van **je eigen Engelse ISO of cd**
+(toevoegen onder "Eigen cd of ISO gebruiken"; een Engelse schijf wordt herkend) of van de Engelse ISO op archive.org via dezelfde tussenserver (alleen die bestanden worden gelezen: een paar MB tijdens
+het spelen, hooguit 32 MB; ze blijven in je browser). Het houdt het spelen nooit tegen: lukt het niet, dan blijft het spel Nederlands en dat staat erbij. "Herstelde inhoud" is alleen Nederlands; het
+beginscherm en de eigen meldingen van de port blijven Nederlands. Details, de vergelijking bestand voor bestand en het bewijs: [docs/re/language.md](docs/re/language.md).
+
 **LEGO 3D** (extra van de port, **standaard aan**; op zwakke apparaten uit): een vinkje op het beginscherm dat het spel opbouwt uit echte LEGO-onderdelen van de
 [LDraw](https://www.ldraw.org)-bibliotheek (CC BY 4.0 / CCAL 2.0): de minifiguren (lichaam, hoofd, handen, haar en hoeden waar een onderdeel bestaat), de stenenbibliotheek, echte 3D-noppen op
 de noppenplaten, 4x scherpe nop- en muurplaatjes en zeven LDraw-setmodellen (jetski, ambulance, Island Racer, ...) en uit stenen opgebouwde versies van het Res-Q-centrum en het benzinestation van het eiland, de treinwagon en het vliegveldzeevliegtuig. Het wordt **in je browser** samengesteld uit een klein gegevenspakket (ongeveer

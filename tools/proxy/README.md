@@ -11,7 +11,7 @@ dat doorloopt).
 ## Wat het doet
 
 - Alleen `GET`, `HEAD` en `OPTIONS` (de preflight van de browser).
-- Alleen de ISO-bestanden `https://archive.org/download/legoeiland2dutch/<naam>.iso` en `.../legoeiland2/<naam>.iso`
+- Alleen de ISO-bestanden `https://archive.org/download/legoeiland2dutch/<naam>.iso`, `.../legoeiland2/<naam>.iso` en (voor de taal "English", docs/re/language.md) `.../LEGO_Island_2_The_Bricksters_Revenge_-_Windows_Eng/<naam>.iso`
   (redirects naar archive.org zelf worden server-side gevolgd; een redirect naar een andere host wordt geweigerd).
 - Een `Range: bytes=a-b` is verplicht (anders zou de hele ISO komen); een range wordt tot 32 MB ingekort.
 - Stuurt `206`/`200`, `Content-Range`, `Content-Length`, `Accept-Ranges` door en streamt de body met curl zonder hem

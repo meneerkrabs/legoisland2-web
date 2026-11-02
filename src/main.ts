@@ -2,6 +2,9 @@ import './style.css';
 import { audio } from './engine/audio.ts';
 import { playMovie } from './engine/movie.ts';
 import { addIso, ARCHIVE_PAGE, availableSource, cdFolder, GAME_TITLE, removeArchiveCache, removeIso } from './library.ts';
+import { activeLanguage, setActiveLanguage } from './lang/state.ts';
+import { languageRoute, openLanguage, removeLanguageIso, setSessionLanguageDisc, sessionLanguageDisc, storedLanguageIso } from './lang/source.ts';
+import { EN_PACK } from './lang/pack.ts';
 import { MOVIES, type GameFiles, type Progress } from './files.ts';
 import { currentPrefs, storePrefs, storedPrefs } from './display.ts';
 import { loadRestore, RESTORE_FEATURES } from './restore/flag.ts';
@@ -41,13 +44,18 @@ let openHdGate: () => void = () => {};
 const hdGate = new Promise<void>((r) => { openHdGate = r; });
 const hdGateFor = (lib: { source: string; cached: boolean }) => () => (lib.source === 'archive' && !lib.cached ? hdGate : new Promise<void>((r) => setTimeout(r, 2500)));
 
+/** a line the next start screen shows (an English ISO / CD was recognised and kept as the language pack) */
+let flash = '';
+const GAME_TITLE_EN = "LEGO Island 2: The Brickster's Revenge";
+
 const mb = (bytes: number) => `${(bytes / 1e6).toFixed(bytes < 1e7 ? 1 : 0)} MB`;
 const SOURCE_NAMES = { iso: 'Van je eigen ISO', cd: 'Van je eigen cd-map', dev: 'Uit public/data (dev)', archive: 'Van archive.org' };
 
 async function startScreen() {
   app.replaceChildren();
   const lib = await availableSource();
-  const status = el('div', { className: 'note' });
+  const status = el('div', { className: 'note', textContent: flash });
+  flash = '';
   const bar = el('div', { className: 'bdb-loading-bar' });
   const track = el('div', { className: 'bdb-loading-track', style: 'width:min(60vw,26rem);display:none' }, bar);
   const progress: Progress = (done, total, label) => {
@@ -84,7 +92,10 @@ async function startScreen() {
   const isoInput = el('input', { type: 'file', accept: '.iso,.ISO', hidden: true });
   const addIsos = async (list: Iterable<File>) => {
     for (const f of list) {
-      try { await addIso(f, fraction(`${f.name} bewaren in je browser…`)); } catch (e) { showError(e); }
+      try {
+        const edition = await addIso(f, fraction(`${f.name} bewaren in je browser…`));
+        if (edition === 'en') { storePrefs({ lang: 'en' }); flash = 'Engelse ISO bewaard: de teksten, stemmen en lettertypen komen er voortaan uit (Taal: English). Het spel zelf blijft de Nederlandse versie.'; }
+      } catch (e) { showError(e); }
     }
     startScreen();
   };
@@ -94,6 +105,13 @@ async function startScreen() {
   dirInput.onchange = async () => {
     try {
       const files = await cdFolder([...(dirInput.files ?? [])].map((f) => [f.webkitRelativePath, f] as [string, Blob]), progress);
+      if (files.has('LEGO Island 2.exe') && !files.has('LEGO eiland 2.exe')) {   // the English edition: its texts, fonts and voices are the language pack (src/lang); the game itself stays the Dutch one
+        setSessionLanguageDisc(files);
+        storePrefs({ lang: 'en' });
+        flash = 'Engelse cd herkend: de teksten, stemmen en lettertypen komen hieruit zolang dit tabblad open is (Taal: English). Het spel zelf blijft de Nederlandse versie.';
+        startScreen();
+        return;
+      }
       await audio.unlock();
       status.textContent = '';
       await play(files);
@@ -124,12 +142,31 @@ async function startScreen() {
     c.onchange = () => set(c.checked);
     return el('label', { title }, c, ` ${text}`);
   };
+  // language: Dutch = the game as it is; English = the English edition's texts / fonts / voices laid over it (docs/re/language.md)
+  const langSelect = el('select', { id: 'le2-lang' }, el('option', { value: 'nl', textContent: 'Nederlands' }), el('option', { value: 'en', textContent: 'English' }));
+  langSelect.value = currentPrefs().lang;
+  const langNote = el('div', { id: 'le2-lang-note', className: 'bdb-hdnote' });
+  const paintLang = async () => {
+    if (langSelect.value !== 'en') { langNote.textContent = ''; return; }
+    const route = await languageRoute();
+    langNote.textContent = route === 'cd' ? 'English: teksten, stemmen en lettertypen uit je Engelse cd (alleen dit tabblad). Het spel zelf blijft de Nederlandse versie; de films zijn in beide talen dezelfde.'
+      : route === 'iso' ? 'English: teksten, stemmen en lettertypen uit je eigen Engelse ISO. Het spel zelf blijft de Nederlandse versie; de films zijn in beide talen dezelfde.'
+        : route === 'dev' ? 'English: uit public/data/le2-en (dev-server).'
+          : route === 'archive' ? 'English: alleen de Engelse teksten, lettertypen en stemmen worden van archive.org gehaald (via de tussenserver, ongeveer 33 MB als je alles hoort; ze blijven in je browser). Het spel zelf blijft de Nederlandse versie. Lukt het niet, dan speel je gewoon in het Nederlands.'
+            : 'English heeft de Engelse cd of ISO nodig (kies die bij "Eigen cd of ISO gebruiken"); zonder tussenserver is er geen andere route. Tot die er is, speel je in het Nederlands.';
+    langNote.className = `bdb-hdnote${route ? '' : ' bdb-warn'}`;
+  };
+  langSelect.onchange = () => { storePrefs({ lang: langSelect.value as 'nl' | 'en' }); void paintLang(); const r = document.getElementById('le2-restored-note'); if (r) r.hidden = langSelect.value !== 'en'; };
+  void paintLang();
   const options = el('div', { className: 'note bdb-opts' },
+    el('label', { title: 'Taal / Language: de teksten, ondertitels, stemmen en lettertypen van het spel. English gebruikt de Engelse versie van het spel (je eigen Engelse ISO of cd, of archive.org); Nederlands is het spel zoals het is' }, 'Taal / Language: ', langSelect),
+    langNote,
     el('label', { title: 'Knoppen op het scherm (pijltjes, Alt, Shift, Spatie, Ctrl, Enter, Esc en de camera) voor telefoon en tablet. Automatisch = aan op een apparaat dat je met je vinger bedient; tijdens het spelen zijn ze te verbergen' }, 'Touchbesturing: ', touchSelect),
     el('label', { title: 'Breedbeeld toont aan de zijkanten meer van de 3D-wereld; menu\'s, films en schermen blijven 4:3' }, 'Beeld: ', modeSelect),
     checkbox('le2-skipintro', 'Introfilms overslaan', 'De openingsfilms van het spel niet afspelen', prefs.skipIntro, (v) => storePrefs({ skipIntro: v })),
     checkbox('le2-debug', 'Debugmenu', 'Zet het verhaalpuntenmenu van de ontwikkelaars in het hoofdmenu in de plaats van "Credits" (docs/re/mods.md); toont ook de Ontwikkelaarshoek (toets `, docs/re/devcorner.md)', prefs.debugMenu, (v) => { storePrefs({ debugMenu: v }); const b = document.getElementById('le2-devcorner'); if (b) b.hidden = !v; }),
     checkbox('le2-restored', 'Herstelde inhoud', 'Optioneel (standaard uit): zet inhoud terug die de makers hadden gemaakt maar niet lieten zien: een filmscene, een zijmissie, tips van Darren, geschrapte regels ... Uit = precies het originele spel (docs/re/restore.md)', prefs.restored, (v) => { storePrefs({ restored: v }); const d = document.getElementById('le2-restored-list'); if (d) d.hidden = !v; }),
+    el('div', { id: 'le2-restored-note', className: 'bdb-hdnote', hidden: prefs.lang !== 'en', textContent: 'Herstelde inhoud werkt alleen in het Nederlands (de ondertitels van de herstelde regels zijn Nederlandse transcripties): bij Taal: English staat het uit.' }),
     el('details', { id: 'le2-restored-list', hidden: !prefs.restored, title: 'Elk onderdeel van de herstelde inhoud los aan of uit' }, el('summary', { textContent: 'Onderdelen van de herstelde inhoud' }),
       ...RESTORE_FEATURES.filter((f) => !('unfinished' in f)).map((f) => checkbox(`le2-rf-${f.id}`, f.label, f.id, !prefs.restoredOff.includes(f.id), (v) => { const off = new Set(storedPrefs().restoredOff); if (v) off.delete(f.id); else off.add(f.id); storePrefs({ restoredOff: [...off] }); }))));
 
@@ -148,6 +185,7 @@ async function startScreen() {
     },
   });
 
+  const hasEnIso = !!(await storedLanguageIso());
   const compat = await compatNotice();
   const screen = el('div', { className: 'bdb-start' },
     el('h1', { textContent: GAME_TITLE }),
@@ -164,8 +202,10 @@ async function startScreen() {
         el('button', { textContent: 'ISO-bestand kiezen…', onclick: () => isoInput.click() }),
         el('button', { textContent: 'cd-map kiezen…', onclick: () => dirInput.click() }),
         ...(lib.source === 'iso' ? [el('button', { textContent: 'Eigen ISO verwijderen', onclick: async () => { await removeIso(); startScreen(); } })] : []),
+        ...(hasEnIso ? [el('button', { textContent: 'Eigen Engelse ISO verwijderen', onclick: async () => { await removeLanguageIso(); startScreen(); } })] : []),
+        ...(sessionLanguageDisc() ? [el('button', { textContent: 'Engelse cd loslaten', onclick: () => { setSessionLanguageDisc(null); startScreen(); } })] : []),
         ...(lib.source === 'archive' && lib.cached ? [el('button', { textContent: 'Gedownloade bestanden verwijderen', onclick: async () => { await removeArchiveCache(); startScreen(); } })] : [])),
-      'Je kunt een ISO ook hierheen slepen. Een ISO wordt in je browser bewaard (ongeveer 450 MB); een cd-map alleen tijdens deze sessie.'),
+      'Je kunt een ISO ook hierheen slepen. Een ISO wordt in je browser bewaard (ongeveer 450 MB); een cd-map alleen tijdens deze sessie. Een Engelse ISO of cd (LEGO Island 2: The Brickster\'s Revenge) wordt herkend en geeft de taal "English"; het spel zelf blijft de Nederlandse versie.'),
     mods.element,
     isoInput, dirInput,
   );
@@ -224,6 +264,7 @@ function openHdGateSoon(files: GameFiles) {
 async function play(files: GameFiles, params = new URLSearchParams(location.search)) {
   app.replaceChildren();
   const prefs = currentPrefs(`?${params.toString()}`);
+  files = await applyLanguage(files, params);   // before the mods: they see the game in its language
   files = await applyMods(files, params, prefs.debugMenu);
   showLoadBadge(files);
   showHdBadge();
@@ -248,7 +289,7 @@ async function play(files: GameFiles, params = new URLSearchParams(location.sear
   if (params.get('devcorner') === '1' && prefs.debugMenu) (await import('./devcorner/index.ts')).openOnStart(sh);   // debug mode only: the corner opens when the front end starts
   recordModReport(files);
   openHdGateSoon(files);
-  document.title = GAME_TITLE; // the loading status lines went to the tab title
+  document.title = activeLanguage() === 'en' ? GAME_TITLE_EN : GAME_TITLE; // the loading status lines went to the tab title (the English edition's own title in English)
   if (sh.params.intro) await sh.runIntro();
   await sh.run();
   // "Stoppen": back to the start screen
@@ -261,6 +302,31 @@ const DEBUG_MENU_MOD: ActiveMod = {
   id: 'builtin-debug', title: 'Debugmenu', files: [],
   patches: [{ offset: 0x4a7834, bytes: Uint8Array.of(1, 0, 0, 0, 0x11), original: Uint8Array.of(4, 0, 0, 0, 2), line: 0 }],
 };
+
+/**
+ * "Taal": Dutch (the default) leaves the files as they are. English lays the English edition's message tables, fonts and voices over them (src/lang, docs/re/language.md): from the
+ * player's own English ISO / CD, or from archive.org through the relay. Never blocks play: when the pack cannot be had the Dutch files play on and a notice says why.
+ */
+async function applyLanguage(files: GameFiles, params: URLSearchParams): Promise<GameFiles> {
+  setActiveLanguage('nl');
+  if (currentPrefs(`?${params.toString()}`).lang !== 'en') return files;
+  const badge = el('div', { id: 'le2-langbadge', className: 'le2-loadbadge', textContent: 'English: taalbestanden laden…' });
+  document.body.appendChild(badge);
+  try {
+    const opened = await openLanguage(files, EN_PACK);
+    setActiveLanguage('en');
+    (window as unknown as { __le2Lang?: unknown }).__le2Lang = { lang: 'en', origin: opened.origin, replaced: opened.files.replaced };
+    console.info(`taal: English uit ${opened.origin} (${opened.files.replaced} bestanden)`);
+    badge.remove();
+    return opened.files;
+  } catch (e) {
+    console.warn('taal: English niet beschikbaar, het spel blijft Nederlands', e);
+    badge.textContent = `English niet beschikbaar (${e instanceof Error ? e.message : String(e)}): het spel blijft Nederlands.`;
+    badge.classList.add('le2-err');
+    setTimeout(() => badge.remove(), 20000);
+    return files;
+  }
+}
 
 /** the files of the game with the enabled mods applied (src/mods); `?mods=off` skips them. Nothing is wrapped when there is nothing to apply. */
 async function applyMods(files: GameFiles, params: URLSearchParams, debugMenu: boolean): Promise<GameFiles> {

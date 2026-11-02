@@ -21,7 +21,9 @@ export default {
     storePrefs({ mode: 'wide' }); storePrefs({ skipIntro: true });
     ok(storedPrefs().mode === 'wide' && storedPrefs().skipIntro && currentPrefs('').mode === 'wide', 'stored choice persists (partial updates merge)');
     ok(currentPrefs('?wide=0').mode === '4:3' && currentPrefs('?debug=1').debugMenu && currentPrefs('?intro=0').skipIntro, 'URL parameters override');
-    mem.set('le2-display', '{broken'); ok(storedPrefs().mode === '4:3', 'a damaged stored value falls back to the default');
+    ok(storedPrefs().lang === 'nl' && currentPrefs('').lang === 'nl' && currentPrefs('?lang=en').lang === 'en', 'language: Dutch by default, ?lang=en for one session');
+    storePrefs({ lang: 'en' }); ok(storedPrefs().lang === 'en' && currentPrefs('?lang=nl').lang === 'nl' && currentPrefs('?lang=xx').lang === 'en', 'language: the stored choice persists, the URL wins, junk is ignored');
+    mem.set('le2-display', '{broken'); ok(storedPrefs().mode === '4:3' && storedPrefs().lang === 'nl', 'a damaged stored value falls back to the default');
     delete globalThis.localStorage;
     // projection: same vertical FOV, the window's aspect
     const f = 1 / Math.tan(DEFAULT_FOV / 2);

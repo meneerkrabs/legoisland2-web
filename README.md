@@ -27,7 +27,7 @@ Sources, in order of preference (see `src/library.ts`):
    `data1.hdr`, `data1.cab` and `data2.cab` (about 342 MB together) are downloaded at once while you can already start playing. Everything stays in the browser
    afterwards; the movies are streamed.
 
-archive.org has two Dutch ISOs with the same layout and identical cabinet files (`legoeiland2dutch` and `legoeiland2`); the first is the default, the second the fallback.
+archive.org has two Dutch ISOs with the same layout and identical cabinet files (`legoeiland2dutch` and `legoeiland2`); the first is the default, the second the fallback. The English edition's language files come from its own ISO (`LEGO_Island_2_The_Bricksters_Revenge_-_Windows_Eng`, only with "Taal: English").
 
 ## Display, intro movies and mods
 
@@ -42,6 +42,13 @@ textures are read on demand from webfischi's upload on archive.org (through a by
 browser, instead of a 2.2 GB download up front; MEGA is the fallback. Fetching happens in the background while you already play; a zone that is not ready yet starts with the original
 textures and is sharper the next time, and unchecking stops it and offers to remove what was stored. Off = exactly the original look. Nothing of the pack is hosted here. Details:
 [docs/re/mods.md](docs/re/mods.md).
+
+**Taal / Language** (port extra, default **Nederlands** = the game exactly as it is): "English" plays the game with the English edition's texts, fonts and voices (*LEGO Island 2: The
+Brickster's Revenge*). The game's code stays the Dutch executable's; the English edition's language files (message tables, fonts, 1793 speech clips, one voice sound) are laid over the Dutch
+game, because the two discs are byte-identical in everything else (all zones, pictures, movies). They come from **your own English ISO or CD** (added under "Eigen cd of ISO gebruiken"; an
+English disc is recognised) or from the English ISO on archive.org through the same relay (only those files are read, a few MB while you play and 32 MB at most; kept in your browser). It never
+blocks play: when the English files cannot be had, the game stays Dutch and says so. "Herstelde inhoud" is Dutch-only; the start screen and the port's own notices stay Dutch. Details, the
+member-by-member comparison and the evidence: [docs/re/language.md](docs/re/language.md).
 
 **LEGO 3D** (port extra, **on by default**; off on weak devices): a start-screen checkbox that rebuilds the game from real LEGO parts of the [LDraw](https://www.ldraw.org)
 library (CC BY 4.0 / CCAL 2.0): the minifigs (bodies, heads, hands, hair and hats where a part exists), the brick library, real 3D studs on the stud plates, 4x stud / brick-wall pictures and

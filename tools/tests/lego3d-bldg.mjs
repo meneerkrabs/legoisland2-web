@@ -112,6 +112,19 @@ export default {
         const io = silhouetteIoU(so, sn, { size: 384 });
         worstIou = Math.min(worstIou, io.min);
         if (io.min < 0.9) failures.push(`${tag}: silhouette IoU ${io.min.toFixed(3)} (< 0.9) [${io.iou.map((v) => v.toFixed(3)).join(' ')}]`);
+        // doors (docs section 16.7): the brick leaf lives in the moving group's own frame, so turning the group about its hinge (what the game's door node does with the live matrix) must give
+        // the same silhouette as the game's leaf did: IoU >= 0.9 with every door group turned 35 and 80 degrees; each leaf is one connected piece of bricks
+        for (const lf of e.leaves ?? []) {
+          if (lf.components !== 1) failures.push(`${tag}: door leaf of group ${lf.g} is ${lf.components} pieces`);
+          if (e.kinds[lf.g] !== 'flat') failures.push(`${tag}: door leaf group ${lf.g} is ${e.kinds[lf.g]}`);
+          const base = gm[lf.g];
+          for (const deg of [35, 80]) {
+            const c = Math.cos((deg * Math.PI) / 180), sn = Math.sin((deg * Math.PI) / 180);
+            const turned = (m) => { const mm = groupMatrices(m).map((M) => { if (!M || !base || M[12] !== base[12] || M[13] !== base[13] || M[14] !== base[14]) return M; const R = Float32Array.from(M); R[0] = c; R[2] = -sn; R[8] = sn; R[10] = c; return R; }); return m.groups.map((g, gi) => { const t = []; for (let i = 0; i < g.indexCount; i++) { const v = m.indices[g.firstIndex + i] + g.firstVertex; t.push(...xf(mm[gi], [m.positions[v * 3], m.positions[v * 3 + 1], m.positions[v * 3 + 2]])); } return Float32Array.from(t); }); };
+            const dio = silhouetteIoU(turned(om), turned(nm), { size: 384 });
+            if (dio.min < 0.9) failures.push(`${tag}: door ${lf.g} turned ${deg} degrees: silhouette IoU ${dio.min.toFixed(3)}`);
+          }
+        }
         const to = om.indices.length / 3, tn2 = nm.indices.length / 3;
         trisO += to; trisN += tn2;
         if (tn2 > 60000) failures.push(`${tag}: ${tn2} triangles (sanity cap 60k)`);

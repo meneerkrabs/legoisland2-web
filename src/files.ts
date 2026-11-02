@@ -228,7 +228,9 @@ export function locateInstalledDir(paths: Iterable<string>): string | null {
   for (const raw of paths) {
     const p = raw.replace(/\\/g, '/');
     const lp = p.toLowerCase();
-    if (lp === 'lego eiland 2.exe' || lp.endsWith('/lego eiland 2.exe')) exe = p.slice(0, p.length - 'lego eiland 2.exe'.length);
+    // (the English edition's executable is `LEGO Island 2.exe`: that folder is accepted as the source of a language pack, src/lang)
+    const m = /(^|\/)(lego eiland 2|lego island 2)\.exe$/.exec(lp);
+    if (m) exe = p.slice(0, p.length - m[2].length - 4);
     const i = lp.indexOf('_data/');
     if (i === 0 || (i > 0 && lp[i - 1] === '/')) dataDirs.add(lp.slice(0, i));
   }

@@ -17,6 +17,7 @@ import { IsoVfs } from './engine/vfs.ts';
 import { GrowingSource, LoadState, blobSource, sliceSource, type ByteSource } from './engine/bytesource.ts';
 import { CachedSource, HttpRangeSource } from './engine/rangesource.ts';
 import { openWritable, writeWhole } from './opfsio.ts';
+import { EN_PACK, isPackEdition } from './lang/pack.ts';
 import {
   blobMedia, CAB_FILES, CAB_TOTAL, cabFileRefs, fetchMedia, FileSet, locateCabDir, locateInstalledDir, movieInfo, sourceMedia,
   type FileRef, type GameFiles, type MediaFile, type Progress,
@@ -125,11 +126,17 @@ export async function cdFolder(files: Iterable<[string, Blob]>, onProgress?: Pro
   throw new Error('Geen LEGO Eiland 2-cd gevonden in deze map (verwacht de cd-map met "LEGO Eiland 2/data1.hdr", of een geïnstalleerde spelmap).');
 }
 
-/** Store an ISO the user picked (after checking it is the LEGO Eiland 2 CD). */
-export async function addIso(file: Blob, onProgress?: (fraction: number) => void): Promise<void> {
+/**
+ * Store an ISO the user picked (after checking it is the LEGO Eiland 2 CD). The Dutch disc is the game (`isos/le2.iso`); the English disc (its cabinet has `LEGO Island 2.exe` and
+ * `sounds/speech/English`) is kept as `isos/le2-en.iso` and only gives the language when "Taal: English" is chosen (src/lang). Returns which of the two it was.
+ */
+export async function addIso(file: Blob, onProgress?: (fraction: number) => void): Promise<'nl' | 'en'> {
   const iso = await IsoVfs.open(file);
-  if (locateCabDir(iso.list()) === null) throw new Error('Deze ISO is niet de cd van LEGO Eiland 2 (data1.hdr, data1.cab en data2.cab ontbreken).');
-  const h = await (await opfsDir('isos')).getFileHandle('le2.iso', { create: true });
+  const dir = locateCabDir(iso.list());
+  if (dir === null) throw new Error('Deze ISO is niet de cd van LEGO Eiland 2 (data1.hdr, data1.cab en data2.cab ontbreken).');
+  const cab = await InstallShieldCab.open(iso.file(`${dir}data1.hdr`), [iso.file(`${dir}data1.cab`), iso.file(`${dir}data2.cab`)]);
+  const edition = isPackEdition(cabFileRefs(cab).map((f) => f.path), EN_PACK) ? 'en' : 'nl';
+  const h = await (await opfsDir('isos')).getFileHandle(edition === 'en' ? 'le2-en.iso' : 'le2.iso', { create: true });
   const w = await openWritable(h);
   const CHUNK = 8 << 20;
   try {
@@ -142,6 +149,7 @@ export async function addIso(file: Blob, onProgress?: (fraction: number) => void
     await w.abort().catch(() => {});
     throw e;
   }
+  return edition;
 }
 
 export async function removeIso() {

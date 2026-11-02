@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 // Dev only: lists the extracted game files in public/data/le2 (the installed Game folder) and the movies in
-// public/data/le2-movies, so the app can use them without the cabinet. public/data is gitignored and never built.
+// public/data/le2-movies, so the app can use them without the cabinet (and public/data/le2-en, the English edition's Game folder, as the language pack). public/data is gitignored and never built.
 function devManifest(): Plugin {
   const walk = (root: string, rel = '', out: { path: string; size: number }[] = []) => {
     for (const e of fs.readdirSync(path.join(root, rel), { withFileTypes: true })) {
@@ -18,6 +18,12 @@ function devManifest(): Plugin {
     name: 'le2-dev-manifest',
     apply: 'serve',
     configureServer(server) {
+      // the English edition's Game folder (public/data/le2-en) as a language pack (src/lang/source.ts); absent = no pack
+      server.middlewares.use('/__le2/manifest-en.json', (_req, res) => {
+        const dir = path.join(server.config.root, 'public/data/le2-en');
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ files: fs.existsSync(dir) ? walk(dir) : [] }));
+      });
       server.middlewares.use('/__le2/manifest.json', (_req, res) => {
         const data = path.join(server.config.root, 'public/data');
         const files = fs.existsSync(path.join(data, 'le2')) ? walk(path.join(data, 'le2')) : [];

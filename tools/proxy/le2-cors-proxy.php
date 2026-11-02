@@ -23,8 +23,8 @@ if (getenv('LE2_PROXY_ORIGINS')) {
     $ALLOWED_ORIGINS = array_merge($ALLOWED_ORIGINS, array_filter(array_map('trim', explode(',', getenv('LE2_PROXY_ORIGINS')))));
 }
 
-/** Toegestane doel-URL's: alleen de ISO-bestanden van deze twee archive.org-items. */
-$ALLOWED_URL = '#^https://archive\.org/download/(legoeiland2dutch|legoeiland2)/[^/?\#]+\.iso$#';
+/** Toegestane doel-URL's: alleen de ISO-bestanden van deze drie archive.org-items. */
+$ALLOWED_URL = '#^https://archive\.org/download/(legoeiland2dutch|legoeiland2|LEGO_Island_2_The_Bricksters_Revenge_-_Windows_Eng)/[^/?\#]+\.iso$#';
 
 /** Maximale grootte van een enkele range (bytes). Grotere aanvragen worden ingekort (het antwoord is dan een kleinere 206). */
 $MAX_RANGE = 32 * 1024 * 1024;
@@ -75,7 +75,7 @@ if (!function_exists('curl_init')) {
 
 $url = $_GET['url'] ?? '';
 if (!is_string($url) || strlen($url) > 400 || !preg_match($ALLOWED_URL, $url)) {
-    fail(400, 'Alleen de ISO-bestanden van legoeiland2dutch en legoeiland2 op archive.org zijn toegestaan.');
+    fail(400, 'Alleen de ISO-bestanden van legoeiland2dutch, legoeiland2 en LEGO_Island_2_The_Bricksters_Revenge_-_Windows_Eng (de Engelse taal) op archive.org zijn toegestaan.');
 }
 
 // Range: "bytes=a-b" of "bytes=a-"; zonder Range zou de hele ISO (450 MB) komen: niet toegestaan

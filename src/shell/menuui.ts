@@ -1,6 +1,7 @@
 // The menu as the player sees it: the engine (menu.ts) + drawing (menudraw.ts) + the handler of the engine's events (FUN_0041b500) and the page
 // set-up functions of the EXE by address (FUN_0041ae6e, 0041aef3, 0041afbc, 0041b037, 0041b2c1, 0041b2fd ...: they patch captions / disable masks).
 // One MenuUi serves the front end and the pause menus; the shell supplies the rest of the world through `MenuContext`.
+import { activeLanguage } from '../lang/state.ts';
 import type { Options } from './options.ts';
 import { S } from './options.ts';
 import type { GameVars } from '../game/vars.ts';
@@ -339,7 +340,7 @@ export class MenuUi {
     };
     const msg = (id: string) => c.msgs.label('!' + id);
     const pg = this.engine.page;
-    if (pg === LOAD_PAGE || pg === SAVE_PAGE || pg === ERASE_PAGE) ui.text(0, 'E = exporteren, I = importeren (.lgo)', 320, 476, { colour: 9, align: 'centre', shadow: false });
+    if (pg === LOAD_PAGE || pg === SAVE_PAGE || pg === ERASE_PAGE) ui.text(0, activeLanguage() === 'en' ? 'E = export, I = import (.lgo)' : 'E = exporteren, I = importeren (.lgo)', 320, 476, { colour: 9, align: 'centre', shadow: false });
     drawMenu(this.engine, {
       gfx, rows: c.rows, mask: this.mask | 0x20,
       label: (it) => menuLabel(it.label, msg),

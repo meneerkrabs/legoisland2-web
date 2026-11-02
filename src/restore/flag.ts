@@ -4,6 +4,7 @@
 // `undefined` until `loadRestore()` has run. `loadRestore()` imports the real implementation (`./index.ts`, a separate chunk: with the option off nothing of src/restore/** is ever requested)
 // and fills the hooks. The shared files only get additive one-liners of the form `restoreHooks.x?.(...)`; with the option off every one of them does nothing, so the game is exactly the original.
 import { currentPrefs } from '../display.ts';
+import { activeLanguage } from '../lang/state.ts';
 import type { Archive } from '../formats/archive.ts';
 import type { MessageTable } from '../ui/strings.ts';
 import type { SoundTableEntry } from '../formats/sound.ts';
@@ -61,6 +62,7 @@ export function forceRestored(on: boolean | null, off: string[] = []) { forced =
 /** is the option "Herstelde inhoud" on (the preferences are read when asked: they do not change during a session) */
 export function restoredOn(): boolean {
   if (forced) return forced.on;
+  if (activeLanguage() !== 'nl') return false;   // the restored lines are Dutch transcripts of Dutch clips (src/restore/lines.nl.ts): off in another language (docs/re/language.md)
   try { return currentPrefs().restored; } catch { return false; }
 }
 /** is one feature on: the option is on and the player did not switch it off */
