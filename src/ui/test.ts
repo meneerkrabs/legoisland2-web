@@ -44,6 +44,12 @@ function scene(name: string) {
     ui.text(0, 'gecentreerd x=320', 320, 360, { align: 'centre', colour: WHITE });
     ui.text(1, PARAGRAPH, 320, 392, { maxChars: 30, colour: YELLOW });
     ui.text(0, PARAGRAPH, 320, 400 + 100, { maxChars: 40, colour: WHITE });
+  } else if (name === 'glyphs') {
+    // dev check: the letters that get confused in small text (I / l / 1 / O / 0), the subtitle font at its real size
+    ui.text(0, 'I l 1 O 0 | I HAVE | EEEEEK, I HAVE TO RESCUE', 12, 40, { colour: YELLOW });
+    ui.text(0, 'PEPPER - I HAVE TO RESCUE VELOCIRAPTORS.', 12, 70, { colour: WHITE });
+    ui.text(0, 'IIIII OOOOO lllll 11111 00000', 12, 100, { colour: WHITE });
+    ui.text(1, 'I l 1 O 0 IIIII OOOOO', 12, 130, { colour: YELLOW });
   } else if (name === 'sprites') {
     const cols = 9, cw = 70, chh = 58;
     for (let i = 0; i < mo.length; i++) {
