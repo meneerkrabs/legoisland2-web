@@ -6,6 +6,7 @@ import { PARTS, fitsOf, partTris, cleanPart, decimateSoup, weldSoup, indexedToSo
 import { splitAtPlane } from '../geom.mjs';
 import { loft, shapeLevels } from './chars-loft.mjs';
 import { footprints, cutSoup, tagTri, prepFootprints, bandLevels, bandGroups, triArea } from './chars-paint.mjs';
+import { realArm, fitGameArm } from './chars-arm.mjs';
 import { buildSkeleton, packSkeleton, SKEL_PARTS } from './chars-skel.mjs';
 import { decimate } from '../../../src/mods/lego3d/geom/decimate.ts';
 import { mergeFlat, meshDeviation } from './chars-geom.mjs';
@@ -37,7 +38,9 @@ export const LAYOUTS = {
     },
     skinPick: { torso: { groups: [1] }, 'leg +x': { groups: [0] }, 'leg -x': { groups: [0] }, 'arm +x': { groups: [0] }, 'arm -x': { groups: [0] } },
     group: () => ({ hips: 0, 'leg +x': 0, 'leg -x': 0, 'arm +x': 0, 'arm -x': 0, torso: 1 }),
-    hrLimit: 1250,   // Pepper's prints (98 triangles in the original) are cut at the skin planes: about 700 of the 1,174
+    mrFactor: 1.5,   // (the lofted MR body of Pepper stays at the old budget: with more room the score picked a candidate whose median stretch is above the original's)
+    realArmLod: 0,   // Pepper's arm band painted onto the real arm costs about 400 triangles per arm at MR: her MR keeps the lofted arm
+    hrLimit: 2200,   // Pepper's prints (98 triangles in the original) are cut at the skin planes: about 700 of the 1,174
   },
   mfg: {
     zone: 'z02LGI', lods: ['MFG_HR', 'MFG_MR', 'MFG_LR', 'MFG_SLR', 'MFG_BGR'], roles: ['SSSSSS', 'SSSSSS', 'SSSSSS', 'SSSSSS', 'SSSSSS'],
@@ -50,7 +53,7 @@ export const LAYOUTS = {
     skinPick: { torso: { groups: [1, 2, 3] }, 'leg +x': { groups: [5] }, 'leg -x': { groups: [5] }, 'arm +x': { groups: [4] }, 'arm -x': { groups: [4] } },
     // the torso: front faces carry the print (group 1), back faces group 3, the rest (sides, top, bottom) group 2
     group: () => ({ hips: 0, 'leg +x': 5, 'leg -x': 5, 'arm +x': 4, 'arm -x': 4, torso: 'torso3' }),
-    hrLimit: 1250,
+    hrLimit: 2200,
   },
 };
 /** decal draping per LOD: deviation tolerance, smallest edge, depth (far LODs: coarse) */
@@ -68,7 +71,7 @@ const LAYOUT_BB = {
   },
   skinPick: { torso: { groups: [1, 2] }, 'leg +x': { groups: [0] }, 'leg -x': { groups: [0] }, 'arm +x': { groups: [1] }, 'arm -x': { groups: [1] } },
   group: () => ({ hips: 0, 'leg +x': 'legBB', 'leg -x': 'legBB', 'arm +x': 1, 'arm -x': 1, torso: 'torsoBB' }),
-  hrLimit: 1100,
+  hrLimit: 2000,
 };
 LAYOUTS.bb = LAYOUT_BB;
 // the astronaut Pepper (z36CNT, z40OGL, z40aPO, z41MAP; one LOD): g2 the white suit, g0 the crotch piece (here: the hip block), g1 the blue arm patches and the boot soles (decals)
@@ -82,7 +85,7 @@ LAYOUTS.space = {
   },
   skinPick: { torso: { groups: [2] }, 'leg +x': { groups: [2] }, 'leg -x': { groups: [2] }, 'arm +x': { groups: [2] }, 'arm -x': { groups: [2] } },
   group: () => ({ hips: 0, 'leg +x': 2, 'leg -x': 2, 'arm +x': 2, 'arm -x': 2, torso: 2 }),
-  hrLimit: 1100,
+  hrLimit: 2000,
 };
 const SHARE = { hips: 0.06, 'leg +x': 0.2, 'leg -x': 0.2, torso: 0.2, 'arm +x': 0.17, 'arm -x': 0.17 };
 
@@ -111,6 +114,8 @@ function bandPlanes(rule, ylo, yhi) {
 
 /** how the far LODs are built: a ladder of lofts, richest first (ring size of the arms, level caps per part kind, level-search tolerance in game units); the first that fits the budget wins */
 /** RICH (default; CHARS_BODY=decimated builds the old decimated variant): HR / MR bodies keep the detail of the LDraw parts (rings every `tol` of shape change, more points per ring) */
+/** the near LODs (HR, MR) build the real LDraw arm (chars-arm.mjs); CHARS_ARM=loft builds the old lofted tube */
+export const REAL_ARM = process.env.CHARS_ARM !== 'loft';
 export const RICH = process.env.CHARS_BODY !== 'decimated';
 export const RICH_HR = { K: { arm: 12, other: 8, torso: 8 }, bevel: 0.06, tol: 0.004, shapeAll: true, max: { arm: 14, leg: 14, hips: 3, torso: 6 } };
 export const LOFT_LADDER = [
@@ -135,6 +140,11 @@ export function buildLodGeometry(spec, B, fits, rules, lod, target, res = 'std',
     const dst = fits[id].dst, ylo = dst.lo[1] - 0.3, yhi = dst.hi[1] + 0.9;
     const mine = id === 'hips' ? [] : bandPlanes(rules[id], Math.max(0, ylo), yhi);
     partPlanes[id] = mine;
+    if (REAL_ARM && id.startsWith('arm') && fits[id].real && lod <= (spec.realArmLod ?? 1)) {   // the real arm: LDraw 3818 / 3819 articulated onto the game's arm, cut at the skin planes and the band edges
+      const ys = [...new Set([...mine, ...(bandY ?? [])].map((y) => +y.toFixed(3)))];
+      soups[id] = realArm(id.endsWith('-x') ? -1 : 1, fits[id].real, lod === 0 ? 'std' : 'low', ys);
+      continue;
+    }
     const hrLoft = !L ? (RICH ? RICH_HR : { K: { arm: 8, other: 4 }, tol: 0.01, max: { arm: 10, leg: 8, hips: 2, torso: 2 } }) : null;   // every body part is a loft at every LOD (edge-collapse decimation of the open LDraw shells left spikes and holes)
     if (L || hrLoft) {
       const L2 = L ?? hrLoft;   // far LODs: lofts through the skin planes and the levels where the shape changes
@@ -222,11 +232,12 @@ export async function build(ctx) {
     const A = archive(spec.zone);
     const B = loadBody(spec.zone, spec.lods[0] + '.msh');
     const fits = fitsOf(B, spec);
+    if (REAL_ARM) { const fa = fitGameArm(B, spec.regions['arm +x'], BONES); fits['arm +x'].real = fa.g; fits['arm -x'].real = fa.g; (tables.armFit ??= {})[name] = { iou0: +fa.iou0.toFixed(3), iou: +fa.iou.toFixed(3) }; ctx.log(`${name}: real arm fitted onto the game's arm, silhouette IoU in the bind pose ${fa.iou0.toFixed(3)} -> ${fa.iou.toFixed(3)}`); }
     for (let li = 0; li < spec.lods.length; li++) {
       if (process.env.CHARS_ONLY && !process.env.CHARS_ONLY.split(',').includes(`${name}-${li}`)) continue;   // dev loop only (with a dummy ctx, see chars-try.mjs): never for the real pack build
       const member = `Meshes/${spec.lods[li]}.msh`, origBytes = A.read(A.find(member));
       const origTris = parseMsh(origBytes).indices.length / 3;
-      const limit = process.env.CHARS_LIMIT ? +process.env.CHARS_LIMIT : li === 0 ? spec.hrLimit : li === 1 ? Math.round(origTris * 1.5) : origTris;   // LOD > 0: at most the original's triangles; HR: spec.hrLimit (docs/re/lego3d.md: about 2x)
+      const limit = process.env.CHARS_LIMIT ? +process.env.CHARS_LIMIT : li === 0 ? spec.hrLimit : li === 1 ? Math.round(origTris * (spec.mrFactor ?? 3.5)) : origTris;   // LOD > 0: at most the original's triangles; HR: spec.hrLimit (docs/re/lego3d.md: about 2x)
       let best = null;
       // decal groups are PAINTED onto the rebuilt surface (the triangles inside their footprint carry the decal's group, role 'S'); only decals that face up / down (soles) stay overlays ('D')
       const fps = footprints(loadBody(spec.zone, spec.lods[li] + '.msh'), spec.roles[li], !process.env.CHARS_NOWRAP);
@@ -310,7 +321,7 @@ export async function build(ctx) {
   buildHeads(ctx, tables, inv);
   buildHands(ctx, tables, inv);
   buildGear(ctx, tables, inv, { addStatic, groupBox, archive, parseMsh, assembleStatic, encodeStatic, decodeStatic });
-  ctx.use(cleanHead().infos); ctx.use(cleanHand().infos);
+  ctx.use(cleanHead().infos); ctx.use(cleanHand('std').infos); ctx.use(cleanHand('low').infos);
   for (const id of PART_IDS) ctx.use(cleanPart(id, 'std').infos);   // the body parts (hips, legs, torso, arms) and everything they reference: licence record
   ctx.put('chars/tables.json', JSON.stringify(tables));
 }
@@ -396,7 +407,7 @@ function buildHeads(ctx, tables, inv) {
 /** the HR hands (one group, 50-90 triangles, slot 6 / 8): the LDraw claw fitted by chamfer distance; MR / LR / SLR / BGR hands (42 / 26 / 10 / 4 triangles) stay the game's */
 function buildHands(ctx, tables, inv) {
   const seen = new Set(), rows = [], stat = { hr: 0, mr: 0, kept: 0 };
-  const HAND_HR = 120, HAND_CHAMFER = 0.1;
+  const HAND_HR = 480, HAND_MR = 320, HAND_CHAMFER = 0.1;   // round 10: the real claw at the standard (HR) / low (MR) LDraw resolution, no decimation
   for (const o of inv.models) for (const a of o.attach) {
     if (!a || (a.slot !== 6 && a.slot !== 8)) continue;
     a.parts.forEach((p, li) => {
@@ -408,9 +419,9 @@ function buildHands(ctx, tables, inv) {
       // the claw (3820) fits the HR hand and the MR hand (a C shape of 42 - 66 triangles); LR (26), SLR (10), BGR (4) are blocks / a cone in the game: a claw decimated that far is lumpier than they are (they stay the game's)
       const isHook = /^HATE/i.test(p.name);
       if (m.groups.length !== 1 || tris < 36 || tris > 90 || Math.max(...size) > 0.9 || isHook) { rows.push(`${p.name}: kept (${m.groups.length} groups, ${tris} tris, ${size.map((x) => x.toFixed(2)).join('x')})`); stat.kept++; return; }
-      const f = fitHand(m.positions, Array.from(m.indices));
+      const f = fitHand(m.positions, Array.from(m.indices), li === 0 ? 'std' : 'low');
       if (f.d > HAND_CHAMFER) { rows.push(`${p.name}: kept (chamfer ${f.d.toFixed(3)})`); stat.kept++; return; }
-      const limit = li === 0 ? HAND_HR : tris;   // HR: 1.6x the game's 74 (the claw has real tines); the MR hand: at most the original's
+      const limit = li === 0 ? HAND_HR : li === 1 ? HAND_MR : tris;   // the far LODs: at most the game's own hand (some models carry a 42-triangle MR hand at LOD 3)
       const w = weldSoup(f.tris);
       const r = w.idx.length / 3 > limit ? decimate({ pos: w.pos, idx: w.idx }, { targetTris: limit, crease: 30 }) : { pos: w.pos, idx: w.idx };
       const pos = Array.from(r.pos), idx = Array.from(r.idx), nt = idx.length / 3;

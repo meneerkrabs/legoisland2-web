@@ -47,7 +47,7 @@ export default {
         if (m1.groups.length !== m0.groups.length) { failures.push(`${ctxs}: groups ${m0.groups.length} -> ${m1.groups.length}`); continue; }
         if (JSON.stringify([...(m0.gtom ?? [])]) !== JSON.stringify([...(m1.gtom ?? [])]) || JSON.stringify([...(m0.matl ?? [])]) !== JSON.stringify([...(m1.matl ?? [])])) failures.push(`${ctxs}: GTOM / MATL changed`);
         m0.groups.forEach((g, gi) => { if (g.flags !== m1.groups[gi].flags) failures.push(`${ctxs} g${gi}: flags changed`); });
-        const t0n = m0.indices.length / 3, t1n = m1.indices.length / 3, lim = rec.lod === 1 ? Math.min(rec.limit ?? t0n, Math.round(t0n * 1.5)) : rec.lod > 0 ? Math.min(rec.limit ?? t0n, t0n) : (rec.limit ?? t0n);   // every LOD below the HR: at most THIS member's own triangles
+        const t0n = m0.indices.length / 3, t1n = m1.indices.length / 3, lim = rec.lod === 1 ? (rec.limit ?? Math.round(t0n * 1.5)) : rec.lod > 0 ? Math.min(rec.limit ?? t0n, t0n) : (rec.limit ?? t0n);   // every LOD below the HR: at most THIS member's own triangles
         if (t1n > lim) failures.push(`${ctxs}: ${t1n} triangles > limit ${lim} (original ${t0n})`);
         const k = (per[kind] ??= { n: 0, worst: 0, tris0: 0, tris1: 0 }); k.n++; k.worst = Math.max(k.worst, t1n / t0n); k.tris0 += t0n; k.tris1 += t1n;
         // normals / positions finite, normals unit
