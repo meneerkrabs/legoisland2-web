@@ -16,6 +16,8 @@ import { makeCategories, ProbeSink, loadGraphs, queueGraph } from './camera-prob
 import type { Category, GraphMap } from './camera-probes.ts';
 import { AdaptiveDetail, readLodConsts } from './camera-lod.ts';
 import { frustumObj, pyramidCorners } from './camera-frustum.ts';
+import { defaultObjectCam, placeCamera, trueDistance, writeCamera } from './camera-object.ts';
+import type { ObjectCamState } from './camera-object.ts';
 
 /** the zones whose original code calls FUN_0088fd70 (0x6be13d z20DSP, 0x6f37c6 z21FSH, 0x706e0e z22BIP, 0x656b47 z15SSH): the free camera is "origineel" there */
 export const FREE_CAM_ZONES = ['z20DSP', 'z21FSH', 'z22BIP', 'z15SSH'];
@@ -43,6 +45,8 @@ export interface CameraState {
   /** extension: the counter frequency assumed for FUN_00443e40's "10000 ticks" margin (Hz) */
   qpcHz: number;
   frustumDepth: number;
+  /** extension: "Camera op dit object" (camera-object.ts): the camera is placed relative to a record right before each drawn frame, in every loop mode */
+  obj: ObjectCamState;
 }
 
 export function makeState(c: DevCorner): CameraState {
@@ -50,7 +54,7 @@ export function makeState(c: DevCorner): CameraState {
   return {
     free: new FreeCam(pe), freeOn: false, pepperStill: true, start: 'auto', auto: new Autoplay(), f8: 'autoplay',
     cats: makeCategories(), sphereMarkers: false, gradient: true, graphRange: 150,
-    forceLod: false, forceLodLevel: readLodConsts(pe).debugLod, forceLodAll: false, adaptive: 0, detail: new AdaptiveDetail(readLodConsts(pe)), qpcHz: 1e6, frustumDepth: 100,
+    forceLod: false, forceLodLevel: readLodConsts(pe).debugLod, forceLodAll: false, adaptive: 0, detail: new AdaptiveDetail(readLodConsts(pe)), qpcHz: 1e6, frustumDepth: 100, obj: defaultObjectCam(),
   };
 }
 
@@ -95,6 +99,8 @@ export class CameraHook implements RunHook {
     this.cam = run.world.camera;
     this.sink = new ProbeSink(this.q, (t) => this.catOn(t));
     this.q.onOverflow = (w) => { c.toast(`Graph Queue has overflowed (${w}): wachtrij uitgezet voor dit beeld`); return false; };
+    this.S.obj.on = false;   // the record of the last zone is gone
+    this.c.status('camera.obj', '');
     this.syncInstall();
     if (run.kind === 'zone') {
       this.keyFn = (e) => this.onKey(e);
@@ -156,7 +162,7 @@ export class CameraHook implements RunHook {
     if (on === S.freeOn && (on === !!this.saved)) return;
     S.freeOn = on;
     this.freeValid = false;
-    this.wrapRender(on);
+    this.syncWrap();
     if (on) {
       this.saved = Float64Array.from(c);
       const mode = S.start === 'auto' ? (this.isOriginalZone() ? 'origineel' : 'huidig') : S.start;
@@ -176,9 +182,73 @@ export class CameraHook implements RunHook {
     const gr = this.run.gr;
     if (on && !this.renderWrapped) {
       const render = gr.render;
-      gr.render = (alpha: number, dt: number) => { if (this.S.freeOn && this.freeValid) this.applyFree(); render.call(gr, alpha, dt); };
+      gr.render = (alpha: number, dt: number) => {
+        if (this.S.freeOn && this.freeValid) this.applyFree();
+        // "Camera op dit object": the game's own camera is put back after the frame is drawn, so the game (chase camera ease, cutscene moves, zone cameras) never sees the override
+        const own = this.S.obj.on ? this.applyObject() : null;
+        try { render.call(gr, alpha, dt); } finally { if (own) this.cam.c.set(own); }
+      };
       this.renderWrapped = true;
     } else if (!on && this.renderWrapped) { delete (gr as unknown as { render?: unknown }).render; this.renderWrapped = false; }
+  }
+  /** wrap `GameRenderer.render` while the free camera or the object camera is on, unwrap otherwise (default play: untouched) */
+  private syncWrap() { this.wrapRender(this.S.freeOn || this.S.obj.on); }
+
+  // ------------------------------------------------------------------------------------------------------------------ camera on an object
+
+  private objFrozen: { eye: number[]; target: number[] } | null = null;
+  private objKey: ((e: KeyboardEvent) => void) | null = null;
+
+  /** the record the object camera looks at (null when it is gone) */
+  objectRecord(): GameRecord | null { return this.run.world.records[this.S.obj.rec] ?? null; }
+
+  /** "Camera op dit object": place the camera on record `index` (the UI's current numbers); every loop mode, also cutscenes and mini-games */
+  startObject(index: number): boolean {
+    const o = this.S.obj;
+    if (!this.run.world.records[index]) return false;
+    o.rec = index; o.on = true; this.objFrozen = null;
+    this.syncWrap();
+    if (!this.objKey) {
+      // Esc gives the game's camera back (capture phase: the game's pause does not see this key press); while the corner is open Esc closes the corner as before
+      this.objKey = (e) => {
+        if (e.code !== 'Escape' || !this.S.obj.on || this.c.isOpen) return;
+        e.preventDefault(); e.stopPropagation(); this.stopObject();
+      };
+      addEventListener('keydown', this.objKey, true);
+    }
+    this.statusObject();
+    return true;
+  }
+  stopObject() {
+    const o = this.S.obj;
+    o.on = false; this.objFrozen = null;
+    this.syncWrap();
+    if (this.objKey) { removeEventListener('keydown', this.objKey, true); this.objKey = null; }
+    this.c.status('camera.obj', '');
+  }
+  /** the numbers changed (or "volg" switched): a frozen placement is made again from the record's place of this moment */
+  touchObject() { this.objFrozen = null; this.statusObject(); }
+  private statusObject() {
+    const r = this.objectRecord(), o = this.S.obj;
+    this.c.status('camera.obj', o.on && r ? `camera op ${r.name} #${o.rec}${o.follow ? ' (volgt)' : ''}, Esc = spelcamera` : '');
+  }
+  /** the placement for the record now: eye / target, and the true distance */
+  objectPlacement() {
+    const r = this.objectRecord();
+    if (!r) return null;
+    const p = placeCamera(r, this.S.obj);
+    return { ...p, distance: trueDistance(p.eye, p.target) };
+  }
+  /** write the object camera into the zone's camera record; returns the game's own camera block (to put back after the frame) */
+  private applyObject(): Float64Array | null {
+    const o = this.S.obj, r = this.objectRecord();
+    if (!r) { this.stopObject(); return null; }
+    const own = Float64Array.from(this.cam.c);
+    let eye: number[], target: number[];
+    if (o.follow) { const p = placeCamera(r, o); eye = p.eye; target = p.target; this.objFrozen = null; }
+    else { if (!this.objFrozen) { const p = placeCamera(r, o); this.objFrozen = { eye: p.eye, target: p.target }; } eye = this.objFrozen.eye; target = this.objFrozen.target; }
+    writeCamera(this.cam.c, eye, target, this.S.free.k.eps);
+    return own;
   }
 
   /** write the free camera into the zone's camera record (eye, target, up, basis) and make it the previous one too: no smear between ticks */
@@ -259,6 +329,7 @@ export class CameraHook implements RunHook {
     this.run.world.col.debug = null;
     if (this.chaseOrig) { this.cam.chase = this.chaseOrig; this.chaseOrig = null; }
     this.run.gr.lodHook = null; this.run.gr.farHook = null;
+    if (this.S.obj.on) this.stopObject();
     this.wrapRender(false);
     this.c.status('camera.free', '');
   }

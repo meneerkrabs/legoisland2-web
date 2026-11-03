@@ -24,6 +24,16 @@ Debug mode only (`src/game/debug.ts`: the start screen's "Debugmenu" checkbox or
 1 Springen (story nodes, F9 FSM / sub-game jump, pages 17 / 25 / 26, PEPPERONI) | 2 Variabelen (319 vars, F9 "Switches" list, evidence scan) | 3 Cheats en geheimen | 4 Camera en tekenen |
 5 Records / Objecten (F9 GOB list) | 6 Galerij: modellen | 7 Galerij: texturen en HUD | 8 Geluid en muziek | 9 Teksten | 10 Scenes / animaties | 11 Vliegen | 12 Over.
 
+### Camera op dit object (port extension, section 5)
+Pick a record in the object list of section 5 and put the camera on it: **distance** (horizontal, from the record), **height** (camera height above the record's origin), **azimuth** in degrees around the record (0 = in front of it along its forward
+row, 90 = its right side, 180 = behind, 270 = left), **kijkpunt** (height of the point looked at, default 1.5) and **volg** (on = the camera keeps the record in view while it moves, off = it stays where it was placed; changing a number re-places it).
+Buttons "Camera op dit object" and "Terug naar spelcamera"; the line next to them shows the true eye-to-target distance (the island's near plane is 4.0, nothing closer is drawn; a cutscene sets its own near plane and field of view, which stay).
+Esc with the panel closed also gives the game's camera back (the key press is consumed: it does not pause the game); with the panel open Esc closes the panel as before and the camera stays on the record. A new zone starts with it off.
+How it works (`camera-object.ts` placement maths, `camera-run.ts` `CameraHook.startObject / stopObject / applyObject`): `GameRenderer.render` of the running zone / front end is wrapped (an instance wrapper, only while this or the free camera is on) and right before
+the frame is drawn the 18 camera floats (eye, target, up, basis) are written from the record's current matrix; right after the frame the game's own camera block is put back. The game's own code (chase camera ease, cutscene runner `src/shell/cutscene.ts`,
+zone cameras, `stepView`) never sees the override, so it runs in every loop mode (play, cutscene, mini-game, front end) and with it off nothing is wrapped (`devcorner-off`, `devcorner-camera` check this). If the free camera is on as well, the object camera wins while it is on.
+Headless use: `tools/steps/devcorner-objcam.mjs` drives the real panel (SHOTS="NAME:azimuth:distance:height:aim") for LEGO 3D on / off pictures (`?lego3d=1|0&debug=1&zone=...`), see its header.
+
 ### Ported original functions
 | function | what | where |
 |---|---|---|

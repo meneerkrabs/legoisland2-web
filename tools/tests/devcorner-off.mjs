@@ -54,6 +54,16 @@ export default {
     const rsrc = read('src/game/render.ts');
     ok(/debugDraw: .* = null;/.test(rsrc), 'GameRenderer.debugDraw = null');
     ok(/lodHook[^\n]*= null/.test(rsrc) && /farHook[^\n]*= null/.test(rsrc), 'GameRenderer.lodHook / farHook = null');
+    // (2b) "Camera op dit object": default off, the render wrapper and the Esc key exist only inside the camera hook (never in the shared files), and are removed again when it is off
+    {
+      const { defaultObjectCam } = await import('../../src/devcorner/camera-object.ts');
+      ok(defaultObjectCam().on === false, 'the object camera is off by default');
+      const cr = read('src/devcorner/camera-run.ts');
+      ok(/this\.S\.obj\.on = false;   \/\/ the record of the last zone is gone/.test(cr), 'a new run starts with the object camera off');
+      ok(/private syncWrap\(\) \{ this\.wrapRender\(this\.S\.freeOn \|\| this\.S\.obj\.on\); \}/.test(cr), 'GameRenderer.render stays unwrapped while neither camera override is on');
+      ok(/if \(this\.S\.obj\.on\) this\.stopObject\(\);/.test(cr), 'the object camera is switched off when the run ends');
+      for (const f of ['src/shell/playzone.ts', 'src/shell/frontend.ts', 'src/game/render.ts', 'src/game/camera.ts', 'src/shell/cutscene.ts']) ok(!/camera-object|startObject|objectCam/.test(read(f)), `${f} knows nothing of the object camera`);
+    }
     // (3) cheats, menu, keys
     ok(debugAids() === false, 'debugAids() is false without a stored / URL preference');
     const pe = loadExe(ctx.dataRoot);

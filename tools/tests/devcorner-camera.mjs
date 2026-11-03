@@ -469,6 +469,35 @@ export default {
       notes.push(`z08BKD visualisers: ${q.shapes.length} hurt-zone markers (red anchors / blue spheres), waypoint graph ${r.nodes} nodes / ${r.links} links (green X of size 0.5, white lines)`);
     }
 
+    // ------------------------------------------------------------------------------------------------------------ 10. "Camera op dit object" (port extension): the placement maths
+    {
+      const { placeCamera, writeCamera, trueDistance, defaultObjectCam } = await import('../../src/devcorner/camera-object.ts');
+      // a record at (10, 2, -3) turned so that its forward row is +X (yaw 90 degrees): rows right = (0,0,-1), forward = (1,0,0)
+      const m = new Float32Array(16); m[0] = 0; m[2] = -1; m[5] = 1; m[8] = 1; m[10] = 0; m[12] = 10; m[13] = 2; m[14] = -3; m[15] = 1;
+      const near = (a, b) => Math.abs(a - b) < 1e-6;
+      const f = placeCamera({ m }, { dist: 6, height: 2.5, azimuth: 0, aim: 1.5 });
+      ok(near(f.eye[0], 16) && near(f.eye[1], 4.5) && near(f.eye[2], -3) && near(f.target[0], 10) && near(f.target[1], 3.5) && near(f.target[2], -3), `azimuth 0 = in front of the record: ${f.eye} -> ${f.target}`);
+      const b = placeCamera({ m }, { dist: 6, height: 2.5, azimuth: 180, aim: 1.5 });
+      ok(near(b.eye[0], 4) && near(b.eye[2], -3), `azimuth 180 = behind: ${b.eye}`);
+      const r = placeCamera({ m }, { dist: 6, height: 2.5, azimuth: 90, aim: 1.5 });
+      ok(near(r.eye[0], 10) && near(r.eye[2], -9), `azimuth 90 = the record's right side: ${r.eye}`);
+      // a record that looks straight up: the facing falls back to +Z, nothing becomes NaN
+      const up = new Float32Array(16); up[1] = 1; up[4] = 0; up[5] = 0; up[6] = 1; up[8] = 0; up[9] = 1; up[10] = 0; up[12] = 1; up[13] = 1; up[14] = 1;
+      const u = placeCamera({ m: up }, defaultObjectCam());
+      ok(u.eye.every(Number.isFinite) && u.target.every(Number.isFinite), 'a record that looks straight up still gives a finite camera');
+      ok(near(trueDistance(f.eye, f.target), Math.hypot(6, 1)), 'true distance eye -> target');
+      const cam = new Float32Array(18);
+      writeCamera(cam, f.eye, f.target);
+      const len = Math.hypot(cam[15], cam[16], cam[17]), dotUp = cam[12] * 0 + cam[13] * 1;
+      ok(cam[0] === 16 && cam[3] === 10 && cam[7] === 1 && near(len, 1) && dotUp > 0.9 && cam[15] < 0, `view basis: forward ${[cam[15], cam[16], cam[17]]} (looks from +X back to the record), up.y ${dotUp}`);
+      ok(defaultObjectCam().on === false, 'the object camera is off by default');
+      // off by default: the hook only wraps `GameRenderer.render` while the free or the object camera is on
+      const src = (await import('node:fs')).readFileSync(new URL('../../src/devcorner/camera-run.ts', import.meta.url), 'utf8');
+      ok(/private syncWrap\(\) \{ this\.wrapRender\(this\.S\.freeOn \|\| this\.S\.obj\.on\); \}/.test(src), 'render is wrapped only while the free or the object camera is on');
+      ok(/finally \{ if \(own\) this\.cam\.c\.set\(own\); \}/.test(src), "the game's own camera is put back after the frame");
+      notes.push('object camera: placement (azimuth 0 / 90 / 180), degenerate facing, view basis, default off');
+    }
+
     return { checked, failures: failures.filter(Boolean), notes };
   },
 };
