@@ -23,13 +23,18 @@ export function cleanHand(res = 'low') {
   cache[res] = { tris: t, infos: f.infos };
   return cache[res];
 }
-/** mesh positions of the whole original hand -> { rot, fit, d, tris } (best chamfer of the 24 rotations, uniform scale about the bounding box centres) */
-export function fitHand(origPos, origIdx, res = 'low') {
+/**
+ * mesh positions of the whole original hand -> { rot, s, o, d, tris } (best chamfer of the 24 rotations, uniform scale about the bounding box centres: a claw point p lands on s * rot * p + o).
+ * `ringAxes` (unit vectors in the hand mesh's own frame, optional): the directions in which the game's tools run through this hand (chars-grip.mjs heldAxes). The claw's ring axis is the claw's y axis; a
+ * hand that is nearly square in section fits the claw about equally well turned a quarter about its arm (the mummy's: 0.058 against 0.062), and the tool then goes through the claw's wall instead
+ * of its ring. When the best rotation's ring axis is none of `ringAxes`, the best rotation that has one wins if it is at most `tol` times as far (chamfer) as the best.
+ */
+export function fitHand(origPos, origIdx, res = 'low', { ringAxes = null, tol = 1.25 } = {}) {
   const t = new Float32Array(origIdx.length * 3);
   for (let i = 0; i < origIdx.length; i++) { t[i * 3] = origPos[origIdx[i] * 3]; t[i * 3 + 1] = origPos[origIdx[i] * 3 + 1]; t[i * 3 + 2] = origPos[origIdx[i] * 3 + 2]; }
   const box = bbox(t), ref = samplePts(t);
   const c = cleanHand(res).tris;
-  let best = null;
+  const all = [];
   for (const rot of rotations24()) {
     const r = new Float32Array(c.length);
     for (let i = 0; i < c.length; i += 3) r.set(applyRot(rot, [c[i], c[i + 1], c[i + 2]]), i);
@@ -38,8 +43,13 @@ export function fitHand(origPos, origIdx, res = 'low') {
     const s = Math.cbrt(ext[0] * ext[1] * ext[2]);
     const o = [0, 1, 2].map((k) => (box.lo[k] + box.hi[k]) / 2 - s * (sb.lo[k] + sb.hi[k]) / 2);
     const out = new Float32Array(r.length); for (let i = 0; i < r.length; i += 3) for (let k = 0; k < 3; k++) out[i + k] = r[i + k] * s + o[k];
-    const d = chamfer(samplePts(out), ref);
-    if (!best || d < best.d) best = { d, rot, s, tris: out };
+    all.push({ d: chamfer(samplePts(out), ref), rot, s, o, tris: out, ring: applyRot(rot, [0, 1, 0]) });
+  }
+  all.sort((a, b) => a.d - b.d);
+  let best = all[0];
+  if (ringAxes?.length) {
+    const on = (x) => ringAxes.some((a) => Math.abs(a[0] * x.ring[0] + a[1] * x.ring[1] + a[2] * x.ring[2]) > 0.99);
+    if (!on(best)) { const alt = all.find((x) => on(x) && x.d <= best.d * tol); if (alt) best = { ...alt, turned: true, bestD: best.d }; }
   }
   return best;
 }

@@ -79,8 +79,13 @@ function drapeGroup(m: ReturnType<typeof parseMsh>, gi: number, host: TriSet, to
   return { group: { flags: og.flags, pos, nrm, uv, idx }, missed };
 }
 
+/** what a recipe adds to the blob (a tool held in the claw, docs/re/lego3d.md section 9, round 11) */
+export interface StaticOpts {
+  /** the rebuilt groups are shaded with their own geometry (crease normals) instead of the original's normal field: a replacement of another shape (a blade with a guard) has no business with the normals of the game's rounder blade */
+  geoNormals?: boolean;
+}
 /** roles: per original group 'S' (rebuilt from the blob), 'K' (kept) or 'D' (the original draped on the rebuilt surface, see drapeGroup); `nrmFrom[g]` = further groups whose vertices also supply normals for group g (the skin takes the face's too) */
-export function assembleStatic(origBytes: Uint8Array, blob: StaticBlob, roles: string, nrmFrom: number[][] = []): { bytes: Uint8Array; stats: StaticStats } | null {
+export function assembleStatic(origBytes: Uint8Array, blob: StaticBlob, roles: string, nrmFrom: number[][] = [], opts: StaticOpts = {}): { bytes: Uint8Array; stats: StaticStats } | null {
   const m = parseMsh(origBytes);
   if (m.groups.length !== roles.length || m.svwl) return null;
   const groups: MshOutGroup[] = [];
@@ -118,7 +123,7 @@ export function assembleStatic(origBytes: Uint8Array, blob: StaticBlob, roles: s
     const cn = creaseNormals(lp, lidx, 40), pos: number[] = Array.from(cn.pos), nrm: number[] = [], uv: number[] = [], idx: number[] = Array.from(cn.idx);
     for (let i = 0; i < cn.src.length; i++) {
       const p: V3 = [cn.pos[i * 3], cn.pos[i * 3 + 1], cn.pos[i * 3 + 2]], fn: V3 = [cn.nrm[i * 3], cn.nrm[i * 3 + 1], cn.nrm[i * 3 + 2]];
-      const n = surfaceNormal(p, fn, nrmSet, nIdx, m.normals, cand, m.positions); nrm.push(n[0], n[1], n[2]);
+      const n = opts.geoNormals ? fn : surfaceNormal(p, fn, nrmSet, nIdx, m.normals, cand, m.positions); nrm.push(n[0], n[1], n[2]);
       const c = uvSet.closest(p, fn, 0.3, 0.35) ?? uvSet.closest(p);   // the UVs of the face of the ORIGINAL that looks the way this face does (a corner is shared by 2 - 3 faces with different mappings)
       if (c) { const a = gIdx[c.tri * 3], b = gIdx[c.tri * 3 + 1], d = gIdx[c.tri * 3 + 2], U = m.uvs; uv.push(U[a * 2] * c.u + U[b * 2] * c.v + U[d * 2] * c.w, U[a * 2 + 1] * c.u + U[b * 2 + 1] * c.v + U[d * 2 + 1] * c.w); } else uv.push(0.5, 0.5);
     }

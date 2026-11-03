@@ -21,7 +21,8 @@ import { archive } from '../lib.mjs';
 import { poses as samplePoses, edgeStretch, poseDeviation } from './chars-pose.mjs';
 import { loadInventory } from '../chars-inventory.mjs';
 import { buildHead, HEAD_LADDER, cleanHead } from './chars-head.mjs';
-import { fitHand, cleanHand } from './chars-hand.mjs';
+import { cleanHand } from './chars-hand.mjs';
+import { fitHandHeld, handGrip, rawFrame, rawToBone } from './chars-grip.mjs';
 import { buildGear } from './chars-gear.mjs';
 import { encodeStatic, decodeStatic, assembleStatic } from '../../../src/mods/lego3d/chars/static.ts';
 import { parseMsh } from '../../../src/formats/msh.ts';
@@ -419,7 +420,7 @@ function buildHands(ctx, tables, inv) {
       // the claw (3820) fits the HR hand and the MR hand (a C shape of 42 - 66 triangles); LR (26), SLR (10), BGR (4) are blocks / a cone in the game: a claw decimated that far is lumpier than they are (they stay the game's)
       const isHook = /^HATE/i.test(p.name);
       if (m.groups.length !== 1 || tris < 36 || tris > 90 || Math.max(...size) > 0.9 || isHook) { rows.push(`${p.name}: kept (${m.groups.length} groups, ${tris} tris, ${size.map((x) => x.toFixed(2)).join('x')})`); stat.kept++; return; }
-      const f = fitHand(m.positions, Array.from(m.indices), li === 0 ? 'std' : 'low');
+      const f = fitHandHeld(inv, p, li, m);   // turned so that the tools of the models that hold this hand go through the claw's ring (round 11)
       if (f.d > HAND_CHAMFER) { rows.push(`${p.name}: kept (chamfer ${f.d.toFixed(3)})`); stat.kept++; return; }
       const limit = li === 0 ? HAND_HR : li === 1 ? HAND_MR : tris;   // the far LODs: at most the game's own hand (some models carry a 42-triangle MR hand at LOD 3)
       const w = weldSoup(f.tris);
@@ -428,7 +429,8 @@ function buildHands(ctx, tables, inv) {
       const bytes = encodeStatic({ pos, idx, group: new Array(nt).fill(0) });
       const out = assembleStatic(orig, decodeStatic(bytes), 'S', []);
       if (!out || out.stats.tris > limit) { rows.push(`${p.name}: kept (${out?.stats.tris} > ${limit})`); stat.kept++; return; }
-      addStatic(ctx, tables, `hand:${p.hash}`, p.member, p.hash, bytes, { roles: 'S', kind: 'hand', lod: li, limit, origTris: tris, tris: out.stats.tris, chamfer: +f.d.toFixed(4) });
+      const HF = rawFrame(m), ring = HF ? rawToBone(HF, handGrip(f)) : null, r3 = (x) => Math.round(x * 1000) / 1000;   // the claw's ring in the bone's frame (chars-grip.mjs): where a tool's handle has to run
+      addStatic(ctx, tables, `hand:${p.hash}`, p.member, p.hash, bytes, { roles: 'S', kind: 'hand', lod: li, limit, origTris: tris, tris: out.stats.tris, chamfer: +f.d.toFixed(4), ...(ring ? { ring: { c: ring.c.map(r3), a: ring.a.map(r3), r: r3(ring.r) }, turned: f.turned ? true : undefined } : {}) });
       rows.push(`${p.name}: ${tris} -> ${out.stats.tris} (chamfer ${f.d.toFixed(3)})`);
       stat[li === 0 ? 'hr' : 'mr']++;
     });

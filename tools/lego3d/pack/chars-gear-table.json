@@ -195,6 +195,43 @@
   "LARA_HRhair": {
    "iou": 0.82,
    "reason": "long straight hair: the thin strands cost IoU, the render matches"
+  },
+  "OBJT_Axe": {
+   "reduce": 2.0,
+   "reason": "axe 95330 at the low LDraw resolution is 177 triangles, budget 96: a shaft and a head, looked at: clean at 1.84x"
+  },
+  "OBJT_Drill": {
+   "reduce": 3.0,
+   "reason": "drill 55297 low is 748 triangles, budget 272: body, chuck, bit and grip, looked at: blocky but clean at 2.75x"
+  }
+ },
+ "grips": {
+  "2343": {
+   "p": [
+    0,
+    25,
+    0
+   ],
+   "a": "y",
+   "why": "goblet: the claw holds the stem (y 18..32), the origin is at the rim"
+  },
+  "6269": {
+   "p": [
+    0,
+    25,
+    0
+   ],
+   "a": "y",
+   "why": "goblet: the claw holds the stem (y 18..32), the origin is at the rim"
+  },
+  "33054": {
+   "p": [
+    0,
+    9.5,
+    19.5
+   ],
+   "a": "y",
+   "why": "mug: the claw holds the handle bar (x 0, z 19.5, y 4..15); the origin is the middle of the mug"
   }
  },
  "fits": {

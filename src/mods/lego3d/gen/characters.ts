@@ -16,7 +16,7 @@ export interface CharTables {
   /** lower-case member path -> { content hash -> recipe key } */
   members: Record<string, Record<string, string>>;
   /** static recipes (heads, hands, hair, headgear): the blob and the group roles */
-  statics?: Record<string, { blob: string; roles: string; nrmFrom?: number[][]; kind: string }>;
+  statics?: Record<string, { blob: string; roles: string; nrmFrom?: number[][]; kind: string; geoNormals?: boolean }>;
 }
 
 const cache = new Map<string, Uint8Array | null>();
@@ -45,7 +45,7 @@ export const generator: Generator = {
         try {
           const be = t.bodies[key], se = t.statics?.[key];
           if (se) {
-            const r = assembleStatic(bytes, decodeStatic(await env.pack.get(se.blob)), se.roles, se.nrmFrom ?? []);
+            const r = assembleStatic(bytes, decodeStatic(await env.pack.get(se.blob)), se.roles, se.nrmFrom ?? [], { geoNormals: se.geoNormals });
             if (r) { out = r.bytes; env.stats[`${se.kind}-tris`] = (env.stats[`${se.kind}-tris`] ?? 0) + r.stats.tris; }
           } else if (be) {
             const blob = decodeBody(await env.pack.get(be.blob));

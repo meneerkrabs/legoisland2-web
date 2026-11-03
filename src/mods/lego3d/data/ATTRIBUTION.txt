@@ -13,8 +13,8 @@ LDraw(TM) is a trademark owned and licensed by the Estate of James Jessiman. LEG
 
 The pack contains NO pictures or meshes of the game "LEGO Island 2": those are read from the player's own game files in the browser and are never copied here.
 
-Licence lines found in the 968 files used:
-  906 x Licensed under CC BY 4.0 : see CAreadme.txt
+Licence lines found in the 944 files used:
+  882 x Licensed under CC BY 4.0 : see CAreadme.txt
   52 x Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   10 x CCAL version 2.0
 
@@ -32,11 +32,11 @@ OMR set models (10):
   5935 Island Hopper (zone z22BIP, 1.33x) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
   5935 Island Hopper - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
 
-Parts used (372):
+Parts used (365):
   parts/16599.dat - Minifig Helmet Classic with Thin Chin Guard Cracked - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/18031.dat - Minifig Sword Longsword with Thick Guard - Gerald Lasser [GeraldLasser] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925a.dat - Sticker  2.4 x  2 with White German Railways Logo and "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925b.dat - Sticker  0.8 x  2 with White "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/2343.dat - Minifig Goblet - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2344.dat - ~Train Wheels Pin - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2348b.dat - Glass for Hinge Car Roof  4 x  4 Sunroof with Ridges - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2349a.dat - Hinge Car Roof  4 x  4 Sunroof without Ledges - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -65,8 +65,6 @@ Parts used (372):
   parts/2513.dat - Car Mudguard  3 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2540.dat - Plate  1 x  2 with Handle - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2555.dat - Tile  1 x  1 with Clip - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/2561.dat - Minifig Gun Musket - Franklin W. Cain [fwcain] - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/2562.dat - Minifig Gun Flintlock Pistol - Franklin W. Cain [fwcain] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2569.dat - Antenna  8H Whip - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2582.dat - Hinge Panel  2 x  4 x  3.333 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2584.dat - Hose Reel  2 x  2 Holder - Luis E. Fernandez [lfernand] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
@@ -80,7 +78,6 @@ Parts used (372):
   parts/266ac01.dat - Electric Lightbrick  2 x  2 Type 1 12V (Complete) - Niels Karsdorp [nielsk] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/266b.dat - ~Electric Lightbrick  2 x  2 Type 2 12V Case - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/266bc01.dat - Electric Lightbrick  2 x  2 Type 2 12V with Clear Diffusor - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/2674b.dat - Minifig Sword Greatsword with Capped Pommel - Philippe Hurbain [Philo] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/267a.dat - ~Electric Lightbrick  2 x  2 Type 1 Insert - Niels Karsdorp [nielsk] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/267b.dat - ~Electric Lightbrick  2 x  2 Type 2 Insert with Diffusor - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2723.dat - Technic Disc  3 x  3 with Axlehole - Thomas Burger [grapeape] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
@@ -168,7 +165,6 @@ Parts used (372):
   parts/3298.dat - Slope Brick 33  3 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3299.dat - Slope Brick 33  2 x  4 Double - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3300.dat - Slope Brick 33  2 x  2 Double - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/33054.dat - Minifig Mug - Philippe Hurbain [Philo] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3308a.dat - Arch  1 x  8 x  2 - Vincent Messenet [Cheenzo] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3460.dat - Plate  1 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3475a.dat - Plate  1 x  2 with Jet Engine and Smooth Hole - Michael Heidemann [mikeheide] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -324,9 +320,7 @@ Parts used (372):
   parts/50861.dat - Tyre  6/ 58 x 14 Offset Tread - Tim Gould [timgould] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/5091.dat - Tile  1 x  2 Cut Left 45 Degree - Gerald Lasser [GeraldLasser] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/5092.dat - Tile  1 x  2 Cut Right 45 Degree - Gerald Lasser [GeraldLasser] - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/55295.dat - Minifig Tool Hammer - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/55297.dat - Minifig Tool Power Drill - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/55298.dat - Minifig Tool Screwdriver - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/57894.dat - Window  1 x  4 x  6 Frame with Three Panes - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/57895.dat - Glass for Window  1 x  4 x  6 - Michael Heidemann [mikeheide] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/59900.dat - Cone  1 x  1 with Stop - Michael Heidemann [mikeheide] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -390,7 +384,6 @@ Parts used (372):
   parts/867.dat - Wheel Train for 12V Electric Motor - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/87087.dat - Brick  1 x  1 with Stud on 1 Side - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/87697.dat - Tyre 12/ 40 x 11 Wide with Centre Band - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/88288.dat - Minifig Dagger - Philippe Hurbain [Philo] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/947a.dat - Train Steam Cylinder  2 x  2 x  1.667 Curved - Interior Smooth - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/95330.dat - Minifig Axe - Philippe Hurbain [Philo] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/954.dat - ~Glass for Window  1 x  4 x  5 with Fixed Glass - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -406,4 +399,4 @@ Parts used (372):
   parts/u9130.dat - ~Electric Train 12V Power Pickup - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/u9146.dat - ~Pin for Electric Plug (Type 4) Single - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
 
-Primitives and sub-parts used: 586 files (all under the same library licence; authors above).
+Primitives and sub-parts used: 569 files (all under the same library licence; authors above).
