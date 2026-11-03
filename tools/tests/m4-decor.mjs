@@ -189,7 +189,11 @@ export default {
       notes.push(`decor blob apply: ${n} random stored decors compared with FUN_00421bbe(-1) natively`);
     }
     notes.push(`decor swap: ${enters} Enters, ${ticks} ticks compared with the original`);
-    void W; void decorModel; void decorStore;
+    {   // decor model groups (FUN_0043eaf0(DAT_00983838 + 8 + group * 0xc, index)): group 0 is the gear array g983838+8, NOT the records' models g98380c (the castle's BUG1 / BUG2 / LSD4 wore trees, BAR1-4 flags)
+      const fake = { models: [{ array: 'g98380c', index: 3, key: 'record' }, { array: 'g983838+8', index: 3, key: 'gear0' }, { array: 'g983838+20', index: 3, key: 'hat1' }, { array: 'g983838+32', index: 3, key: 'g2' }] };
+      ok(decorModel(fake, 0, 3)?.key === 'gear0' && decorModel(fake, 1, 3)?.key === 'hat1' && decorModel(fake, 2, 3)?.key === 'g2' && decorModel(fake, 0, 4) === null, 'decorModel: group g -> array g983838+(8 + 12 g), never the records\' array g98380c');
+    }
+    void W; void decorStore;
     return { checked, failures: failures.slice(0, 30), notes };
   },
 };

@@ -10,6 +10,7 @@ import { gameGroups } from '../setlib.mjs';
 import { voxelise, packBricks, emitSurface, signedVolume, soupOfBuf, searchOffset } from '../bldg.mjs';
 import { fitSlopes, surfaceIndex, fitFrames, paneRects, components6, partContacts } from '../bldg-parts.mjs';
 import { findLeaves, buildLeaf, fitDoorFrames, slopedPanes, fitRoofWindows, roofGlass, tiltedQuads, fitRoundCorners } from '../bldg-feat.mjs';
+import { fitWedges, wallTriangles } from '../bldg-wedge.mjs';
 import { parseMsh } from '../../../src/formats/msh.ts';
 import { encodeMesh, hashMember } from '../../../src/mods/lego3d/meshpack.ts';
 
@@ -18,7 +19,7 @@ const thickF = (spec, li) => (Array.isArray(spec.thickF) ? spec.thickF[Math.min(
 
 /** the models: per archive the LOD meshes to replace in LOD order (the last LOD of a record is its .col source and is never listed) */
 export const BLDG = [
-  { key: 'rescue', title: 'Res-Q Emergency Response Centre (the game\'s own massing)', zone: 'z02LGI', meshes: ['rescue_LOD1', 'rescue_LOD2', 'rescue_LOD3', 'rescue_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [6, 0, 0, 0], tile: 1, under: [true, false] },
+  { key: 'rescue', title: 'Res-Q Emergency Response Centre (the game\'s own massing)', zone: 'z02LGI', meshes: ['rescue_LOD1', 'rescue_LOD2', 'rescue_LOD3', 'rescue_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [6, 0, 0, 0], tile: 1, under: [true, false], wedges: { plates: 2, tiles: 1 } },
   { key: 'seaplane_strip_z14', title: 'Island Hopper seaplane of the airstrip (the game\'s own massing)', zone: 'z14OSD', meshes: ['airstrip_seaplane_LOD1', 'airstrip_seaplane_LOD2', 'airstrip_seaplane_LOD3', 'airstrip_seaplane_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [4, 4, 0, 0], tile: 1, minThick: 0.6 },
   { key: 'seaplane_strip_z23', title: 'Island Hopper seaplane of the airstrip (the game\'s own massing)', zone: 'z23DIP', meshes: ['airstrip_seaplane_LOD1', 'airstrip_seaplane_LOD2', 'airstrip_seaplane_LOD3', 'airstrip_seaplane_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [4, 4, 0, 0], tile: 1, minThick: 0.6 },
   // the carriage: at the locomotive's / tender's brick scale (stud 0.8, plate 0.32 = the 7750 set at 0.04); the wheel discs stay the game's (round)
@@ -165,6 +166,9 @@ export async function buildMesh({ a, msh, tl, spec, li, offset }) {
   }
   if (spec.slopes !== false) placements.push(...fitSlopes(vox, { surf: surfaceIndex(massSoups), log: spec.log, dbg: spec.dbg }));   // real LDraw slope bricks where the game's surface slopes (the cells leave the voxel model)
   if (process.env.BLDG_ROUND || spec.roundCorners) placements.push(...fitRoundCorners(vox, massSoups, { log: spec.log }));   // experiment of section 16.8
+  // cut-corner plates / tiles on the 45-degree walls (docs section 16.10): spec.wedges = { plates: first N LODs, tiles: first N LODs }; development switch BLDG_WEDGE = 0 (off) | plates | tiles
+  const wedges = { 0: null, plates: { plates: 2, tiles: 0 }, tiles: { plates: 2, tiles: 1 } }[process.env.BLDG_WEDGE ?? ''] ?? (process.env.BLDG_WEDGE === undefined ? spec.wedges : null);
+  if (wedges && li < wedges.plates) placements.push(...fitWedges(vox, wallTriangles(massSoups), { tiles: li < wedges.tiles, log: spec.log ?? ((m) => console.log(`  [${spec.key} LOD ${li + 1}] ${m}`)) }));
   const comp1 = components6(vox), contacts = partContacts(vox, placements);
   const bricks = packBricks(vox);
   const studSides = spec.studs[Math.min(li, spec.studs.length - 1)];

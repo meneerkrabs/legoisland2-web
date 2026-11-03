@@ -67,6 +67,14 @@ export default {
           const cells = new Set();
           for (const p of e.parts ?? []) { const m = p.match(/^(\w+)@(-?\d+),(-?\d+),(-?\d+)r(\d)g(\d+)$/); if (!m) { failures.push(`${tag}: part entry ${p}`); continue; } const k = m.slice(2, 5).join(','); if (cells.has(k)) failures.push(`${tag}: two parts at ${k}`); cells.add(k); }
         }
+        // the Res-Q rotunda's 45-degree walls (docs section 16.11): cut-corner plates on LOD 1 / 2 (tiles on LOD 1 only), none on LOD 3 / 4 and none on the other models
+        {
+          const wedge = (e.parts ?? []).filter((p) => /^(30504|6106|30503|2639|2450|26601|5091|5092)@/.test(p)), lod = /rescue_LOD(\d)\./i.exec(e.member)?.[1];
+          const tiles = wedge.filter((p) => /^509[12]@/.test(p)).length;
+          if (lod === '1' && (wedge.length - tiles < 12 || tiles < 50)) failures.push(`${tag}: ${wedge.length - tiles} cut-corner plates / ${tiles} cut tiles (expected 12 / >= 50)`);
+          if (lod === '2' && (wedge.length < 8 || tiles)) failures.push(`${tag}: ${wedge.length} wedge parts, ${tiles} tiles (expected 8 plates, no tile)`);
+          if (!lod || lod > '2') { if (wedge.length) failures.push(`${tag}: ${wedge.length} cut-corner parts where there should be none`); }
+        }
         const om = parseMsh(orig), nm = parseMsh(r.files.get(key)), prob = validateMsh(nm);
         if (prob.length) { failures.push(`${tag}: invalid msh: ${prob.slice(0, 2).join('; ')}`); continue; }
         if (nm.groups.length !== om.groups.length) { failures.push(`${tag}: ${nm.groups.length} groups, the game's has ${om.groups.length}`); continue; }

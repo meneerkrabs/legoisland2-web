@@ -12,6 +12,10 @@ import { STUD_RE, closeBottom, simplify } from './brickmesh.mjs';
 import { RayGrid, pruneHiddenCone } from './geomx.mjs';
 
 export const PITCH = [0.4, 0.16, 0.4], S = 0.02, EPS = 1e-4;
+/** convex plates whose geometry is the clean prism of the part's plan outline and height (the cut-corner plates of docs section 16.10: their LDraw underside detail is 100-860 triangles per part and never seen) */
+/** the cut tiles are drawn 0.05 stud inside their box and 0.2 stud short at the tip: their outline snaps to the grid by up to 0.25 stud */
+export const TILE_PRISM = new Set(['5091', '5092']);
+export const PRISM = new Set(['30504', '6106', '30503', '2639', '2450', '26601', '5091', '5092']);
 let lib = null;
 const cache = new Map(), turned = new Map();
 
@@ -42,14 +46,39 @@ export function loadPart(id, { res = 'low', maxCost = 4e-4 } = {}) {
   const solid = new Float32Array(kept.length + closed.cap.length);
   solid.set(kept); solid.set(closed.cap, kept.length);
   const m = simplify(solid, { maxCost, crease: 35 });
-  const tris = new Float32Array(m.idx.length * 3);
+  let tris = new Float32Array(m.idx.length * 3);
   for (let i = 0; i < m.idx.length; i++) { tris[i * 3] = m.pos[m.idx[i] * 3]; tris[i * 3 + 1] = m.pos[m.idx[i] * 3 + 1]; tris[i * 3 + 2] = m.pos[m.idx[i] * 3 + 2]; }
+  if (PRISM.has(String(id))) tris = prismOf(g, TILE_PRISM.has(String(id)) ? 0.1 : 0.048);
   // [x, z, y, dir]: `dir` = the stud's axis in the grid frame ((0, 1, 0) for the usual upright stud; a side stud of 87087 / 4070 points along z): LDraw up is -y, the grid's y is flipped
   const studs = collect.out.map((s) => [(s.m[9] - gx0) * S, (s.m[11] - gz0) * S, (ymax - s.m[10]) * S, [-s.m[1], s.m[4], -s.m[7]].map((v) => Math.round(v * 1e3) / 1e3 + 0)]);
   const part = { id: String(id), title: f.info.title, w, d, h, tris, studs, infos: f.infos, raw: f.tris.length / 9 };
   heightfield(part);
   cache.set(key, part);
   return part;
+}
+
+/** the prism of the plan outline (convex hull of the soup's x / z, the outline's vertices on the 1/100 stud) and the soup's height: top, bottom and one quad per hull edge, wound outward ((b-a)x(c-a)) */
+function prismOf(g, snapTol = 0.048) {
+  const seen = new Set(), P = []; let y1 = -1e9;
+  const snap = (v) => { const q = Math.round(v / 0.2) * 0.2; return Math.abs(v - q) < snapTol ? q : v; };   // tiles are drawn 0.05 stud inside their grid box: the outline goes on the grid
+  for (let i = 0; i < g.length; i += 3) { y1 = Math.max(y1, g[i + 1]); const x = snap(g[i]), z = snap(g[i + 2]), k = `${Math.round(x * 1e4)},${Math.round(z * 1e4)}`; if (!seen.has(k)) { seen.add(k); P.push([x, z]); } }
+  P.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = []; for (const p of P) { while (lo.length > 1 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 1e-9) lo.pop(); lo.push(p); }
+  const up = []; for (const p of [...P].reverse()) { while (up.length > 1 && cr(up[up.length - 2], up[up.length - 1], p) <= 1e-9) up.pop(); up.push(p); }
+  const H = lo.slice(0, -1).concat(up.slice(0, -1)), out = [], n = H.length;   // counter-clockwise in (x, z)
+  const tri = (a, b, c, want) => {   // keep the winding whose normal agrees with `want`
+    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const nn = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    const d = nn[0] * want[0] + nn[1] * want[1] + nn[2] * want[2];
+    out.push(...(d >= 0 ? [...a, ...b, ...c] : [...a, ...c, ...b]));
+  };
+  for (let q = 1; q < n - 1; q++) { tri([H[0][0], y1, H[0][1]], [H[q][0], y1, H[q][1]], [H[q + 1][0], y1, H[q + 1][1]], [0, 1, 0]); tri([H[0][0], 0, H[0][1]], [H[q][0], 0, H[q][1]], [H[q + 1][0], 0, H[q + 1][1]], [0, -1, 0]); }
+  for (let q = 0; q < n; q++) {
+    const a = H[q], b = H[(q + 1) % n], nrm = [b[1] - a[1], 0, -(b[0] - a[0])];   // outward for a counter-clockwise outline
+    tri([a[0], 0, a[1]], [b[0], 0, b[1]], [b[0], y1, b[1]], nrm); tri([a[0], 0, a[1]], [b[0], y1, b[1]], [a[0], y1, a[1]], nrm);
+  }
+  return Float32Array.from(out);
 }
 
 /** top surface height (in plates, at the column centre; up-facing triangles of the soup, studs excluded) and the cell fill (cell centre below the top surface, averaged over 4 x 4 samples per column) */

@@ -355,8 +355,12 @@ export function applyDecorToRecords(w: World, pe: Pe, group: number): void {
 
 registerSavePart('decor', { capture: captureDecor, apply: applyDecor });
 
-/** FUN_0043eaf0(DAT_00983838 + 8 + group * 0xc, index): the model `index` of model group 0 (the zone's record models, array g98380c) or 1 (array g983838+20) */
+/**
+ * FUN_0043eaf0(DAT_00983838 + 8 + group * 0xc, index): the model `index` of model group `group`: the builder's arrays g983838+8 (group 0: the castle's / hubs' gear models: helmets, hair, crowns),
+ * g983838+20 (group 1: the island's hats), +32, +44 ... (the record models are the array g98380c: entries with group -1 take those through the record, not through this). The first version mapped
+ * group 0 to g98380c (the records' models): the castle's characters (set 3, group 0) then wore trees (BUG1 / BUG2 / LSD4), flags (BAR1-4) or whole figures instead of their helmet / hair / crown.
+ */
 export function decorModel(scene: { models: readonly Model[] }, group: number, index: number): Model | null {
-  const name = group === 0 ? 'g98380c' : `g983838+${8 + group * 12}`;
+  const name = `g983838+${8 + group * 12}`;
   return scene.models.find((m) => m.array === name && m.index === index) ?? null;
 }

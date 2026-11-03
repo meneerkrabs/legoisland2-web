@@ -13,8 +13,8 @@ LDraw(TM) is a trademark owned and licensed by the Estate of James Jessiman. LEG
 
 The pack contains NO pictures or meshes of the game "LEGO Island 2": those are read from the player's own game files in the browser and are never copied here.
 
-Licence lines found in the 963 files used:
-  901 x Licensed under CC BY 4.0 : see CAreadme.txt
+Licence lines found in the 968 files used:
+  906 x Licensed under CC BY 4.0 : see CAreadme.txt
   52 x Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   10 x CCAL version 2.0
 
@@ -32,7 +32,7 @@ OMR set models (10):
   5935 Island Hopper (zone z22BIP, 1.33x) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
   5935 Island Hopper - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
 
-Parts used (368):
+Parts used (372):
   parts/16599.dat - Minifig Helmet Classic with Thin Chin Guard Cracked - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925a.dat - Sticker  2.4 x  2 with White German Railways Logo and "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925b.dat - Sticker  0.8 x  2 with White "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -147,6 +147,7 @@ Parts used (368):
   parts/3040b.dat - Slope Brick 45  2 x  1 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3045.dat - Slope Brick 45  2 x  2 Double Convex - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3046.dat - Slope Brick 45  2 x  2 Double Concave - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/30504.dat - Plate  8 x  8 without Corner - Mark Kennedy [mkennedy] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3062a.dat - Brick  1 x  1 Round with Solid Stud - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3062b.dat - Brick  1 x  1 Round with Hollow Stud - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3063b.dat - Brick  2 x  2 Corner Round with Stud Notch - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -321,6 +322,8 @@ Parts used (368):
   parts/501ac01.dat - Electric Train Motor 12V with 2-Hole Sockets (Complete) - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/50303.dat - Wing  7 x  6 with Stud Notches - Michael Heidemann [mikeheide] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/50861.dat - Tyre  6/ 58 x 14 Offset Tread - Tim Gould [timgould] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/5091.dat - Tile  1 x  2 Cut Left 45 Degree - Gerald Lasser [GeraldLasser] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/5092.dat - Tile  1 x  2 Cut Right 45 Degree - Gerald Lasser [GeraldLasser] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/55295.dat - Minifig Tool Hammer - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/55297.dat - Minifig Tool Power Drill - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/55298.dat - Minifig Tool Screwdriver - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -340,6 +343,7 @@ Parts used (368):
   parts/6087.dat - Bracket  5 x  2 x  2.333 with Inside Rib - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6091.dat - Brick  2 x  1 x  1.333 with Curved Top - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6093a.dat - Minifig Hair Ponytail - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/6106.dat - Plate  6 x  6 without Corner - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6111.dat - Brick  1 x 10 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6112.dat - Brick  1 x 12 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6140.dat - Bar  1 x  6 with Studs Closed - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -402,4 +406,4 @@ Parts used (368):
   parts/u9130.dat - ~Electric Train 12V Power Pickup - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/u9146.dat - ~Pin for Electric Plug (Type 4) Single - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
 
-Primitives and sub-parts used: 585 files (all under the same library licence; authors above).
+Primitives and sub-parts used: 586 files (all under the same library licence; authors above).
