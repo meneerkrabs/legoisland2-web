@@ -37,12 +37,13 @@ export default {
       const exePath = path.join(ctx.dataRoot, 'LEGO eiland 2.exe');
       if (fs.existsSync(exePath)) { const pe = new Pe(new Uint8Array(fs.readFileSync(exePath))), starts = pe.functionStarts(); scenes = (z) => extractZone(pe, z, undefined, starts); }
     } catch (e) { notes.push(`scene tables unavailable: ${e}`); }
-    let checked = 0, meshes = 0, worstIou = 1, trisO = 0, trisN = 0, glassPieces = 0;
+    let checked = 0, meshes = 0, worstIou = 1, trisO = 0, trisN = 0, glassPieces = 0, backFaces = 0;
     const per = [];
     for (const tn of tables) {
       const table = await pack.json(tn), arch = ctx.archives.find((a) => a.name.toLowerCase() === table.archive.toLowerCase());
       if (!arch) { notes.push(`${table.archive}: archive not in the data folder, skipped`); continue; }
       const r = await generateArchive(pack, arch.name, arch, async () => null, ['sets']);
+      const rOff = await generateArchive(pack, arch.name, arch, async () => null, ['sets', '-panes']);   // the comparison switch: the one-sided glass stays the game's
       const gen = (m) => [...r.files.keys()].find((k) => k.toLowerCase() === m.toLowerCase());
       const sc = scenes ? scenes(arch.name) : null;
       for (const k of r.files.keys()) if (/\.col$|waypoint/i.test(k)) failures.push(`${arch.name}: wrote ${k}`);
@@ -92,6 +93,27 @@ export default {
             }
             if (wrong) failures.push(`${tag}: glass group ${g}: ${wrong} of ${n} glass triangles wound against their normals`);
             glassPieces += n;
+          }
+          else if (k === 'pane') {   // glass that is one-sided in the game: the game's triangles stay the first part of the group byte for byte, a reversed copy of each unpaired triangle follows (docs section 16.9)
+            const ni0 = a.idx.length;
+            if (b.idx.length <= ni0) { failures.push(`${tag}: pane group ${g} has no back faces`); return; }
+            if (!same([...a.pos], [...b.pos.slice(0, a.pos.length)]) || !same([...a.nrm], [...b.nrm.slice(0, a.nrm.length)]) || !same([...a.uv], [...b.uv.slice(0, a.uv.length)]) || !same([...a.idx], [...b.idx.slice(0, ni0)])) failures.push(`${tag}: pane group ${g}: the game's own triangles changed`);
+            const key = (pos, idx, t) => [0, 1, 2].map((q) => [0, 1, 2].map((c) => Math.round(pos[idx[t * 3 + q] * 3 + c] * 1000)).join(',')).sort().join('|');
+            const orig = new Map(); for (let t = 0; t < ni0 / 3; t++) orig.set(key(a.pos, a.idx, t), (orig.get(key(a.pos, a.idx, t)) ?? 0) + 1);
+            let wrong = 0, n = 0, unknown = 0;
+            for (let t = ni0 / 3; t < b.idx.length / 3; t++, n++) {
+              const kk = key(b.pos, b.idx, t); if (!orig.has(kk)) unknown++;
+              const i0 = b.idx[t * 3] * 3, i1 = b.idx[t * 3 + 1] * 3, i2 = b.idx[t * 3 + 2] * 3;
+              const u = [b.pos[i1] - b.pos[i0], b.pos[i1 + 1] - b.pos[i0 + 1], b.pos[i1 + 2] - b.pos[i0 + 2]], v = [b.pos[i2] - b.pos[i0], b.pos[i2 + 1] - b.pos[i0 + 1], b.pos[i2 + 2] - b.pos[i0 + 2]];
+              const nn = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+              if (nn[0] * b.nrm[i0] + nn[1] * b.nrm[i0 + 1] + nn[2] * b.nrm[i0 + 2] < -1e-12) wrong++;
+              const l = Math.hypot(b.nrm[i0], b.nrm[i0 + 1], b.nrm[i0 + 2]); if (l > 1e-6 && !(l > 0.9 && l < 1.1)) wrong++;   // (the game's own normals of some lamp quads are zero: the copy keeps that)
+            }
+            if (unknown) failures.push(`${tag}: pane group ${g}: ${unknown} back triangles do not match a triangle of the game's pane`);
+            if (wrong) failures.push(`${tag}: pane group ${g}: ${wrong} back triangles wound against their normals / non-unit normals`);
+            backFaces += n;
+            const koff = [...rOff.files.keys()].find((q) => q.toLowerCase() === e.member.toLowerCase());
+            if (koff) { const o = parseMsh(rOff.files.get(koff)), c = slice(o, o.groups[g]); if (!same([...a.idx], [...c.idx]) || !same([...a.pos], [...c.pos])) failures.push(`${tag}: pane group ${g} changed although the back faces are switched off (-panes)`); }
           }
           else if (k === 'decal') { if (!same([...a.idx], [...b.idx]) || !same([...a.uv], [...b.uv]) || a.pos.length !== b.pos.length) failures.push(`${tag}: decal group ${g} topology / UV changed`); }
           else {
@@ -155,7 +177,7 @@ export default {
       if (r2.files.size !== r.files.size) failures.push(`${arch.name}: second run produced another member count`);
       else for (const [k, v] of r.files) { const w = r2.files.get(k); if (!w || hashMember(w) !== hashMember(v)) { failures.push(`${arch.name}: not deterministic: ${k}`); break; } }
     }
-    notes.push(`${glassPieces} glass triangles over the sloped panes`);
+    notes.push(`${glassPieces} glass triangles over the sloped panes`, `${backFaces} back-face triangles on one-sided glass`);
     notes.push(`${meshes} meshes in ${tables.length} archives (${trisO} -> ${trisN} triangles), worst silhouette IoU ${worstIou.toFixed(3)}`);
     notes.push(per.join(' | '));
     return { checked, failures, notes };

@@ -45,6 +45,42 @@ function isFlat(a, id) {
 }
 const identity = (m) => !m || [...m].every((v, j) => Math.abs(v - (j % 5 === 0 ? 1 : 0)) < 1e-5);
 
+/** a flat-colour translucent texture (the game's glass: rgb uniform, alpha 100..254): the groups with it are panes / lamp covers, not pictures */
+const glassCache = new Map();
+export function isGlassTexture(a, id) {
+  if (id < 0) return false;
+  const k = `${a.name}:${id}`;
+  if (glassCache.has(k)) return glassCache.get(k);
+  const t = textureOf(a, id);
+  let glass = false;
+  if (t) {
+    const px = t.rgba, mn = [255, 255, 255, 255], mx = [0, 0, 0, 0];
+    for (let i = 0; i < px.length; i += 4) for (let c = 0; c < 4; c++) { if (px[i + c] < mn[c]) mn[c] = px[i + c]; if (px[i + c] > mx[c]) mx[c] = px[i + c]; }
+    glass = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) <= 12 && mn[3] >= 100 && mx[3] < 255;
+  }
+  glassCache.set(k, glass);
+  return glass;
+}
+
+/** triangles of a soup (local coordinates) that have no partner facing the other way in the same plane (a face drawn from both sides has one): what a two-sided copy has to add (same test as `addBackFaces` of the generator) */
+export function unpairedTriangles(local) {
+  const nt = local.length / 9, sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const T = Array.from({ length: nt }, (_, t) => { const P = [0, 1, 2].map((k) => [local[t * 9 + k * 3], local[t * 9 + k * 3 + 1], local[t * 9 + k * 3 + 2]]), n = cross(sub(P[1], P[0]), sub(P[2], P[0])), l = Math.hypot(...n); return { P, n: l > 1e-12 ? n.map((x) => x / l) : [0, 0, 0], l }; });
+  let un = 0;
+  for (let t = 0; t < nt; t++) {
+    const a = T[t]; if (a.l < 1e-12) continue;
+    const c = [0, 1, 2].map((q) => (a.P[0][q] + a.P[1][q] + a.P[2][q]) / 3);
+    let back = false;
+    for (let u = 0; u < nt && !back; u++) {
+      if (u === t) continue; const b = T[u];
+      if (b.l < 1e-12 || dot(a.n, b.n) > -0.999 || Math.abs(dot(sub(c, b.P[0]), b.n)) > 0.002) continue;
+      back = [0, 1, 2].every((k) => dot(cross(sub(b.P[(k + 1) % 3], b.P[k]), sub(c, b.P[k])), b.n) >= -1e-6);
+    }
+    if (!back) un++;
+  }
+  return un;
+}
+
 /** connected pieces of a triangle soup (shared vertex positions): [{ soup, n (triangles), lo, hi }] */
 export function components(t) {
   const nt = t.length / 9, par = Array.from({ length: nt }, (_, i) => i), find = (x) => (par[x] === x ? x : (par[x] = find(par[x])));
@@ -155,7 +191,11 @@ export async function buildMesh({ a, msh, tl, spec, li, offset }) {
       const flat = isFlat(a, tl[g.index] ?? -1);
       groups.push({ kind: 0, flags: flat ? 0 : 1, pos: buf.pos, nrm: buf.nrm, idx: buf.idx, partFrom: buf.partFrom });
       kinds.push(flat ? 'flat' : 'uv'); tris += buf.idx.length / 3;
-    } else { groups.push({ kind: 1 }); kinds.push(g.kind === 'decal' ? 'decal' : 'keep'); }
+    } else {
+      // the game's translucent glass (panes, lamp covers) is a one-sided surface: from inside the building it is not there (docs section 16.9): the generator appends a reversed copy of every unpaired triangle ('pane')
+      const pane = spec.twoSided !== false && (g.flags & 3) && isGlassTexture(a, tl[g.index] ?? -1) && unpairedTriangles(g.local) > 0;
+      groups.push({ kind: 1 }); kinds.push(pane ? 'pane' : g.kind === 'decal' ? 'decal' : 'keep');
+    }
   });
   return { groups, kinds, tris, bom, vox, mass, gg, offset: vox.offset, bricks: bricks.length + placements.length + leafBuilds.reduce((s2, x) => s2 + x.b.bricks.length + x.b.placements.length, 0), placements, hold, leaves: leafBuilds.map(({ lf, b }) => ({ g: lf.g, pane: lf.pane?.g ?? null, hinge: lf.hinge, outer: lf.outer, opening: lf.opening ? [lf.opening.widthStuds, lf.opening.heightPlates] : null, bricks: b.bricks.length, parts: b.placements.map((p) => p.part), components: components6(b.vox).components, tris: b.geo.get(0)?.idx.length / 3, ...b.info })), assembly: { before: comp0.components, after: comp1.components, parts: placements.length, loose: contacts.loose, resting: contacts.below } };
 }

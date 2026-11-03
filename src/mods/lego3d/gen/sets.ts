@@ -202,6 +202,39 @@ function fixNormals(pos: ArrayLike<number>, nrm: Float32Array, idx: ArrayLike<nu
   return out;
 }
 
+/**
+ * The game's glass (panes, lamp covers) is a one-sided surface: seen from inside the building the pane is not there (docs/re/lego3d.md section 16.9). A reversed copy of every triangle that has no partner yet
+ * (same three corners, drawn from the other side) is appended to the group: new vertices with negated normals, the winding reversed, the same uv, the group's flags and texture. The game's own triangles stay the
+ * first part of the group byte for byte; a face the game draws from both sides (the door panes) is not doubled. `firstTris` limits the copy to the game's part of a group that got other pieces appended; `skipTilted` leaves the sloped (up-facing, normal y 0.3 .. 0.93) panes alone: real LDraw glass sits over them and is the glass from below.
+ */
+export function addBackFaces(pos: ArrayLike<number>, nrm: ArrayLike<number>, uv: ArrayLike<number>, idx: ArrayLike<number>, firstTris = Infinity, skipTilted = false) {
+  const nt = Math.min(Math.floor(idx.length / 3), firstTris);
+  const tri = (t: number): V3[] => [0, 1, 2].map((k) => { const v = idx[t * 3 + k]; return [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]] as V3; });
+  const T = Array.from({ length: nt }, (_, t) => { const P = tri(t), n = cross(sub(P[1], P[0]), sub(P[2], P[0])), l = Math.hypot(n[0], n[1], n[2]); return { P, n: (l > 1e-12 ? [n[0] / l, n[1] / l, n[2] / l] : [0, 0, 0]) as V3, l }; });
+  /** a face drawn from the other side already: a triangle facing the opposite way in the same plane that contains the centroid (the quads of the door panes are split along the other diagonal) */
+  const hasBack = (t: number) => {
+    const a = T[t]; if (a.l < 1e-12) return true;
+    if (skipTilted && a.n[1] >= 0.3 && a.n[1] <= 0.93) return true;   // an up-facing sloped pane: the real glass pieces over it (kind 'glass', the same 0.3 .. 0.93 as the builder's tiltedQuads) are the glass from below
+    const c: V3 = [(a.P[0][0] + a.P[1][0] + a.P[2][0]) / 3, (a.P[0][1] + a.P[1][1] + a.P[2][1]) / 3, (a.P[0][2] + a.P[1][2] + a.P[2][2]) / 3];
+    for (let u = 0; u < nt; u++) {
+      if (u === t) continue;
+      const b = T[u]; if (b.l < 1e-12 || dot(a.n, b.n) > -0.999 || Math.abs(dot(sub(c, b.P[0]), b.n)) > 0.002) continue;
+      const e = [0, 1, 2].map((k) => cross(sub(b.P[(k + 1) % 3], b.P[k]), sub(c, b.P[k])));
+      if (e.every((x) => dot(x, b.n) >= -1e-6)) return true;
+    }
+    return false;
+  };
+  const P = Array.from(pos), N = Array.from(nrm), U = Array.from(uv), X = Array.from(idx);
+  let added = 0;
+  for (let t = 0; t < nt; t++) {
+    if (hasBack(t)) continue;
+    const base = P.length / 3, ids = [0, 1, 2].map((k) => idx[t * 3 + k]);
+    for (const v of ids) { P.push(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]); N.push(-nrm[v * 3], -nrm[v * 3 + 1], -nrm[v * 3 + 2]); U.push(uv[v * 2], uv[v * 2 + 1]); }
+    X.push(base, base + 2, base + 1); added++;
+  }
+  return { pos: Float32Array.from(P), nrm: Float32Array.from(N), uv: Float32Array.from(U), idx: X, added };
+}
+
 /** the player's group g of `m`: positions (local), uvs and triangles (local indices) */
 function groupData(m: Msh, g: number) {
   const gr = m.groups[g], fv = gr.firstVertex;
@@ -221,6 +254,7 @@ export const generator: Generator = {
       try { table.meshes.push(...(await env.pack.json<SetTable>(n)).meshes); } catch (e) { env.log(`no set table ${n}: ${String(e)}`); }
     }
     if (!table.meshes.length) return;
+    const backFaces = !env.options.has('-panes');   // `?lego3d=-panes`: the game's one-sided glass stays one-sided (docs section 16.9; the comparison switch)
     let replaced = 0, left = 0, missing = 0, trisBefore = 0, trisAfter = 0;
     for (const e of table.meshes) {
       const cur = env.read(e.member);
@@ -259,8 +293,9 @@ export const generator: Generator = {
         };
         for (let gi = 0; gi < m.groups.length; gi++) {
           const og = m.groups[gi], d = groupData(m, gi), bg = blob[gi];
-          if (bg.kind === 1) {   // the player's group, unchanged
-            groups.push({ flags: og.flags, pos: m.positions.slice(d.fv * 3, (d.fv + d.nv) * 3), nrm: m.normals.slice(d.fv * 3, (d.fv + d.nv) * 3), uv: m.uvs.slice(d.fv * 2, (d.fv + d.nv) * 2), idx: Array.from(m.indices.subarray(d.fi, d.fi + d.ni)) });
+          if (bg.kind === 1) {   // the player's group, unchanged (a 'pane': plus the back of its glass)
+            const keep = { flags: og.flags, pos: m.positions.slice(d.fv * 3, (d.fv + d.nv) * 3), nrm: m.normals.slice(d.fv * 3, (d.fv + d.nv) * 3), uv: m.uvs.slice(d.fv * 2, (d.fv + d.nv) * 2), idx: Array.from(m.indices.subarray(d.fi, d.fi + d.ni)) };
+            if (e.kinds[gi] === 'pane' && backFaces) { const b = addBackFaces(keep.pos, keep.nrm, keep.uv, keep.idx); groups.push({ ...keep, pos: b.pos, nrm: b.nrm, uv: b.uv, idx: b.idx }); env.stats.backTriangles = (env.stats.backTriangles ?? 0) + b.added; } else groups.push(keep);
             continue;
           }
           if (e.kinds[gi] === 'glass') {   // the player's group stays as it is, real glass pieces (pack geometry) are appended behind the same texture: the pane the game draws (nearly invisible in its own flags) gets a body
@@ -268,8 +303,11 @@ export const generator: Generator = {
             const gx = Array.from(m.indices.subarray(d.fi, d.fi + d.ni)), base = gp.length / 3, u0 = m.uvs[d.fv * 2] ?? 0.5, v0 = m.uvs[d.fv * 2 + 1] ?? 0.5;
             for (let v = 0; v < bg.pos.length / 3; v++) { gp.push(bg.pos[v * 3], bg.pos[v * 3 + 1], bg.pos[v * 3 + 2]); gn.push(bg.nrm[v * 3], bg.nrm[v * 3 + 1], bg.nrm[v * 3 + 2]); gu.push(u0, v0); }
             for (let i = 0; i < bg.idx.length; i++) gx.push(base + bg.idx[i]);
-            groups.push({ flags: og.flags, pos: Float32Array.from(gp), nrm: Float32Array.from(gn), uv: Float32Array.from(gu), idx: gx });
+            // the game's vertical glass is one-sided too: its back is appended after the glass pieces (the first part of the group stays the game's, byte for byte); the sloped panes have the real glass over them and get no back
+            const bk = backFaces ? addBackFaces(gp, gn, gu, gx, d.ni / 3, true) : { pos: Float32Array.from(gp), nrm: Float32Array.from(gn), uv: Float32Array.from(gu), idx: gx, added: 0 };
+            groups.push({ flags: og.flags, pos: bk.pos, nrm: bk.nrm, uv: bk.uv, idx: bk.idx });
             env.stats.glassTriangles = (env.stats.glassTriangles ?? 0) + bg.idx.length / 3;
+            env.stats.backTriangles = (env.stats.backTriangles ?? 0) + bk.added;
             continue;
           }
           let gpos: Float32Array = bg.pos, gnrm: Float32Array = bg.nrm, gidx: ArrayLike<number> = bg.idx;
