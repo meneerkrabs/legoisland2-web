@@ -88,8 +88,18 @@ export function loft(t, levels, K, { straighten = false, flatEnds = false, unifo
     if (r) rings.push({ y, r });
   }
   if (uniform && rings.length) {   // a straight tube: every ring the shape of the median slice (a sleeve: the LDraw arm's dome and wrist cap would make a lemon)
-    const area = (g) => { const x = g.r.map((p) => p[0]), z = g.r.map((p) => p[1]); return (Math.max(...x) - Math.min(...x)) * (Math.max(...z) - Math.min(...z)); };
-    const sorted = [...rings].sort((a, b) => area(a) - area(b)), big = sorted[Math.floor(sorted.length * 0.5)];   // the median slice
+    const area = (r) => { const x = r.map((p) => p[0]), z = r.map((p) => p[1]); return (Math.max(...x) - Math.min(...x)) * (Math.max(...z) - Math.min(...z)); };
+    const sorted = [...rings].sort((a, b) => area(a.r) - area(b.r));
+    let big = sorted[Math.floor(sorted.length * 0.5)];   // the median slice
+    // A level can sit exactly on the flat cut through the part (the crown of the shoulder, the end of the cuff), where the slice is a point and the
+    // median of a handful of such rings is a sliver, not a sleeve (Pepper's MR / LR arm: a level at each end and one in between, 4 points: a ribbon).
+    // Measure the part on its interior slices then and take the median cross-section there.
+    const y0 = rings[0].y, y1 = rings[rings.length - 1].y;
+    if (y1 - y0 > 0.05) {
+      const S = [];
+      for (let y = y0 + 0.02 * (y1 - y0); y < y1 - 0.02 * (y1 - y0); y += 0.01) { const r = ringOf(slicePoints(t, y), K, round, bevel); if (r) S.push(r); }
+      if (S.length) { S.sort((p, q) => area(p) - area(q)); const m = S[Math.floor(S.length / 2)]; if (area(big.r) < 0.25 * area(m)) { if (process.env.CHARS_LOFT_DEBUG) console.log(`    uniform: level median ${area(big.r).toFixed(3)} -> interior median ${area(m).toFixed(3)}`); big = { r: m }; } }
+    }
     for (const g of rings) g.r = big.r.map((p) => [...p]);
   }
   if (flatEnds && rings.length > 2) {   // rounded ends (a shoulder dome, a wrist cap) would become cones: flat ends with the ring of the neighbouring level instead

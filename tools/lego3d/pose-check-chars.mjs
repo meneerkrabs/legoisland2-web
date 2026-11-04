@@ -2,7 +2,7 @@
 // Skinning stress test of the LEGO 3D character bodies against the originals over ALL clips of the MFIG rig of every zone (distinct clips only), at every LOD of every replaced body:
 // per pose the largest edge stretch (edge length / bind length, edges longer than 0.05 in bind), reported as median / p90 / max over poses, original next to mod; plus the shoulder / hip gap
 // (how far the top of an arm / leg moves away from the torso / hips surface compared with the bind pose).
-//   node tools/lego3d/pose-check-chars.mjs [--stride 3] [--layout pepp,mfg,bb] [--json out.json]
+//   node tools/lego3d/pose-check-chars.mjs [--stride 3] [--layout pepp,mfg,bb] [--pack FILE] [--json out.json]
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +19,7 @@ const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf(n); return i < 0 ? d : args[i + 1]; };
 const STRIDE = +opt('--stride', 3);
 const only = (opt('--layout', '') || '').split(',').filter(Boolean);
-const pack = Pack.open(new Uint8Array(fs.readFileSync(path.join(here, '../../src/mods/lego3d/data/lego3d.pack'))));
+const pack = Pack.open(new Uint8Array(fs.readFileSync(opt('--pack', path.join(here, '../../src/mods/lego3d/data/lego3d.pack')))));
 const REPS = { pepp: ['z02LGI', ['PEPP_HR', 'PEPP_MR', 'PEPP_LR', 'PEPP_SLR']], mfg: ['z02LGI', ['MFG_HR', 'MFG_MR', 'MFG_LR', 'MFG_SLR', 'MFG_BGR']], bb: ['z02LGI', ['BB_HR', 'BB_MR', 'BB_LR', 'BB_SLR', 'BB_BGR']], space: ['z40OGL', ['Space_pep_white']], skeleton: ['z17WAS', ['SKEL_HR']], mummy: ['z18MMP', ['MUMM_HR']] };
 const tables = await pack.json('chars/tables.json');
 

@@ -2,6 +2,7 @@
 // Through the bot slot and a snapshot server (headless, muted):
 //   ZONE=z02LGI  VIS=1 (switch an inactive record on)  HINT=1 (keep the status badge)  L3D=1|0  PREFIX=oc  SKIPCUT=0|1 (default 1: Shift skips cutscenes first)  PARAMS="&x=y"
 //   BACK=1 (Esc afterwards + a picture of the game's own camera)
+//   POSE=clip:frame  freeze the chosen record in that clip of its rig (an arm raised: clip 160, reaching forward: 293; its AnimInstance is stopped, like tools/lego3d/steps/chars-view.mjs does): for close-ups of a pose
 //   SHOTS="RECORD:azimuth:distance[:height[:aim[:follow]]];..."   RECORD = the four letters of the record (the first one the filter finds; "NAME#3" = the 4th match), azimuth in degrees (0 = front, 45 = three-quarter)
 //   sh tools/m5-botslot.sh node tools/browse.mjs http://localhost:5742/ tools/steps/devcorner-objcam.mjs --profile /tmp/p --size 800x600 --out DIR
 export default async ({ page, shot, wait, log, evaluate, key }) => {
@@ -42,6 +43,10 @@ export default async ({ page, shot, wait, log, evaluate, key }) => {
       const ck = bar.querySelector('input[type=checkbox]'); if (ck.checked !== (follow === '1')) ck.click();
     }, [az, dist, height, aim, follow]);
     await page.locator('.dc-bar button', { hasText: /^Camera op dit object$/ }).click(); await wait(200);
+    if (process.env.POSE) {
+      const [clip, frame = '0'] = process.env.POSE.split(':');
+      log('pose:', await evaluate(([i, clip, frame]) => { const rec = window.__zone.world.records[+i], a = rec?.anim; if (!a) return 'no animation on that record'; a.start(+clip, 0); a.frame = +frame; a.advance = () => 0; a.advanceTo = () => 0; a.start = () => true; a.seek = () => true; a.noInterp = true; return `${rec.name} clip ${clip} frame ${frame}`; }, [await evaluate(() => document.querySelector('.dc-section select').value), clip, frame]));
+    }
     await close(); await wait(+(process.env.SETTLE ?? 1500));
     log('cutscene running:', await evaluate(() => !!window.__zone.game?.debug?.().cutscene), 'mode', await evaluate(() => window.__zone.machine.mode), 'tick', await evaluate(() => window.__zone.world.tickCount));
     log(name, pick.trim(), await evaluate(() => document.querySelector('.dc-badge-hint')?.textContent?.replace(/\n/g, ' | ')));

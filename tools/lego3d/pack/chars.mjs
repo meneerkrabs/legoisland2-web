@@ -22,7 +22,9 @@ import { poses as samplePoses, edgeStretch, poseDeviation } from './chars-pose.m
 import { loadInventory } from '../chars-inventory.mjs';
 import { buildHead, HEAD_LADDER, cleanHead } from './chars-head.mjs';
 import { cleanHand } from './chars-hand.mjs';
-import { fitHandHeld, handGrip, rawFrame, rawToBone } from './chars-grip.mjs';
+import { CUFFS, cuffOf, cuffToBone, placeNeck } from './chars-wrist.mjs';
+import { applyRot } from '../geom.mjs';
+import { fitHandHeld, handGrip, rawFrame, rawToBone, boneToRaw } from './chars-grip.mjs';
 import { buildGear } from './chars-gear.mjs';
 import { encodeStatic, decodeStatic, assembleStatic } from '../../../src/mods/lego3d/chars/static.ts';
 import { parseMsh } from '../../../src/formats/msh.ts';
@@ -241,7 +243,9 @@ export async function build(ctx) {
       const limit = process.env.CHARS_LIMIT ? +process.env.CHARS_LIMIT : li === 0 ? spec.hrLimit : li === 1 ? Math.round(origTris * (spec.mrFactor ?? 3.5)) : origTris;   // LOD > 0: at most the original's triangles; HR: spec.hrLimit (docs/re/lego3d.md: about 2x)
       let best = null;
       // decal groups are PAINTED onto the rebuilt surface (the triangles inside their footprint carry the decal's group, role 'S'); only decals that face up / down (soles) stay overlays ('D')
-      const fps = footprints(loadBody(spec.zone, spec.lods[li] + '.msh'), spec.roles[li], !process.env.CHARS_NOWRAP);
+      // A wrap (Pepper's arm band) is painted only at the near LODs, where the arm has the rings to carry it; at the far LODs the arm is a coarse loft and the band's ragged cut costs more
+      // than the game's own overlay (which the assembler drapes: the same 10 quads as the original, see docs "Round 10"): PEPP_LR fits its 234 triangles that way, painted it needed 262.
+      const fps = footprints(loadBody(spec.zone, spec.lods[li] + '.msh'), spec.roles[li], !process.env.CHARS_NOWRAP && li < 2);
       const bandY = bandLevels(fps), bands = bandGroups(fps);
       const attempt = (rules, target, L, tag) => {
         const { soups, partPlanes } = buildLodGeometry(spec, B, fits, rules, li, target, 'std', L, bandY);
@@ -296,6 +300,7 @@ export async function build(ctx) {
       if (!best) { ctx.log(`${name} ${spec.lods[li]}: NO solution within the original's ${limit} triangles: stays the game's mesh`); tables.skipped.push(`${name}-${li}`); tables.kept.bodies.push(`${spec.lods[li]} (${origTris} triangles: no loft with its prints fits the budget)`); continue; }
       if (process.env.CHARS_DUMP) { (await import('node:fs')).mkdirSync(process.env.CHARS_DUMP, { recursive: true }); (await import('node:fs')).writeFileSync(`${process.env.CHARS_DUMP}/${spec.lods[li]}.msh`, best.res.bytes); }
       ctx.put(`chars/body/${name}-${li}.bin`, best.blob);
+      CUFFS.set(`${name}-${li}`, { R: cuffOf(best.res.bytes, [11, 13]), L: cuffOf(best.res.bytes, [12, 15]) });   // where the arm ends (round 12: the hands' necks go there)
       tables.bodies[`${name}-${li}`] = { layout: name, lod: li, limit, origTris, tris: best.total, stretch: [+best.st.median.toFixed(3), +best.st.p90.toFixed(3), +best.st.max.toFixed(3)], drift95: +best.dev.extra95.toFixed(4), maxRings: best.maxRings, minGap: best.minGap ?? 0, roles: best.rolesLod, painted: best.rolesLod.split('').map((r, g) => (r === 'S' && spec.roles[li][g] === 'D' ? g : -1)).filter((g) => g >= 0), blob: `chars/body/${name}-${li}.bin`, hosts: best.dopt.hosts, parts: PART_IDS, partPlanes: DECAL[li].cut ? PART_IDS.map((id) => best.partPlanes[id] ?? []) : null, decal: { tol: DECAL[li].tol, minEdge: DECAL[li].minEdge, maxDepth: DECAL[li].maxDepth } };
     }
   }
@@ -423,14 +428,18 @@ function buildHands(ctx, tables, inv) {
       const f = fitHandHeld(inv, p, li, m);   // turned so that the tools of the models that hold this hand go through the claw's ring (round 11)
       if (f.d > HAND_CHAMFER) { rows.push(`${p.name}: kept (chamfer ${f.d.toFixed(3)})`); stat.kept++; return; }
       const limit = li === 0 ? HAND_HR : li === 1 ? HAND_MR : tris;   // the far LODs: at most the game's own hand (some models carry a 42-triangle MR hand at LOD 3)
-      const w = weldSoup(f.tris);
+      // round 12: the neck (wrist peg + collar) is built anew and put onto the cuff of the arm this hand belongs to (the ring is not moved)
+      let handTris = f.tris, neck = null;
+      const cuff = wristCuff(inv, tables, o, a, li, m);
+      if (cuff) { const pl = placeNeck(f, cuff.cuff, applyRot, { N: li === 0 ? 16 : 12 }); if (pl) { handTris = pl.tris; neck = { to: cuff.key, x: +pl.x.toFixed(2), y: +pl.y.toFixed(2), tilt: +pl.tilt.toFixed(1), len: +pl.len.toFixed(2) }; } else rows.push(`${p.name}: NO neck placement (stays at the LDraw peg)`); }
+      const w = weldSoup(handTris);
       const r = w.idx.length / 3 > limit ? decimate({ pos: w.pos, idx: w.idx }, { targetTris: limit, crease: 30 }) : { pos: w.pos, idx: w.idx };
       const pos = Array.from(r.pos), idx = Array.from(r.idx), nt = idx.length / 3;
       const bytes = encodeStatic({ pos, idx, group: new Array(nt).fill(0) });
       const out = assembleStatic(orig, decodeStatic(bytes), 'S', []);
       if (!out || out.stats.tris > limit) { rows.push(`${p.name}: kept (${out?.stats.tris} > ${limit})`); stat.kept++; return; }
       const HF = rawFrame(m), ring = HF ? rawToBone(HF, handGrip(f)) : null, r3 = (x) => Math.round(x * 1000) / 1000;   // the claw's ring in the bone's frame (chars-grip.mjs): where a tool's handle has to run
-      addStatic(ctx, tables, `hand:${p.hash}`, p.member, p.hash, bytes, { roles: 'S', kind: 'hand', lod: li, limit, origTris: tris, tris: out.stats.tris, chamfer: +f.d.toFixed(4), ...(ring ? { ring: { c: ring.c.map(r3), a: ring.a.map(r3), r: r3(ring.r) }, turned: f.turned ? true : undefined } : {}) });
+      addStatic(ctx, tables, `hand:${p.hash}`, p.member, p.hash, bytes, { roles: 'S', kind: 'hand', lod: li, limit, origTris: tris, tris: out.stats.tris, chamfer: +f.d.toFixed(4), ...(neck ? { neck } : {}), ...(ring ? { ring: { c: ring.c.map(r3), a: ring.a.map(r3), r: r3(ring.r) }, turned: f.turned ? true : undefined } : {}) });
       rows.push(`${p.name}: ${tris} -> ${out.stats.tris} (chamfer ${f.d.toFixed(3)})`);
       stat[li === 0 ? 'hr' : 'mr']++;
     });
@@ -438,6 +447,19 @@ function buildHands(ctx, tables, inv) {
   for (const o of inv.models) for (const a of o.attach) if (a && (a.slot === 6 || a.slot === 8)) for (const p of a.parts) if (p?.hash && tables.statics[`hand:${p.hash}`]) (tables.members[p.member.toLowerCase()] ??= {})[p.hash] = `hand:${p.hash}`;
   tables.kept.hands = rows.filter((r) => r.includes('kept'));
   ctx.log(`hands: ${stat.hr} HR + ${stat.mr} MR replaced, ${stat.kept} kept: ${rows.join('; ')}`);
+}
+
+/**
+ * The cuff the hand `a.parts[li]` (slot 6 right, 8 left, of model `o`) is worn with, in the hand mesh's own frame { cuff: { c, n }, key }: the end face of the arm of the body this model has at this LOD (CUFFS, the
+ * body that the pack generated), else the layout's other LOD, else the minifig's (mfg-0): a hand mesh that several models carry takes the first model's.
+ */
+function wristCuff(inv, tables, o, a, li, hm) {
+  const F = rawFrame(hm); if (!F) return null;
+  const bp = o.parts[Math.min(li, o.parts.length - 1)], k0 = bp?.member ? tables.members[bp.member.toLowerCase()]?.[bp.hash] : null;
+  const layout = k0 ? k0.replace(/-\d+$/, '') : 'mfg', key = [k0, `${layout}-${li}`, `${layout}-${Math.min(li, 1)}`, `${layout}-0`, 'mfg-0'].find((k) => k && CUFFS.get(k)?.[a.slot === 8 ? 'L' : 'R']);
+  if (!key) return null;
+  const c = cuffToBone(CUFFS.get(key)[a.slot === 8 ? 'L' : 'R'], a.bone), r = boneToRaw(F, { c: c.c, a: c.n, r: 0 }), ra = boneToRaw(F, { c: c.c, a: c.a, r: 0 });
+  return { cuff: { c: r.c, n: r.a, a: ra.a, r: c.r }, key };
 }
 
 /** which parts carry a decal group: the parts of the pack triangles nearest to its vertices (at least a fifth of them) */
@@ -472,6 +494,7 @@ function buildSkeletons(ctx, tables, inv, rig) {
     if (!res || res.stats.solidTris > SKEL_LIMIT * origTris) { rows.push(`${p.name}: NOT replaced (${res?.stats.solidTris} triangles, limit ${SKEL_LIMIT * origTris})`); continue; }
     const key = `skel${done.size}-0`;
     ctx.put(`chars/body/${key}.bin`, blob);
+    CUFFS.set(key, { R: cuffOf(res.bytes, [11, 13]), L: cuffOf(res.bytes, [12, 15]) });
     tables.bodies[key] = { layout: 'skel', lod: 0, limit: Math.round(SKEL_LIMIT * origTris), origTris, tris: res.stats.solidTris, roles, painted: [], blob: `chars/body/${key}.bin`, hosts: [null], parts: SKEL_PARTS.map((x) => x.id), partPlanes: null, decal: { tol: 0.1, minEdge: 0.3, maxDepth: 0 } };
     ((tables.members[p.member.toLowerCase()] ??= {})[p.hash] = key);
     rows.push(`${p.name}: ${origTris} -> ${res.stats.solidTris} (pieces ${sk.pieces.map((x) => `${SKEL_PARTS[x.part].id} ${x.tris.length / 9}`).join(', ')})`);

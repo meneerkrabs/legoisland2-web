@@ -32,7 +32,7 @@ Esc with the panel closed also gives the game's camera back (the key press is co
 How it works (`camera-object.ts` placement maths, `camera-run.ts` `CameraHook.startObject / stopObject / applyObject`): `GameRenderer.render` of the running zone / front end is wrapped (an instance wrapper, only while this or the free camera is on) and right before
 the frame is drawn the 18 camera floats (eye, target, up, basis) are written from the record's current matrix; right after the frame the game's own camera block is put back. The game's own code (chase camera ease, cutscene runner `src/shell/cutscene.ts`,
 zone cameras, `stepView`) never sees the override, so it runs in every loop mode (play, cutscene, mini-game, front end) and with it off nothing is wrapped (`devcorner-off`, `devcorner-camera` check this). If the free camera is on as well, the object camera wins while it is on.
-Headless use: `tools/steps/devcorner-objcam.mjs` drives the real panel (SHOTS="NAME:azimuth:distance:height:aim") for LEGO 3D on / off pictures (`?lego3d=1|0&debug=1&zone=...`), see its header.
+Headless use: `tools/steps/devcorner-objcam.mjs` drives the real panel (SHOTS="NAME:azimuth:distance:height:aim") for LEGO 3D on / off pictures (`?lego3d=1|0&debug=1&zone=...`), see its header. `POSE=clip:frame` freezes the chosen record in that clip of its rig (its `AnimInstance` is stopped, as `tools/lego3d/steps/chars-view.mjs` does) for close-ups of a pose: clip 2 frame 0 = the bind pose, 293 frame 20 = an arm raised in front with the wrist turned 76 degrees, 124 frame 34 = an arm down with the wrist turned 55 degrees (the minifig rig `MFIG.blk`; a record with another rig, e.g. the castle knights' LSD1, may ignore it).
 
 ### Ported original functions
 | function | what | where |
