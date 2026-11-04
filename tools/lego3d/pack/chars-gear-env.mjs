@@ -113,7 +113,7 @@ function surfaceNets(solid, R, o, v, blur) {
 /**
  * @param t soup of the part (model coordinates); @param voxel cell size; @param head optional blocker soup (a head: seals openings); @returns { tris, dims }
  */
-export function envelope(t, { voxel = 0.03, head = null, headDrop = 0.09, blur = 1 } = {}) {
+export function envelope(t, { voxel = 0.03, head = null, blur = 1 } = {}) {
   const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
   for (const s of head ? [t, head] : [t]) for (let i = 0; i < s.length; i += 3) for (let c = 0; c < 3; c++) { lo[c] = Math.min(lo[c], s[i + c]); hi[c] = Math.max(hi[c], s[i + c]); }
   const pad = voxel * 4, o = lo.map((l) => l - pad), R = hi.map((h, c) => Math.ceil((h + pad - o[c]) / voxel) + 1);
@@ -121,30 +121,25 @@ export function envelope(t, { voxel = 0.03, head = null, headDrop = 0.09, blur =
   let barrier = new Uint8Array(N);
   mark(barrier, t, o, voxel, R);
   barrier = dilate(barrier, R, 1);
-  let headSolid = null, seal = null;
+  let headSolid = null, seal = null, fullHead = null;
   const partBarrier = Uint8Array.from(barrier);
   if (head) {
     let hv = new Uint8Array(N); mark(hv, head, o, voxel, R);
-    headSolid = erode(solidOf(dilate(hv, R, 1), R), R, 2);          // the head's volume, shrunk by two voxels: a hair that sits right on the skin keeps its wall
+    fullHead = solidOf(dilate(hv, R, 1), R); headSolid = erode(fullHead, R, 2);          // the head's volume, shrunk by two voxels: a hair that sits right on the skin keeps its wall
     seal = dilate(hv, R, Math.max(1, Math.round(0.05 / voxel)));
     for (let q = 0; q < N; q++) if (seal[q]) barrier[q] = 1;       // closes the gap between the cap and the head
   }
   let solid = solidOf(barrier, R);
   if (headSolid) for (let q = 0; q < N; q++) if (headSolid[q] || (seal[q] && !partBarrier[q])) solid[q] = 0;
   let tris = surfaceNets(solid, R, o, voxel, blur);
-  if (head && tris.length) {   // faces that look at the head from close by are the underside of the part (hidden): dropped
-    const cell = 0.1, g = new Map(), key = (x, y, z) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
-    const hp = [];
-    for (let a = 0; a < head.length; a += 9) { const A = [head[a], head[a + 1], head[a + 2]], B = [head[a + 3], head[a + 4], head[a + 5]], C = [head[a + 6], head[a + 7], head[a + 8]]; const n = Math.max(1, Math.ceil(Math.max(Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2]), Math.hypot(C[0] - A[0], C[1] - A[1], C[2] - A[2])) / 0.02)); for (let i = 0; i <= n; i++) for (let j = 0; j <= n - i; j++) { const u = i / n, w = j / n, s = 1 - u - w; hp.push([A[0] * s + B[0] * u + C[0] * w, A[1] * s + B[1] * u + C[1] * w, A[2] * s + B[2] * u + C[2] * w]); } }
-    for (const p of hp) { const k = key(p[0], p[1], p[2]); (g.get(k) ?? g.set(k, []).get(k)).push(p); }
-    const near = (x, y, z) => { let best = 1e9, bp = null; const cx = Math.floor(x / cell), cy = Math.floor(y / cell), cz = Math.floor(z / cell); for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) for (const p of g.get(`${cx + a},${cy + b},${cz + c}`) ?? []) { const d = Math.hypot(p[0] - x, p[1] - y, p[2] - z); if (d < best) { best = d; bp = p; } } return { d: best, p: bp }; };
+  if (head && tris.length) {
+    // The faces that the carving left INSIDE the head are hidden: dropped. (Round 13: they were dropped by "close to the head and looking at it" before; that cut the rim of the part in
+    // voxel-sized teeth, the zig-zag hairline of the replaced hair, with the skin showing through. A face is now dropped only when all three corners lie inside the head's volume, so the rim
+    // that stands out of the head stays whole.)
+    const inside = (x, y, z) => { const i = Math.floor((x - o[0]) / voxel), j = Math.floor((y - o[1]) / voxel), k = Math.floor((z - o[2]) / voxel); return i >= 0 && j >= 0 && k >= 0 && i < R[0] && j < R[1] && k < R[2] && fullHead[(k * R[1] + j) * R[0] + i] === 1; };
     const keep = [];
     for (let a = 0; a < tris.length; a += 9) {
-      const c = [(tris[a] + tris[a + 3] + tris[a + 6]) / 3, (tris[a + 1] + tris[a + 4] + tris[a + 7]) / 3, (tris[a + 2] + tris[a + 5] + tris[a + 8]) / 3];
-      const e1 = [tris[a + 3] - tris[a], tris[a + 4] - tris[a + 1], tris[a + 5] - tris[a + 2]], e2 = [tris[a + 6] - tris[a], tris[a + 7] - tris[a + 1], tris[a + 8] - tris[a + 2]];
-      const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]], nl = Math.hypot(...n) || 1;
-      const h = near(c[0], c[1], c[2]);
-      if (h.d <= headDrop) { const toward = [(h.p[0] - c[0]) / (h.d || 1), (h.p[1] - c[1]) / (h.d || 1), (h.p[2] - c[2]) / (h.d || 1)]; if ((n[0] * toward[0] + n[1] * toward[1] + n[2] * toward[2]) / nl > 0.2) continue; }
+      if (inside(tris[a], tris[a + 1], tris[a + 2]) && inside(tris[a + 3], tris[a + 4], tris[a + 5]) && inside(tris[a + 6], tris[a + 7], tris[a + 8])) continue;
       keep.push(...tris.subarray(a, a + 9));
     }
     tris = Float32Array.from(keep);

@@ -19,7 +19,42 @@
   "STEV_HRhair": "two-colour long hair: the part leaves skin holes at the temples and the blue cap colour does not follow",
   "ANDY_HRhair": "two-colour fringe: the draped blue bits land as scattered patches on the library hair",
   "LARD_HRhair": "the library hair leaves a skin-coloured gap at the back",
-  "LARD_HRhair1": "the library hair leaves a skin-coloured gap at the back"
+  "LARD_HRhair1": "the library hair leaves a skin-coloured gap at the back",
+  "BSD1_HRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "BSD1_MRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "BSD1_LRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "BSD1_SLRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "BSD1_BGRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LAR1_HRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LAR1_MRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LAR1_LRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LAR1_SLRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LAR1_BGRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LAR2_HRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LAR2_MRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LAR2_LRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LAR2_SLRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LAR2_BGRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LSD1_HRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LSD1_MRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LSD1_LRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LSD1_SLRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LSD1_BGRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LSD2_HRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LSD2_MRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LSD2_LRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LSD2_SLRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "LSD2_BGRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "CAVL_HRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "CAVL_MRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "CAVL_LRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "CAVL_SLRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "CAVL_BGRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "BSD3_HRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "BSD3_MRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "BSD3_LRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "BSD3_SLRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)",
+  "BSD3_BGRhelmet": "open-faced helmet in the game; the library part (chin guard / cheek plates) covers the mouth (looked at, round 13: the face is visible from brow to chin in the game's own mesh)"
  },
  "prefer": {
   "OBJT_Sword": [
@@ -203,6 +238,10 @@
   "OBJT_Drill": {
    "reduce": 3.0,
    "reason": "drill 55297 low is 748 triangles, budget 272: body, chuck, bit and grip, looked at: blocky but clean at 2.75x"
+  },
+  "LICK_HRhair": {
+   "iou": 0.79,
+   "reason": "long hair with a pony tail (part 6093a): 0.80 before the rim of the part was no longer cut by the head (round 13), 0.795 after; the render matches"
   }
  },
  "grips": {

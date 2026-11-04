@@ -3,7 +3,7 @@
 // 'K' groups are copied as they are (a hair group, a decal quad). GTOM / MATL are kept.
 import { parseMsh } from '../../../formats/msh.ts';
 import { writeMsh, type MshOutGroup } from '../mshio.ts';
-import { TriSet, surfaceNormal, degenerateTri, norm, sub, len, type V3 } from './geo.ts';
+import { TriSet, surfaceNormal, closestFacing, degenerateTri, norm, sub, len, type V3 } from './geo.ts';
 import { creaseNormals } from '../geom/decimate.ts';
 
 /** magic "CST1": u32 nV, u32 nT, f32 lo[3], f32 hi[3], u16 pos[3 nV], u16 idx[3 nT], u8 group[nT] */
@@ -124,7 +124,7 @@ export function assembleStatic(origBytes: Uint8Array, blob: StaticBlob, roles: s
     for (let i = 0; i < cn.src.length; i++) {
       const p: V3 = [cn.pos[i * 3], cn.pos[i * 3 + 1], cn.pos[i * 3 + 2]], fn: V3 = [cn.nrm[i * 3], cn.nrm[i * 3 + 1], cn.nrm[i * 3 + 2]];
       const n = opts.geoNormals ? fn : surfaceNormal(p, fn, nrmSet, nIdx, m.normals, cand, m.positions); nrm.push(n[0], n[1], n[2]);
-      const c = uvSet.closest(p, fn, 0.3, 0.35) ?? uvSet.closest(p);   // the UVs of the face of the ORIGINAL that looks the way this face does (a corner is shared by 2 - 3 faces with different mappings)
+      const c = closestFacing(uvSet, p, fn) ?? uvSet.closest(p);   // the UVs of the face of the ORIGINAL that looks the way this face does (a corner is shared by 2 - 3 faces with different mappings)
       if (c) { const a = gIdx[c.tri * 3], b = gIdx[c.tri * 3 + 1], d = gIdx[c.tri * 3 + 2], U = m.uvs; uv.push(U[a * 2] * c.u + U[b * 2] * c.v + U[d * 2] * c.w, U[a * 2 + 1] * c.u + U[b * 2 + 1] * c.v + U[d * 2 + 1] * c.w); } else uv.push(0.5, 0.5);
     }
     groups.push({ flags: og.flags, pos, nrm, uv, idx });

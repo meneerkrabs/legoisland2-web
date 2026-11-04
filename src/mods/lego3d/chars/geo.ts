@@ -112,8 +112,16 @@ export function nearestNormal(p: V3, pos: ArrayLike<number>, nrm: ArrayLike<numb
  * normal at its place is lit like the original surface there (the first version took the 4 nearest vertex normals: 50 degrees off on average, legs of the robots came out silver).
  * Falls back to the nearest vertex normals.
  */
+/**
+ * The face of `set` that a vertex of the rebuilt surface should read its UV / normal from: the nearest face that looks the SAME way (dot >= 0.95) within 0.04, else the nearest face that looks about
+ * the same way (dot >= 0.3) within `maxD`. (Round 13: a corner of a big flat face lies on the crease to the chamfer next to it; both faces are "nearest" there and the chamfer won the tie, so the corners
+ * of the front of a torso carried the normals of its bevels (0, -0.77, 0.64) and the whole flat face was shaded as a ramp: lit up to 2.5 x brighter than the game's under an overhead light, z21FSH, z40OGL.)
+ */
+export function closestFacing(set: TriSet, p: V3, fn: V3, maxD = 0.35) {
+  return set.closest(p, fn, 0.95, 0.04) ?? set.closest(p, fn, 0.3, maxD);
+}
 export function surfaceNormal(p: V3, fn: V3, set: TriSet, gIdx: ArrayLike<number>, nrm: ArrayLike<number>, cand: ArrayLike<number>, pos: ArrayLike<number> | null = null): V3 {
-  const c = set.closest(p, fn, 0.3, 0.35);
+  const c = closestFacing(set, p, fn);
   if (!c) return nearestNormal(p, pos ?? set.pos, nrm, cand, 4, fn, 0.3, true);   // no original surface facing this way nearby (the bottom of a neck, the underside of a brim): the vertex normals that agree best, else the face's own
   const a = gIdx[c.tri * 3], b = gIdx[c.tri * 3 + 1], d = gIdx[c.tri * 3 + 2];
   const n: V3 = [nrm[a * 3] * c.u + nrm[b * 3] * c.v + nrm[d * 3] * c.w, nrm[a * 3 + 1] * c.u + nrm[b * 3 + 1] * c.v + nrm[d * 3 + 1] * c.w, nrm[a * 3 + 2] * c.u + nrm[b * 3 + 2] * c.v + nrm[d * 3 + 2] * c.w];

@@ -1,7 +1,7 @@
 // Body assembler: the pack's LDraw body (fitted, decimated, skinned, in the reference pose) + the player's original body mesh -> a new body .msh with the SAME groups in the
 // same order: solid groups come from the LDraw geometry (UVs and normals taken from the original's nearest surface), decal groups are the original's own quads draped on the new surface.
 import { writeMsh, type MshOutGroup, type MshSkinExtra } from '../mshio.ts';
-import { TriSet, surfaceNormal, degenerateTri, norm, sub, len, dot, type V3 } from './geo.ts';
+import { TriSet, surfaceNormal, closestFacing, degenerateTri, norm, sub, len, dot, type V3 } from './geo.ts';
 import { readOrig, groupIndices, copyGroup, type Orig } from './orig.ts';
 import { creaseNormals } from '../geom/decimate.ts';
 import type { Rig } from './rig.ts';
@@ -81,7 +81,7 @@ function solidGroup(o: Orig, rig: Rig, blob: BodyBlob, gi: number): MshOutGroup 
   for (let i = 0; i < cn.src.length; i++) {
     const v = lsrc[cn.src[i]], p: V3 = [cn.pos[i * 3], cn.pos[i * 3 + 1], cn.pos[i * 3 + 2]], fn: V3 = [cn.nrm[i * 3], cn.nrm[i * 3 + 1], cn.nrm[i * 3 + 2]];
     let uv: [number, number] = [0.5, 0.5];
-    const c = uvSet.closest(p, fn, 0.3, 0.35) ?? uvSet.closest(p);   // the UVs of the face of the ORIGINAL that looks the way this face does (a corner is shared by 2 - 3 faces with different mappings)
+    const c = closestFacing(uvSet, p, fn) ?? uvSet.closest(p);   // the UVs of the face of the ORIGINAL that looks the way this face does (a corner is shared by 2 - 3 faces with different mappings)
     if (c) { const a = og[c.tri * 3], b = og[c.tri * 3 + 1], d = og[c.tri * 3 + 2], U = o.m.uvs; uv = [U[a * 2] * c.u + U[b * 2] * c.v + U[d * 2] * c.w, U[a * 2 + 1] * c.u + U[b * 2 + 1] * c.v + U[d * 2 + 1] * c.w]; }
     verts.push({ p, n: surfaceNormal(p, fn, uvSet, og, o.nrm, candidates), uv, skin: skinOf(blob, v) });
   }

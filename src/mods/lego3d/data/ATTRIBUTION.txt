@@ -13,8 +13,8 @@ LDraw(TM) is a trademark owned and licensed by the Estate of James Jessiman. LEG
 
 The pack contains NO pictures or meshes of the game "LEGO Island 2": those are read from the player's own game files in the browser and are never copied here.
 
-Licence lines found in the 944 files used:
-  882 x Licensed under CC BY 4.0 : see CAreadme.txt
+Licence lines found in the 939 files used:
+  877 x Licensed under CC BY 4.0 : see CAreadme.txt
   52 x Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   10 x CCAL version 2.0
 
@@ -32,7 +32,7 @@ OMR set models (10):
   5935 Island Hopper (zone z22BIP, 1.33x) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
   5935 Island Hopper - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
 
-Parts used (365):
+Parts used (363):
   parts/16599.dat - Minifig Helmet Classic with Thin Chin Guard Cracked - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/18031.dat - Minifig Sword Longsword with Thick Guard - Gerald Lasser [GeraldLasser] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925a.dat - Sticker  2.4 x  2 with White German Railways Logo and "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -121,7 +121,6 @@ Parts used (365):
   parts/3024.dat - Plate  1 x  1 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/30260.dat - Roadsign Clip-on  2 x  2 Octagonal - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   parts/30264.dat - ~Glass for Window  4 x 10 x  2 Slope Double - Ross Crawford [rosco] - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/30273.dat - Minifig Helmet with Chinstrap and Wide Brim - Paul Easter [pneaster] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3028.dat - Plate  6 x 12 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3029.dat - Plate  4 x 12 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3031.dat - Plate  4 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -226,7 +225,6 @@ Parts used (365):
   parts/3842b.dat - Minifig Helmet Classic with Thick Chin Guard and Visor Dimples - Willy Tschager [Holly-Wood] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3856.dat - Window  1 x  2 x  3 Shutter - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3861c.dat - Door  1 x  4 x  5 with 4 Panes and Reinforced Hinge - Alex Taylor [anathema] - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/3896.dat - Minifig Helmet Castle with Chin-Guard - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3901.dat - Minifig Hair Male - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3937.dat - Hinge  1 x  2 Base - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3938.dat - Hinge  1 x  2 Top - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -399,4 +397,4 @@ Parts used (365):
   parts/u9130.dat - ~Electric Train 12V Power Pickup - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/u9146.dat - ~Pin for Electric Plug (Type 4) Single - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
 
-Primitives and sub-parts used: 569 files (all under the same library licence; authors above).
+Primitives and sub-parts used: 566 files (all under the same library licence; authors above).
