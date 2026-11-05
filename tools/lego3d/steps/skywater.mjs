@@ -1,6 +1,6 @@
 // Sky / water QA shots of the LEGO 3D option (docs/re/lego3d.md section 19): fixed free cameras in any zone, LEGO 3D off / on, with the sky's turn angle and the sea's orbit phases FROZEN (harness only: the SkyNode /
 // SeaNode `place` is wrapped so the state is reset before each call) so that an off / on pair differs only where the option changes something (tools/lego3d/skywater-diff.mjs compares two pictures).
-//   ZONE=z02LGI  L3D=0|1|text (the ?lego3d= value)  PREFIX=sw  PARAMS="&x=y"  FREEZE=0 (let the sky and sea move)  ANGLE=0 (sky angle rad)  PHASE=0 (sea phases rad)  SETTLE=1500
+//   ZONE=z02LGI  L3D=0|1|text|0:b (the ?lego3d= value)  PREFIX=sw  PARAMS="&x=y"  FREEZE=0 (let the sky and sea move)  ANGLE=0 (sky angle rad)  PHASE=0 (sea phases rad)  SETTLE=1500
 //   CAMS="name:ex|ey|ez|tx|ty|tz;name:x,z@yaw|h|pitch (Pepper put at x, z first);name:@yawDeg|height|pitchDeg;..."   (island coordinates; "@yaw|h|pitch" = from Pepper's position + h, looking along the compass yaw (0 = +z, 90 = +x) tilted up by pitch degrees; no CAMS: the game's own camera, one shot "game")
 //   FREEZETEX=1  stop the animated textures on entry 0   MOD=<folder>  imports a mod folder first (an HD pack subset: sky / sea / foam)   ENVONLY=1  hide every record except the sky / sea / seabed / foam / water / backdrop ones (exact off / on proof)   SLIDER=0|50|100  the draw-distance slider (far plane + fog end: the horizon haze)   PEPPER="x,z"  puts Pepper there first (so the zone's streaming and fog follow)   L3D=0,1 (several values: one page load each, in this browser)   ZONES=z02LGI,z07CSI (instead of ZONE; CAMS_<zone> overrides CAMS)
 //   sh tools/m5-botslot.sh node tools/browse.mjs http://localhost:PORT/ tools/lego3d/steps/skywater.mjs --profile /tmp/p --size 800x600 --out DIR
@@ -16,7 +16,8 @@ export default async ({ page, shot, wait, log, evaluate }) => {
     log('mod status:', await page.evaluate(() => document.querySelector('.bdb-modstatus')?.textContent?.slice(0, 200)));
   }
   for (const zone of (process.env.ZONES ?? process.env.ZONE ?? 'z02LGI').split(',')) for (const l3d of (process.env.L3D ?? '0').split(',')) await one(zone, l3d);
-  async function one(zone, l3d) {
+  async function one(zone, l3dSpec) {
+    const [l3dVal, l3dTag = ''] = l3dSpec.split(':'), l3d = l3dVal;   // "0:b": the ?lego3d= value 0, files named -l0b (a control: the same setting visited a second time; diff with --on 0b)
   await page.goto(`${base}?zone=${zone}&mute=1&debug=1&lego3d=${l3d}${process.env.PARAMS ?? ''}`, { waitUntil: 'load' });
   for (let i = 0; i < 300; i++) {
     if (await evaluate(() => !!(window.__zone && window.__zone.world.tickCount > 5 && window.__zone.machine.mode === 2))) break;
@@ -46,7 +47,7 @@ export default async ({ page, shot, wait, log, evaluate }) => {
     const secs = (res.at(-1).ms - res[0].ms) / 1000, perS = (k) => (res.at(-1)[k] - res[0][k]) / secs;
     log(`PROBE ${zone} l3d=${l3d}: wall ${secs.toFixed(2)} s, ${((res.at(-1).t - res[0].t) / secs).toFixed(1)} sim ticks / s; sea phaseA ${(perS('a') * 180 / Math.PI).toFixed(3)} deg/s (formula 30), phaseB ${(perS('b') * 180 / Math.PI).toFixed(3)} deg/s (formula 20.1), sky ${(perS('ang') * 180 / Math.PI).toFixed(4)} deg/s (formula 0.75; the angle wraps at +-pi, not in this window)`);
     const mm = (a) => `${Math.min(...a).toExponential(5)} .. ${Math.max(...a).toExponential(5)}`;
-    log(`PROBE ${zone} l3d=${l3d}: ${n} samples (ticks ${res[0].t} .. ${res.at(-1).t}); sea matrix vs anchor + orbit: max error ${eo.toExponential(2)}; phaseA / tick ${mm(dA)} (formula ${(Math.PI / 180).toExponential(5)}); phaseB / tick ${mm(dB)} (formula ${(0.67 * Math.PI / 180).toExponential(5)}); sky angle / tick ${mm(dS)} (formula 4.36332e-4); sea scale ${res.at(-1).ds.toFixed(1)} y ${res.at(-1).dy.toFixed(2)}`);
+    log(`PROBE ${zone} l3d=${l3d}: ${n} samples (ticks ${res[0].t} .. ${res.at(-1).t}); sea matrix vs anchor + orbit: max error ${eo.toExponential(2)}; phaseA / tick ${mm(dA)} (formula per 60 Hz sim tick = half the engine tick's 1 deg: ${(Math.PI / 360).toExponential(5)}); phaseB / tick ${mm(dB)} (formula ${(0.67 * Math.PI / 360).toExponential(5)}); sky angle / tick ${mm(dS)} (formula 2.18166e-4); sea scale ${res.at(-1).ds.toFixed(1)} y ${res.at(-1).dy.toFixed(2)}`);
     return;
   }
   if (process.env.FREEZE !== '0') {
@@ -66,6 +67,7 @@ export default async ({ page, shot, wait, log, evaluate }) => {
     await evaluate((re) => { window.__envOnly = new RegExp(re); }, re);
     log('env only: drawn records', JSON.stringify(await evaluate(() => window.__zone.world.records.filter((r) => window.__envOnly.test(r.name.trim())).map((r) => r.name.trim()))));
   }
+  if (process.env.EVAL) log('eval:', JSON.stringify(await page.evaluate(`(w => { ${process.env.EVAL} })(window.__zone.world)`)));   // EVAL="js using w (the world)": e.g. z40OGL's star dome is gated by story variable 2 bit 0: w.vars.set(2, w.vars.get(2) | 1)
   if (process.env.FREEZETEX === '1') await evaluate(() => { window.__freezeTex = 1; });   // FREEZETEX=1: every animated (.wib) texture is stopped on its first entry (so an off / on pair does not differ by the animation's phase)
   if (process.env.SLIDER) log('draw distance slider:', await evaluate((v) => { const gr = window.__zone.gr; gr.slider = v; return gr.slider; }, +process.env.SLIDER));   // SLIDER=0..100: the options' draw-distance slider (far plane and fog; default 50)
   if (process.env.PEPPER) {
@@ -79,7 +81,7 @@ export default async ({ page, shot, wait, log, evaluate }) => {
     return;
   }
   const cams = (process.env[`CAMS_${zone}`] ?? process.env.CAMS ?? '').split(';').filter(Boolean);
-  if (!cams.length) { await wait(+(process.env.SETTLE ?? 1500)); await shot(`${prefix}-${zone}-game-l${l3d}`); return; }
+  if (!cams.length) { await wait(+(process.env.SETTLE ?? 1500)); await shot(`${prefix}-${zone}-game-l${l3d}${l3dTag}`); return; }
   for (const c of cams) {
     let [name, v] = c.split(':');
     const at = v.match(/^(-?[\d.]+),(-?[\d.]+)(@.*)$/);   // "x,z@yaw|h|pitch": Pepper is put at x, z first (ground height from the collision data)
@@ -105,7 +107,7 @@ export default async ({ page, shot, wait, log, evaluate }) => {
     }, [ex, ey, ez, tx, ty, tz]);
     await wait(+(process.env.SETTLE ?? 1500));
     log(name, JSON.stringify(await evaluate(() => { const gr = window.__zone.gr, i = gr.info; let fog = null; try { const f = gr.currentFog(); fog = f ? { start: +f.start?.toFixed?.(1), end: +f.end?.toFixed?.(1), far: f.far } : null; } catch {} return { draws: i.draws, triangles: i.triangles, fog, ph: gr.__swPh ?? null }; })));
-    await shot(`${prefix}-${zone}-${name}-l${l3d}`);
+    await shot(`${prefix}-${zone}-${name}-l${l3d}${l3dTag}`);
   }
   }
 };
