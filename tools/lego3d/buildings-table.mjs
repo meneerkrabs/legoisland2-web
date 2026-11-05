@@ -1,0 +1,32 @@
+// Building / structure table of the QA sweep (docs/re/lego3d.md section 18): per zone [record index in the zone's record list (the "(  nn)" of the developer corner's list), longer horizontal extent, height of the LOD 0 mesh, mesh name, views (optional: letters of f q s r l t)].
+// Picked by hand from the complete record listing (/tmp: tools/lego3d/buildings-inventory.mjs lists every mesh of every zone with its size and what the generators write); structures made of many records (the castle pieces, the
+// Brick Palace of z42BRP, the pillars of the Mine Mountain, the targets of the canyon) are represented by their main records.
+export const BLD = {
+  z01BPK: [[22, 86.2, 73.9, 'SkatePark', 'qrt']],
+  z02LGI: [[113, 8, 11.8, 'control_LOD1'], [114, 12.5, 7.4, 'Splatform_LOD1'], [115, 15.8, 32.5, 'tower_LOD1'], [116, 23, 19.9, 'rescue_LOD1'], [117, 19.2, 14.6, 'shop02_LOD1'], [118, 13.6, 17, 'shop01_LOD1'], [120, 25.6, 46, 'radio_LOD1'], [121, 27.8, 27.7, 'police_LOD1'], [122, 24.9, 16.4, 'jail_LOD1'], [123, 21.6, 18.1, 'pizzeria_LOD1'], [124, 23.2, 40.6, 'info_LOD1'], [125, 12, 12.3, 'housePEP_LOD1'], [126, 17.6, 20.8, 'house03_lod1'], [127, 18.4, 18, 'house02_LOD1'], [128, 17.6, 11.2, 'house01_LOD1'], [129, 27.8, 29.5, 'hospital_LOD1'], [130, 45.6, 21.8, 'hanger_LOD1'], [131, 42.5, 17.1, 'garage_LOD1'], [8, 44.4, 10, 'Jetty'], [7, 44.4, 10, 'Jetty2'], [174, 86, 12, 'BridgeSection'], [176, 86, 12, 'BridgeSection2'], [5, 118.5, 4.9, 'voie_lod1'], [111, 6.4, 7.3, 'Umbrella_01'], [350, 12, 1.9, 'House_pepper_01'], [355, 12.1, 4.8, 'House_pepper_06'], [359, 12.1, 8.2, 'House_pepper_010'], [306, 2.3, 14.2, 'temple_obelisk'], [160, 14.2, 3.9, 'loco_carriage_lod1']],
+  z03PPH: [[6, 30.6, 10.5, 'All'], [2, 8.2, 9.8, 'Door'], [3, 31.6, 11.6, 'Interior'], [7, 15.9, 3.5, 'shelves']],
+  z04IFC: [[31, 36.8, 15.4, 'New_Info_Centre'], [30, 6.5, 9, 'info_door_L_LOD1']],
+  z05WAB: [[1, 34.7, 12.6, 'WABROOM']],
+  z07CSI: [[4, 25.6, 13.5, 'Bridge'], [6, 25.6, 13.5, 'Broke_Bridge'], [5, 19.1, 3.4, 'LionDrawBridge1'], [71, 16.4, 13.2, 'CATA_HR'], [74, 7.2, 10.2, 'Tent'], [84, 8.3, 10.2, 'Tent1'], [86, 19.6, 24.7, 'b_ramlod1'], [88, 12.8, 9.6, 'JST_Tent_1'], [75, 24.7, 1.5, 'Decking'], [202, 58.7, 32.5, 'bullcastle'], [203, 58.4, 64.2, 'LionCastle1'], [205, 59.4, 37.2, 'BullCastleCollision'], [73, 6.9, 7.3, 'Haystack3'], [179, 0.7, 8.3, 'FlagPole']],
+  z09JST: [[33, 12.8, 9.6, 'bigtent', 'qrt'], [105, 69.3, 36.5, 'BCastlePoly', 'qrt'], [106, 81.7, 86.2, 'LCastlePoly', 'qrt']],
+  z10RGB: [[135, 10.4, 6.6, 'Cannon0', 'qrt']],
+  z08BKD: [[50, 37.7, 22.4, 'wreck', 'qrt'], [88, 32.4, 17.1, 'New_Bridge', 'qrt'], [54, 11, 26.6, 'anchor1', 'qrt'], [83, 8.1, 10.9, 'bricktop_1', 'qrt'], [85, 14.2, 2.4, 'bricktop_3', 'qrt'], [53, 21, 5.7, 'clambot', 'qrt']],
+  z13CAI: [[9, 27.4, 24.8, 'spider_building_LOD1'], [10, 36.4, 6.3, 'bridge_short_LOD1'], [12, 31.1, 5.7, 'tribal_village_LOD1'], [13, 125.5, 18.9, 'bridge_long_LOD1'], [14, 39.3, 24, 'monkey_palace_LOD1'], [15, 17.6, 3.4, 'hates_camp_LOD1'], [16, 12.4, 14.7, 'helipad_building_LOD1'], [20, 57.5, 21.4, 'skeleton_LOD1'], [21, 20.7, 4.2, 'lookout_camp_LOD1'], [22, 43.8, 21.9, 'airstrip_desert_LOD1'], [23, 40.5, 27.9, 'sphinx_LOD1'], [49, 19, 16.9, 'temple'], [11, 19.4, 15.2, 'airstrip_dino_LOD1']],
+  z14OSD: [[70, 35.2, 14.4, 'airstrip_hanger_LOD1'], [71, 10.7, 8.2, 'airstrip_outhouse_LOD1'], [72, 17.6, 25.6, 'helipad_building_LOD1'], [113, 31.2, 25.1, 'airstrip_control_LOD1'], [67, 57.5, 21.4, 'skeleton_LOD1']],
+  z15SSH: [[10, 144.8, 67, 'Pyramid1', 'qrt'], [12, 42.4, 18.6, 'waterfount1', 'qrt'], [13, 26.6, 16, 'bricbottomb', 'qrt'], [16, 40.3, 28.3, 'sphinx'], [14, 30.9, 30.5, 'snakeyhead', 'qrt'], [17, 1.6, 14.2, 'Egypt_obelisk1', 'qrt'], [31, 6.8, 8, 'bootsign', 'qrt'], [36, 10.5, 10, 'BOOTArchway', 'qrt'], [32, 10.6, 8.5, 'bPost', 'qrt']],
+  z16PYA: [[23, 28.7, 24.2, 'temple_HR', 'qrt'], [24, 67.5, 54.1, 'sphinx_lod1', 'qrt'], [103, 129.6, 114, 'pyramid', 'qrt'], [82, 4.6, 28.2, 'pillar01', 'qrt']],
+  z17WAS: [[22, 50.8, 18.2, 'WAS__room', 'qrt'], [26, 1.5, 7.8, 'COLL_1', 'qrt'], [44, 1.4, 11, 'PILL_1', 'qrt'], [51, 15, 10.5, 'SHAFT', 'qrt']],
+  z18MMP: [[0, 315.4, 46.5, 'MMP', 'qrt'], [57, 6, 25.7, 'Pillar1', 'qrt'], [53, 6, 36.4, 'Pillar8', 'qrt'], [111, 10.9, 11.5, 'Door', 'qrt'], [73, 11.3, 2.2, 'Beam', 'qrt'], [10, 10, 4.9, 'Stan_1', 'qrt']],
+  z20DSP: [[18, 43, 28, 'monkeyhead', 'qrt'], [19, 48.9, 42, 'templeHR1'], [26, 53.3, 29.4, 'bigarch', 'qrt'], [455, 19.3, 16, 'LittleTomb', 'qrt'], [464, 28.2, 27.7, 'BigTomb', 'qrt'], [58, 80.9, 91.3, 'WHRL', 'qrt'], [42, 11.2, 11.3, 'RO01', 'qrt']],
+  z22BIP: [[45, 321.8, 56.4, 'bridge_large', 'qrt'], [47, 83.2, 20.8, 'bridge_stringy', 'qrt'], [49, 67.5, 77.4, 'babboon_head'], [50, 11.1, 10.9, 'aztec', 'qrt'], [178, 41.7, 43.3, 'aztec1', 'qrt'], [164, 79.3, 31.8, 'skeleton_LOD1', 'qrt'], [95, 18.4, 13.4, 'static_target_frame_bamboo', 'qrt'], [129, 17.4, 25.2, 'TargetSlide_veh_04', 'qrt']],
+  z23DIP: [[43, 23.2, 17.6, 'hall_LOD1'], [45, 9.6, 15.8, 'strip_hut_LOD1'], [48, 4.8, 14.4, 'strip_tower_LOD1'], [196, 14.9, 9.3, 'gate'], [41, 11.2, 2.8, 'roof_sq_LOD1'], [42, 13.6, 2.8, 'roof_rt_LOD1'], [40, 8.8, 1.3, 'ville_table_rt']],
+  z27TRX: [[1, 34.5, 8.7, 'bridge', 'qrt'], [44, 9.8, 19.1, 'statue1', 'qrt'], [57, 60.8, 52.3, 'gate', 'qrt'], [50, 16.6, 71.2, 'swing_log', 'qrt']],
+  z28HAT: [[23, 35.6, 16.3, 'cage_TREX', 'qrt'], [81, 16, 7.7, 'hates_house_LOD1', 'qrt'], [27, 2.3, 7.9, 'post_small_LOD1', 'qrt'], [24, 16.7, 4.9, 'cage_03', 'qrt']],
+  z36CNT: [[3, 35, 13.9, 'FLOR', 'qrt']],
+  z40OGL: [[1, 510.5, 360.2, 'ogel', 'qrt'], [42, 55.8, 86.9, 'palace_building_LOD1'], [43, 5.3, 8.4, 'palace_statue_LOD1', 'qrt'], [72, 28.8, 19.8, 'pizzeria__LOD1'], [71, 7.4, 10.8, 'pizzeria_sign_LOD1'], [69, 16.8, 5.4, 'pizzeria_section01_LOD1', 'qrt'], [40, 4.5, 13.3, 'monolith', 'qrt'], [84, 19.6, 1.5, 'block1', 'qrt']],
+  z40aPO: [[44, 55.8, 86.9, 'palace_building_LOD1'], [49, 28.8, 19.8, 'pizzeria__LOD1'], [2, 520.6, 319.7, 'ogel_lod1', 'qrt']],
+  z41MAP: [[34, 28.8, 17.3, 'PIZZ_Building']],
+  z42BRP: [[14, 75.8, 76.5, 'brp_section1'], [19, 66.4, 31.9, 'brp_section2_str1', 'qrt'], [20, 87.7, 59.7, 'brp_section3_str2', 'qrt'], [21, 63, 86.1, 'brp_section4_roof_str3'], [39, 9.2, 4.3, 'platform_bri8', 'qrt'], [64, 11.2, 4, 'TopSideblocks6', 'qrt']],
+  z50LTC: [[53, 22.9, 9.9, 'portal', 'qrt']],
+  // z60FRE (front end): not in the table; `?zone=z60FRE` does not give the front-end scene (the corner's record camera showed the island airstrip), see docs section 18.5
+};

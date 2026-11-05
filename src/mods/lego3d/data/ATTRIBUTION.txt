@@ -13,8 +13,8 @@ LDraw(TM) is a trademark owned and licensed by the Estate of James Jessiman. LEG
 
 The pack contains NO pictures or meshes of the game "LEGO Island 2": those are read from the player's own game files in the browser and are never copied here.
 
-Licence lines found in the 905 files used:
-  852 x Licensed under CC BY 4.0 : see CAreadme.txt
+Licence lines found in the 907 files used:
+  854 x Licensed under CC BY 4.0 : see CAreadme.txt
   44 x Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   9 x CCAL version 2.0
 
@@ -31,7 +31,7 @@ OMR set models (9):
   7750 Steam Engine (locomotive) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/7750-1
   7750 Steam Engine (tender) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/7750-1
 
-Parts used (344):
+Parts used (345):
   parts/16599.dat - Minifig Helmet Classic with Thin Chin Guard Cracked - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/18031.dat - Minifig Sword Longsword with Thick Guard - Gerald Lasser [GeraldLasser] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925a.dat - Sticker  2.4 x  2 with White German Railways Logo and "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -226,6 +226,7 @@ Parts used (344):
   parts/4023.dat - Train Coupling Type 1 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4023c01.dat - Train Coupling Type 1 with Magnet in Coupled Position - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4023c02.dat - Train Coupling Type 1 with Magnet in Uncoupled Position - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
+  parts/4032a.dat - Plate  2 x  2 Round with Axlehole - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4033.dat - Train Window  1 x  4 x  3 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4033c01.dat - Train Window  1 x  4 x  3 with Trans-Clear Glass - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4034.dat - Glass for Train Window  1 x  4 x  3 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -377,4 +378,4 @@ Parts used (344):
   parts/u9130.dat - ~Electric Train 12V Power Pickup - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/u9146.dat - ~Pin for Electric Plug (Type 4) Single - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
 
-Primitives and sub-parts used: 552 files (all under the same library licence; authors above).
+Primitives and sub-parts used: 553 files (all under the same library licence; authors above).

@@ -259,6 +259,7 @@ export class PeppHitNode implements BehaviourNode {
         const a = rec.anim;
         if (a && clipEnding({ frame: a.frame, frameCount: a.frameCount }, K.HIT_CLIP_END, w.dt)) {
           a.start(CLIP.IDLE, 0);
+          st.fx.swirlOff();                                       // FUN_00442a20(swirl02, 1, 1, 1)
           this.state = 3;
           this.ts = st.ticks;
         }
@@ -295,6 +296,7 @@ export class PeppHitNode implements BehaviourNode {
         this.vy = 0; this.vz = 0;
         rec.anim?.start(CLIP.HIT_LAND, 0);
         st.sound.play('explode2d');
+        st.fx.swirlOn(rec);                                       // FUN_00442a20(swirl02, 2, 1, 1) + FUN_00442a00(swirl02, Pepper's matrix)
         if (!st.saidFirstHit) { st.say('CASGRB06'); st.saidFirstHit = true; }
         this.ts = st.ticks;
         this.state = 1;

@@ -97,13 +97,26 @@ export function wrapPi(a: number): number { a = F(a); return -PI32 <= a ? (PI32 
 /** FUN_00433450: the yaw error of a record (its +0x50) against the direction to `target` (atan2(dx, dz)), wrapped; the differences and the angle are single floats */
 export function yawError(rec: GameRecord, target: ArrayLike<number>): number { return wrapPi(F(rec.ry - F(Math.atan2(F(target[0] - rec.x), F(target[2] - rec.z))))); }
 
+/** the particle emitters of the zone's nodes (z10RGB.ts installs the real ones; FUN_0061a57f cannon01 / cannon02 per cannon, FUN_00619863 Cedric's problow, FUN_0061884d PeppHit's swirl02) */
+export interface RgbFx {
+  ballOn(b: Ball): void; ballOff(b: Ball): void;
+  /** FUN_0061a06a state 1, the shot: stop + gate on of the cannon's cannon02 (+0x74) and cannon01 (+0x70) */
+  cannonFire(k: number): void;
+  /** FUN_0061a06a state 2 -> 4, the recoil has settled: cannon01 gets the cannon's matrix again, both gates off */
+  cannonRest(k: number, rec: GameRecord): void;
+  /** FUN_00618ba6: Cedric's problow follows bone 0x10 of his pose (`FUN_00442a00(handle, DAT_05d5bb28)` every update) */
+  cedricBone(rec: GameRecord): void;
+  /** FUN_00618360 / FUN_00618631: PeppHit's swirl02 on (with Pepper's matrix) when he lies down, off when he gets up */
+  swirlOn(rec: GameRecord): void; swirlOff(): void;
+}
+
 export class RgbState {
   sound: SoundSink = SILENT;
   /** FUN_00439bf8 + FUN_00435a11: speak a line of the zone's table; false while another is playing */
   say: (id: string) => boolean = () => true;
   /** the particle emitters the zone starts (FUN_005f8050: one `impact01` per ball; the four `dust` emitters of the player's cannons are gated by var 0xfd alone): the
    *  zone game replaces these two hooks (z10RGB.ts); tests and the headless node runs leave them empty */
-  fx: { ballOn(b: Ball): void; ballOff(b: Ball): void } = { ballOn() { /* */ }, ballOff() { /* */ } };
+  fx: RgbFx = { ballOn() { /* */ }, ballOff() { /* */ }, cannonFire() { /* */ }, cannonRest() { /* */ }, cedricBone() { /* */ }, swirlOn() { /* */ }, swirlOff() { /* */ } };
   /** restored content (src/restore/features/cues.ts): an event of the zone (`rgb-castle-hit`); null = the original (the zone game sets it) */
   cue: ((name: string, pos?: ArrayLike<number>) => void) | null = null;
   /** the field of view the camera uses (the original's DAT_0089df2c): 1.0, 0.21 inside a cannon */

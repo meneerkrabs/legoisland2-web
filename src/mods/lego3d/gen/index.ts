@@ -1,5 +1,5 @@
 // Runs the LEGO 3D generators for one archive: pack + the player's archive -> replacement members (docs/re/lego3d.md section 8).
-// Order matters: the textures first (they only replace pictures), then the bricks, characters and set models (they replace whole meshes), the studs last (they add studs to the
+// Order matters: the textures first (they only replace pictures), then the bricks, characters, set models and plants (they replace whole meshes), the studs last (they add studs to the
 // meshes that are still the game's: a member that an earlier generator wrote is never touched by the studs), the glass last (the backs of the one-sided glass of the meshes that stay the game's, studs included: docs section 16.10).
 import type { Archive } from '../../../formats/archive.ts';
 import type { Pack } from '../pack.ts';
@@ -8,13 +8,14 @@ import { generator as textures } from './textures.ts';
 import { generator as bricks } from './bricks.ts';
 import { generator as characters } from './characters.ts';
 import { generator as sets } from './sets.ts';
+import { generator as plants } from './plants.ts';
 import { generator as studs } from './studs.ts';
 import { generator as glass } from './glass.ts';
 
 export type { GenEnv, Generator } from './types.ts';
 /** bump when generator CODE changes in a way that changes its output (part of the cache key of the generated members, with the pack's version): a pack rebuilt with the same date or an app update with old caches must not serve old results */
-export const GEN_VERSION = 16;
-export const GENERATORS: readonly Generator[] = [textures, bricks, characters, sets, studs, glass];
+export const GEN_VERSION = 17;
+export const GENERATORS: readonly Generator[] = [textures, bricks, characters, sets, plants, studs, glass];
 
 export interface GenResult {
   /** member path (relative to the archive root) -> bytes */

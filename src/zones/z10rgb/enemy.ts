@@ -144,6 +144,7 @@ export class CannonNode implements BehaviourNode {
           const b = allocBall(st);
           this.ball = b ? b.idx : -1;
           if (b) {
+            st.fx.cannonFire(this.k);                              // FUN_00442a40 x2, FUN_00442a20(+0x74 / +0x70, 2, 1, 1): the muzzle smoke and fire
             this.recoil = [this.recoil0[0], this.recoil0[1], this.recoil0[2]];
             placeBall(b, this.muzzle, this.aimVec);
             const r = this.roots!;
@@ -167,6 +168,7 @@ export class CannonNode implements BehaviourNode {
           this.recoil[2] = F(this.recoil[2] * 0.5);
           if (Math.abs(this.recoil[1]) < K.RECOIL_REST) {
             this.recoil[1] = 0; this.recoil[2] = 0;
+            st.fx.cannonRest(this.k, rec);                         // FUN_00442a00(+0x70, matrix), FUN_00442a20(+0x70, +0x74, 1, 1, 1)
             this.state = 4;
           }
         }
@@ -249,6 +251,7 @@ export class CedricNode implements BehaviourNode {
     st.cedricAt = this.cur;
     this.timer = F(F(1 * dt) + this.timer);
     rec.anim?.advance(this.rate, dt);
+    st.fx.cedricBone(rec);                                         // FUN_0043a9e5(DAT_05d5bb28, record, bone 0x10) + FUN_00442a00(problow, it)
     const perch = st.perches[this.cur];
     switch (this.state) {
       case 0: {

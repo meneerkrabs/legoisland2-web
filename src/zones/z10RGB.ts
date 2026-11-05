@@ -16,7 +16,8 @@ import type { Ui2D } from '../ui/renderer2d.ts';
 import type { ScreenLine, Medal } from '../shell/helpscreen.ts';
 import { CTOR, K, MODE, PHASE, REC, VAR, f32 } from './z10rgb/consts.ts';
 import { RgbState } from './z10rgb/shared.ts';
-import { NO_HANDLE, ZoneParticles } from '../fx/particles/zone.ts';
+import { GATE_ON, NO_HANDLE, ZoneParticles } from '../fx/particles/zone.ts';
+import { composeBone32 } from './common/pose.ts';
 import { updateBalls } from './z10rgb/balls.ts';
 import { PepSwitcNode, PeppHitNode, shotScale } from './z10rgb/pepper.ts';
 import { CannonNode, CedricNode } from './z10rgb/enemy.ts';
@@ -67,16 +68,32 @@ registerZoneGame('z10RGB', async (ctx: ZoneGameCtx): Promise<ZoneGame> => {
   // inside cannon k, FUN_005f542f). The balls switch theirs on at a ground hit and off 2 ticks into the splash (`balls.ts`).
   const fx = await ZoneParticles.create(ctx);
   if (fx) {
-    const up = f32(0x3f4ccccd), tilt = f32(0xbfc90fdb);
+    const up = f32(0x3f4ccccd), tilt = f32(0xbfc90fdb), NEG_HALF_PI = f32(0xbfc90fdb);
+    // the original's start order (FUN_005f67e4: FUN_005f6bef, FUN_005f6ca4, FUN_005f6d20, FUN_005f8050; the node constructors run when they are attached): PepSwitc's four `dust`
+    // (cannonhit.par), PeppHit's swirl02, Cedric's `problow` + nine `dust` on the enemy cannons, the cannons' cannon02 / cannon01, the ball pool's impact01
+    REC.CP.forEach((r, k) => fx.start('dust', world.records[r].m, [0, 0, f32(0x40800000)], [f32(0xbea8f5c3), 0, 0], [VAR.PEPP_CANNON_BIT, 1 << k, 1 << k]));
+    const swirl = fx.startSwirl('swirl02.swl', [0, f32(0x404ccccd), 0], [NEG_HALF_PI, 0, 0]);   // FUN_0061884d: (0, 3.2, 0), rotation -pi / 2 about x, gate off
+    const cedMat = new Float32Array(16);                                                     // DAT_05d5bb28
+    const problow = fx.start('problow.par', world.records[REC.CEDR].m, [0, 0, 0], [0, 0, 0], GATE_ON);   // FUN_00618960: gate (2, 1, 1) = always on
+    REC.CC.forEach((r, k) => fx.start('dust', world.records[r].m, [0, 0, f32(0x40800000)], [NEG_HALF_PI, 0, 0], [VAR.ENEMY_CANNON_BIT, 1 << k, 1 << k]));
+    const cannon = REC.CC.map((r) => ({ c2: fx.start('cannon02.par', world.records[r].m, [0, f32(0x40a66666), f32(0x40733333)], [f32(0xbea8f5c3), 0, 0]), c1: fx.start('cannon01.par', world.records[r].m, [0, f32(0x40a66666), f32(0x40733333)], [f32(0xbea8f5c3), 0, 0]) }));
     for (const b of st.balls) {
       b.fxHandle = fx.start('impact01.par', b.rec.m, [0, up, 0], [tilt, 0, 0]);
       fx.collideWith(b.fxHandle, world.records[REC.LAND]);
     }
     fx.finish();
-    REC.CP.forEach((r, k) => fx.start('dust', world.records[r].m, [0, 0, f32(0x40800000)], [f32(0xbea8f5c3), 0, 0], [VAR.PEPP_CANNON_BIT, 1 << k, 1 << k]));
     st.fx = {
       ballOn(b) { if (b.fxHandle !== NO_HANDLE) { fx.on(b.fxHandle); fx.setMatrix(b.fxHandle, b.rec.m); } },
       ballOff(b) { fx.off(b.fxHandle); },
+      cannonFire(k) { const h = cannon[k]; fx.stop(h.c2); fx.stop(h.c1); fx.on(h.c2); fx.on(h.c1); },
+      cannonRest(k, rec) { const h = cannon[k]; fx.setMatrix(h.c1, rec.m); fx.off(h.c1); fx.off(h.c2); },
+      cedricBone(rec) {
+        const p = rec.anim?.pose(1);                  // FUN_0043bc22 + 0x400: bone 0x10 of the pose the last draw left (no pose: the record's own matrix)
+        if (!p || p.length < 0x10 * 16 + 16) cedMat.set(rec.m); else composeBone32(cedMat, rec.m, p, 0x10 * 16);
+        fx.setMatrix(problow, cedMat);
+      },
+      swirlOn(rec) { fx.on(swirl); fx.setMatrix(swirl, rec.m); },
+      swirlOff() { fx.off(swirl); },
     };
   }
   // ---- the ball shadows (FUN_005f90f7, after the records, before the particles): CSHD's five vertices = the ground points of every flying ball whose ground was found this tick
