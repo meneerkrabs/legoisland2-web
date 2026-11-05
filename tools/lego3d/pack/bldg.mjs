@@ -22,6 +22,10 @@ export const BLDG = [
   { key: 'rescue', title: 'Res-Q Emergency Response Centre (the game\'s own massing)', zone: 'z02LGI', meshes: ['rescue_LOD1', 'rescue_LOD2', 'rescue_LOD3', 'rescue_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [6, 0, 0, 0], tile: 1, under: [true, false], wedges: { plates: 2, tiles: 1 } },
   { key: 'seaplane_strip_z14', title: 'Island Hopper seaplane of the airstrip (the game\'s own massing)', zone: 'z14OSD', meshes: ['airstrip_seaplane_LOD1', 'airstrip_seaplane_LOD2', 'airstrip_seaplane_LOD3', 'airstrip_seaplane_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [4, 4, 0, 0], tile: 1, minThick: 0.6 },
   { key: 'seaplane_strip_z23', title: 'Island Hopper seaplane of the airstrip (the game\'s own massing)', zone: 'z23DIP', meshes: ['airstrip_seaplane_LOD1', 'airstrip_seaplane_LOD2', 'airstrip_seaplane_LOD3', 'airstrip_seaplane_LOD4'], pitch: [0.4, 0.16, 0.4], studs: [4, 4, 0, 0], tile: 1, minThick: 0.6 },
+  // the flying seaplanes of the minigames (z22BIP canyon, z38PAR parachute / rings): the set fit (5935 Island Hopper, IoU 0.76 / 0.82, an open frame: tail boom a thin rod, the fuselage hollow, a detached tail cap) is replaced by the
+  // brick reconstruction of the game's own massing like the airstrip plane (section 17); one LOD each, the props / wings the game moves stay the game's
+  { key: 'seaplane_z22', title: 'Island Hopper seaplane of the canyon flight (the game\'s own massing)', zone: 'z22BIP', meshes: ['seaplane'], pitch: [0.4, 0.16, 0.4], studs: [4], tile: 1, minThick: 0.6 },
+  { key: 'seaplane_z38', title: 'Island Hopper seaplane of the parachute zone (the game\'s own massing)', zone: 'z38PAR', meshes: ['seaplane'], pitch: [0.4, 0.16, 0.4], studs: [4], tile: 1, minThick: 0.6 },
   // the carriage: at the locomotive's / tender's brick scale (stud 0.8, plate 0.32 = the 7750 set at 0.04); the wheel discs stay the game's (round)
   { key: 'carriage', title: 'Passenger-less carriage wagon of the steam train (the game\'s own massing, 7750 brick scale)', zone: 'z02LGI', meshes: ['loco_carriage_lod1', 'loco_carriage_lod2', 'loco_carriage_lod3', 'loco_carriage_lod4'], pitch: [0.4, 0.16, 0.4], studs: [8, 0, 0, 0], tile: 0, minTris: 6, textured: true, thickF: [0.75, 0.75, 0.75, 1.05],
     hold: [[1.7, -0.05, 2.5, 2.7, 2.35, 5.3], [1.7, -0.05, -5.3, 2.7, 2.35, -2.5], [-2.7, -0.05, 2.5, -1.7, 2.35, 5.3], [-2.7, -0.05, -5.3, -1.7, 2.35, -2.5]] },
@@ -122,7 +126,7 @@ export async function buildMesh({ a, msh, tl, spec, li, offset }) {
   const massSoups = mass.map((g) => { if (!spec.hold) return g.tris; const o = []; for (let q = 0; q < g.tris.length; q += 9) if (!spec.hold.some((b) => inBox(g.tris, q, b))) o.push(...g.tris.subarray(q, q + 9)); return Float32Array.from(o); });
   if (spec.search !== false) {   // the grid offset that gives the best silhouette against the game's surface of this LOD (a shift of at most half a cell between LODs)
     const keepSoups = gg.filter((g) => !mass.includes(g) && g.kind !== 'placeholder').map((g) => g.tris);
-    offset = (await searchOffset(massSoups, keepSoups, gg.filter((g) => g.kind !== 'placeholder').map((g) => g.tris), { pitch: spec.pitch, thick: spec.thick ?? spec.pitch[0] * thickF(spec, li) })).offset;
+    offset = (await searchOffset(massSoups, keepSoups, gg.filter((g) => g.kind !== 'placeholder').map((g) => g.tris), { pitch: spec.pitch, thick: spec.thick ?? spec.pitch[0] * thickF(spec, li) }, spec.steps ? { steps: spec.steps, size: spec.searchSize ?? 256 } : undefined)).offset;
   }
   let minY = 1e9; for (const g of mass) for (let i = 1; i < g.tris.length; i += 3) minY = Math.min(minY, g.tris[i]);
   const vox = voxelise(massSoups.map((t) => ({ tris: t })), { pitch: spec.pitch, thick: spec.thick ?? spec.pitch[0] * thickF(spec, li), offset, minY: minY - 1e-3 });

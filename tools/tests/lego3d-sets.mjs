@@ -141,6 +141,15 @@ export default {
         if (dc > 0.2) failures.push(`${tag}: culling centre off by ${(dc * bo.radius).toFixed(2)}`);
         const wo = bounds(worldPositions(om)), wn = bounds(worldPositions(nm));
         for (let c = 0; c < 3; c++) if (Math.abs(wn.lo[c] - wo.lo[c]) > 0.15 * (wo.hi[c] - wo.lo[c]) + 0.8 || Math.abs(wn.hi[c] - wo.hi[c]) > 0.15 * (wo.hi[c] - wo.lo[c]) + 0.8) { failures.push(`${tag}: world box axis ${c} [${wn.lo[c].toFixed(2)}, ${wn.hi[c].toFixed(2)}] against [${wo.lo[c].toFixed(2)}, ${wo.hi[c].toFixed(2)}]`); break; }
+        // sitting on the ground (docs section 17): the rail / road vehicles' lowest point is the game's (the set's wheels were bigger and sat 0.7 below the rail): within 0.2 near, 0.45 far
+        if (/locomotive|loco_tender|speedster|ambulance/i.test(e.member) && wn.lo[1] < wo.lo[1] - (lodFrom >= 80 ? 0.45 : 0.2)) failures.push(`${tag}: lowest point ${wn.lo[1].toFixed(2)} against the game's ${wo.lo[1].toFixed(2)} (sunk into the ground)`);
+        // translucent groups (flags & 2: windscreens, lamp lenses) that are rebuilt keep their height: a windscreen part that fell into an opaque body group left only the lamps (the speedster's pane lost 2.5 of 3.6 units and a red slab hid the driver)
+        e.kinds.forEach((k, g) => {
+          if (k === 'keep' || k === 'decal' || !(om.groups[g].flags & 2)) return;
+          const ext = (m) => { const gr = m.groups[g]; let lo = 1e9, hi = -1e9; for (let v = 0; v < gr.vertexCount; v++) { const y = m.positions[(gr.firstVertex + v) * 3 + 1]; lo = Math.min(lo, y); hi = Math.max(hi, y); } return hi - lo; };
+          const ha = ext(om), hb = ext(nm);
+          if (ha >= 0.8 && hb < 0.6 * ha) failures.push(`${tag}: translucent group ${g} is ${hb.toFixed(2)} high, the game's ${ha.toFixed(2)} (its pane is gone)`);
+        });
         // moving parts (MATL matrix other than identity, per GTOM index): the part's local box is the game's within 12 % (+ 0.15): wheels / rotors / doors keep their axle and their size
         if (nm.gtom && nm.matl) {
           const boxOfPart = (m, k) => { const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]; m.groups.forEach((gr, gi) => { if (m.gtom[gi] !== k || gr.indexCount <= 9) return; for (let v = 0; v < gr.vertexCount; v++) for (let c = 0; c < 3; c++) { const x = m.positions[(gr.firstVertex + v) * 3 + c]; lo[c] = Math.min(lo[c], x); hi[c] = Math.max(hi[c], x); } }); return { lo, hi }; };

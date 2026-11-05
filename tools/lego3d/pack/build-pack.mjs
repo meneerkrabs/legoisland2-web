@@ -23,7 +23,7 @@ const PARTS = path.join(WORK, 'pack-parts');
 
 export function makeCtx(id) {
   const dir = path.join(PARTS, id);
-  fs.rmSync(dir, { recursive: true, force: true });
+  if (!process.env.KEEP_PART) fs.rmSync(dir, { recursive: true, force: true });   // KEEP_PART=1 (development, with a builder's own ONLY variable): the part keeps what an earlier build wrote
   fs.mkdirSync(dir, { recursive: true });
   const used = new Map(), sets = [];
   return {
@@ -39,7 +39,11 @@ export function makeCtx(id) {
     use(infos) { for (const [f, i] of infos) used.set(f, { file: path.relative(path.join(LDRAW, 'lib/ldraw'), f), title: i.title, author: i.author, license: i.license }); },
     useSet(s) { sets.push(s); },
     log: (m) => console.log(`[${id}] ${m}`),
-    finish() { fs.writeFileSync(path.join(dir, 'used.json'), JSON.stringify({ files: [...used.values()], sets }, null, 1)); },
+    finish() {
+      const f = path.join(dir, 'used.json');
+      if (process.env.KEEP_PART && fs.existsSync(f)) { const j = JSON.parse(fs.readFileSync(f, 'utf8')); { const have = new Set([...used.values()].map((x) => x.file)); for (const u of j.files) if (!have.has(u.file)) used.set(`kept:${u.file}`, u); } for (const e of j.sets) if (!sets.some((x) => x.set === e.set && x.title === e.title)) sets.push(e); }
+      fs.writeFileSync(f, JSON.stringify({ files: [...used.values()], sets }, null, 1));
+    },
   };
 }
 

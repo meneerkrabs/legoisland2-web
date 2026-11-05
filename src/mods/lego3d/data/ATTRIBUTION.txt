@@ -13,14 +13,15 @@ LDraw(TM) is a trademark owned and licensed by the Estate of James Jessiman. LEG
 
 The pack contains NO pictures or meshes of the game "LEGO Island 2": those are read from the player's own game files in the browser and are never copied here.
 
-Licence lines found in the 939 files used:
-  877 x Licensed under CC BY 4.0 : see CAreadme.txt
-  52 x Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
-  10 x CCAL version 2.0
+Licence lines found in the 905 files used:
+  852 x Licensed under CC BY 4.0 : see CAreadme.txt
+  44 x Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
+  9 x CCAL version 2.0
 
-Authors (60): Alex Taylor [anathema]; Andy Westrate [westrate]; Arne Hackstein; Bernd Munding; C.L.Rasmussen [johnny-thunder]; Chris Böhnke [KnightOfTarenta]; Chris Dee [cwdee]; Damien Roux [Darats]; Deanna Earley [DeannaEarley]; Dennis Osborn [DennisOsborn]; Donald Sutter [technog]; Evert-Jan Boer [ejboer]; Franklin W. Cain [fwcain]; Gerald Lasser [GeraldLasser]; Greg Teft [gregteft]; Guy Vivan [guyvivan]; J.C. Tchang [tchang]; Jaco van der Molen [Jaco]; James Jessiman; Johann Eisner [technicbasics]; John Riley [jriley]; John Van Zwieten [jvan]; LDraw.org Official Model Repository; Luis E. Fernandez [lfernand]; Lutz Uhlmann [El-Lutzo]; Magnus Forsberg [MagFors]; Marc Klein [marckl]; Mark Chittenden [mdublade]; Mark Kennedy [mkennedy]; Martin G Cormier; Massimo Maso [Sirio]; Max Martin Richter [MMR1988]; Merlijn Wissink [legolijntje]; Michael Heidemann [mikeheide]; Niels Karsdorp [nielsk]; Nils Schmidt [BlackBrick89]; Orion Pobursky [OrionP]; Owen Burgoyne [C3POwen]; Paul Easter [pneaster]; Philippe Hurbain [Philo]; Reinhard "Ben" Beneke [Ben_aus_BS]; Remco Braak [remco1974]; Rene Rechthaler [Blechtaler]; Rolf Osterthun [Rolf]; Ross Crawford [rosco]; Santeri Piippo [arezey]; Steffen [Steffen]; Steve Bliss [sbliss]; Sylvain Sauvage [SLS]; Takeshi Takahashi [RainbowDolphin]; Thomas Burger [grapeape]; Tim Gould [timgould]; Tim Lampmann [L4mpi]; Tomas Kralicek [RabbiT_CZ]; Tore Eriksson [Tore_Eriksson]; Ulrich Röder [UR]; Vincent Messenet [Cheenzo]; William Howard [WilliamH]; Willy Tschager [Holly-Wood]; [PTadmin]
+Authors (58): Alex Taylor [anathema]; Andy Westrate [westrate]; Arne Hackstein; Bernd Munding; C.L.Rasmussen [johnny-thunder]; Chris Böhnke [KnightOfTarenta]; Chris Dee [cwdee]; Damien Roux [Darats]; Deanna Earley [DeannaEarley]; Dennis Osborn [DennisOsborn]; Donald Sutter [technog]; Evert-Jan Boer [ejboer]; Franklin W. Cain [fwcain]; Gerald Lasser [GeraldLasser]; Greg Teft [gregteft]; Guy Vivan [guyvivan]; J.C. Tchang [tchang]; Jaco van der Molen [Jaco]; James Jessiman; John Riley [jriley]; John Van Zwieten [jvan]; LDraw.org Official Model Repository; Luis E. Fernandez [lfernand]; Lutz Uhlmann [El-Lutzo]; Magnus Forsberg [MagFors]; Marc Klein [marckl]; Mark Chittenden [mdublade]; Mark Kennedy [mkennedy]; Martin G Cormier; Massimo Maso [Sirio]; Max Martin Richter [MMR1988]; Merlijn Wissink [legolijntje]; Michael Heidemann [mikeheide]; Niels Karsdorp [nielsk]; Nils Schmidt [BlackBrick89]; Orion Pobursky [OrionP]; Owen Burgoyne [C3POwen]; Paul Easter [pneaster]; Philippe Hurbain [Philo]; Reinhard "Ben" Beneke [Ben_aus_BS]; Rene Rechthaler [Blechtaler]; Rolf Osterthun [Rolf]; Ross Crawford [rosco]; Santeri Piippo [arezey]; Steffen [Steffen]; Steve Bliss [sbliss]; Sylvain Sauvage [SLS]; Takeshi Takahashi [RainbowDolphin]; Thomas Burger [grapeape]; Tim Gould [timgould]; Tim Lampmann [L4mpi]; Tomas Kralicek [RabbiT_CZ]; Tore Eriksson [Tore_Eriksson]; Ulrich Röder [UR]; Vincent Messenet [Cheenzo]; William Howard [WilliamH]; Willy Tschager [Holly-Wood]; [PTadmin]
 
-OMR set models (10):
+OMR set models (9):
+  6479 Emergency Response Centre (boat, parachute zone) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/6479-1
   6415 Res-Q Jet-Ski - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/6415-1
   6666 Ambulance - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/6666-1
   5920 Island Racer - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5920-1
@@ -29,10 +30,8 @@ OMR set models (10):
   6479 Emergency Response Centre (inflatable boat) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/6479-1
   7750 Steam Engine (locomotive) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/7750-1
   7750 Steam Engine (tender) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/7750-1
-  5935 Island Hopper (zone z22BIP, 1.33x) - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
-  5935 Island Hopper - LDraw.org Official Model Repository - CCAL version 2.0 - https://library.ldraw.org/omr/sets/5935-1
 
-Parts used (363):
+Parts used (344):
   parts/16599.dat - Minifig Helmet Classic with Thin Chin Guard Cracked - Magnus Forsberg [MagFors] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/18031.dat - Minifig Sword Longsword with Thick Guard - Gerald Lasser [GeraldLasser] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/191925a.dat - Sticker  2.4 x  2 with White German Railways Logo and "7750" - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -40,10 +39,8 @@ Parts used (363):
   parts/2344.dat - ~Train Wheels Pin - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2348b.dat - Glass for Hinge Car Roof  4 x  4 Sunroof with Ridges - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2349a.dat - Hinge Car Roof  4 x  4 Sunroof without Ledges - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/2357.dat - Brick  2 x  2 Corner - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2362b.dat - Panel  1 x  2 x  3 with Hollow Studs - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2375.dat - Hinge Bar 12 with Split Rod Holder - Thomas Burger [grapeape] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
-  parts/2377.dat - Window  1 x  2 x  2 Plane - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2412b.dat - Tile  1 x  2 Grille with Groove - Guy Vivan [guyvivan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   parts/2413.dat - Wing  4 x  9 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2419.dat - Plate  3 x  6 without Corners - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -81,7 +78,6 @@ Parts used (363):
   parts/267a.dat - ~Electric Lightbrick  2 x  2 Type 1 Insert - Niels Karsdorp [nielsk] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/267b.dat - ~Electric Lightbrick  2 x  2 Type 2 Insert with Diffusor - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2723.dat - Technic Disc  3 x  3 with Axlehole - Thomas Burger [grapeape] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
-  parts/2743.dat - Technic Brick  1 x  4 x  1.667 Wing Front - Luis E. Fernandez [lfernand] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   parts/2873.dat - Hinge Tile  2 x  4 with Ribs - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2921.dat - Brick  1 x  1 with Handle - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/2959.dat - ~Magnet Cylindrical Casing (Obsolete) - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -89,7 +85,6 @@ Parts used (363):
   parts/29c.dat - Window  1 x  1 x  2 Classic with Short Sill - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/29cc01.dat - Window  1 x  1 x  2 Classic with Short Sill (Complete) - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3001.dat - Brick  2 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/30010.dat - =Panel  1 x  2 x  1 with Square Corners - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3002.dat - Brick  2 x  3 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3003.dat - Brick  2 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/30031.dat - Minifig Handlebars - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -130,14 +125,10 @@ Parts used (363):
   parts/30343.dat - ~Window  4 x 10 x  2 Slope Double - Ross Crawford [rosco] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/30343c01.dat - Window  4 x 10 x  2 Slope Double with Trans Dark Blue Glass - Ross Crawford [rosco] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3035.dat - Plate  4 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/30355.dat - Wing  6 x 12 Left - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
-  parts/30356.dat - Wing  6 x 12 Right - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   parts/3036.dat - Plate  6 x  8 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/30363.dat - Slope Brick 18  4 x  2 - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
-  parts/30365.dat - Hinge Brick  1 x  2 Locking with Dual Finger On End - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   parts/3037.dat - Slope Brick 45  2 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3038.dat - Slope Brick 45  2 x  3 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/30383.dat - Hinge Plate  1 x  2 Locking with Single Finger On Top - John Van Zwieten [jvan] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   parts/3039.dat - Slope Brick 45  2 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3039pc6.dat - Slope Brick 45  2 x  2 with Radar Screen Pattern - Damien Roux [Darats] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3040b.dat - Slope Brick 45  2 x  1 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -158,8 +149,6 @@ Parts used (363):
   parts/3082.dat - ~Window  1 x  2 x  2 Classic Glass - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3134.dat - Brick  1 x  2 with Cable Cutout - Takeshi Takahashi [RainbowDolphin] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3176.dat - Plate  3 x  2 with Hole - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/32028.dat - Plate  1 x  2 with Door Rail - Remco Braak [remco1974] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
-  parts/32083.dat - Slope Brick 45  6 x  4 Double - Franklin W. Cain [fwcain] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3297.dat - Slope Brick 33  3 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3298.dat - Slope Brick 33  3 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/3299.dat - Slope Brick 33  2 x  4 Double - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -241,7 +230,6 @@ Parts used (363):
   parts/4033c01.dat - Train Window  1 x  4 x  3 with Trans-Clear Glass - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4034.dat - Glass for Train Window  1 x  4 x  3 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4070.dat - Brick  1 x  1 with Headlight - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/4079.dat - Minifig Seat  2 x  2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4081b.dat - Plate  1 x  1 with Clip Light Type 2 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4083.dat - Bar  1 x  4 x  2 with Studs - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4085a.dat - Plate  1 x  1 with Clip Vertical (Thin C-Clip) - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -269,8 +257,6 @@ Parts used (363):
   parts/4213.dat - Hinge Car Roof  4 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4285b.dat - Dish  6 x  6 Inverted Webbed Type 2 - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4286.dat - Slope Brick 33  3 x  1 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/4287.dat - ~Moved to 4287a - [PTadmin] - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/4287a.dat - Slope Brick 33  3 x  1 Inverted with Notch and Thick Front - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4287b.dat - Slope Brick 33  3 x  1 Inverted with Notch, Stud Blocker and Thick Front - Massimo Maso [Sirio] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4315.dat - Hinge Plate  1 x  4 with Car Roof Holder - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4318.dat - Boat Mast Hinged with 2 Fingers on Both Sides - Thomas Burger [grapeape] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
@@ -305,7 +291,6 @@ Parts used (363):
   parts/4770.dat - Electric Light & Sound Coloured Globe - Thomas Burger [grapeape] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   parts/4854.dat - Slope Brick 45  4 x  4 Double Inverted with Open Centre - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4856.dat - Wedge  6 x  4 Inverted - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/4857.dat - Slope Brick 45  4 x  4 Double with Hinge - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4859.dat - Wing  3 x  4 with  1 x  2 Cutout without Stud Notches - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4865a.dat - Panel  1 x  2 x  1 with Square Corners - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/4871.dat - Slope Brick 45  4 x  2 Double Inverted with Open Centre - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -314,7 +299,6 @@ Parts used (363):
   parts/48995.dat - Tile  2 x  3 Rounded with Hole - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/501a.dat - ~Electric Train Motor 12V with 2-Hole Plugs - Thomas Burger [grapeape] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   parts/501ac01.dat - Electric Train Motor 12V with 2-Hole Sockets (Complete) - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/50303.dat - Wing  7 x  6 with Stud Notches - Michael Heidemann [mikeheide] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/50861.dat - Tyre  6/ 58 x 14 Offset Tread - Tim Gould [timgould] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/5091.dat - Tile  1 x  2 Cut Left 45 Degree - Gerald Lasser [GeraldLasser] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/5092.dat - Tile  1 x  2 Cut Right 45 Degree - Gerald Lasser [GeraldLasser] - Licensed under CC BY 4.0 : see CAreadme.txt
@@ -356,15 +340,11 @@ Parts used (363):
   parts/6212.dat - Brick  4 x 10 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6215.dat - Brick  2 x  3 with Curved Top - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6216.dat - Brick  2 x  4 x  2 with Triple Curved Top - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/6232.dat - Brick  2 x  2 with Pin and Axlehole - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/6239.dat - Tail Shuttle  2 x  6 x  4 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6249.dat - Brick  2 x  4 with Pins - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6252.dat - Umbrella  8 x  8 with Curved Tabs - Tore Eriksson [Tore_Eriksson] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6260.dat - Minifig Torso Skeleton with Thin Shoulder Pins - Dennis Osborn [DennisOsborn] - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
   parts/6265.dat - Minifig Skeleton Arm - Franklin W. Cain [fwcain] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6266.dat - Minifig Skeleton Leg - Steve Bliss [sbliss] - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/6564.dat - Wedge  3 x  2 Right - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
-  parts/6565.dat - Wedge  3 x  2 Left - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6583.dat - Plate  1 x  6 with Train Wagon End - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/6636.dat - Tile  1 x  6 - James Jessiman - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/678.dat - Slope Homemaker Awning  2 x  6 - Arne Hackstein - Licensed under CC BY 2.0 and CC BY 4.0 : see CAreadme.txt
@@ -397,4 +377,4 @@ Parts used (363):
   parts/u9130.dat - ~Electric Train 12V Power Pickup - Steffen [Steffen] - Licensed under CC BY 4.0 : see CAreadme.txt
   parts/u9146.dat - ~Pin for Electric Plug (Type 4) Single - Chris Dee [cwdee] - Licensed under CC BY 4.0 : see CAreadme.txt
 
-Primitives and sub-parts used: 566 files (all under the same library licence; authors above).
+Primitives and sub-parts used: 552 files (all under the same library licence; authors above).

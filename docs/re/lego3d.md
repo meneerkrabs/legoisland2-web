@@ -1126,3 +1126,76 @@ The voxel model's stairs of these walls: each outer cell straddles the line (the
 * The round bricks (`fitRoundCorners`, `BLDG_ROUND=1`) stay off; nothing of this changes the doors, the dish, the sliding arm, the panes or the last LOD.
 * Cost: +925 triangles on the Res-Q centre's LOD 1 (the plaza view of 90k triangles), -38 on LOD 2.
 Gates: silhouette IoU >= 0.9 on 9 views per LOD (test `lego3d-bldg`: worst of all 20 meshes 0.911, the carriage's), no loose / overlapping part (claims are distinct cells, `loose` 0), no new island (components 11 -> 11), moving groups and the last LOD untouched, `GEN_VERSION` 10, `npx tsc --noEmit`, `npx vite build` and the whole suite green.
+
+## 17. Vehicle QA sweep (round 14): inventory, shots, verdicts, fixes (`GEN_VERSION` 15 -> 16, pack 3.18 -> 3.17 MB)
+
+Asked: look at every vehicle of the game with the LEGO 3D option on and off (front / three-quarter / side / rear / from above, driving and boarded), judge wheels, glass, studs, scale, attachments, floating parts, boarding, colours, and fix what is wrong in the builders with the existing gates. Contact sheets and every picture: `~/Documents/legoeiland2-extract/lego3d/shots-vehicles/` (`sheets/`, `offline/`, `shots/`, `data/`).
+
+### 17.1 Method and tools
+* `tools/lego3d/vehicles-inventory.mjs [--md]`: every vehicle-like record of every zone (by the mesh name of its LOD parts), the game's triangles per LOD, what the generators write over it, the moving groups (MATL != identity). `node tools/lego3d/vehicles-inventory.mjs --md`.
+* `tools/lego3d/vehicles-shoot.mjs` (table `VEH`): the developer corner's "Camera op dit object" (`tools/steps/devcorner-objcam.mjs`), LEGO 3D off and on, five views at a distance that follows the size, headless and muted through the bot slot against a snapshot server; `tools/lego3d/vehicles-sheet.mjs` composes labelled contact sheets in the headless page.
+* Driving / boarded: `tools/lego3d/steps/sets-ride.mjs` (Pepper takes the jet ski, boat, helicopter, ambulance, speedster: Ctrl at the vehicle, then Space / ArrowUp, a close camera `CAM`), new `tools/lego3d/steps/vehicles-train.mjs` (the ride of `src/island/pizza/train.ts` without waiting for a station: the boarding branch of `TrainNode.prerender` applied by hand, Pepper on the seat).
+* Offline: `tools/lego3d/bldg-view.mjs` (game against the generated mesh, `--box` close-ups), `tools/lego3d/bldg-iou.mjs` (the 9-view silhouette gate for every replaced LOD), new `tools/lego3d/iou-diff.mjs` (the difference masks), new `tools/lego3d/vehicles-audit.mjs`: per replaced mesh the world box against the game's (length, height, **lowest point** = where it sits on the water / the rail), **floating clusters** (static triangles joined within 0.05, long triangles subdivided to 0.6; clusters that touch nothing, stud prisms ignored, the game's own count of separate pieces printed beside) and body triangles inside a moving group's box.
+
+### 17.2 Inventory (records per zone, what the option does to them)
+Replaced by a set model (generator `sets`, table `<archive>.json`) or a brick reconstruction (`bldg`, `<archive>.b.json`); "groups" = the groups of LOD 0 that are rebuilt / kept (kept = the game's own: placeholders, decals, panes, moving hubs):
+
+| vehicle | zone: record | builder | groups rebuilt / kept | moving groups (the game turns them) |
+|---|---|---|---|---|
+| jet ski | z02LGI, z07CSI: JSKI | set 6415 | 2 / 2 (black, yellow; logo decal lifted) | 1 placeholder (kept) |
+| ambulance | z02LGI: AMBU | set 6666 | 12 / 13 | 16: four wheels (tyres rebuilt as one lathe body, hubs kept), seat, doors (kept) |
+| Island Racer speedster | z02LGI: SPD0 SPD1 SPD2, z16PYA: SPED | set 5920 | 10 / 10 | 9: four wheels, steering wheel |
+| Res-Q boat | z02LGI, z07CSI: SPBT; **new: z38PAR: BOAT** | set 6479 | 10 / 3 | 1 (kept) |
+| inflatable boat | z02LGI, z07CSI: DNGY | set 6479 | 4 / 1 | 1 (outboard, kept) |
+| Res-Q helicopter | z02LGI, z13CAI, z14OSD: RHEL | set 6479 | 10 / 10 | 8: main rotor, tail rotor, hub (re-fitted onto the game's boxes) |
+| locomotive | z02LGI: TRNL | set 7750, **hybrid since this round** | 6 / 7 (the game's green body stays) | none (the wheels are static groups) |
+| tender | z02LGI: TRNT | set 7750, hybrid | 4 / 6 | none |
+| carriage | z02LGI: TRNC | `bldg` | 8 / 1 (wheel discs held) | none |
+| airstrip seaplane | z14OSD, z23DIP: SEPL / G001 | `bldg` | 5 / 16 | 10: wings, props, panes (kept) |
+| canyon seaplane | z22BIP: SEPL | **now `bldg`** (was set 5935 x1.33) | 6 / 7 | none (the props are the records PROP) |
+| parachute-zone seaplane | z38PAR: PLNE | **now `bldg`** (was set 5935) | 6 / 12 | none |
+
+Left as the game's own (the option only adds studs to single-LOD models and the back of one-sided glass): police helicopter PHEL (z02LGI z13CAI z14OSD) and the brick police helicopter BHEL (z02LGI, switched on with VIS=1), police car PCAR, microlight glider GLDR, Pharaoh speeder G010 (z13CAI: a static prop, the Island Racer in another low-poly version), biplanes G011 / G000 / BIPL and their propellers PROP, Pterodactyl PTER / PTRA (z02LGI z13CAI z14OSD z23DIP z27TRX z28HAT z38PAR), shuttle SHTL and fishship G001 (z02LGI z40aPO z40OGL), solaar wing, hot-air balloon HOTB / LOON / BALL, parachute PARA, skateboards SKBD / SBRD, sandboards, the hoverboard deck, the splash / ripple / wake records (RIPB RIPD RIPJ RIPP WAKP WAKR WAKS SPLH: flat water decals), cannons CC.., dolphin DLPH, clambot CBOT, FLOT float, the 12-triangle marker `cartpos1` (z15SSH), the front-end train (z60FRE record 44, `group1.Msh`, 3250 triangles, one mesh of 32 groups). Not in the game as records: `Steam_Train`, `Police_Chopper`, `ferry`, `speederHR/MR/LR` (unused members), and no pogo of any kind (no mesh, no record: grep of all 10,731 meshes and the record tables). (`z17WAS` `group1` / `group5` are the planks Pepper carries, not vehicles.)
+
+### 17.3 What the pictures and numbers showed, and the verdict
+Silhouette IoU = min / mean of the 9 views at 512 px (`bldg-iou.mjs`), triangles game -> option, `lowest` = the new mesh's lowest point against the game's (negative = deeper than the game's):
+
+| vehicle | what was seen | numbers | verdict |
+|---|---|---|---|
+| jet ski | same hull, handlebars thinner, logo in place, Pepper rides in the same seat (boarded sheet), studs on the seat plate | 0.880 / 0.940, 267 -> 1318, lowest -0.32 (keel under the water line), top -0.03; LOD 3 (`group4`) 0.726 | good (keel hidden by the water; the offline "red patch" is the 2-triangle logo group drawn in its texture's mean colour) |
+| ambulance | wheels sit in the arches, turn and steer when driven (frames 1-4 of the drive sheet), windows / blind pictures in place, studs on the roof, rear interior red seats where the game has grey | 0.918 / 0.951, 1362 -> 6468, lowest +0.00 | good |
+| speedster | **windscreen was an opaque red slab over the driver** (the set's trans-clear panel had fallen into the red body group); the game's pane was left with the lamps only | before 0.929 / 0.941 (unchanged), pane height 0.80 of 1.71 | **fixed** (17.4 F1): translucent pane back, driver visible |
+| Res-Q boat | richer than the game (chain rails, winch, studs); beacons taller (top +0.54), keel -0.32; z07CSI's 961-triangle variant has a shorter bow | z02LGI 0.860 / 0.901, z07CSI 0.720 / 0.852, LOD 3-4 0.60-0.62 | good, IoU below 0.9 left (the set's hull shape against the game's; far LODs) |
+| **z38PAR boat** | was the game's own boat (the only Res-Q boat the option left alone) | now 0.761 / 0.858, 1261 -> 10804 | **fixed**: replaced (own fit: the mesh's origin is the stern) |
+| inflatable boat | smooth tubes, studs on the floor, outboard in place | 0.859 / 0.900, 518 -> 3313, lowest -0.31 | good |
+| helicopter | canopy, skids, tail and rotors in place and turning (round 2 frames), flies when boarded (ride sheet) | 0.763 / 0.835, 1162 -> 8240, lowest -0.08; LOD 2 0.644 (top +0.48) | good by eye, **gate not met** (the thin rotor blades are the game's own kept quads; the set's skids / tail differ): left |
+| **locomotive** | wheels bigger than the game's and **0.70 below the rail**, chimney funnel replaced by a stub with its top plate floating 1.1 above, cab windows and the DB 7750 decal gone, dark gaps in the boiler | before 0.766 / 0.854, lowest -0.70, 25 floating clusters (8 = wheels) | **fixed** (17.4 F2, F3): 0.899 / 0.940, lowest -0.14, game body / funnel / windows / decal, set chassis, buffers and spoked wheels on the game's wheel pairs |
+| **tender** | chassis 0.25 below the rail | before lowest -0.25 | **fixed** (F4): lowest +0.00, 0.913 / 0.953 |
+| carriage | studded deck, buffers, wheel discs of the game, sits on the rail | 0.922 / 0.944, lowest +0.00 | good |
+| airstrip seaplane | red brick hull, folded wings / props of the game | 0.934 / 0.962 (LOD 1) .. 0.929 | good |
+| **z22BIP seaplane** | set at 1.327x: tail boom a thin rod, **tail cap and a pontoon detached by 0.9-1.3 units** (137 floating clusters), fuselage hollow | before 0.761 / 0.873 | **fixed** (F5): brick reconstruction, 0 floating clusters, 0.880 / 0.950 at 512 px (0.911 at the gate's 384 px: the thin wings), 850 -> 21357 triangles (was 11969) |
+| **z38PAR seaplane** | set build, open frame, 196 floating clusters, 28k triangles | before 0.819 / 0.910 | **fixed** (F5): 0.961 / 0.972, 868 -> 8809 |
+| game-own vehicles (list in 17.2) | studs on rotors / wings / hulls and the glass backs look right; nothing moves or floats differently | - | good (unchanged by design) |
+
+Boarded (`shots/ride`, `sheets/ridesheet-*`): jet ski, boat, ambulance, speedster, helicopter and locomotive were boarded with the option on and off; Pepper sits where the game puts him, the camera and controls are the game's, nothing was left behind when a group moves (wheels, rotors turn with their vehicle). Collision is the game's `.col`, untouched (test).
+
+### 17.4 Fixes
+* **F1 translucent parts** (`tools/lego3d/setlib.mjs`, `buildMeshGroups`): a translucent LDraw part (colour alpha < 255) goes only to the game's translucent groups (flags & 2), at up to 2.5x the usual distance, an opaque part never to them; a translucent part with no such group in reach falls back to the old nearest-group rule. Speedster windscreen back; the speedboat's LOD 3 got its panes back (the new test gate lists both).
+* **F2 static wheels** (`gameWheelPairs`, `refitWheels`): the game's round pieces of the static colour groups (two equal long axes, a thin third) are paired left / right; the set's wheel assemblies named in the spec (`wheelParts`: loco `4180c01`) are moved and scaled per axis onto the nearest pair, for every LOD.
+* **F3 locomotive hybrid** (`sets-table.mjs`): `keepTextures` [281, 285, 286, 287, 291] (the green body groups stay the player's, like the tender), chassis, buffers, black parts and wheels from the set.
+* **F4 tender lift** (`dy: 0.25`, `buildSpecs`).
+* **F5 the two flying seaplanes** moved from the set table to `bldg` (`seaplane_z22`, `seaplane_z38`, pitch 0.4 / 0.16 / 0.4, studs 4, `minThick` 0.6, like the airstrip plane); the set specs `seaplane22` / `seaplane` are gone. The z22BIP plane was tried with finer offset searches (8 steps, 384 px: 0.877) and thickness factors: the front / back view stays at 0.88 because a 42-unit span is carried by one 0.16 plate.
+* **F6 `speedboat38`**: its own spec and fit (z38PAR's boat is modelled around the stern).
+* **F7 builder repair**: `tools/lego3d/pack/sets.mjs` `build()` returned its tables without writing them (since the `buildSpecs` split of round 4: a `--only sets` build gave an empty part); it writes blobs + `sets/arch/*.json` + `<WORK>/sets-report.json` again, and `SETS_ONLY=key,key KEEP_PART=1` rebuilds only some specs into an existing part (other entries kept, unreferenced blobs removed, `used.json` merged). Full `--only sets,bldg` build: 42 min on a loaded machine, a loco + tender only: 3 min.
+* **F8 tests** (`tools/tests/lego3d-sets.mjs`): per mesh (a) ground vehicles (locomotive, tender, speedster, ambulance) lowest point within 0.2 of the game's (0.45 far LODs), (b) a rebuilt translucent group keeps >= 60 % of the game's height. Both fail on the pack before this round (10 failures: locomotive LODs -0.69..-0.89, tender -0.16, speedster pane 0.80 of 1.71, speedboat LOD 3).
+* `GEN_VERSION` 16 (cache key). Pack 3.18 -> 3.17 MB (ATTRIBUTION: the Island Hopper set is no longer used by the vehicles, the z38PAR boat adds 6479 once more).
+
+### 17.5 Left, with the reason
+* Helicopter IoU 0.76 / 0.84 and LOD 2 0.64, speedboat LOD 3-4 0.60 and the z07CSI boat 0.72, jet ski LOD 3 0.73, dinghy LOD 2 0.81, locomotive LOD 3-4 0.83 / 0.78: the set's shape against the game's thin parts (rotors, hull flare) or the far LODs (measured, round 2); none floats (audit), none sinks more than 0.4.
+* Keels 0.3-0.6 deeper than the game's on the boats and the jet ski (under the water line), the helicopter's LOD 2 is 0.48 taller (a pop of half a unit at 90 units).
+* Pharaoh speeder G010 (z13CAI), police helicopter / car, microlight, biplanes: not in an OMR set we fitted; unchanged by design. Skateboards, sandboards, hoverboard and the front-end train: the game's own (no set; the train of the front end is a 3250-triangle scene piece).
+* The wake / ripple / splash records are flat water decals: no LEGO equivalent.
+* z22BIP plane front / back view IoU 0.880 at 512 px.
+
+### 17.6 Files
+`tools/lego3d/vehicles-inventory.mjs`, `vehicles-shoot.mjs`, `vehicles-sheet.mjs`, `vehicles-audit.mjs`, `iou-diff.mjs`, `steps/vehicles-train.mjs`; changed: `setlib.mjs`, `sets-table.mjs`, `pack/sets.mjs`, `pack/bldg.mjs` (the two planes, `steps` / `searchSize` options), `pack/build-pack.mjs` (`KEEP_PART`), `src/mods/lego3d/gen/index.ts` (`GEN_VERSION` 16), `tools/tests/lego3d-sets.mjs`, the pack and its ATTRIBUTION.

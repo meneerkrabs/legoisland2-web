@@ -15,6 +15,7 @@ import { TriGrid, areaSample, RayGrid, pruneHiddenCone } from './geomx.mjs';
 import { groupMatrices } from '../../src/formats/msh.ts';
 import { decimate, creaseNormals } from '../../src/mods/lego3d/geom/decimate.ts';
 import { transformPoint } from '../../src/render/math.ts';
+import { ldColors } from './ldcolors.mjs';
 import { simplify, STUD_RE, placeStuds, key3, closeBottom } from './brickmesh.mjs';
 import { shellGroups } from './setenv.mjs';
 
@@ -213,7 +214,7 @@ export function refineScale(ldTris, fit, gameTris, { uniform = false, samples = 
  * Which game group does each instance belong to? `geoms`: per instance { tris (game frame) }; `groups`: gameGroups() of the LOD mesh being replaced. Votes: area samples of the instance, each to the nearest
  * group of kind 'colour'. Returns [{ instance, group (index or -1), dist (mean distance to that group), share (vote share) }].
  */
-export function assignInstances(geoms, groups, { maxDist = 0.35, samples = 24 } = {}) {
+export function assignInstances(geoms, groups, { maxDist = 0.35, samples = 24, accept = null } = {}) {
   const cg = groups.filter((g) => g.kind === 'colour' && g.tris.length);
   const grids = cg.map((g) => new TriGrid(g.tris, 0.25));
   return geoms.map((g, ii) => {
@@ -222,7 +223,7 @@ export function assignInstances(geoms, groups, { maxDist = 0.35, samples = 24 } 
     const votes = new Array(cg.length).fill(0), dsum = new Array(cg.length).fill(0);
     for (let i = 0; i < pts.length; i += 3) {
       let best = -1, bd = 1e9;
-      grids.forEach((gr, k) => { const d = gr.dist([pts[i], pts[i + 1], pts[i + 2]], bd); if (d < bd) { bd = d; best = k; } });
+      grids.forEach((gr, k) => { if (accept && !accept(ii, cg[k])) return; const d = gr.dist([pts[i], pts[i + 1], pts[i + 2]], bd); if (d < bd) { bd = d; best = k; } });
       if (best >= 0) { votes[best]++; dsum[best] += bd; }
     }
     let k = 0;
@@ -292,14 +293,76 @@ export function pruneInstances(prepared, fit, { skip = null } = {}) {
 }
 
 /**
+ * The round wheels of the game's STATIC colour groups (the train's wheels are not moving groups): connected pieces (welded vertices) with two equal long axes and a thin third one, paired left / right by the
+ * centre of their circle. Returns [{ lo, hi }] boxes (game frame) of the pairs (wheel + wheel, the axle between them lies inside).
+ */
+export function gameWheelPairs(msh) {
+  const gg = gameGroups(msh), wheels = [];
+  for (const g of gg) {
+    if (g.kind !== 'colour' || !isIdentity(g.matrix)) continue;
+    const t = g.tris, par = new Map(), find = (x) => { while (par.get(x) !== x) { par.set(x, par.get(par.get(x))); x = par.get(x); } return x; };
+    const key = (i) => `${Math.round(t[i] * 500)},${Math.round(t[i + 1] * 500)},${Math.round(t[i + 2] * 500)}`;
+    for (let i = 0; i < t.length; i += 3) { const k = key(i); if (!par.has(k)) par.set(k, k); }
+    for (let i = 0; i < t.length; i += 9) { const a = find(key(i)), b = find(key(i + 3)), c = find(key(i + 6)); par.set(b, a); par.set(find(c), find(a)); }
+    const comp = new Map();
+    for (let i = 0; i < t.length; i += 9) { const r = find(key(i)); if (!comp.has(r)) comp.set(r, { lo: [1e9, 1e9, 1e9], hi: [-1e9, -1e9, -1e9], n: 0 }); const c = comp.get(r); c.n++; for (let k = 0; k < 9; k += 3) for (let q = 0; q < 3; q++) { c.lo[q] = Math.min(c.lo[q], t[i + k + q]); c.hi[q] = Math.max(c.hi[q], t[i + k + q]); } }
+    for (const c of comp.values()) {
+      const sz = [0, 1, 2].map((q) => c.hi[q] - c.lo[q]), srt = [...sz].sort((a, b) => a - b);
+      if (c.n >= 16 && srt[2] > 1 && srt[1] / srt[2] > 0.85 && srt[0] >= 0.25 * srt[2] && srt[0] <= 0.6 * srt[2]) wheels.push({ ...c, axis: sz.indexOf(srt[0]) });
+    }
+  }
+  const pairs = [], used = new Set();
+  wheels.forEach((w, i) => {
+    if (used.has(i)) return;
+    const A = [0, 1, 2].filter((q) => q !== w.axis), ctr = A.map((q) => (w.lo[q] + w.hi[q]) / 2);
+    let best = -1, bd = 0.3;
+    wheels.forEach((v, j) => { if (j === i || used.has(j) || v.axis !== w.axis) return; const d = Math.hypot(...A.map((q, k) => (v.lo[q] + v.hi[q]) / 2 - ctr[k])); if (d < bd && Math.abs((v.lo[w.axis] + v.hi[w.axis]) / 2 - (w.lo[w.axis] + w.hi[w.axis]) / 2) > 0.5) { bd = d; best = j; } });
+    used.add(i);
+    if (best >= 0) { used.add(best); const v = wheels[best]; pairs.push({ lo: [0, 1, 2].map((q) => Math.min(w.lo[q], v.lo[q])), hi: [0, 1, 2].map((q) => Math.max(w.hi[q], v.hi[q])), axis: w.axis }); }
+    else pairs.push({ lo: w.lo, hi: w.hi, axis: w.axis });
+  });
+  return pairs;
+}
+
+/** moves and scales the visible faces of the set's wheel assemblies (parts named in `parts`) onto the nearest wheel pair of the game (per axis: set box -> game box): the set's bigger wheels sat 0.7 below the rail */
+export function refitWheels(pruned, prepared, parts, pairs) {
+  if (!parts?.length || !pairs?.length) return { pruned, moved: 0 };
+  let moved = 0;
+  const out = pruned.map((p, i) => {
+    if (!parts.includes(prepared[i].inst.part) || !p.tris.length) return p;
+    const t = p.tris, lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
+    for (let k = 0; k < t.length; k += 3) for (let q = 0; q < 3; q++) { lo[q] = Math.min(lo[q], t[k + q]); hi[q] = Math.max(hi[q], t[k + q]); }
+    const ax = pairs[0].axis, A = [0, 1, 2].filter((q) => q !== ax), ctr = A.map((q) => (lo[q] + hi[q]) / 2);
+    let best = null, bd = 1e9;
+    for (const w of pairs) { const d = Math.hypot(...A.map((q, k) => (w.lo[q] + w.hi[q]) / 2 - ctr[k])); if (d < bd) { bd = d; best = w; } }
+    if (!best || bd > 1.6) return p;
+    const s = [0, 1, 2].map((q) => (hi[q] - lo[q] > 0.05 ? (best.hi[q] - best.lo[q]) / (hi[q] - lo[q]) : 1)), o = new Float32Array(t.length);
+    for (let k = 0; k < t.length; k += 3) for (let q = 0; q < 3; q++) o[k + q] = best.lo[q] + (t[k + q] - lo[q]) * s[q];
+    moved++;
+    return { ...p, tris: o };
+  });
+  return { pruned: out, moved };
+}
+
+/**
  * Builds the replacement groups of one game mesh. `pruned` = pruneInstances(); opts: { studs (max sides of a stud prism, 0 = none), budget (triangles in total), instCost (squared deviation each brick's visible surface
  * may spend), maxDist (an instance further than this from every colour group of the mesh is not part of the game's model) }.
  * Returns { groups: [{ kind: 'g' | 'keep', index, pos, nrm, idx (u16 range, relative), assigned, tris, gkind }], report }.
  */
 export function buildMeshGroups(om, prepared, fit, msh, opts = {}) {
-  const pruned = opts.pruned;
+  let pruned = opts.pruned;
+  if (opts.wheels) { const w = refitWheels(pruned, prepared, opts.wheels.parts, opts.wheels.pairs); pruned = w.pruned; opts.wheelsMoved = w.moved; }
   const groups = gameGroups(msh);
-  const asg = assignInstances(pruned.map((p, i) => ({ tris: p.tris.length ? p.tris : prepared[i] && new Float32Array(0) })), groups, { maxDist: opts.maxDist ?? 0.35 });
+  const geoms = pruned.map((p, i) => ({ tris: p.tris.length ? p.tris : prepared[i] && new Float32Array(0) }));
+  // translucent LDraw parts (trans-clear windscreens, lamp lenses) go to the game's translucent groups (flags & 2: the pane / lens groups), opaque parts never to those: a windscreen that fell into the red body
+  // group was drawn as an opaque red slab over the driver, an opaque lamp housing in the glass group was drawn see-through. A translucent part with no translucent group in reach (2.5x the distance) takes the nearest group as before.
+  const transG = new Set(groups.filter((g) => g.kind === 'colour' && (g.flags & 2)).map((g) => g.index));
+  const transI = prepared.map((q) => (ldColors().get(q.inst.col)?.alpha ?? 255) < 255);
+  let asg = transG.size ? assignInstances(geoms, groups, { maxDist: opts.maxDist ?? 0.35, accept: (ii, g) => (transI[ii] ? transG.has(g.index) : !transG.has(g.index)) }) : assignInstances(geoms, groups, { maxDist: opts.maxDist ?? 0.35 });
+  if (transG.size) {
+    const wide = assignInstances(geoms, groups, { maxDist: (opts.maxDist ?? 0.35) * 2.5, accept: (ii, g) => transI[ii] && transG.has(g.index) }), plain = assignInstances(geoms, groups, { maxDist: opts.maxDist ?? 0.35 });
+    asg = asg.map((a, i) => (!transI[i] ? (a.group >= 0 ? a : { ...plain[i], group: plain[i].group >= 0 && !transG.has(plain[i].group) ? plain[i].group : -1 }) : wide[i].group >= 0 ? wide[i] : plain[i]));
+  }
   const per = new Map();   // group index -> { insts }
   asg.forEach((a, i) => { if (a.group >= 0 && opts.keepGroups?.has(a.group)) a.group = -1; if (a.group < 0) return; if (!per.has(a.group)) per.set(a.group, { insts: [] }); per.get(a.group).insts.push(i); });
   const origTris = msh.indices.length / 3, budget = opts.budget ?? Math.round(origTris * 1.0);

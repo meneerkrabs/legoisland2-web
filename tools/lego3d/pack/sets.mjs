@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { archive, scene, memberOf, WORK } from '../lib.mjs';
 import { SETS, LOD_POLICY } from '../sets-table.mjs';
-import { loadOmr, prepareSet, gameGroups, fitSet, buildMeshGroups, pruneInstances, refineScale } from '../setlib.mjs';
+import { loadOmr, prepareSet, gameGroups, fitSet, buildMeshGroups, pruneInstances, refineScale, gameWheelPairs } from '../setlib.mjs';
 import { parseMsh } from '../../../src/formats/msh.ts';
 import { encodeMesh, hashMember } from '../../../src/mods/lego3d/meshpack.ts';
 
@@ -39,9 +39,24 @@ function parseTgaLazy(bytes) {
 export async function build(ctx) {
   const only = process.env.SETS_ONLY ? process.env.SETS_ONLY.split(',') : null;
   const { blobs, byArch, report } = await buildSpecs(ctx, SETS, { only });
-  return { blobs, byArch, report };
+  // SETS_ONLY (development, with KEEP_PART=1 in build-pack.mjs): the specs that are not rebuilt keep their table entries; the entries of the rebuilt specs' meshes are replaced
+  const tables = new Map();   // file key (lower-case archive) -> { archive, meshes }
+  const dir = path.join(ctx.dir, 'files/sets/arch');
+  if (only && fs.existsSync(dir)) for (const f of fs.readdirSync(dir).filter((x) => /^[a-z0-9]+\.json$/.test(x))) { const j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); tables.set(f.slice(0, -5), { archive: j.archive, meshes: j.meshes }); }
+  for (const [zone, list] of Object.entries(byArch)) {
+    const t = tables.get(zone.toLowerCase()) ?? { archive: zone, meshes: [] };
+    t.meshes = [...t.meshes.filter((e) => !list.some((n) => n.member === e.member)), ...list];
+    tables.set(zone.toLowerCase(), t);
+  }
+  for (const [name, b] of blobs) ctx.put(name, b);
+  for (const [key, t] of tables) ctx.put(`sets/arch/${key}.json`, JSON.stringify({ v: 1, archive: t.archive, meshes: t.meshes }));
+  // blobs no table refers to any more (an incremental build replaced their meshes)
+  const refd = new Set();
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const q = path.join(d, e.name); if (e.isDirectory()) walk(q); else if (/\.json$/.test(e.name) && q.includes(`${path.sep}arch${path.sep}`)) for (const m of JSON.parse(fs.readFileSync(q, 'utf8')).meshes) refd.add(m.blob); } };
+  walk(path.join(ctx.dir, 'files/sets'));
+  for (const f of fs.readdirSync(path.join(ctx.dir, 'files/sets/b'))) if (!refd.has(`sets/b/${f}`)) fs.rmSync(path.join(ctx.dir, 'files/sets/b', f));
+  fs.writeFileSync(path.join(WORK, 'sets-report.json'), JSON.stringify(report, null, 1));
 }
-
 /** builds the given set specs (same record format as sets-table.mjs SETS): returns { blobs, byArch, report }; the caller writes the table (`sets/arch/<archive>.json`, or `.b.json` for the second table) */
 export async function buildSpecs(ctx, specs, { only = null } = {}) {
   const blobs = new Map(), byArch = {}, report = [];
@@ -52,7 +67,7 @@ export async function buildSpecs(ctx, specs, { only = null } = {}) {
     // fit once, on the LOD 0 mesh of the first archive
     const prepStd = prepareSet(om, 'std'), prepLow = prepareSet(om, 'low');
     for (const p of [...prepStd]) ctx.use(p.infos);
-    let fit = null;
+    let fit = null, wheelPairs = null;
     const prunedCache = new Map();
     for (const [zone, names] of Object.entries(spec.archives)) {
       const a = archive(zone), sc = scene(zone);
@@ -72,6 +87,8 @@ export async function buildSpecs(ctx, specs, { only = null } = {}) {
             fit.post = refineScale(all, fit, gtris, { uniform: spec.stretch === 'uniform' });
             ctx.log(`${spec.key}: stretch ${spec.stretch}: scale ${fit.post.s.map((v) => v.toFixed(3)).join(',')}, chamfer ${fit.post.before.toFixed(3)} -> ${fit.post.after.toFixed(3)}`);
           }
+          if (spec.dy) fit.shift = [fit.shift[0], fit.shift[1] + spec.dy, fit.shift[2]];   // measured lift (the tender's chassis sat 0.25 below the rail)
+          if (spec.wheelParts) { wheelPairs = gameWheelPairs(msh); ctx.log(`${spec.key}: ${wheelPairs.length} wheel pairs of the game (${spec.wheelParts.join(',')})`); }
           ctx.log(`${spec.key}: fit rot ${fit.rot.join(',')} score ${fit.score.toFixed(3)} shift ${fit.shift.map((v) => v.toFixed(2)).join(',')}`);
         }
         const sc0 = scene(zone), model0 = sc0.models.find((m) => m.parts.some((p) => p && sc0.meshPaths[p.mesh].toLowerCase().endsWith(`\\${mt.name.toLowerCase()}.msh`)));
@@ -91,7 +108,7 @@ export async function buildSpecs(ctx, specs, { only = null } = {}) {
           const pr = res === 'std' ? prepStd : prepLow;
           if (!prunedCache.has(res)) { const t0 = Date.now(); prunedCache.set(res, pruneInstances(pr, fit)); ctx.log(`${spec.key}: ${res} bricks pruned in ${((Date.now() - t0) / 1000).toFixed(1)} s`); }
           const keepGroups = spec.keepTextures ? new Set(tl0.map((t, gi) => (spec.keepTextures.includes(t) ? gi : -1)).filter((g) => g >= 0)) : null;
-          const cur = buildMeshGroups(om, pr, fit, msh, { keepGroups, pruned: prunedCache.get(res), studs: studsMax, budget: budgetTris, maxCost: ic });
+          const cur = buildMeshGroups(om, pr, fit, msh, { keepGroups, pruned: prunedCache.get(res), studs: studsMax, budget: budgetTris, maxCost: ic, ...(wheelPairs ? { wheels: { parts: spec.wheelParts, pairs: wheelPairs } } : {}) });
           cur.report.undecimated = Math.round(cur.report.bodyTotal) + cur.report.studCount * (cur.report.studSides ? cur.report.studSides * 3 - 2 : 0);
           ctx.log(`   attempt ${res} maxCost ${ic.toFixed(3)}: ${cur.report.total} triangles (undecimated ${cur.report.undecimated}, studs ${cur.report.studSides}x${cur.report.studCount})`);
           if (!r || cur.report.total < r.report.total) { r = cur; used = { res, maxCost: ic }; }
@@ -101,7 +118,7 @@ export async function buildSpecs(ctx, specs, { only = null } = {}) {
         if (!near && lodDist >= 80 && r.report.total > 5 * (msh.indices.length / 3)) {
           const target = Math.max(150, 3 * (msh.indices.length / 3));
           const t0 = Date.now();
-          const cur = buildMeshGroups(om, prepLow, fit, msh, { keepGroups: spec.keepTextures ? new Set(tl0.map((t, gi) => (spec.keepTextures.includes(t) ? gi : -1)).filter((g) => g >= 0)) : null, pruned: prunedCache.get('low'), studs: 0, budget: target, maxCost: 1, farShell: { target, maxCost: Math.max(1, (0.0088 * lodDist) ** 2) } });
+          const cur = buildMeshGroups(om, prepLow, fit, msh, { keepGroups: spec.keepTextures ? new Set(tl0.map((t, gi) => (spec.keepTextures.includes(t) ? gi : -1)).filter((g) => g >= 0)) : null, pruned: prunedCache.get('low'), ...(wheelPairs ? { wheels: { parts: spec.wheelParts, pairs: wheelPairs } } : {}), studs: 0, budget: target, maxCost: 1, farShell: { target, maxCost: Math.max(1, (0.0088 * lodDist) ** 2) } });
           cur.report.undecimated = r.report.undecimated;
           ctx.log(`   shell remesh (voxel ${cur.report.shellVoxel?.toFixed(3)}): ${cur.report.total} triangles in ${((Date.now() - t0) / 1000).toFixed(0)} s (per-brick decimation gave ${r.report.total})`);
           r = cur; used = { res: 'low', shell: true };

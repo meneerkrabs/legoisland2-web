@@ -13,22 +13,23 @@ export const SETS = [
     archives: { z02LGI: ['speedster_red_lod1', 'speedster_red_lod2'], z16PYA: ['speedster_red_lod1', 'speedster_red_lod2'] } },
   { key: 'speedboat', set: '6479', title: 'Emergency Response Centre (boat)', entry: 'boat.ldr', skip: /minifig/i,
     archives: { z02LGI: ['speedboat_group1', 'speedboat_group2', 'speedboat_group3', 'speedboat_group4'], z07CSI: ['speedboat_group1', 'speedboat_group2', 'speedboat_group3', 'speedboat_group4'] } },
+  // z38PAR: the same boat, modelled around another origin (the stern, not the middle): its own fit
+  { key: 'speedboat38', set: '6479', title: 'Emergency Response Centre (boat, parachute zone)', entry: 'boat.ldr', skip: /minifig/i,
+    archives: { z38PAR: ['group1', 'group2', 'group3', 'group4'] } },
   { key: 'heli_resq', set: '6479', title: 'Emergency Response Centre (helicopter)', entry: 'helicopter.ldr', skip: /minifig/i,
     archives: { z02LGI: ['Heli_resq_lod1', 'Heli_resq_lod2'], z13CAI: ['Heli_resq_lod1', 'Heli_resq_lod2'], z14OSD: ['Heli_resq_lod1', 'Heli_resq_lod2'] } },
   { key: 'dingy', set: '6479', title: 'Emergency Response Centre (inflatable boat)', entry: 'inflatable boat.ldr', skip: /minifig/i,
     archives: { z02LGI: ['Dingy_group1', 'Dingy_group2'], z07CSI: ['Dingy_group1', 'Dingy_group2'] } },
-  { key: 'locomotive', set: '7750', title: 'Steam Engine (locomotive)', entry: 'locomotive.ldr', skip: /minifig|hose/i,
+  // the locomotive: HYBRID since section 17 (the game's green body groups stay the player's: the set's boiler / cab are open frames with the chimney, windows and decals of the game's body missing); chassis, buffers,
+  // black parts and the wheels come from the set; the wheel assemblies (4180c01) are put onto the game's own wheel pairs (the set's wheels are bigger and sat 0.7 below the rail)
+  { key: 'locomotive', set: '7750', title: 'Steam Engine (locomotive)', entry: 'locomotive.ldr', skip: /minifig|hose/i, keepTextures: [281, 285, 286, 287, 291], wheelParts: ['4180c01'],
     archives: { z02LGI: ['locomotive_lod1', 'locomotive_lod2', 'locomotive_lod3', 'locomotive_lod4'] } },
   // the tender: the set's open trailer; the game's is closed (a lid) - the lid stays the player's own triangles (gap filling at run time)
   { key: 'tender', set: '7750', title: 'Steam Engine (tender)', entry: 'trailer.ldr', skip: /minifig|hose/i, gap: 0.2,
     // the set's wagon is an open frame, the game's tender a closed green box: the green groups (texture ids of the game's tender) stay the player's, chassis / wheels / buffers come from the set
-    keepTextures: [286, 281, 287, 291],
+    keepTextures: [286, 281, 287, 291], dy: 0.25,
     archives: { z02LGI: ['loco_tender_lod1', 'loco_tender_lod2', 'loco_tender_lod3', 'loco_tender_lod4'] } },
-  // z22BIP: the game's plane is the set scaled up (uniform 1.33: the stud pitch is 1.33x the set's, as the game's own model has it)
-  { key: 'seaplane22', set: '5935', title: 'Island Hopper (zone z22BIP, 1.33x)', entry: 'plane.ldr', skip: /minifig|jet|skie/i, stretch: 'uniform',
-    archives: { z22BIP: ['seaplane'] } },
-  { key: 'seaplane', set: '5935', title: 'Island Hopper', entry: 'plane.ldr', skip: /minifig|jet|skie/i,
-    archives: { z38PAR: ['seaplane'] } },
+  // (the z22BIP / z38PAR seaplanes are brick reconstructions since section 17: tools/lego3d/pack/bldg.mjs; the set fit left an open frame with a thin tail boom and a detached tail cap)
 ];
 // per LOD (mesh order of the model): res of the first try, stud sides at most, budget (x the game's triangles of the mesh), the ladder of collapse costs (squared deviation in game units: 0.02 = 0.14, 0.15 = 0.39)
 export const LOD_POLICY = [
