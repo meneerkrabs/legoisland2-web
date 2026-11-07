@@ -340,7 +340,7 @@ export class MenuUi {
     };
     const msg = (id: string) => c.msgs.label('!' + id);
     const pg = this.engine.page;
-    if (pg === LOAD_PAGE || pg === SAVE_PAGE || pg === ERASE_PAGE) ui.text(0, activeLanguage() === 'en' ? 'E = export, I = import (.lgo)' : 'E = exporteren, I = importeren (.lgo)', 320, 476, { colour: 9, align: 'centre', shadow: false });
+    if (pg === LOAD_PAGE || pg === SAVE_PAGE || pg === ERASE_PAGE) ui.text(0, activeLanguage() === 'en' ? 'E = export, I = import (.lgo)' : 'E = exporteren, I = importeren (.lgo)', 320, 476, { colour: 1, align: 'centre' });
     drawMenu(this.engine, {
       gfx, rows: c.rows, mask: this.mask | 0x20,
       label: (it) => menuLabel(it.label, msg),
