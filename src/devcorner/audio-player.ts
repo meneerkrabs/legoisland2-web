@@ -77,7 +77,7 @@ export class Jukebox {
     let p = this.cache.get(k);
     if (!p) {
       p = (async () => {
-        const bytes = await readTolerant(this.files, path);
+        const bytes = await readTolerant(this.files, path, true);
         if (!bytes || bytes.length < 45) throw new Error('bestand ontbreekt of is leeg');
         const tries: Uint8Array[] = speech ? [unwrapMp3Wav(bytes), bytes] : [bytes];
         let err: unknown = null;
@@ -139,7 +139,7 @@ export class Jukebox {
   }
 
   private async playMidi(tok: number, src: JbSource & { kind: 'midi' }) {
-    const [mid, dls] = await Promise.all([readTolerant(this.files, src.path), readTolerant(this.files, src.dls)]);
+    const [mid, dls] = await Promise.all([readTolerant(this.files, src.path, true), readTolerant(this.files, src.dls, true)]);
     if (!mid) throw new Error('MIDI-bestand ontbreekt');
     if (!dls) throw new Error('geen DLS-bank gevonden');
     if (tok !== this.token) return;

@@ -12,11 +12,15 @@ export function normalizePath(p: string): string {
   return p.replace(/\\/g, '/').replace(/\/{2,}/g, '/').replace(/^\.?\//, '');
 }
 
-/** Read a file trying the spellings the data needs: as given, with ".wav" appended, spaces -> underscores in folder names. */
-export async function readTolerant(files: AudioFiles, path: string): Promise<Uint8Array | null> {
+/**
+ * Read a file trying the spellings the data needs: as given, spaces -> underscores in folder names. `addExt` (the developer corner's jukebox only) also tries ".wav" for a path without an
+ * extension: the game itself reads the table's path exactly (`AIL_file_read(path)`, FUN_00874b68 / FUN_00874be4), so `CSSND_HORSE_HOOVES` (`z07CSI\cutscene hooves`, the file is `cutscene hooves.wav`)
+ * finds nothing and stays silent in the original; the optional restored content 'cues' (src/restore/features/cues.ts) gives the table entry its extension.
+ */
+export async function readTolerant(files: AudioFiles, path: string, addExt = false): Promise<Uint8Array | null> {
   const p = normalizePath(path);
   const cands = [p];
-  if (!/\.[a-z0-9]{2,4}$/i.test(p)) cands.push(p + '.wav');
+  if (addExt && !/\.[a-z0-9]{2,4}$/i.test(p)) cands.push(p + '.wav');
   const parts = p.split('/');
   if (parts.length > 2) cands.push([parts[0], ...parts.slice(1, -1).map((x) => x.replace(/ /g, '_')), parts[parts.length - 1]].join('/'));
   for (const c of cands) {

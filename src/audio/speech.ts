@@ -161,8 +161,9 @@ export class SpeechEngine {
    * one request and the block cache keeps them), then the bytes are read and the first `DECODE_AHEAD` lines are decoded so they start in the very tick that asks for them;
    * `decode: false` only reads (the first line of every cutscene at zone start). A line asked for by `say` jumps the queue (its own read).
    */
-  prefetch(indices: Iterable<number>, opts: { decode?: boolean } = {}) {
+  prefetch(indices: Iterable<number>, opts: { decode?: boolean; urgent?: boolean } = {}) {
     const decode = opts.decode !== false;
+    const fresh: string[] = [];
     for (const i of indices) {
       const id = i >= 0 ? this.table[i] : '';
       if (!id) continue;
@@ -172,15 +173,20 @@ export class SpeechEngine {
       const bi = this.bulk.findIndex(same);
       if (bi >= 0) { if (!decode) continue; this.bulk.splice(bi, 1); }       // (a read-only entry that is asked to be decoded moves up to the decoding queue)
       else if (this.buffers.get(k) || (!decode && this.raw.has(k))) continue;
-      (decode ? this.queue : this.bulk).push(id);
+      const li = this.later.findIndex(same);
+      if (li >= 0) this.later.splice(li, 1);
+      if (decode) fresh.push(id); else this.bulk.push(id);
       this.stats.prefetched++;
     }
+    // `urgent` = a script that starts now / soon (the cutscene host): its lines come before the lists of the NPCs and the like and have the decode-ahead budget to themselves. Lines other lists decoded ahead
+    // and nobody used (NPCs near Pepper: `later` / `ahead` held the whole budget for a minute, so the first lines of an island cutscene each waited for their own read + decode) stay cached but no longer count.
+    if (opts.urgent && fresh.length) { this.ahead = []; this.queue.unshift(...fresh); } else this.queue.push(...fresh);
     if (this.queue.length && !this.pumping) void this.pump();
     if (this.bulk.length && !this.pumpingBulk) void this.pumpBulk();
   }
 
   /** Same by speech id strings. */
-  prefetchIds(ids: Iterable<string>, opts: { decode?: boolean } = {}) {
+  prefetchIds(ids: Iterable<string>, opts: { decode?: boolean; urgent?: boolean } = {}) {
     const find = (s: string) => this.table.findIndex((t) => t.toLowerCase() === s.toLowerCase());
     this.prefetch([...ids].map(find), opts);
   }

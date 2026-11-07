@@ -57,8 +57,17 @@ export const MOVIES: Record<string, { file: string; size: number }> = {
   outrofmv: { file: 'outroFmv.mpg', size: 23234564 },
 };
 
-/** The intro sequence of the original game, in order. */
-export const INTRO_MOVIES = ['SdLogo', 'LegoSoftware', 'IntroFmv'];
+/**
+ * The start-up movies of the original, in order (FUN_00402990: `FUN_0048c813(path, hwnd, skippable)` for `%sLegoSoftware.mpg` with skippable 0, then `%sSDLogo.mpg` and `%sIntroFMV.mpg` with 1;
+ * checked against the EXE's bytes by tools/tests/movie-intro.mjs). The skip key of a skippable movie is any key down (WM_KEYDOWN in the movie window's hook `FUN_0048cff2`); the first movie ignores it.
+ */
+export const INTRO_SEQUENCE: readonly { name: string; skippable: boolean }[] = [
+  { name: 'LegoSoftware', skippable: false },
+  { name: 'SdLogo', skippable: true },
+  { name: 'IntroFmv', skippable: true },
+];
+/** The intro movies' names, in order. */
+export const INTRO_MOVIES = INTRO_SEQUENCE.map((m) => m.name);
 
 export function movieInfo(name: string) {
   return MOVIES[name.replace(/\.mpg$/i, '').toLowerCase()] ?? null;

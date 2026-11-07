@@ -4,6 +4,7 @@
 // preview and the zone sets (class registrations) are what the generated table says.
 import { ZONE_SOUND_SETUP, SOUND_SETS, ZONE_CLASS_SETS } from '../../src/audio/zonesounds.ts';
 import { ZONE_MUSIC } from '../../src/audio/zonemusic.ts';
+import { readTolerant } from '../../src/audio/files.ts';
 
 // AudioHost imports the engine's AudioContext singleton: a stub is enough here
 globalThis.AudioContext = class { constructor() { this.state = 'running'; this.destination = {}; this.currentTime = 0; } createGain() { return { connect() {}, gain: { value: 1 } }; } resume() { return Promise.resolve(); } };
@@ -175,6 +176,12 @@ export default {
       ok(!h.ga.calls.includes('speech.say 8'), 'the music slider does not preview speech');
       h.setVolumes(50, 80, 60);
       ok(h.ga.calls.includes('speech.say 8'), 'the speech slider previews line 8');
+    }
+    // the game reads a table path exactly (AIL_file_read): a path without an extension finds nothing (CSSND_HORSE_HOOVES: `z07CSI\\cutscene hooves`, the file is `cutscene hooves.wav`); only the developer corner's jukebox adds `.wav`
+    {
+      const files = { has: (p) => p === '_Data/sounds/z07CSI/cutscene hooves.wav', read: async () => new Uint8Array([1]) };
+      ok((await readTolerant(files, '_Data\\sounds\\z07CSI\\cutscene hooves')) === null, 'readTolerant: a path without an extension is read exactly (the original finds no file)');
+      ok((await readTolerant(files, '_Data\\sounds\\z07CSI\\cutscene hooves', true)) !== null, 'readTolerant: the developer corner may add .wav');
     }
     return { checked, failures };
   },

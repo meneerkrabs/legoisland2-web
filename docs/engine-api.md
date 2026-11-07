@@ -13,7 +13,7 @@ InstallShield cabinet (own ISO, CD folder, dev copy, or archive.org).
 | `src/engine/rangesource.ts` | `HttpRangeSource` (HTTP Range via the CORS proxy), `CachedSource` (256 KB block cache in Cache Storage) |
 | `src/engine/vfs.ts` | `IsoVfs`: read-only ISO9660 (Joliet preferred) over a `Blob`, lazy slices |
 | `src/engine/mpeg.ts` | `PsDemuxer` (MPEG-1/2 program stream), `MpegPlayer` (decoders + WebGL canvas + Web Audio) |
-| `src/engine/movie.ts` | `playMovie(host, media, name)`: a movie full screen, skippable by click/key |
+| `src/engine/movie.ts` | `playMovie(host, media, name, throttle, skippable = true)`: a movie full screen, skippable by click/key (not when `skippable` is false: the first start-up movie) |
 | `src/engine/audio.ts`, `skip.ts` | Web Audio context (`audio.ctx`, `audio.master`, `audio.unlock()`), "Sla over" (`onSkip`, `skipMedia`) |
 | `src/vendor/jsmpeg/` | vendored JSMpeg decoders (MIT, with our B-frame / MP2 fixes; see the header of `jsmpeg.js`) |
 | `src/files.ts` | `GameFiles` interface, `FileSet`, movie table, helpers to find the cabinet on a CD |
@@ -46,7 +46,7 @@ interface MediaFile { size: number; stream(): ReadableStream<Uint8Array> }
 - The listing is the cabinet's `Game` group (3029 files, 659 MB): `LEGO eiland 2.exe`, `mss32.dll`, `LeesMij.txt`, `redist/win32/*.flt`, `_data/...`.
 - `read` of a compressed file decompresses on demand (about 55 MB/s in node); the biggest file is `_data/z02LGI.bob` (44 MB).
 - `movie()` streams: from the ISO/CD folder via `Blob.stream()`, from archive.org per file with `fetch` (no byte ranges there, so a movie is fetched whole, lazily on the first read).
-- `INTRO_MOVIES` (`SdLogo`, `LegoSoftware`, `IntroFmv`) is the original intro order; `MOVIES` has the exact file names and sizes.
+- `INTRO_SEQUENCE` (`LegoSoftware` not skippable, `SdLogo`, `IntroFmv`; `INTRO_MOVIES` = its names) is the original start-up order and skip flags (`FUN_00402990`, checked against the EXE bytes by `tools/tests/movie-intro.mjs`); `MOVIES` has the exact file names and sizes.
 
 ## Getting a `GameFiles` (`src/library.ts`)
 

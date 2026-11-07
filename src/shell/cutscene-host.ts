@@ -166,7 +166,7 @@ export class CutsceneHost {
     const t = this.tables.get(slot), ids = this.speechIds.get(slot);
     if (!t || !ids || !this.sh.options.speechOn) return;
     const idx = ids.map((id) => t.voice(id)).filter((v) => v >= 0);
-    if (all) this.sh.audio.prefetchSpeech(idx);
+    if (all) this.sh.audio.prefetchSpeech(idx, { urgent: true });
     else if (idx.length) this.sh.audio.prefetchSpeech(idx.slice(0, 1), { decode: false });
   }
 

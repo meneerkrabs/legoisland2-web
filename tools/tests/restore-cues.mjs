@@ -38,6 +38,7 @@ export default {
     cleanup();
     const base = readAudioTables(exe);
     ok(/silence\.wav$/i.test(base.sounds[0].path) && /silence\.wav$/i.test(base.sounds[2].path), 'original: ids 0 / 2 map to Silence.wav');
+    ok(/cutscene hooves$/i.test(base.sounds[CUE_SND.CSSND_HORSE_HOOVES].path), 'original: CSSND_HORSE_HOOVES (889) names `cutscene hooves` without an extension (the game reads the path exactly: no file, silent)');
 
     // ---- cues feature on: exactly entries 0 and 2 change
     forceRestored(true, only('cues'));
@@ -45,7 +46,8 @@ export default {
     const t = readAudioTables(exe);
     ok(/GrowBig\.wav$/i.test(t.sounds[0].path) && /GrowSmll\.wav$/i.test(t.sounds[2].path), 'cues on: ids 0 / 2 -> GrowBig / GrowSmll');
     const diff = t.sounds.filter((e, i) => JSON.stringify(e) !== JSON.stringify(base.sounds[i])).map((e) => e.id);
-    ok(diff.join() === '0,2', `cues on: only the flower entries differ (${diff})`);
+    ok(diff.join() === '0,2,889', `cues on: only the flower entries and the hooves differ (${diff})`);
+    ok(/cutscene hooves\.wav$/i.test(t.sounds[CUE_SND.CSSND_HORSE_HOOVES].path), 'cues on: CSSND_HORSE_HOOVES -> cutscene hooves.wav');
     for (const n of [0, 2]) { const { path: _p, ...a } = t.sounds[n]; const { path: _q, ...b } = base.sounds[n]; ok(JSON.stringify(a) === JSON.stringify(b), `entry ${n}: volume / distances / rate kept`); }
     for (const [name, id] of Object.entries(CUE_SND)) {
       const e = t.sounds[id];

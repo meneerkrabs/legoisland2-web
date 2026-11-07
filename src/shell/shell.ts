@@ -7,7 +7,7 @@ import { Pe } from '../formats/exe.ts';
 import { Renderer } from '../render/index.ts';
 import { GameData } from '../viewer/data.ts';
 import type { GameFiles } from '../files.ts';
-import { INTRO_MOVIES } from '../files.ts';
+import { INTRO_SEQUENCE } from '../files.ts';
 import { audio } from '../engine/audio.ts';
 import { canvasBox, currentDisplayMode, storeDisplayMode } from '../display.ts';
 import type { DisplayMode } from '../display.ts';
@@ -429,16 +429,16 @@ export class Shell {
 
   // ---------------------------------------------------------------------------------------------------------------------- movies
 
-  async runMovie(name: string): Promise<void> {
+  async runMovie(name: string, skippable = true): Promise<void> {
     const media = await this.files.movie(name);
     if (!media) { console.warn(`film ${name} niet gevonden`); return; }
     this.canvas.style.visibility = 'hidden';
     this.audio.ga?.music.stopAll();
-    try { await playMovie(this.root, media, name, Number(new URLSearchParams(location.search).get('throttle') ?? 0)); }
+    try { await playMovie(this.root, media, name, Number(new URLSearchParams(location.search).get('throttle') ?? 0), skippable); }
     catch (e) { console.warn('movie', e); }
     finally { this.canvas.style.visibility = ''; }
   }
-  async runIntro() { for (const name of INTRO_MOVIES) await this.runMovie(name); }
+  async runIntro() { for (const m of INTRO_SEQUENCE) await this.runMovie(m.name, m.skippable); }
 
   // ---------------------------------------------------------------------------------------------------------------------- the zone loop
 

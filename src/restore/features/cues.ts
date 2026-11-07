@@ -22,6 +22,8 @@ export const CUE_SND = {
   PPH_SWITCHON: 642, PPH_SWITCHOFF: 643, PPH_COMPUTER: 644,
   /** z28HAT `hatesFinal` 0x2b8 "Horn2" (loaded, never played) */
   HAT_FINAL: 0x2b8,
+  /** CSSND_HORSE_HOOVES (889): path `_Data\\sounds\\z07CSI\\cutscene hooves` without the extension */
+  CSSND_HORSE_HOOVES: 889,
 } as const;
 
 /** the file names of the two flower sounds (z02LGI): ORIGINAL files, unused by the original table (it maps both ids to Silence.wav) */
@@ -67,6 +69,9 @@ export const feature: Feature = {
       const e = sounds[Number(id)];
       if (e && /silence\.wav$/i.test(e.path)) e.path = file;
     }
+    // the castle's cutscene hooves (CSSND_HORSE_HOOVES, set by SWITCH_GME_CSM_SFX* in csi02 / csi05 / csi09): the table's path lacks `.wav`, so the original finds no file and the hooves stay silent
+    const h = sounds[CUE_SND.CSSND_HORSE_HOOVES];
+    if (h && /cutscene hooves$/i.test(h.path)) h.path += '.wav';
   },
   cue(name, ctx) { HANDLERS[name]?.((ctx ?? {}) as CueCtx); },
 };

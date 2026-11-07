@@ -234,7 +234,7 @@ export class AudioHost implements SfxSink {
    * Port only (the original reads a speech file from disk inside the request, instantly): read speech lines into memory in the background before they are needed, in the order
    * they will be said (speech table indices; `decode: false` = only read the file). Never blocks; silent without audio. See `SpeechEngine.prefetch`.
    */
-  prefetchSpeech(indices: Iterable<number>, opts: { decode?: boolean } = {}) { try { this.ga?.speech.prefetch(indices, opts); } catch { /* silent */ } }
+  prefetchSpeech(indices: Iterable<number>, opts: { decode?: boolean; urgent?: boolean } = {}) { try { this.ga?.speech.prefetch(indices, opts); } catch { /* silent */ } }
   /** Port only: the speech line that starts next has no audio data yet, so the talk animation / subtitle / speech timing wait with it (`SpeechEngine.waiting`) */
   get speechWaiting(): boolean { return this.ga?.speech.waiting ?? false; }
 
