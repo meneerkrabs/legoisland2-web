@@ -137,8 +137,10 @@ export class InputMapper {
   private onDown = (e: Event) => {
     const k = e as KeyboardEvent;
     this.down.add(k.code); this.latched.add(k.code);
-    if (this.isGameKey(k.code)) k.preventDefault();
-    this.tryLock();
+    // a game key with Cmd / Win held is the browser's shortcut (Cmd+D, Cmd+S ...): not ours to swallow
+    if (!k.metaKey && this.isGameKey(k.code)) k.preventDefault();
+    // Esc pauses: asking for the pointer on that very press could grant it after the pause menu gave it back
+    if (k.code !== 'Escape') this.tryLock();
   };
   private onUp = (e: Event) => {
     const k = e as KeyboardEvent;

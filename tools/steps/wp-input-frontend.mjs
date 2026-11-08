@@ -6,6 +6,7 @@ export default async ({ page, shot, wait, log }) => {
   const fail = [];
   const expect = (name, cond, extra = '') => { log(cond ? 'ok  ' : 'FAIL', name, extra); if (!cond) fail.push(name); };
   await page.waitForFunction(() => window.__shell && window.__shell.menu, null, { timeout: 180000 });
+  await page.waitForFunction(() => window.__shell.menu.engine.open, null, { timeout: 120000 }).catch(() => {});   // (the front end is still loading its stage on a busy machine: the first key would only open the menu)
   await wait(1000);
   const down = async (k, ms = 90) => { await page.keyboard.down(k); await wait(ms); await page.keyboard.up(k); await wait(160); };
   const eng = () => page.evaluate(() => { const e = __shell.menu.engine; return { page: e.page, item: e.item, cap: e.capture }; });
