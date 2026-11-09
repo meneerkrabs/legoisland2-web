@@ -79,6 +79,8 @@ const suite = {
       const step = (held = 0) => {
         const gm = d.grazeBegin();
         d.tick(held); cover.ticks++;
+        // the original's 3D sound stop (FUN_004434b0, logged 's3': the locomotive stops the loop it is not playing, every tick) is the port's ctx.stopSfx ('s2')
+        for (let k = 0; k < d.olog.length; k++) if (d.olog[k].startsWith('s3 ')) { cover.loopStops = (cover.loopStops ?? 0) + 1; d.olog[k] = `s2 ${d.olog[k].slice(3)}`; }
         if (process.env.TRAIN_TRACE && d.label === process.env.TRAIN_LABEL && d.t >= +process.env.TRAIN_TRACE - 4 && d.t <= +process.env.TRAIN_TRACE + 3) {
           const g = W.ext.get('train'), nl = pl();
           console.log(d.t, 'held', held, 'orig factor', mem.f32(0x5d586e4), 'phase', mem.r8(d.onode(L, 0x53d66c) + 0x3d), 'riding', mem.r8(d.onode(L, 0x53d66c) + 0x28), 'moving', mem.r8(d.onode(L, 0x53d66c) + 0x29), 'coast', mem.r8(d.onode(L, 0x53d66c) + 0x3c), 'sx', mem.f32(d.onode(L, 0x53d66c) + 0x2c), 'lastCode', mem.r32(d.onode(L, 0x53d66c) + 0x24) | 0,

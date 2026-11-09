@@ -244,7 +244,10 @@ export class TrainNode implements BehaviourNode {
       V.range = ctrl.distSq;
       P.anim?.start(TRAIN.CLIP_SIT, 0);
     }
-    if (loco) sfxAt(w, this.coasting ? SND_TRAIN.COAST : SND_TRAIN.RUN, [rec.x, rec.y, rec.z]);   // (each after FUN_004434b0 of the other: one plays)
+    if (loco) {   // (each after FUN_004434b0, the 3D stop, of the other one: only one of the two loops plays; the oracle logs it as 's3' every tick)
+      tryCtx(w)?.stopSfx(this.coasting ? SND_TRAIN.RUN : SND_TRAIN.COAST);
+      sfxAt(w, this.coasting ? SND_TRAIN.COAST : SND_TRAIN.RUN, [rec.x, rec.y, rec.z]);
+    }
     return NODE_STOP;
   }
 

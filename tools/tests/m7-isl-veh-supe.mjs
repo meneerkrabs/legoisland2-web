@@ -75,7 +75,10 @@ const suite = {
       // ---- the south station: lands, stands (the node returns 0 while Pepper stays), takes off when she leaves; the north station
       for (const [pz, px] of [[100, 170], [-420, 31]]) {
         at(px, 20, pz); cover.lands += until(() => n.state === 0, 3000) ? 1 : 0; run(120 * sc);
-        middle(); cover.takeoffs += until(() => n.state === 2 && n.mode === 0 && n.dest === 10, 200) ? 1 : 0; run(260 * sc);
+        // (FINDING, QA round vehicles: at dt 0.5 - every pass of the 60 Hz loop - the ORIGINAL's own code never takes off here: he stands in the landing clip 0x8c (30 frames, one-shot) and the node advances it twice a tick
+        //  (the STAND branch and the tail), 0.5 + 0.5 = 1 per tick from the half-integer phase the landing starts it in (frame 0.5 after the tick of `land`), so the STAND branch's `advance` reaches exactly 29.0 (not > 29: no wrap)
+        //  and only the tail's advance wraps (its result is ignored): `clip != 0x8c` never becomes true. dt 1 takes off. The port = the original (both lines below are compared at tolerance 0); counted in `cover.standStuck`)
+        middle(); { const ok = until(() => n.state === 2 && n.mode === 0 && n.dest === 10, 200); cover.takeoffs += ok ? 1 : 0; if (!ok) cover.standStuck = (cover.standStuck ?? 0) + 1; } run(260 * sc);
       }
       // ---- rescues: Pepper on the rail (surface 9, y 41..48) for 3 ticks; the track node, the east line, the view, the cutscene
       const surfaceFollow = () => { d.setSurface(n.state < 5 ? d.railSurface : 0); };
